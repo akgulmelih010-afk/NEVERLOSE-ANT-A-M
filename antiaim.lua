@@ -848,6 +848,11 @@ local function threat_stage()
     return brute_entry_stage(entry)
 end
 
+local NON_BULLET_DAMAGE = {
+    inferno = true, molotov = true, incgrenade = true, hegrenade = true,
+    decoy = true, flashbang = true, smokegrenade = true,
+}
+
 local HITGROUPS = {
     [0] = "generic", [1] = "head", [2] = "chest", [3] = "stomach", [4] = "left arm",
     [5] = "right arm", [6] = "left leg", [7] = "right leg", [8] = "neck", [10] = "gear",
@@ -873,8 +878,8 @@ local function process_pending_misses()
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
                 if menu.hit_log:get() then
-                    print(("[%s] iska: %s | faz %d | %s | %s | %s"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.name))
+                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s"):format(
+                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name))
                 end
             end
         end
@@ -885,7 +890,7 @@ end
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
-local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, brute = 0 }
+local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, brute = 0, weapon = nil }
 
 local function update_flip(s, exploit, choked)
     -- Bir onceki paket gonderildiyse yeni bir choke dongusu basliyor demektir.
@@ -1021,7 +1026,7 @@ local function hidden_yaw_value(s)
     return nil
 end
 
-local function apply_defensive(cmd, s, class)
+local function apply_defensive(cmd, s, class, state)
     local dt, hs = effective("doubletap"), effective("hideshots")
     local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
     -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
@@ -1029,12 +1034,16 @@ local function apply_defensive(cmd, s, class)
         defensive_off()
         return
     end
-    current.defensive = mode ~= "On peek"
+    -- Hide shots'in Neverlose'da "On Peek" secenegi yok, sadece Break LC var. Peek
+    -- durumundayken (peek assist ya da auto peek) Break LC acilir; yoksa scout'la
+    -- peek atarken hic defensive olmuyordu.
+    local hs_peek = mode == "On peek" and hs and state == "Peek"
+    current.defensive = mode ~= "On peek" or hs_peek
 
     if mode == "On peek" then
         -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
         override("lag_options", "On Peek")
-        override("hs_options", "Favor Fire Rate")
+        override("hs_options", hs_peek and "Break LC" or "Favor Fire Rate")
     elseif mode == "Always on" then
         override("lag_options", "Always On")
         override("hs_options", hs and "Break LC" or "Favor Fire Rate")
@@ -1061,7 +1070,7 @@ local function apply_defensive(cmd, s, class)
     end
 end
 
-local tickbase = { max = 0, left = 0, sent = nil, jump = false }
+local tickbase = { max = 0, left = 0, sent = nil, since_sent = 0, jump = false }
 -- Kendi son atisimiz: DT atistan sonra yeniden sarj olur; bu sure log'da ve DT
 -- istatistiginde ayrilir.
 local own = { last_shot = -1000 }
@@ -1071,11 +1080,13 @@ local DT_SHOT_GRACE = 1.0
 --  1) tickbase gordugumuz en yuksek degerin gerisine kaydirildiysa sunucu o
 --     tick'leri yeniden isliyor;
 --  2) DT doluyken arka arkaya gonderilen iki paket arasinda tickbase geri gittiyse
---     ya da 1'den fazla ileri sicradiysa (topluluk lua'larinin kullandigi yontem).
+--     ya da aradaki komut sayisindan fazla ileri sicradiysa (topluluk lua'larinin
+--     yontemi; onlar 1'den fazlasina bakiyor, ama HS'de fakelag surdugu icin paket
+--     basina birden fazla komut normal ve yanlis "defensive" gosteriyordu).
 local function update_tickbase(lp, choked)
     local tb = lp.m_nTickBase
     if type(tb) ~= "number" then
-        tickbase.left, tickbase.jump, tickbase.sent = 0, false, nil
+        tickbase.left, tickbase.jump, tickbase.sent, tickbase.since_sent = 0, false, nil, 0
         return
     end
     if abs(tb - tickbase.max) > 64 then
@@ -1090,15 +1101,17 @@ local function update_tickbase(lp, choked)
         tickbase.left = min(14, max(0, tickbase.max - tb))
     end
 
+    tickbase.since_sent = tickbase.since_sent + 1
     local charge = api.charge ~= nil and api.charge() or nil
     if type(charge) == "number" and charge < 1 then
         tickbase.jump = false
     elseif choked == 0 and tickbase.sent ~= nil then
         local diff = tb - tickbase.sent
-        tickbase.jump = diff < 0 or diff > 1
+        tickbase.jump = diff < 0 or diff > tickbase.since_sent
     end
     if choked == 0 then
         tickbase.sent = tb
+        tickbase.since_sent = 0
     end
 end
 
@@ -1155,6 +1168,7 @@ events.createmove:set(function(cmd)
     update_exposure(lp)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
+    current.weapon = class
 
     process_pending_misses()
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
@@ -1285,7 +1299,7 @@ events.createmove:set(function(cmd)
         body = body, side = side, left = left, right = right,
         avoid_overlap = s.avoid_overlap:get(), body_fs = s.body_fs:get(), freestand = freestand,
     })
-    apply_defensive(cmd, builder[state], class)
+    apply_defensive(cmd, builder[state], class, state)
     sample_exploit(state)
 end)
 
@@ -1340,6 +1354,18 @@ local function aa_status()
     return ("%s %d"):format(current.side and "sag" or "sol", current.limit)
 end
 
+-- Log icin kendi silahin: "CWeaponSSG08" -> "ssg08", "CAK47" -> "ak47".
+local function weapon_label()
+    local class = current.weapon
+    if class == nil then
+        return "sen ?"
+    end
+    if class == "Revolver" then
+        return "sen r8"
+    end
+    return "sen " .. class:gsub("^CWeapon", ""):gsub("^C", ""):lower()
+end
+
 events.bullet_impact:set(function(e)
     if not menu.enabled:get() then
         return
@@ -1379,7 +1405,7 @@ events.bullet_impact:set(function(e)
     if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
         pending_misses[#pending_misses + 1] = {
             userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
-            aa = aa_status(), exploit = exploit_status(),
+            aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(),
         }
     end
 
@@ -1405,6 +1431,11 @@ events.player_hurt:set(function(e)
     -- Dusme hasarinda saldiran yok; takim arkadasi hasari da sayilmaz.
     local attacker = entity.get(e.attacker, true)
     if attacker == nil or attacker == lp or not attacker:is_enemy() then
+        return
+    end
+    -- Yangin ve bomba hasari AA ile ilgili degil; molotofun her tick'i log'u ve
+    -- istatistikleri dolduruyordu. Bekleyen iskalari da iptal etmemeli.
+    if NON_BULLET_DAMAGE[tostring(e.weapon)] then
         return
     end
 
@@ -1437,9 +1468,9 @@ events.player_hurt:set(function(e)
         entry.head = entry.head + 1
     end
     if menu.hit_log:get() then
-        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s"):format(
+        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, tostring(e.weapon or "?"),
-            current.state, hit_stage, aa_status(), exploit_status(), player_name(attacker)))
+            current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker)))
     end
 end)
 

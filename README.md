@@ -31,7 +31,7 @@ Script her tick'te hangi durumda olduğunu bulur ve o durumun AA'sını ve explo
 | Freestanding | Freestanding kafanı bir duvarın arkasına saklayabildi | DT | On peek | — |
 | Safe head | Bıçak/zeus ile havada eğiliyorsun ya da düşmandan yüksektesin ve kafanı görebiliyor | DT | On peek | — |
 
-- **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer.
+- **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer. Hide shots'ın Neverlose'da böyle bir seçeneği yok; HS kullanırken (ör. scout'ta) Peek durumundayken "Break LC" açılır, böylece HS'de de peek anında defensive olur.
 - **Auto peek** (varsayılan açık): Script düşmanın kafana mermi geçirebilip geçiremediğini her 2 tick'te hesaplar (şimdi ve 0.2 saniye sonraki konumun için). Hareket ederken görüş alanına giriyorsan, peek assist tuşuna basmasan da Peek durumuna geçer. Görüş kesilince 8 tick daha Peek'te kalır. Durursan açı tutuyorsun demektir, normal duruma döner.
 - **Always on**: Defensive sürekli açık (Lag Options = Always On, HS'de Break LC). **Hiçbir durumda varsayılan değil:** oyun loglarında zıpladıktan, eğilip yürümeye ya da peek'e geçtikten ~0.4 sn sonra (defensive modu "Always on"a dönünce) DT %0'a düşüyor ve vurulma tam o sırada geliyordu. Varsayılanda bütün durumlar "On peek" kullandığı için durumlar arasında mod hiç değişmiyor. İstersen builder'dan bir durum için açabilirsin.
 - **Tick based**: Her N komutta bir defensive zorlanır (`force_defensive`).
@@ -92,7 +92,7 @@ Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-
 
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
-| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| isim` → bölge, hasar, silah, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`), defensive penceresi o an açık mıydı, kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn). Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. |
+| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| sen r8 \| isim` → bölge, hasar, düşmanın silahı, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`), defensive penceresi o an açık mıydı, kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn), senin o an tuttuğun silah. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. Molotof, yangın ve el bombası hasarı yazılmaz ve istatistiğe girmez. |
 | Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska / DT / DEF`. Sen ateş etmezken (atıştan sonraki 1 sn hariç): **DT** = DT'nin yüzde kaç dolu olduğu (düşükse o durumun ayarları DT'yi boşaltıyor), **DEF** = exploit hazırken defensive penceresinin yüzde kaç açık olduğu ("Always on" bir durumda düşükse defensive gerçekten çalışmıyor). Ölünce de görünür. |
 | Reset stats | — | İstatistikleri sıfırlar. |
 
