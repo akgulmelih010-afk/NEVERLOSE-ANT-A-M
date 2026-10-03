@@ -55,7 +55,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Freestanding | Kapalı | Kafayı duvar tarafına saklar. Tuşa bağla. Kafan yine de açıkta kalıyorsa (freestanding saklayamadıysa) normal jitter'a döner. Dişli simgesinden: havada kapalı (varsayılan), eğilirken / slow walk'ta / yürürken kapat seçenekleri. |
 | Static inverter | Kapalı | Body yaw `Static` olan durumlarda desync tarafını çevirir. |
 | Safe head | Açık | Bıçak/zeus ile havada eğilirken kafayı sabitler. Düşmandan 35+ birim yüksekteyken de sabitler, ama sadece düşman kafanı gerçekten görebiliyorsa (duvar arkasındaysan gerek yok). |
-| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. 2. ve 3. fazda kafa ayrıca ±10° kayar. Aynı düşmanın DT çift atışı tek atış sayılır. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
+| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. 2. ve 3. fazda kafa ayrıca ±10° kayar. Faz **her düşman için ayrı** tutulur (her resolver ayrı öğrenir) ve AA'nın baktığı düşmanınki uygulanır. Aynı düşmanın DT çift atışı tek atış sayılır. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
 | Avoid backstab | Açık | Bıçaklı düşman arkana gelince döner. |
 | Legit AA on use | Açık | E'ye basılı tutarken AA çalışmaya devam eder. Kapı açma ve silah alma bozulmaz. CT olarak bomba ya da rehine yanındaysan karışmaz. |
 | Spin when idle | Açık | Hiç canlı düşman kalmayınca spin yapar. Warmup'ta spin isteğe bağlı (varsayılan kapalı, çünkü HvH sunucularında warmup'ta da savaşılıyor). |
@@ -87,12 +87,19 @@ Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-
 
 - **DT**: beyaz = şarjlı, turuncu = şarj oluyor, soluk = kapalı.
 - **DEF**: renkli = defensive penceresi şu an gerçekten açık (tickbase'den tespit edilir), beyaz = bu durumda defensive sürekli açık, soluk = sadece peek'te.
+- **VIS**: renkli = düşman kafanı şu an görüyor, beyaz = birazdan görecek, soluk = görmüyor.
+
+| Ayar | Varsayılan | Ne işe yarar |
+|---|---|---|
+| Hit log (console) | Açık | Seni vurunca konsola yazar: bölge, hasar, o anki durum, anti-brute fazı ve düşmanın adı (ör. `vuruldun: head -40 \| Standing \| faz 1 \| isim`). Kafanın yanından geçen ıskaları da yazar. |
+| Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska` sayıları. Ölünce de görünür. |
+| Reset stats | — | İstatistikleri sıfırlar. |
 
 ## Vuruluyorsan ne yapmalı
 
 Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama şunlar çok fark eder:
 
-- Önce varsayılanlarla oyna. Hangi durumda vurulduğunu indikatördeki durum yazısından gör, sadece o durumu değiştir.
+- Önce varsayılanlarla oyna. **Stats panel**'i aç ya da konsoldaki `vuruldun:` satırlarına bak: hangi durumda kafadan vurulduğun orada yazıyor. Sadece o durumu değiştir. Paneli ya da birkaç satırı bana atarsan birlikte ayarlarız.
 - **Kafadan vuruluyorsan** o durumun yaw left/right değerlerini değiştir (ör. -23/51 yerine -35/40), `Jitter delay`'i 2-3 yap ya da biraz `Yaw randomize` ekle.
 - **Havada vuruluyorsan** Air durumunda hidden yaw'ı `Random` ya da `Sideways` dene.
 - **Duvar dibinde bekliyorsan** freestanding ya da manuel yaw kullan.
@@ -101,6 +108,6 @@ Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama
 ## Notlar
 
 - Neverlose'un **CS:GO** Lua API'sine göre yazıldı. CS2 Neverlose'un API'si farklı, orada çalışmaz.
-- Oyunda test edemedim. Neverlose API'sini taklit eden sahte bir ortamda bütün durumlar, exploit seçimleri, defensive modları, hidden açılar, görüş tespiti, auto peek, X-Way, anti-brute, legit AA, spin, merdiven, indikatör renkleri ve menü görünürlüğü test edildi. Eksik menü öğesi, eksik API (`rage`, `utils.trace_bullet`) ya da Neverlose'un kabul etmediği bir değer olduğunda da çökmediği test edildi.
+- Oyunda test edemedim. Neverlose API'sini taklit eden sahte bir ortamda bütün durumlar, exploit seçimleri, defensive modları, hidden açılar, görüş tespiti, auto peek, X-Way, düşman başına anti-brute, vuruldum/ıska kaydı, istatistik paneli, legit AA, spin, merdiven, indikatör renkleri ve menü görünürlüğü test edildi. Eksik menü öğesi, eksik API (`rage`, `utils.trace_bullet`) ya da Neverlose'un kabul etmediği bir değer olduğunda da çökmediği test edildi.
 - Script'e yeni menü öğeleri eklendikçe config'indeki bazı lua ayarları varsayılana dönebilir. Kendi değerlerini ayarladıysan güncellemeden sonra bir göz at.
 - Sadece HvH sunucularında kullan. Resmi maçlarda (MM) rage anti-aim çok kısa sürede ban yedirir.

@@ -23,7 +23,9 @@
       - Yaw / modifier / limit rastgeleligi; rastgele deger her flip'te bir kez
         secilir, boylece bir paket icinde aci sabit kalir.
       - Durum gecislerinde histerezis ve inis toleransi (titreme yok).
-      - Mermi izine gore anti-bruteforce, safe head (bicak/zeus, yuksek zemin),
+      - Vuruldum / iska kaydi (konsol) ve durum basina istatistik paneli: hangi
+        durumda vuruldugunu gorup o durumu ayarlarsin.
+      - Mermi izine gore, dusman basina anti-bruteforce, safe head (bicak/zeus, yuksek zemin),
         freestanding (hedef varsa) + devre disi kosullari, manuel yaw,
         avoid backstab, use'a basinca legit AA, warmup / dusman yokken spin.
       - Kapatinca ya da kaldirinca butun Neverlose ayarlarini geri verir.
@@ -177,6 +179,10 @@ local function default_first(items, first)
     end
     return list
 end
+
+-- Hangi durumda vuruldugunu gormek icin istatistikler. Menudeki sifirlama dugmesi
+-- de kullandigi icin menuden once tanimli.
+local stats, pending_misses = {}, {}
 
 -------------------------------------------------------------------------------
 -- Menu
@@ -344,6 +350,14 @@ menu.indicators  = g_visuals:switch("Crosshair indicators", true)
 menu.accent      = menu.indicators:color_picker(color(150, 190, 255, 255))
 menu.arrows      = g_visuals:switch("Manual arrows", true)
 menu.arrow_color = menu.arrows:color_picker(color(150, 190, 255, 255))
+menu.hit_log     = g_visuals:switch("Hit log (console)", true)
+menu.stats_panel = g_visuals:switch("Stats panel", false)
+-- Dugme API'si yoksa script'i dusurmesin; sadece sifirlama dugmesi olmaz.
+pcall(function()
+    menu.stats_reset = g_visuals:button("Reset stats", function()
+        stats, pending_misses = {}, {}
+    end, true)
+end)
 
 local function update_visibility()
     local on = menu.enabled:get()
@@ -738,14 +752,92 @@ local BRUTE_RADIUS = 40
 -- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
 -- sacmalari, wallbang) ayni atis sayilir; AA'yi o atislar arasinda degistiremeyiz.
 local BRUTE_DEBOUNCE = 0.1
+-- Kafanin yanindan gecen mermiden sonra bu kadar icinde hasar gelmezse iska sayilir.
+local MISS_WINDOW = 0.15
 
-local brute = { stage = 0, time = 0, last = {} }
+-- Her dusmanin resolver'i ayri ogrenir, o yuzden faz dusman basina tutulur ve
+-- AA'nin baktigi tehdidin fazi uygulanir. Tehdit yoksa en son ates edeninki.
+-- enemies[key] = { stage, time, last }, hurt[userid] = son hasar zamani
+local brute = { enemies = {}, recent = nil, hurt = {} }
+
+local function entity_key(ent)
+    local ok, index = pcall(ent.get_index, ent)
+    if ok and type(index) == "number" then
+        return index
+    end
+    return nil
+end
+
+local function brute_stage_for(key)
+    local entry
+    if key ~= nil then
+        entry = brute.enemies[key]
+    elseif brute.recent ~= nil then
+        entry = brute.enemies[brute.recent]
+    end
+    if entry == nil or entry.stage == 0 then
+        return 0
+    end
+    local now = globals.realtime
+    if now < entry.time or now - entry.time > menu.brute_reset:get() then
+        return 0
+    end
+    return entry.stage
+end
+
+local function threat_key()
+    local ok, threat = pcall(entity.get_threat)
+    if not ok or threat == nil then
+        return nil
+    end
+    return entity_key(threat)
+end
+
+local HITGROUPS = {
+    [0] = "generic", [1] = "head", [2] = "chest", [3] = "stomach", [4] = "left arm",
+    [5] = "right arm", [6] = "left leg", [7] = "right leg", [8] = "neck", [10] = "gear",
+}
+
+local function stat_for(state)
+    local entry = stats[state]
+    if entry == nil then
+        entry = { hits = 0, head = 0, misses = 0 }
+        stats[state] = entry
+    end
+    return entry
+end
+
+-- Suresi dolan "kafanin yanindan gecti" kayitlari hasar gelmediyse iska sayilir.
+local function process_pending_misses()
+    local now = globals.realtime
+    for i = #pending_misses, 1, -1 do
+        local miss = pending_misses[i]
+        if now < miss.time or now - miss.time > MISS_WINDOW then
+            table.remove(pending_misses, i)
+            if now >= miss.time then
+                local entry = stat_for(miss.state)
+                entry.misses = entry.misses + 1
+                if menu.hit_log:get() then
+                    print(("[%s] iska: %s | faz %d | %s"):format(SCRIPT, miss.state, miss.stage, miss.name))
+                end
+            end
+        end
+    end
+end
+
+local function player_name(ent)
+    local ok, name = pcall(ent.get_name, ent)
+    if ok and type(name) == "string" then
+        return name
+    end
+    return "?"
+end
 
 -- Rastgele degerler -1..1 (limit icin 0..1) olarak tutulur ve o anki durumun
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
-local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false }
+local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, brute = 0 }
 
 local function update_flip(s, exploit, choked)
     -- Bir onceki paket gonderildiyse yeni bir choke dongusu basliyor demektir.
@@ -944,9 +1036,9 @@ events.createmove:set(function(cmd)
     local class = weapon_class(lp)
     local choked = cmd.choked_commands or globals.choked_commands or 0
 
-    if brute.stage > 0 and globals.realtime - brute.time > menu.brute_reset:get() then
-        brute.stage = 0
-    end
+    process_pending_misses()
+    -- Anti-brute kapatilinca o anki faz da hemen birakilir.
+    current.brute = menu.anti_brute:get() and brute_stage_for(threat_key()) or 0
 
     override("aa_enabled", true)
     override("yaw", "Backward")
@@ -1026,7 +1118,7 @@ events.createmove:set(function(cmd)
     local side = yaw_side
 
     local left, right = s.left_limit:get(), s.right_limit:get()
-    local phase = BRUTE_PHASES[brute.stage]
+    local phase = BRUTE_PHASES[current.brute]
     if phase ~= nil then
         if phase.invert then
             side = not side
@@ -1093,7 +1185,7 @@ local function distance_to_segment(p, a, b)
 end
 
 events.bullet_impact:set(function(e)
-    if not menu.enabled:get() or not menu.anti_brute:get() then
+    if not menu.enabled:get() then
         return
     end
 
@@ -1107,9 +1199,14 @@ events.bullet_impact:set(function(e)
         return
     end
 
-    local last = brute.last[e.userid]
+    local key = entity_key(shooter) or ("u" .. tostring(e.userid))
+    local entry = brute.enemies[key]
+    if entry == nil then
+        entry = { stage = 0, time = 0, last = nil }
+        brute.enemies[key] = entry
+    end
     local now = globals.realtime
-    if last ~= nil and now >= last and now - last < BRUTE_DEBOUNCE then
+    if entry.last ~= nil and now >= entry.last and now - entry.last < BRUTE_DEBOUNCE then
         return
     end
 
@@ -1121,24 +1218,76 @@ events.bullet_impact:set(function(e)
     if distance_to_segment(head, eye, vector(e.x, e.y, e.z)) > BRUTE_RADIUS then
         return
     end
+    entry.last = now
 
-    brute.last[e.userid] = now
-    brute.time = now
-    brute.stage = brute.stage % #BRUTE_PHASES + 1
+    -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
+    local hurt = brute.hurt[e.userid]
+    if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
+        pending_misses[#pending_misses + 1] = {
+            userid = e.userid, time = now, state = current.state, stage = current.brute, name = player_name(shooter),
+        }
+    end
+
+    if not menu.anti_brute:get() then
+        return
+    end
+    if now < entry.time or now - entry.time > menu.brute_reset:get() then
+        entry.stage = 0
+    end
+    entry.stage = entry.stage % #BRUTE_PHASES + 1
+    entry.time = now
+    brute.recent = key
     if menu.brute_log:get() then
-        print(("[%s] anti-brute: faz %d"):format(SCRIPT, brute.stage))
+        print(("[%s] anti-brute: %s faz %d"):format(SCRIPT, player_name(shooter), entry.stage))
     end
 end)
 
+events.player_hurt:set(function(e)
+    if not menu.enabled:get() then
+        return
+    end
+    local lp = entity.get_local_player()
+    if lp == nil or entity.get(e.userid, true) ~= lp then
+        return
+    end
+    -- Dusme hasarinda saldiran yok; takim arkadasi hasari da sayilmaz.
+    local attacker = entity.get(e.attacker, true)
+    if attacker == nil or attacker == lp or not attacker:is_enemy() then
+        return
+    end
+
+    brute.hurt[e.attacker] = globals.realtime
+    for i = #pending_misses, 1, -1 do
+        if pending_misses[i].userid == e.attacker then
+            table.remove(pending_misses, i)
+        end
+    end
+
+    local entry = stat_for(current.state)
+    entry.hits = entry.hits + 1
+    if e.hitgroup == 1 then
+        entry.head = entry.head + 1
+    end
+    if menu.hit_log:get() then
+        print(("[%s] vuruldun: %s -%d | %s | faz %d | %s"):format(
+            SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, current.state, current.brute,
+            player_name(attacker)))
+    end
+end)
+
+local function reset_brute()
+    brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+end
+
 events.round_start:set(function()
-    brute.stage = 0
-    brute.last = {}
+    reset_brute()
+    pending_misses = {}
 end)
 
 events.player_death:set(function(e)
     local lp = entity.get_local_player()
     if lp ~= nil and entity.get(e.userid, true) == lp then
-        brute.stage = 0
+        reset_brute()
     end
 end)
 
@@ -1203,6 +1352,16 @@ local function draw_indicators(lp, cx, cy)
         { "FS", current.freestand and WHITE or DIM },
         { "DEF", def_color },
     }
+    -- VIS: renkli = tehdit kafani su an goruyor, beyaz = birazdan gorecek.
+    if exposure.available then
+        local vis_color = DIM
+        if exposure.now then
+            vis_color = accent
+        elseif exposure.soon then
+            vis_color = WHITE
+        end
+        items[#items + 1] = { "VIS", vis_color }
+    end
     local gap, total = 5, -5
     for _, item in ipairs(items) do
         item.w = text_width(item[1])
@@ -1214,8 +1373,30 @@ local function draw_indicators(lp, cx, cy)
         px = px + item.w + gap
     end
 
-    if brute.stage > 0 then
-        render.text(FONT, vector(x, y + 9), accent, "c", ("BRUTE %d"):format(brute.stage))
+    if current.brute > 0 then
+        render.text(FONT, vector(x, y + 9), accent, "c", ("BRUTE %d"):format(current.brute))
+    end
+end
+
+local STAT_ORDER = {}
+for _, state in ipairs(STATES) do
+    STAT_ORDER[#STAT_ORDER + 1] = state
+end
+for _, state in ipairs({ "Legit", "Spin", "Ladder" }) do
+    STAT_ORDER[#STAT_ORDER + 1] = state
+end
+
+-- Sol tarafta: her durumda kac kez vuruldun, kaci kafa, kac mermi kafanin yanindan gecti.
+local function draw_stats(screen)
+    local x, y = 12, floor(screen.y * 0.45)
+    render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA STATS   HIT / HEAD / MISS")
+    for _, state in ipairs(STAT_ORDER) do
+        local entry = stats[state]
+        if entry ~= nil then
+            y = y + 10
+            render.text(FONT, vector(x, y), WHITE, nil,
+                ("%s   %d / %d / %d"):format(state:upper(), entry.hits, entry.head, entry.misses))
+        end
     end
 end
 
@@ -1250,12 +1431,17 @@ events.render:set(function()
         return
     end
 
+    local screen = render.screen_size()
+    -- Istatistikler olunce de gorunsun; olmek tam da bakmak istedigin an.
+    if menu.stats_panel:get() then
+        safe_draw("stats", draw_stats, screen)
+    end
+
     local lp = entity.get_local_player()
     if lp == nil or not lp:is_alive() then
         return
     end
 
-    local screen = render.screen_size()
     local cx, cy = floor(screen.x / 2), floor(screen.y / 2)
     if menu.indicators:get() then
         safe_draw("indicators", draw_indicators, lp, cx, cy)
