@@ -203,12 +203,13 @@ local g_visuals   = ui.create("Visuals", "Indicators", 1)
 
 local STATES = {
     "Global", "Standing", "Moving", "Slow walk", "Crouching", "Crouch move", "Peek", "Air", "Air crouch",
-    "Manual", "Freestanding", "Safe head",
+    "Fake duck", "Manual", "Freestanding", "Safe head",
 }
-local MOVEMENT_STATES = 9
+local MOVEMENT_STATES = 10
 
 local SPECIAL_INFO = {
     ["Global"]       = "Used by states whose Override is off.",
+    ["Fake duck"]    = "Used while fake ducking. DT/HS do not work here.",
     ["Manual"]       = "Used while manual yaw is active.",
     ["Freestanding"] = "Used while freestanding hides your head.",
     ["Safe head"]    = "Used while a safe head condition matches.",
@@ -226,6 +227,10 @@ local DEFAULTS = {
     ["Peek"]         = { -20, 45, 1, 58, 58 },
     ["Air"]          = { -13, 34, 1, 58, 58 },
     ["Air crouch"]   = { -15, 44, 1, 58, 58 },
+    -- Fake duck'ta exploit calismaz ve paketler ~14 tick bogulur; jitter ~0.2 sn'de
+    -- bir donup tahmin edilebilir olur. Static + body freestanding "Peek Fake":
+    -- Neverlose sahte kafayi peek yonune, gercek kafayi siperin arkasina koyar.
+    ["Fake duck"]    = { 0, 0, 1, 58, 58 },
     ["Manual"]       = { 0, 0, 1, 60, 60 },
     ["Freestanding"] = { 0, 0, 1, 60, 60 },
     ["Safe head"]    = { 0, 0, 1, 30, 30 },
@@ -335,10 +340,12 @@ for i, state in ipairs(STATES) do
     s.mod_random    = s.modifier:create():slider("Randomize", 0, 60, 0, nil, DEG)
     s.mod_offset    = g_builder:slider("Modifier offset", -180, 180, 0, nil, DEG)
     -- Combo varsayilani ilk eleman oldugu icin ozel durumlarda Static basta.
-    s.body_yaw      = g_builder:combo("Body yaw", special and { "Static", "Jitter", "Off" } or { "Jitter", "Static", "Off" })
+    local static_default = special or state == "Fake duck"
+    s.body_yaw      = g_builder:combo("Body yaw", static_default and { "Static", "Jitter", "Off" } or { "Jitter", "Static", "Off" })
     local body_gear = s.body_yaw:create()
     s.avoid_overlap = body_gear:switch("Avoid overlap", false)
-    s.body_fs       = body_gear:combo("Freestanding", { "Off", "Peek Fake", "Peek Real" })
+    s.body_fs       = body_gear:combo("Freestanding",
+        state == "Fake duck" and { "Peek Fake", "Off", "Peek Real" } or { "Off", "Peek Fake", "Peek Real" })
     s.delay_random  = body_gear:slider("Delay randomize", 0, 5, 0, nil, "t")
     s.limit_random  = body_gear:slider("Limit randomize", 0, 30, 0, nil, DEG)
     s.delay         = g_builder:slider("Jitter delay", 1, 10, d[3], nil, "t")
@@ -533,6 +540,11 @@ local function detect_movement(lp, cmd)
     if cmd.in_jump == true or motion.ground_ticks < LANDING_TICKS then
         return crouching and "Air crouch" or "Air"
     end
+    -- Fake duck peek'ten de once gelir: exploit calismadigi icin Peek'in exploit
+    -- ayarlari burada ise yaramaz, AA tek basina korur.
+    if get("fakeduck") then
+        return "Fake duck"
+    end
     if get("peek_assist") then
         return "Peek"
     end
@@ -639,7 +651,7 @@ local function freestanding_allowed(move_state)
     if (move_state == "Air" or move_state == "Air crouch") and menu.fs_air:get() then
         return false
     end
-    if (move_state == "Crouching" or move_state == "Crouch move") and menu.fs_crouch:get() then
+    if (move_state == "Crouching" or move_state == "Crouch move" or move_state == "Fake duck") and menu.fs_crouch:get() then
         return false
     end
     if move_state == "Slow walk" and menu.fs_slow:get() then
@@ -941,7 +953,21 @@ local function apply(v)
     override("yaw_modifier", v.modifier)
     override("modifier_offset", max(-180, min(180, v.mod_offset)))
     override("body_yaw", v.body ~= "Off")
-    set_inverter(v.side)
+    -- Body freestanding acikken tarafi Neverlose secer; her tick inverter'i zorlamak
+    -- onun kararini bozar. O zaman sadece gosterge icin gercek taraf okunur.
+    local side = v.side
+    if v.body == "Static" and v.body_fs ~= "Off" then
+        if api.inverter ~= nil then
+            local actual = api.inverter()
+            if type(actual) == "boolean" then
+                side = actual
+            end
+        else
+            override("inverter", nil)
+        end
+    else
+        set_inverter(v.side)
+    end
     override("left_limit", v.left)
     override("right_limit", v.right)
     -- Neverlose'un kendi "Jitter" secenegini bilerek vermiyoruz; jitter'i lua
@@ -950,11 +976,11 @@ local function apply(v)
     override("body_fs", v.body == "Static" and v.body_fs or "Off")
     override("freestanding", v.freestand)
 
-    current.side = v.side
+    current.side = side
     current.freestand = v.freestand
     if v.body == "Off" then
         current.limit = 0
-    elseif v.side then
+    elseif side then
         current.limit = v.right
     else
         current.limit = v.left
@@ -1026,6 +1052,11 @@ local function hidden_yaw_value(s)
     return nil
 end
 
+-- HS icin "On peek" emulasyonu: Break LC acildiktan sonra bu kadar tick acik kalir,
+-- gorus her 2 tick'te degisebildigi icin acilip kapanip titremesin.
+local HS_LC_HOLD = 32
+local hs_lc = { until_tick = -1000 }
+
 local function apply_defensive(cmd, s, class, state)
     local dt, hs = effective("doubletap"), effective("hideshots")
     local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
@@ -1035,9 +1066,13 @@ local function apply_defensive(cmd, s, class, state)
         return
     end
     -- Hide shots'in Neverlose'da "On Peek" secenegi yok, sadece Break LC var. Peek
-    -- durumundayken (peek assist ya da auto peek) Break LC acilir; yoksa scout'la
-    -- peek atarken hic defensive olmuyordu.
-    local hs_peek = mode == "On peek" and hs and state == "Peek"
+    -- durumundayken ya da tehdit kafani goruyor / birazdan gorecekken (havadan peek
+    -- dahil) Break LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu.
+    local now = globals.tickcount
+    if mode == "On peek" and hs and (state == "Peek" or exposure.now or exposure.soon) then
+        hs_lc.until_tick = now + HS_LC_HOLD
+    end
+    local hs_peek = mode == "On peek" and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
     current.defensive = mode ~= "On peek" or hs_peek
 
     if mode == "On peek" then
@@ -1340,6 +1375,10 @@ local function exploit_status()
         parts[1] = "DT yok"
     end
     parts[2] = defensive_active() and "DEF acik" or "DEF yok"
+    -- Fake duck'ta DT/HS calismaz; "DT %0" gorunurse sebebi budur.
+    if get("fakeduck") then
+        table.insert(parts, 1, "FD")
+    end
     local now = globals.realtime
     local shot = now - own.last_shot
     parts[3] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"

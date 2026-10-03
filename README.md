@@ -27,11 +27,13 @@ Script her tick'te hangi durumda olduğunu bulur ve o durumun AA'sını ve explo
 | Peek | Peek Assist (quick peek) tuşu basılı ya da hareket ederken düşmanın görüş alanına giriyorsun | DT | On peek | Up / Sideways |
 | Air | Havadasın | DT | On peek | Up / Spin |
 | Air crouch | Havada eğiliyorsun | DT | On peek | Up / Random |
+| Fake duck | Fake duck tuşu basılı (peek'ten de önce gelir) | — (fake duck'ta DT/HS çalışmaz) | — | — |
 | Manual | Manuel yaw açık | DT | On peek | — |
 | Freestanding | Freestanding kafanı bir duvarın arkasına saklayabildi | DT | On peek | — |
 | Safe head | Bıçak/zeus ile havada eğiliyorsun ya da düşmandan yüksektesin ve kafanı görebiliyor | DT | On peek | — |
 
-- **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer. Hide shots'ın Neverlose'da böyle bir seçeneği yok; HS kullanırken (ör. scout'ta) Peek durumundayken "Break LC" açılır, böylece HS'de de peek anında defensive olur.
+- **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer. Hide shots'ın Neverlose'da böyle bir seçeneği yok; HS kullanırken (ör. scout'ta) Peek durumundayken ya da düşman kafanı görüyor / birazdan görecekken (havadan peek dahil) "Break LC" açılır ve yarım saniye açık kalır. Böylece HS'de de peek anında defensive olur.
+- **Fake duck**: Fake duck'ta exploit çalışmaz ve paketler ~14 tick boğulur; jitter ~0.2 sn'de bir dönüp tahmin edilebilir olur. Bu yüzden ayrı bir durum: varsayılanı static body yaw + "Peek Fake" body freestanding (sahte kafa peek yönüne, gerçek kafa siperin arkasına). Oyun loglarında fake duck peek'te, özellikle fake duck'la ateş ettikten hemen sonra kafadan vurulma görüldü; fake duck'ta Hide shots da çalışmadığı için ateş anındaki açın açıkta kalır. Log satırında `FD` yazar.
 - **Auto peek** (varsayılan açık): Script düşmanın kafana mermi geçirebilip geçiremediğini her 2 tick'te hesaplar (şimdi ve 0.2 saniye sonraki konumun için). Hareket ederken görüş alanına giriyorsan, peek assist tuşuna basmasan da Peek durumuna geçer. Görüş kesilince 8 tick daha Peek'te kalır. Durursan açı tutuyorsun demektir, normal duruma döner.
 - **Always on**: Defensive sürekli açık (Lag Options = Always On, HS'de Break LC). **Hiçbir durumda varsayılan değil:** oyun loglarında zıpladıktan, eğilip yürümeye ya da peek'e geçtikten ~0.4 sn sonra (defensive modu "Always on"a dönünce) DT %0'a düşüyor ve vurulma tam o sırada geliyordu. Varsayılanda bütün durumlar "On peek" kullandığı için durumlar arasında mod hiç değişmiyor. İstersen builder'dan bir durum için açabilirsin.
 - **Tick based**: Her N komutta bir defensive zorlanır (`force_defensive`).
