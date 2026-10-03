@@ -23,17 +23,17 @@ Script her tick'te hangi durumda olduğunu bulur ve o durumun AA'sını ve explo
 | Moving | Yürüyorsun / koşuyorsun | DT | On peek | Up / Sideways |
 | Slow walk | Slow walk tuşu basılı | DT | On peek | Up / Sideways |
 | Crouching | Eğilmiş duruyorsun | DT | On peek | Up / Sideways |
-| Crouch move | Eğilerek yürüyorsun | DT | **Always on** | Switch / Sideways |
-| Peek | Peek Assist (quick peek) tuşu basılı ya da hareket ederken düşmanın görüş alanına giriyorsun | DT | **Always on** | Up / Sideways |
-| Air | Havadasın | DT | **Always on** | Up / Spin |
-| Air crouch | Havada eğiliyorsun | DT | **Always on** | Up / Random |
+| Crouch move | Eğilerek yürüyorsun | DT | On peek | Switch / Sideways |
+| Peek | Peek Assist (quick peek) tuşu basılı ya da hareket ederken düşmanın görüş alanına giriyorsun | DT | On peek | Up / Sideways |
+| Air | Havadasın | DT | On peek | Up / Spin |
+| Air crouch | Havada eğiliyorsun | DT | On peek | Up / Random |
 | Manual | Manuel yaw açık | DT | On peek | — |
 | Freestanding | Freestanding kafanı bir duvarın arkasına saklayabildi | DT | On peek | — |
 | Safe head | Bıçak/zeus ile havada eğiliyorsun ya da düşmandan yüksektesin ve kafanı görebiliyor | DT | On peek | — |
 
 - **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer.
 - **Auto peek** (varsayılan açık): Script düşmanın kafana mermi geçirebilip geçiremediğini her 2 tick'te hesaplar (şimdi ve 0.2 saniye sonraki konumun için). Hareket ederken görüş alanına giriyorsan, peek assist tuşuna basmasan da Peek durumuna geçer. Görüş kesilince 8 tick daha Peek'te kalır. Durursan açı tutuyorsun demektir, normal duruma döner.
-- **Always on**: Defensive sürekli açık (Lag Options = Always On, HS'de Break LC). Havada ve eğilerek peek atarken vurulmamak için.
+- **Always on**: Defensive sürekli açık (Lag Options = Always On, HS'de Break LC). **Hiçbir durumda varsayılan değil:** oyun loglarında zıpladıktan, eğilip yürümeye ya da peek'e geçtikten ~0.4 sn sonra (defensive modu "Always on"a dönünce) DT %0'a düşüyor ve vurulma tam o sırada geliyordu. Varsayılanda bütün durumlar "On peek" kullandığı için durumlar arasında mod hiç değişmiyor. İstersen builder'dan bir durum için açabilirsin.
 - **Tick based**: Her N komutta bir defensive zorlanır (`force_defensive`).
 - **Off**: Defensive zorlanmaz. Kendi Neverlose ayarın "Always On" olsa bile Neverlose'un en sakin modu olan "On Peek"e çekilir.
 - **Hidden pitch / yaw**: Defensive tick'lerinde sunucuya giden sahte açılar.
@@ -65,7 +65,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 |---|---|---|
 | Auto exploit | Açık | Her durumun exploit seçimini (DT / HS / Binds) uygular. Kapatırsan DT/HS'yi kendi bind'lerin yönetir. |
 | Auto peek | Açık | Hareket ederken düşmanın görüş alanına girince Peek durumuna geçer (yukarıya bak). |
-| Snipers (SSG08/AWP) | Hide shots | Elinde scout ya da AWP varken DT yerine Hide shots kullanılır (durumun exploit'i `Binds` değilse). Bolt-action tüfek DT ile çift atış yapamaz; DT her atıştan sonra boşalıp uzun süre şarj olur ve o sırada ne defensive ne koruma vardır. Hide shots ateş ettiğin anki açını gizler, defensive "Break LC" ile devam eder. Oyun loglarında scout'la ateş ettikten 0.05-0.35 sn sonra, DT %0'dayken kafadan vurulma tekrar tekrar görüldü. `Same as state` ile kapatılır. |
+| Snipers (SSG08/AWP/R8) | Hide shots | Elinde scout, AWP ya da R8 varken DT yerine Hide shots kullanılır (durumun exploit'i `Binds` değilse). Bıçak, zeus, bomba ve C4'e geçince exploit değişmez, son tuttuğun silahınki korunur (scout → bıçak → scout geçişinde DT/HS kapanıp açılıp DT'yi boşaltmasın diye). Bolt-action tüfek ve R8 DT ile çift atış yapamaz; DT her atıştan sonra boşalıp uzun süre şarj olur ve o sırada ne defensive ne koruma vardır. Hide shots ateş ettiğin anki açını gizler, defensive "Break LC" ile devam eder. Oyun loglarında scout'la ateş ettikten 0.05-0.35 sn sonra, DT %0'dayken kafadan vurulma tekrar tekrar görüldü. `Same as state` ile kapatılır. |
 | Hidden spin speed | 10 | Hidden yaw `Spin` hızı. |
 
 ### Builder

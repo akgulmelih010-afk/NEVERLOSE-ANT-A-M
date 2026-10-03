@@ -232,15 +232,19 @@ local DEFAULTS = {
 }
 
 -- Exploit varsayilanlari: { exploit, defensive, hidden pitch, hidden yaw }
+-- Hicbir durum varsayilan olarak "Always on" kullanmaz: oyun loglarinda zipladiktan,
+-- egilip yurumeye ya da peek'e gectikten ~0.4 sn sonra (defensive modu "Always on"a
+-- donunce) DT %0'a dusuyor ve vurulma tam o sirada geliyordu. "On peek"te durumlar
+-- arasinda mod degismez; Neverlose defensive'i peek aninda kendisi acar.
 local EXPLOIT_DEFAULTS = {
     ["Standing"]     = { "Double tap", "On peek",   "Up",     "Sideways" },
     ["Moving"]       = { "Double tap", "On peek",   "Up",     "Sideways" },
     ["Slow walk"]    = { "Double tap", "On peek",   "Up",     "Sideways" },
     ["Crouching"]    = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Crouch move"]  = { "Double tap", "Always on", "Switch", "Sideways" },
-    ["Peek"]         = { "Double tap", "Always on", "Up",     "Sideways" },
-    ["Air"]          = { "Double tap", "Always on", "Up",     "Spin" },
-    ["Air crouch"]   = { "Double tap", "Always on", "Up",     "Random" },
+    ["Crouch move"]  = { "Double tap", "On peek",   "Switch", "Sideways" },
+    ["Peek"]         = { "Double tap", "On peek",   "Up",     "Sideways" },
+    ["Air"]          = { "Double tap", "On peek",   "Up",     "Spin" },
+    ["Air crouch"]   = { "Double tap", "On peek",   "Up",     "Random" },
     ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
     ["Freestanding"] = { "Double tap", "On peek",   "Off",    "Off" },
     ["Safe head"]    = { "Double tap", "On peek",   "Off",    "Off" },
@@ -290,9 +294,9 @@ menu.auto_exploit = g_defensive:switch("Auto exploit", true)
 -- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
 -- peek assist tusu olmadan da Peek durumuna gecilir.
 menu.auto_peek    = g_defensive:switch("Auto peek", true)
--- Bolt-action tufekler DT ile cift atis yapamaz; DT her atistan sonra bosalir ve uzun
--- sure sarj olur. Hide shots atis anindaki acini gizler, defensive "Break LC" ile surer.
-menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP)", { "Hide shots", "Same as state" })
+-- Bolt-action tufekler ve R8 DT ile cift atis yapamaz; DT her atistan sonra bosalir ve
+-- uzun sure sarj olur. Hide shots atis anindaki acini gizler, defensive "Break LC" ile surer.
+menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots", "Same as state" })
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 
@@ -561,16 +565,26 @@ end
 
 local MELEE = { CKnife = true, CKnifeGG = true, CWeaponTaser = true }
 
+local R8_INDEX = 64
+
+-- Silahin sinif adi. R8, Desert Eagle ile ayni sinifi (CDEagle) kullandigi icin
+-- item index'ine bakilip "Revolver" olarak ayrilir.
 local function weapon_class(lp)
     local weapon = lp:get_player_weapon()
     if weapon == nil then
         return nil
     end
     local ok, class = pcall(weapon.get_classname, weapon)
-    if ok and type(class) == "string" then
-        return class
+    if not ok or type(class) ~= "string" then
+        return nil
     end
-    return nil
+    if class == "CDEagle" then
+        local ok_index, index = pcall(function() return weapon.m_iItemDefinitionIndex end)
+        if ok_index and index == R8_INDEX then
+            return "Revolver"
+        end
+    end
+    return class
 end
 
 local function is_grenade(class)
@@ -943,15 +957,28 @@ local function apply(v)
 end
 
 -- Durumun exploit secimi; fake duck ile DT/HS birlikte calismaz, o zaman karisilmaz.
-local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true }
+local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
+local NON_GUNS = { CKnife = true, CKnifeGG = true, CWeaponTaser = true, CC4 = true }
+
+-- Bicak / zeus / bomba ile exploit degismez, son silahinki korunur. Scout -> bicak ->
+-- scout gecisinde HS ile DT arasinda gidip gelmek her seferinde DT'yi bosaltir.
+local exploit_memory = { choice = nil }
 
 local function apply_exploit(s, class)
     local choice = s ~= nil and s.exploit ~= nil and s.exploit:get() or "Binds"
     if not menu.auto_exploit:get() or get("fakeduck") then
         choice = "Binds"
     end
-    if choice ~= "Binds" and SNIPERS[class] and menu.sniper_exploit:get() == "Hide shots" then
-        choice = "Hide shots"
+    if choice ~= "Binds" then
+        local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
+        if SNIPERS[class] and menu.sniper_exploit:get() == "Hide shots" then
+            choice = "Hide shots"
+        elseif not holding_gun and exploit_memory.choice ~= nil then
+            choice = exploit_memory.choice
+        end
+        if holding_gun then
+            exploit_memory.choice = choice
+        end
     end
     if choice == "Double tap" then
         override("doubletap", true)
