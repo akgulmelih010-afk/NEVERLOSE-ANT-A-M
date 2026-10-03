@@ -91,8 +91,8 @@ Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-
 
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
-| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -203 ssg08 \| Peek \| faz 0 \| sag 58 \| DT dolu, DEF yok \| isim` → bölge, hasar, silah, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / `sarj` / `yok`), defensive penceresi o an açık mıydı, düşmanın adı. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. |
-| Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska` sayıları. Ölünce de görünür. |
+| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| isim` → bölge, hasar, silah, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`), defensive penceresi o an açık mıydı, kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn). Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. |
+| Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska / DT`. DT, sen ateş etmezken (atıştan sonraki 1 sn hariç) DT'nin yüzde kaç dolu olduğu. Bir durumda bu yüzde düşükse o durumun ayarları DT'yi boşaltıyor demektir. Ölünce de görünür. |
 | Reset stats | — | İstatistikleri sıfırlar. |
 
 ## Vuruluyorsan ne yapmalı

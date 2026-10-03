@@ -115,6 +115,9 @@ local refs = {
 
 -- Ezdigimiz ayarlar ve verdigimiz degerler. Kapatinca hepsini geri veririz.
 local overridden = {}
+-- Bir ayarin degerini en son ne zaman degistirdigimiz (log icin; ornegin defensive
+-- modunu degistirmek DT'yi yeniden sarj ettiriyor mu gorebilmek icin).
+local changed_at = {}
 -- Neverlose'un kabul etmedigi degerler (surume gore secenek adi farkli olabilir).
 -- Hata her tick butun AA'yi durdurmasin diye bir kez yazilir ve atlanir.
 local rejected = {}
@@ -141,6 +144,9 @@ local function override(name, value)
         rejected[key] = true
         print(("[%s] %s = %s ayarlanamadi: %s"):format(SCRIPT, name, tostring(value), tostring(err)))
         return
+    end
+    if overridden[name] ~= value then
+        changed_at[name] = globals.realtime
     end
     overridden[name] = value
 end
@@ -832,7 +838,7 @@ local HITGROUPS = {
 local function stat_for(state)
     local entry = stats[state]
     if entry == nil then
-        entry = { hits = 0, head = 0, misses = 0 }
+        entry = { hits = 0, head = 0, misses = 0, dt_ticks = 0, dt_full = 0 }
         stats[state] = entry
     end
     return entry
@@ -1020,6 +1026,31 @@ local function apply_defensive(cmd, s, class)
 end
 
 local tickbase = { max = 0, left = 0 }
+-- Kendi son atisimiz: DT atistan sonra yeniden sarj olur; bu sure log'da ve DT
+-- istatistiginde ayrilir.
+local own = { last_shot = -1000 }
+local DT_SHOT_GRACE = 1.0
+
+-- Sen ates etmezken DT dolu muydu? Durum basina tick sayilir; dusuk cikarsa o
+-- durumun ayarlari (ornegin surekli defensive) DT'yi bosaltiyor demektir.
+local function sample_dt_charge(state)
+    if not effective("doubletap") or api.charge == nil then
+        return
+    end
+    local since = globals.realtime - own.last_shot
+    if since >= 0 and since <= DT_SHOT_GRACE then
+        return
+    end
+    local charge = api.charge()
+    if type(charge) ~= "number" then
+        return
+    end
+    local entry = stat_for(state)
+    entry.dt_ticks = entry.dt_ticks + 1
+    if charge >= 1 then
+        entry.dt_full = entry.dt_full + 1
+    end
+end
 
 -- Defensive penceresi: tickbase gordugumuz en yuksek degerin gerisine kaydirildiysa
 -- sunucu o tick'leri yeniden isliyor, yani defensive su an gercekten aktif.
@@ -1078,6 +1109,7 @@ events.createmove:set(function(cmd)
         -- Merdivende hareket durumu hep "Air" cikar; yer exploit'i kullanilir.
         apply_exploit(builder["Standing"])
         defensive_off()
+        sample_dt_charge(current.state)
         return
     end
 
@@ -1087,6 +1119,7 @@ events.createmove:set(function(cmd)
         current.state = "Legit"
         apply_exploit(builder[move_state])
         defensive_off()
+        sample_dt_charge(current.state)
         apply({
             pitch = "Disabled", yaw_base = "Local View", yaw_offset = 180, modifier = "Disabled", mod_offset = 0,
             body = "Static", side = menu.inverter:get(), left = 60, right = 60,
@@ -1099,6 +1132,7 @@ events.createmove:set(function(cmd)
         current.state = "Spin"
         apply_exploit(builder[move_state])
         defensive_off()
+        sample_dt_charge(current.state)
         apply({
             pitch = menu.spin_pitch:get(), yaw_base = "Local View",
             yaw_offset = globals.tickcount * menu.spin_speed:get() * 3, modifier = "Disabled", mod_offset = 0,
@@ -1187,6 +1221,7 @@ events.createmove:set(function(cmd)
         avoid_overlap = s.avoid_overlap:get(), body_fs = s.body_fs:get(), freestand = freestand,
     })
     apply_defensive(cmd, builder[state], class)
+    sample_dt_charge(state)
 end)
 
 -------------------------------------------------------------------------------
@@ -1209,17 +1244,31 @@ local function distance_to_segment(p, a, b)
 end
 
 -- Log icin: o anki exploit durumu. DEF acik = defensive penceresi gercekten aktif.
+-- atis = kendi son atisindan bu yana; mod = defensive modunu en son degistirdigimizden
+-- bu yana (sadece yakin zamanda degistiyse yazilir).
 local function exploit_status()
-    local dt
+    local parts = {}
     if effective("doubletap") then
         local charge = api.charge ~= nil and api.charge() or nil
-        dt = (type(charge) ~= "number" or charge >= 1) and "DT dolu" or "DT sarj"
+        if type(charge) ~= "number" or charge >= 1 then
+            parts[1] = "DT dolu"
+        else
+            parts[1] = ("DT %%%d"):format(round(max(0, charge) * 100))
+        end
     elseif effective("hideshots") then
-        dt = "HS"
+        parts[1] = "HS"
     else
-        dt = "DT yok"
+        parts[1] = "DT yok"
     end
-    return dt .. ", " .. (tickbase.left > 0 and "DEF acik" or "DEF yok")
+    parts[2] = tickbase.left > 0 and "DEF acik" or "DEF yok"
+    local now = globals.realtime
+    local shot = now - own.last_shot
+    parts[3] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
+    local mode = changed_at.lag_options ~= nil and now - changed_at.lag_options or nil
+    if mode ~= nil and mode >= 0 and mode < 2 then
+        parts[4] = ("mod %.2fs"):format(mode)
+    end
+    return table.concat(parts, ", ")
 end
 
 local function aa_status()
@@ -1327,6 +1376,15 @@ events.player_hurt:set(function(e)
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, tostring(e.weapon or "?"),
             current.state, hit_stage, aa_status(), exploit_status(), player_name(attacker)))
     end
+end)
+
+pcall(function()
+    events.weapon_fire:set(function(e)
+        local lp = entity.get_local_player()
+        if lp ~= nil and entity.get(e.userid, true) == lp then
+            own.last_shot = globals.realtime
+        end
+    end)
 end)
 
 -- Round / olum sonrasi aktif fazlar biter, ogrenilen kalici fazlar kalir.
@@ -1452,16 +1510,18 @@ for _, state in ipairs({ "Legit", "Spin", "Ladder" }) do
     STAT_ORDER[#STAT_ORDER + 1] = state
 end
 
--- Sol tarafta: her durumda kac kez vuruldun, kaci kafa, kac mermi kafanin yanindan gecti.
+-- Sol tarafta: her durumda kac kez vuruldun, kaci kafa, kac mermi kafanin yanindan
+-- gecti ve sen ates etmezken DT'nin yuzde kac dolu oldugu.
 local function draw_stats(screen)
     local x, y = 12, floor(screen.y * 0.45)
-    render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA STATS   HIT / HEAD / MISS")
+    render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA STATS   HIT / HEAD / MISS / DT")
     for _, state in ipairs(STAT_ORDER) do
         local entry = stats[state]
         if entry ~= nil then
             y = y + 10
+            local dt = entry.dt_ticks > 0 and ("%d%%"):format(floor(100 * entry.dt_full / entry.dt_ticks)) or "-"
             render.text(FONT, vector(x, y), WHITE, nil,
-                ("%s   %d / %d / %d"):format(state:upper(), entry.hits, entry.head, entry.misses))
+                ("%s   %d / %d / %d / %s"):format(state:upper(), entry.hits, entry.head, entry.misses, dt))
         end
     end
 end
