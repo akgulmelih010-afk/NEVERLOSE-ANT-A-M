@@ -55,7 +55,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Freestanding | Kapalı | Kafayı duvar tarafına saklar. Tuşa bağla. Kafan yine de açıkta kalıyorsa (freestanding saklayamadıysa) normal jitter'a döner. Dişli simgesinden: havada kapalı (varsayılan), eğilirken / slow walk'ta / yürürken kapat seçenekleri. |
 | Static inverter | Kapalı | Body yaw `Static` olan durumlarda desync tarafını çevirir. |
 | Safe head | Açık | Bıçak/zeus ile havada eğilirken kafayı sabitler. Düşmandan 35+ birim yüksekteyken de sabitler, ama sadece düşman kafanı gerçekten görebiliyorsa (duvar arkasındaysan gerek yok). |
-| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. 2. ve 3. fazda kafa ayrıca ±10° kayar. Faz **her düşman için ayrı** tutulur (her resolver ayrı öğrenir) ve AA'nın baktığı düşmanınki uygulanır. Aynı düşmanın DT çift atışı tek atış sayılır. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
+| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. 2. ve 3. fazda kafa ayrıca ±15° kayar; desync hiçbir fazda düşük desync'e inmez (resolver'lar ıskadan sonra bunu dener). Faz **her düşman için ayrı** tutulur (her resolver ayrı öğrenir) ve AA'nın baktığı düşmanınki uygulanır. Aynı düşmanın DT çift atışı tek atış sayılır. Iskalarla ilerleyen faz 6 saniye sonra, round başında ya da ölünce biter. **Hafıza:** Bir düşman kafanı hangi fazda vurduysa, ona karşı bir sonraki fazdan başlanır ve bu round'lar arası kalır (Neverlose resolver'ı da oyuncuları round'lar boyunca hatırlar). Gövde/bacak isabetleri hafızayı değiştirmez. Harita değişince sıfırlanır. |
 | Avoid backstab | Açık | Bıçaklı düşman arkana gelince döner. |
 | Legit AA on use | Açık | E'ye basılı tutarken AA çalışmaya devam eder. Kapı açma ve silah alma bozulmaz. CT olarak bomba ya da rehine yanındaysan karışmaz. |
 | Spin when idle | Açık | Hiç canlı düşman kalmayınca spin yapar. Warmup'ta spin isteğe bağlı (varsayılan kapalı, çünkü HvH sunucularında warmup'ta da savaşılıyor). |
@@ -91,7 +91,7 @@ Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-
 
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
-| Hit log (console) | Açık | Seni vurunca konsola yazar: bölge, hasar, o anki durum, anti-brute fazı ve düşmanın adı (ör. `vuruldun: head -40 \| Standing \| faz 1 \| isim`). Kafanın yanından geçen ıskaları da yazar. |
+| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -203 ssg08 \| Peek \| faz 0 \| sag 58 \| DT dolu, DEF yok \| isim` → bölge, hasar, silah, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / `sarj` / `yok`), defensive penceresi o an açık mıydı, düşmanın adı. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. |
 | Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska` sayıları. Ölünce de görünür. |
 | Reset stats | — | İstatistikleri sıfırlar. |
 

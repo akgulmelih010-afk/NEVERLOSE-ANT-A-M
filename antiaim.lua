@@ -743,10 +743,13 @@ local OPTIONS_OVERLAP, OPTIONS_NONE = { "Avoid Overlap" }, {}
 
 -- Anti-brute fazlari: her isabet / yakin kacan mermide bir sonrakine gecer.
 -- shift kafayi birkac derece kaydirir; ogrenilmis aciya atilan mermi iska gecer.
+-- Desync dusurulmez: resolver'lar iskadan sonra karsi tarafi, sonra "dusuk desync"i
+-- dener. Eskiden faz 2 desync'i %60'a indiriyordu ve oyun loglarinda bu fazda
+-- kafa isabeti tekrar tekrar geldi.
 local BRUTE_PHASES = {
-    { invert = true,  scale = 1.0, shift = 0 },
-    { invert = false, scale = 0.6, shift = 10 },
-    { invert = true,  scale = 0.8, shift = -10 },
+    { invert = true,  scale = 1.0,  shift = 0 },
+    { invert = false, scale = 1.0,  shift = 15 },
+    { invert = true,  scale = 0.85, shift = -15 },
 }
 local BRUTE_RADIUS = 40
 -- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
@@ -757,7 +760,17 @@ local MISS_WINDOW = 0.15
 
 -- Her dusmanin resolver'i ayri ogrenir, o yuzden faz dusman basina tutulur ve
 -- AA'nin baktigi tehdidin fazi uygulanir. Tehdit yoksa en son ates edeninki.
--- enemies[key] = { stage, time, last }, hurt[userid] = son hasar zamani
+--
+-- enemies[key] = {
+--   stage, time  : iskalarla ilerleyen aktif faz; reset suresi dolunca biter
+--   base         : kalici faz. Dusman kafani hangi fazda vurduysa bir sonrakine
+--                  gecer ve round / olum sonrasi da kalir. Neverlose resolver'i bir
+--                  oyuncuyu round'lar boyunca hatirlar; her round ayni AA'yi
+--                  gostermek ona cozdugu aciyi yeniden vermek olur.
+--   last, shot_stage : son mermi zamani ve o mermi geldiginde uygulanan faz
+--   name         : ayni index'e baska oyuncu gelirse kayit sifirlanir
+-- }
+-- hurt[userid] = son hasar zamani
 local brute = { enemies = {}, recent = nil, hurt = {} }
 
 local function entity_key(ent)
@@ -768,29 +781,47 @@ local function entity_key(ent)
     return nil
 end
 
-local function brute_stage_for(key)
-    local entry
-    if key ~= nil then
-        entry = brute.enemies[key]
-    elseif brute.recent ~= nil then
-        entry = brute.enemies[brute.recent]
+local function player_name(ent)
+    local ok, name = pcall(ent.get_name, ent)
+    if ok and type(name) == "string" then
+        return name
     end
-    if entry == nil or entry.stage == 0 then
+    return "?"
+end
+
+local function brute_entry_stage(entry)
+    if entry == nil then
         return 0
     end
     local now = globals.realtime
-    if now < entry.time or now - entry.time > menu.brute_reset:get() then
-        return 0
+    if entry.stage > 0 and now >= entry.time and now - entry.time <= menu.brute_reset:get() then
+        return entry.stage
     end
-    return entry.stage
+    return entry.base
 end
 
-local function threat_key()
-    local ok, threat = pcall(entity.get_threat)
-    if not ok or threat == nil then
-        return nil
+local function brute_entry(ent, fallback_key)
+    local key = entity_key(ent) or fallback_key
+    local name = player_name(ent)
+    local entry = brute.enemies[key]
+    if entry == nil or entry.name ~= name then
+        entry = { stage = 0, time = 0, base = 0, last = nil, shot_stage = nil, name = name }
+        brute.enemies[key] = entry
     end
-    return entity_key(threat)
+    return key, entry
+end
+
+local function threat_stage()
+    local ok, threat = pcall(entity.get_threat)
+    local key = (ok and threat ~= nil) and entity_key(threat) or nil
+    if key == nil then
+        return brute_entry_stage(brute.recent ~= nil and brute.enemies[brute.recent] or nil)
+    end
+    local entry = brute.enemies[key]
+    if entry ~= nil and entry.name ~= player_name(threat) then
+        return 0
+    end
+    return brute_entry_stage(entry)
 end
 
 local HITGROUPS = {
@@ -818,19 +849,12 @@ local function process_pending_misses()
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
                 if menu.hit_log:get() then
-                    print(("[%s] iska: %s | faz %d | %s"):format(SCRIPT, miss.state, miss.stage, miss.name))
+                    print(("[%s] iska: %s | faz %d | %s | %s | %s"):format(
+                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.name))
                 end
             end
         end
     end
-end
-
-local function player_name(ent)
-    local ok, name = pcall(ent.get_name, ent)
-    if ok and type(name) == "string" then
-        return name
-    end
-    return "?"
 end
 
 -- Rastgele degerler -1..1 (limit icin 0..1) olarak tutulur ve o anki durumun
@@ -1038,7 +1062,7 @@ events.createmove:set(function(cmd)
 
     process_pending_misses()
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
-    current.brute = menu.anti_brute:get() and brute_stage_for(threat_key()) or 0
+    current.brute = menu.anti_brute:get() and threat_stage() or 0
 
     override("aa_enabled", true)
     override("yaw", "Backward")
@@ -1184,6 +1208,24 @@ local function distance_to_segment(p, a, b)
     return sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+-- Log icin: o anki exploit durumu. DEF acik = defensive penceresi gercekten aktif.
+local function exploit_status()
+    local dt
+    if effective("doubletap") then
+        local charge = api.charge ~= nil and api.charge() or nil
+        dt = (type(charge) ~= "number" or charge >= 1) and "DT dolu" or "DT sarj"
+    elseif effective("hideshots") then
+        dt = "HS"
+    else
+        dt = "DT yok"
+    end
+    return dt .. ", " .. (tickbase.left > 0 and "DEF acik" or "DEF yok")
+end
+
+local function aa_status()
+    return ("%s %d"):format(current.side and "sag" or "sol", current.limit)
+end
+
 events.bullet_impact:set(function(e)
     if not menu.enabled:get() then
         return
@@ -1199,12 +1241,7 @@ events.bullet_impact:set(function(e)
         return
     end
 
-    local key = entity_key(shooter) or ("u" .. tostring(e.userid))
-    local entry = brute.enemies[key]
-    if entry == nil then
-        entry = { stage = 0, time = 0, last = nil }
-        brute.enemies[key] = entry
-    end
+    local key, entry = brute_entry(shooter, "u" .. tostring(e.userid))
     local now = globals.realtime
     if entry.last ~= nil and now >= entry.last and now - entry.last < BRUTE_DEBOUNCE then
         return
@@ -1219,22 +1256,23 @@ events.bullet_impact:set(function(e)
         return
     end
     entry.last = now
+    -- Hasar olayi mermiden sonra gelirse hangi fazda vuruldugumuzu buradan biliriz.
+    local shot_stage = menu.anti_brute:get() and brute_entry_stage(entry) or 0
+    entry.shot_stage = shot_stage
 
     -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
     local hurt = brute.hurt[e.userid]
     if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
         pending_misses[#pending_misses + 1] = {
-            userid = e.userid, time = now, state = current.state, stage = current.brute, name = player_name(shooter),
+            userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
+            aa = aa_status(), exploit = exploit_status(),
         }
     end
 
     if not menu.anti_brute:get() then
         return
     end
-    if now < entry.time or now - entry.time > menu.brute_reset:get() then
-        entry.stage = 0
-    end
-    entry.stage = entry.stage % #BRUTE_PHASES + 1
+    entry.stage = shot_stage % #BRUTE_PHASES + 1
     entry.time = now
     brute.recent = key
     if menu.brute_log:get() then
@@ -1256,11 +1294,27 @@ events.player_hurt:set(function(e)
         return
     end
 
-    brute.hurt[e.attacker] = globals.realtime
+    local now = globals.realtime
+    brute.hurt[e.attacker] = now
     for i = #pending_misses, 1, -1 do
         if pending_misses[i].userid == e.attacker then
             table.remove(pending_misses, i)
         end
+    end
+
+    -- Vuruldugumuz faz: mermi olayi az once geldiyse onun kaydettigi faz (mermi
+    -- AA'yi zaten ilerletti), gelmediyse su an uygulanan faz.
+    local _, enemy = brute_entry(attacker, "u" .. tostring(e.attacker))
+    local hit_stage
+    if enemy.shot_stage ~= nil and enemy.last ~= nil and now >= enemy.last and now - enemy.last < MISS_WINDOW then
+        hit_stage = enemy.shot_stage
+    else
+        hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy) or 0
+    end
+    -- Sadece kafa isabeti resolver'in aciyi cozdugunu gosterir; govde ve bacak
+    -- isabetleri baim / safe point'tir, desync onlari saklayamaz.
+    if e.hitgroup == 1 and menu.anti_brute:get() then
+        enemy.base = (hit_stage + 1) % (#BRUTE_PHASES + 1)
     end
 
     local entry = stat_for(current.state)
@@ -1269,19 +1323,31 @@ events.player_hurt:set(function(e)
         entry.head = entry.head + 1
     end
     if menu.hit_log:get() then
-        print(("[%s] vuruldun: %s -%d | %s | faz %d | %s"):format(
-            SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, current.state, current.brute,
-            player_name(attacker)))
+        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s"):format(
+            SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, tostring(e.weapon or "?"),
+            current.state, hit_stage, aa_status(), exploit_status(), player_name(attacker)))
     end
 end)
 
+-- Round / olum sonrasi aktif fazlar biter, ogrenilen kalici fazlar kalir.
 local function reset_brute()
-    brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+    for _, entry in pairs(brute.enemies) do
+        entry.stage, entry.time, entry.last, entry.shot_stage = 0, 0, nil, nil
+    end
+    brute.recent, brute.hurt = nil, {}
 end
 
 events.round_start:set(function()
     reset_brute()
     pending_misses = {}
+end)
+
+-- Harita degisince oyuncular ve index'ler degisir; her sey sifirlanir.
+pcall(function()
+    events.level_init:set(function()
+        brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+        pending_misses = {}
+    end)
 end)
 
 events.player_death:set(function(e)
