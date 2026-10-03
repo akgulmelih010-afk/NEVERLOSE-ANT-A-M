@@ -65,6 +65,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 |---|---|---|
 | Auto exploit | Açık | Her durumun exploit seçimini (DT / HS / Binds) uygular. Kapatırsan DT/HS'yi kendi bind'lerin yönetir. |
 | Auto peek | Açık | Hareket ederken düşmanın görüş alanına girince Peek durumuna geçer (yukarıya bak). |
+| Snipers (SSG08/AWP) | Hide shots | Elinde scout ya da AWP varken DT yerine Hide shots kullanılır (durumun exploit'i `Binds` değilse). Bolt-action tüfek DT ile çift atış yapamaz; DT her atıştan sonra boşalıp uzun süre şarj olur ve o sırada ne defensive ne koruma vardır. Hide shots ateş ettiğin anki açını gizler, defensive "Break LC" ile devam eder. Oyun loglarında scout'la ateş ettikten 0.05-0.35 sn sonra, DT %0'dayken kafadan vurulma tekrar tekrar görüldü. `Same as state` ile kapatılır. |
 | Hidden spin speed | 10 | Hidden yaw `Spin` hızı. |
 
 ### Builder
@@ -86,13 +87,13 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-brute fazı. Yanlarda manuel oklar ve desync tarafı. Renkler ayarlanabilir; dürbünle bakarken indikatör kenara kayar.
 
 - **DT**: beyaz = şarjlı, turuncu = şarj oluyor, soluk = kapalı.
-- **DEF**: renkli = defensive penceresi şu an gerçekten açık (tickbase'den tespit edilir), beyaz = bu durumda defensive sürekli açık, soluk = sadece peek'te.
+- **DEF**: renkli = defensive penceresi şu an gerçekten açık, beyaz = bu durumda defensive sürekli açık, soluk = sadece peek'te. Pencere tickbase'den iki yolla tespit edilir: tickbase gördüğümüz en yüksek değerin gerisine düştüyse ya da DT doluyken iki paket arasında geri gittiyse veya 1'den fazla ileri sıçradıysa.
 - **VIS**: renkli = düşman kafanı şu an görüyor, beyaz = birazdan görecek, soluk = görmüyor.
 
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
 | Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| isim` → bölge, hasar, silah, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`), defensive penceresi o an açık mıydı, kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn). Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. |
-| Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska / DT`. DT, sen ateş etmezken (atıştan sonraki 1 sn hariç) DT'nin yüzde kaç dolu olduğu. Bir durumda bu yüzde düşükse o durumun ayarları DT'yi boşaltıyor demektir. Ölünce de görünür. |
+| Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska / DT / DEF`. Sen ateş etmezken (atıştan sonraki 1 sn hariç): **DT** = DT'nin yüzde kaç dolu olduğu (düşükse o durumun ayarları DT'yi boşaltıyor), **DEF** = exploit hazırken defensive penceresinin yüzde kaç açık olduğu ("Always on" bir durumda düşükse defensive gerçekten çalışmıyor). Ölünce de görünür. |
 | Reset stats | — | İstatistikleri sıfırlar. |
 
 ## Vuruluyorsan ne yapmalı

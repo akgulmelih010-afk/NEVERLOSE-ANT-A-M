@@ -290,6 +290,9 @@ menu.auto_exploit = g_defensive:switch("Auto exploit", true)
 -- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
 -- peek assist tusu olmadan da Peek durumuna gecilir.
 menu.auto_peek    = g_defensive:switch("Auto peek", true)
+-- Bolt-action tufekler DT ile cift atis yapamaz; DT her atistan sonra bosalir ve uzun
+-- sure sarj olur. Hide shots atis anindaki acini gizler, defensive "Break LC" ile surer.
+menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP)", { "Hide shots", "Same as state" })
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 
@@ -374,6 +377,7 @@ local function update_visibility()
     end
     menu.accent:visibility(on and menu.indicators:get())
     menu.arrow_color:visibility(on and menu.arrows:get())
+    menu.sniper_exploit:visibility(on and menu.auto_exploit:get())
 
     local selected = menu.state:get()
     for _, state in ipairs(STATES) do
@@ -838,7 +842,7 @@ local HITGROUPS = {
 local function stat_for(state)
     local entry = stats[state]
     if entry == nil then
-        entry = { hits = 0, head = 0, misses = 0, dt_ticks = 0, dt_full = 0 }
+        entry = { hits = 0, head = 0, misses = 0, dt_ticks = 0, dt_full = 0, def_ticks = 0, def_on = 0 }
         stats[state] = entry
     end
     return entry
@@ -939,10 +943,15 @@ local function apply(v)
 end
 
 -- Durumun exploit secimi; fake duck ile DT/HS birlikte calismaz, o zaman karisilmaz.
-local function apply_exploit(s)
+local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true }
+
+local function apply_exploit(s, class)
     local choice = s ~= nil and s.exploit ~= nil and s.exploit:get() or "Binds"
     if not menu.auto_exploit:get() or get("fakeduck") then
         choice = "Binds"
+    end
+    if choice ~= "Binds" and SNIPERS[class] and menu.sniper_exploit:get() == "Hide shots" then
+        choice = "Hide shots"
     end
     if choice == "Double tap" then
         override("doubletap", true)
@@ -1025,39 +1034,21 @@ local function apply_defensive(cmd, s, class)
     end
 end
 
-local tickbase = { max = 0, left = 0 }
+local tickbase = { max = 0, left = 0, sent = nil, jump = false }
 -- Kendi son atisimiz: DT atistan sonra yeniden sarj olur; bu sure log'da ve DT
 -- istatistiginde ayrilir.
 local own = { last_shot = -1000 }
 local DT_SHOT_GRACE = 1.0
 
--- Sen ates etmezken DT dolu muydu? Durum basina tick sayilir; dusuk cikarsa o
--- durumun ayarlari (ornegin surekli defensive) DT'yi bosaltiyor demektir.
-local function sample_dt_charge(state)
-    if not effective("doubletap") or api.charge == nil then
-        return
-    end
-    local since = globals.realtime - own.last_shot
-    if since >= 0 and since <= DT_SHOT_GRACE then
-        return
-    end
-    local charge = api.charge()
-    if type(charge) ~= "number" then
-        return
-    end
-    local entry = stat_for(state)
-    entry.dt_ticks = entry.dt_ticks + 1
-    if charge >= 1 then
-        entry.dt_full = entry.dt_full + 1
-    end
-end
-
--- Defensive penceresi: tickbase gordugumuz en yuksek degerin gerisine kaydirildiysa
--- sunucu o tick'leri yeniden isliyor, yani defensive su an gercekten aktif.
-local function update_tickbase(lp)
+-- Defensive penceresi iki yoldan anlasilir:
+--  1) tickbase gordugumuz en yuksek degerin gerisine kaydirildiysa sunucu o
+--     tick'leri yeniden isliyor;
+--  2) DT doluyken arka arkaya gonderilen iki paket arasinda tickbase geri gittiyse
+--     ya da 1'den fazla ileri sicradiysa (topluluk lua'larinin kullandigi yontem).
+local function update_tickbase(lp, choked)
     local tb = lp.m_nTickBase
     if type(tb) ~= "number" then
-        tickbase.left = 0
+        tickbase.left, tickbase.jump, tickbase.sent = 0, false, nil
         return
     end
     if abs(tb - tickbase.max) > 64 then
@@ -1067,7 +1058,54 @@ local function update_tickbase(lp)
         tickbase.max = tb
         tickbase.left = 0
     else
-        tickbase.left = min(14, max(0, tickbase.max - tb - 1))
+        -- tb < max: zaten simule edilmis bir tick yeniden isleniyor. (tb == max
+        -- sayilmaz; DT sarj olurken tickbase durabilir.)
+        tickbase.left = min(14, max(0, tickbase.max - tb))
+    end
+
+    local charge = api.charge ~= nil and api.charge() or nil
+    if type(charge) == "number" and charge < 1 then
+        tickbase.jump = false
+    elseif choked == 0 and tickbase.sent ~= nil then
+        local diff = tb - tickbase.sent
+        tickbase.jump = diff < 0 or diff > 1
+    end
+    if choked == 0 then
+        tickbase.sent = tb
+    end
+end
+
+local function defensive_active()
+    return tickbase.left > 0 or tickbase.jump
+end
+
+-- Sen ates etmezken (atistan sonraki 1 sn haric) durum basina:
+--  DT  = DT'nin dolu oldugu tick orani. Dusukse o durumun ayarlari DT'yi bosaltiyor.
+--  DEF = exploit hazirken defensive penceresinin acik oldugu tick orani. "Always on"
+--        bir durumda dusukse defensive gercekten calismiyor demektir.
+local function sample_exploit(state)
+    local dt, hs = effective("doubletap"), effective("hideshots")
+    if not (dt or hs) then
+        return
+    end
+    local since = globals.realtime - own.last_shot
+    if since >= 0 and since <= DT_SHOT_GRACE then
+        return
+    end
+    local entry = stat_for(state)
+    if dt and api.charge ~= nil then
+        local charge = api.charge()
+        if type(charge) == "number" then
+            entry.dt_ticks = entry.dt_ticks + 1
+            if charge < 1 then
+                return
+            end
+            entry.dt_full = entry.dt_full + 1
+        end
+    end
+    entry.def_ticks = entry.def_ticks + 1
+    if defensive_active() then
+        entry.def_on = entry.def_on + 1
     end
 end
 
@@ -1085,11 +1123,11 @@ events.createmove:set(function(cmd)
         return
     end
 
-    update_tickbase(lp)
+    local choked = cmd.choked_commands or globals.choked_commands or 0
+    update_tickbase(lp, choked)
     update_exposure(lp)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
-    local choked = cmd.choked_commands or globals.choked_commands or 0
 
     process_pending_misses()
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
@@ -1107,9 +1145,9 @@ events.createmove:set(function(cmd)
     if lp.m_MoveType == MOVETYPE_LADDER then
         current.state = "Ladder"
         -- Merdivende hareket durumu hep "Air" cikar; yer exploit'i kullanilir.
-        apply_exploit(builder["Standing"])
+        apply_exploit(builder["Standing"], class)
         defensive_off()
-        sample_dt_charge(current.state)
+        sample_exploit(current.state)
         return
     end
 
@@ -1117,9 +1155,9 @@ events.createmove:set(function(cmd)
     -- acmak her seferinde yeniden sarj demek ve o arada savunmasiz kalirsin.
     if legit_use_active(lp, cmd) then
         current.state = "Legit"
-        apply_exploit(builder[move_state])
+        apply_exploit(builder[move_state], class)
         defensive_off()
-        sample_dt_charge(current.state)
+        sample_exploit(current.state)
         apply({
             pitch = "Disabled", yaw_base = "Local View", yaw_offset = 180, modifier = "Disabled", mod_offset = 0,
             body = "Static", side = menu.inverter:get(), left = 60, right = 60,
@@ -1130,9 +1168,9 @@ events.createmove:set(function(cmd)
 
     if spin_active() then
         current.state = "Spin"
-        apply_exploit(builder[move_state])
+        apply_exploit(builder[move_state], class)
         defensive_off()
-        sample_dt_charge(current.state)
+        sample_exploit(current.state)
         apply({
             pitch = menu.spin_pitch:get(), yaw_base = "Local View",
             yaw_offset = globals.tickcount * menu.spin_speed:get() * 3, modifier = "Disabled", mod_offset = 0,
@@ -1159,7 +1197,7 @@ events.createmove:set(function(cmd)
     current.state = state
 
     -- Exploit ve defensive her zaman o anki durumun kendisinden gelir.
-    apply_exploit(builder[state])
+    apply_exploit(builder[state], class)
     local exploit = exploit_active()
 
     local s = settings_for(state)
@@ -1221,7 +1259,7 @@ events.createmove:set(function(cmd)
         avoid_overlap = s.avoid_overlap:get(), body_fs = s.body_fs:get(), freestand = freestand,
     })
     apply_defensive(cmd, builder[state], class)
-    sample_dt_charge(state)
+    sample_exploit(state)
 end)
 
 -------------------------------------------------------------------------------
@@ -1260,7 +1298,7 @@ local function exploit_status()
     else
         parts[1] = "DT yok"
     end
-    parts[2] = tickbase.left > 0 and "DEF acik" or "DEF yok"
+    parts[2] = defensive_active() and "DEF acik" or "DEF yok"
     local now = globals.realtime
     local shot = now - own.last_shot
     parts[3] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
@@ -1465,7 +1503,7 @@ local function draw_indicators(lp, cx, cy)
         dt_color = (type(charge) ~= "number" or charge >= 1) and WHITE or CHARGING
     end
     local def_color = DIM
-    if tickbase.left > 0 then
+    if defensive_active() then
         def_color = accent
     elseif current.defensive then
         def_color = WHITE
@@ -1514,14 +1552,15 @@ end
 -- gecti ve sen ates etmezken DT'nin yuzde kac dolu oldugu.
 local function draw_stats(screen)
     local x, y = 12, floor(screen.y * 0.45)
-    render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA STATS   HIT / HEAD / MISS / DT")
+    render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA STATS   HIT / HEAD / MISS / DT / DEF")
     for _, state in ipairs(STAT_ORDER) do
         local entry = stats[state]
         if entry ~= nil then
             y = y + 10
             local dt = entry.dt_ticks > 0 and ("%d%%"):format(floor(100 * entry.dt_full / entry.dt_ticks)) or "-"
+            local def = entry.def_ticks > 0 and ("%d%%"):format(floor(100 * entry.def_on / entry.def_ticks)) or "-"
             render.text(FONT, vector(x, y), WHITE, nil,
-                ("%s   %d / %d / %d / %s"):format(state:upper(), entry.hits, entry.head, entry.misses, dt))
+                ("%s   %d / %d / %d / %s / %s"):format(state:upper(), entry.hits, entry.head, entry.misses, dt, def))
         end
     end
 end
