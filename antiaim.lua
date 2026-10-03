@@ -30,7 +30,7 @@
 local SCRIPT = "ANT-A-M"
 local DEG = "\194\176"
 
-local floor, max, min, sqrt, huge, random = math.floor, math.max, math.min, math.sqrt, math.huge, math.random
+local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
 
 -------------------------------------------------------------------------------
 -- Guvenli API erisimi
@@ -108,6 +108,9 @@ local refs = {
 
 -- Ezdigimiz ayarlar ve verdigimiz degerler. Kapatinca hepsini geri veririz.
 local overridden = {}
+-- Neverlose'un kabul etmedigi degerler (surume gore secenek adi farkli olabilir).
+-- Hata her tick butun AA'yi durdurmasin diye bir kez yazilir ve atlanir.
+local rejected = {}
 
 -- value nil ise o ayar kullanicinin kendi Neverlose degerine birakilir.
 local function override(name, value)
@@ -117,25 +120,38 @@ local function override(name, value)
     end
     if value == nil then
         if overridden[name] ~= nil then
-            ref:override()
+            pcall(ref.override, ref)
             overridden[name] = nil
         end
         return
     end
-    ref:override(value)
+    local key = name .. "=" .. tostring(value)
+    if rejected[key] then
+        return
+    end
+    local ok, err = pcall(ref.override, ref, value)
+    if not ok then
+        rejected[key] = true
+        print(("[%s] %s = %s ayarlanamadi: %s"):format(SCRIPT, name, tostring(value), tostring(err)))
+        return
+    end
     overridden[name] = value
 end
 
 local function reset_overrides()
     for name in pairs(overridden) do
-        refs[name]:override()
+        pcall(refs[name].override, refs[name])
     end
     overridden = {}
 end
 
 local function get(name)
     local ref = refs[name]
-    return ref ~= nil and ref:get() or false
+    if ref == nil then
+        return false
+    end
+    local ok, value = pcall(ref.get, ref)
+    return ok and value or false
 end
 
 -- Ezdiysek bizim verdigimiz degeri, ezmediysek menudeki degeri dondurur.
@@ -175,6 +191,7 @@ local STATES = {
 local MOVEMENT_STATES = 9
 
 local SPECIAL_INFO = {
+    ["Global"]       = "Used by states whose Override is off.",
     ["Manual"]       = "Used while manual yaw is active.",
     ["Freestanding"] = "Used while freestanding has a target.",
     ["Safe head"]    = "Used while a safe head condition matches.",
@@ -243,7 +260,8 @@ menu.avoid_backstab = g_main:switch("Avoid backstab", true)
 menu.legit_use      = g_main:switch("Legit AA on use", true)
 menu.spin           = g_main:switch("Spin when idle", true)
 local spin_gear     = menu.spin:create()
-menu.spin_warmup    = spin_gear:switch("Warmup", true)
+-- HvH sunucularinda warmup'ta da savasiliyor, o yuzden varsayilan kapali.
+menu.spin_warmup    = spin_gear:switch("Warmup", false)
 menu.spin_enemies   = spin_gear:switch("No enemies alive", true)
 menu.spin_pitch     = spin_gear:combo("Pitch", { "Disabled", "Down" })
 menu.spin_speed     = spin_gear:slider("Speed", 1, 20, 6)
@@ -265,9 +283,10 @@ for i, state in ipairs(STATES) do
     local d = DEFAULTS[state]
     local special = i > MOVEMENT_STATES
     local s = {}
-    if special then
+    if SPECIAL_INFO[state] ~= nil then
         s.info = g_builder:label(SPECIAL_INFO[state])
-    elseif i > 1 then
+    end
+    if i > 1 and not special then
         s.override = g_builder:switch("Override", true)
     end
     s.yaw_left      = g_builder:slider("Yaw left", -180, 180, d[1], nil, DEG)
@@ -550,28 +569,41 @@ local function spin_active()
     return menu.spin_enemies:get() and not enemies_alive()
 end
 
-local function near_planted_bomb(lp)
+local OBJECTIVE_RANGE = 100
+
+-- CT olarak kurulu bombanin ya da bir rehinenin yanindaysak E'ye basili tutmak
+-- gercekten gerekli (defuse / rehine tasima), o zaman use'a karisilmaz.
+local function near_objective(lp)
     if lp.m_iTeamNum ~= 3 then
         return false
     end
-    local ok, list = pcall(entity.get_entities, "CPlantedC4")
-    if not ok or type(list) ~= "table" or list[1] == nil then
+    local mine = origin_of(lp)
+    if mine == nil then
         return false
     end
-    local a, b = origin_of(lp), origin_of(list[1])
-    if a == nil or b == nil then
-        return false
+    for _, class in ipairs({ "CPlantedC4", "CHostage" }) do
+        local ok, list = pcall(entity.get_entities, class)
+        if ok and type(list) == "table" then
+            for _, ent in ipairs(list) do
+                local pos = origin_of(ent)
+                if pos ~= nil then
+                    local dx, dy, dz = mine.x - pos.x, mine.y - pos.y, mine.z - pos.z
+                    if dx * dx + dy * dy + dz * dz < OBJECTIVE_RANGE * OBJECTIVE_RANGE then
+                        return true
+                    end
+                end
+            end
+        end
     end
-    local dx, dy, dz = a.x - b.x, a.y - b.y, a.z - b.z
-    return dx * dx + dy * dy + dz * dz < 75 * 75
+    return false
 end
 
 local use = { start = nil }
 
 -- E'ye basili tutarken AA calismaya devam etsin. Ilk tick'ler oyuna gecer ki
--- kapi acma / silah alma bozulmasin; CT olarak bomba basindaysan hic karisilmaz.
+-- kapi acma / silah alma bozulmasin; defuse ve rehine tasimaya hic karisilmaz.
 local function legit_use_active(lp, cmd)
-    if not menu.legit_use:get() or cmd.in_use ~= true or near_planted_bomb(lp) then
+    if not menu.legit_use:get() or cmd.in_use ~= true or near_objective(lp) then
         use.start = nil
         return false
     end
@@ -598,8 +630,11 @@ local BRUTE_PHASES = {
     { invert = true,  scale = 0.8 },
 }
 local BRUTE_RADIUS = 40
+-- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
+-- sacmalari, wallbang) ayni atis sayilir; AA'yi o atislar arasinda degistiremeyiz.
+local BRUTE_DEBOUNCE = 0.1
 
-local brute = { stage = 0, time = 0, tick = -1 }
+local brute = { stage = 0, time = 0, last = {} }
 
 -- Rastgele degerler -1..1 (limit icin 0..1) olarak tutulur ve o anki durumun
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
@@ -693,9 +728,11 @@ local function apply_exploit(s)
     end
 end
 
-local function release_defensive()
-    override("lag_options", nil)
-    override("hs_options", nil)
+-- Defensive'i zorlamayi birakir. Kullanicinin kendi ayari "Always On" olsa bile
+-- en sakin moda ceker; Neverlose'da "On Peek"ten daha kapali bir secenek yok.
+local function defensive_off()
+    override("lag_options", "On Peek")
+    override("hs_options", "Favor Fire Rate")
     override("hidden", false)
 end
 
@@ -723,8 +760,9 @@ end
 local function apply_defensive(cmd, s, class)
     local dt, hs = effective("doubletap"), effective("hideshots")
     local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
-    if not (dt or hs) or mode == "Off" or is_grenade(class) then
-        release_defensive()
+    -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
+    if not (dt or hs) or mode == "Off" or is_grenade(class) or get("fakeduck") then
+        defensive_off()
         return
     end
     current.defensive = mode ~= "On peek"
@@ -732,13 +770,13 @@ local function apply_defensive(cmd, s, class)
     if mode == "On peek" then
         -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
         override("lag_options", "On Peek")
-        override("hs_options", nil)
+        override("hs_options", "Favor Fire Rate")
     elseif mode == "Always on" then
         override("lag_options", "Always On")
-        override("hs_options", hs and "Break LC" or nil)
+        override("hs_options", hs and "Break LC" or "Favor Fire Rate")
     else
         override("lag_options", "On Peek")
-        override("hs_options", hs and "Break LC" or nil)
+        override("hs_options", hs and "Break LC" or "Favor Fire Rate")
         local ticks = s.def_ticks:get()
         local number = cmd.command_number or globals.tickcount
         pcall(function() cmd.force_defensive = number % ticks == 0 end)
@@ -759,6 +797,29 @@ local function apply_defensive(cmd, s, class)
     end
 end
 
+local tickbase = { max = 0, left = 0 }
+
+-- Defensive penceresi: tickbase gordugumuz en yuksek degerin gerisine kaydirildiysa
+-- sunucu o tick'leri yeniden isliyor, yani defensive su an gercekten aktif.
+local function update_tickbase(lp)
+    local tb = lp.m_nTickBase
+    if type(tb) ~= "number" then
+        tickbase.left = 0
+        return
+    end
+    if abs(tb - tickbase.max) > 64 then
+        tickbase.max = 0
+    end
+    if tb > tickbase.max then
+        tickbase.max = tb
+        tickbase.left = 0
+    else
+        tickbase.left = min(14, max(0, tickbase.max - tb - 1))
+    end
+end
+
+local MOVETYPE_LADDER = 9
+
 events.createmove:set(function(cmd)
     current.defensive = false
     if not menu.enabled:get() then
@@ -771,6 +832,7 @@ events.createmove:set(function(cmd)
         return
     end
 
+    update_tickbase(lp)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
     local choked = cmd.choked_commands or globals.choked_commands or 0
@@ -786,10 +848,22 @@ events.createmove:set(function(cmd)
     override("fs_modifiers", false)
     override("fs_body", false)
 
+    -- Merdivende yerde degiliz ama "havada" da sayilmamaliyiz; LC kirmak
+    -- tirmanirken isinlanma yaptirir. Acilara Neverlose kendisi karisir.
+    if lp.m_MoveType == MOVETYPE_LADDER then
+        current.state = "Ladder"
+        -- Merdivende hareket durumu hep "Air" cikar; yer exploit'i kullanilir.
+        apply_exploit(builder["Standing"])
+        defensive_off()
+        return
+    end
+
+    -- Legit AA ve spin'de de hareket durumunun exploit'i korunur; DT'yi kapatip
+    -- acmak her seferinde yeniden sarj demek ve o arada savunmasiz kalirsin.
     if legit_use_active(lp, cmd) then
         current.state = "Legit"
-        apply_exploit(nil)
-        release_defensive()
+        apply_exploit(builder[move_state])
+        defensive_off()
         apply({
             pitch = "Disabled", yaw_base = "Local View", yaw_offset = 180, modifier = "Disabled", mod_offset = 0,
             body = "Static", side = menu.inverter:get(), left = 60, right = 60,
@@ -800,8 +874,8 @@ events.createmove:set(function(cmd)
 
     if spin_active() then
         current.state = "Spin"
-        apply_exploit(nil)
-        release_defensive()
+        apply_exploit(builder[move_state])
+        defensive_off()
         apply({
             pitch = menu.spin_pitch:get(), yaw_base = "Local View",
             yaw_offset = globals.tickcount * menu.spin_speed:get() * 3, modifier = "Disabled", mod_offset = 0,
@@ -818,6 +892,8 @@ events.createmove:set(function(cmd)
         state = "Manual"
     elseif safe_head_active(lp, move_state, class) then
         state = "Safe head"
+        -- Freestanding kafayi duvara cevirir; safe head ise dusmana gore sabit tutmali.
+        freestand = false
     elseif freestand and freestanding_has_target() then
         state = "Freestanding"
     else
@@ -833,18 +909,26 @@ events.createmove:set(function(cmd)
     update_flip(s, exploit, choked)
 
     local body = s.body_yaw:get()
-    local side
+    -- yaw_side yaw left/right secimini, side desync tarafini belirler.
+    local yaw_side
     if body == "Jitter" then
-        side = flip.side
+        yaw_side = flip.side
     else
-        side = menu.inverter:get()
+        yaw_side = menu.inverter:get()
     end
+    local side = yaw_side
 
     local left, right = s.left_limit:get(), s.right_limit:get()
     local phase = BRUTE_PHASES[brute.stage]
     if phase ~= nil then
         if phase.invert then
             side = not side
+            -- Static'te kafa desync ile birlikte doner. Jitter'da taraf zaten her
+            -- pakette dondugu icin ikisini birden cevirmek hicbir sey degistirmez;
+            -- sadece desync kayar, yaw eski sirasinda kalir ve cozulen desen bozulur.
+            if body ~= "Jitter" then
+                yaw_side = side
+            end
         end
         left = round(left * phase.scale)
         right = round(right * phase.scale)
@@ -854,7 +938,7 @@ events.createmove:set(function(cmd)
     right = max(0, right - limit_cut)
 
     local yaw_offset
-    if side then
+    if yaw_side then
         yaw_offset = s.yaw_right:get()
     else
         yaw_offset = s.yaw_left:get()
@@ -911,8 +995,9 @@ events.bullet_impact:set(function(e)
         return
     end
 
-    -- Wallbang'de ayni mermi birden fazla impact uretir, tick basina bir kez say.
-    if brute.tick == globals.tickcount then
+    local last = brute.last[e.userid]
+    local now = globals.realtime
+    if last ~= nil and now >= last and now - last < BRUTE_DEBOUNCE then
         return
     end
 
@@ -925,8 +1010,8 @@ events.bullet_impact:set(function(e)
         return
     end
 
-    brute.tick = globals.tickcount
-    brute.time = globals.realtime
+    brute.last[e.userid] = now
+    brute.time = now
     brute.stage = brute.stage % #BRUTE_PHASES + 1
     if menu.brute_log:get() then
         print(("[%s] anti-brute: faz %d"):format(SCRIPT, brute.stage))
@@ -935,6 +1020,7 @@ end)
 
 events.round_start:set(function()
     brute.stage = 0
+    brute.last = {}
 end)
 
 events.player_death:set(function(e)
@@ -950,6 +1036,7 @@ end)
 
 local WHITE = color(255, 255, 255, 255)
 local DIM = color(255, 255, 255, 90)
+local CHARGING = color(255, 200, 80, 255)
 local SHADOW = color(0, 0, 0, 150)
 local FONT = 2
 
@@ -985,11 +1072,24 @@ local function draw_indicators(lp, cx, cy)
     render.text(FONT, vector(x, y), WHITE, "c", current.state:upper())
 
     y = y + 9
+    -- DT: beyaz = sarjli, turuncu = sarj oluyor. DEF: renkli = pencere su an acik,
+    -- beyaz = surekli defensive ayarli, soluk = sadece peek'te.
+    local dt_color = DIM
+    if effective("doubletap") then
+        local charge = api.charge ~= nil and api.charge() or nil
+        dt_color = (type(charge) ~= "number" or charge >= 1) and WHITE or CHARGING
+    end
+    local def_color = DIM
+    if tickbase.left > 0 then
+        def_color = accent
+    elseif current.defensive then
+        def_color = WHITE
+    end
     local items = {
-        { "DT", effective("doubletap") },
-        { "HS", effective("hideshots") },
-        { "FS", current.freestand },
-        { "DEF", current.defensive },
+        { "DT", dt_color },
+        { "HS", effective("hideshots") and WHITE or DIM },
+        { "FS", current.freestand and WHITE or DIM },
+        { "DEF", def_color },
     }
     local gap, total = 5, -5
     for _, item in ipairs(items) do
@@ -998,7 +1098,7 @@ local function draw_indicators(lp, cx, cy)
     end
     local px = x - total / 2
     for _, item in ipairs(items) do
-        render.text(FONT, vector(px + item.w / 2, y), item[2] and WHITE or DIM, "c", item[1])
+        render.text(FONT, vector(px + item.w / 2, y), item[2], "c", item[1])
         px = px + item.w + gap
     end
 

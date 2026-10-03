@@ -11,7 +11,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim ve exploit lua'sı. Sadece
 3. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
 4. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
 
-> Konsolda `[ANT-A-M] menude bulunamadi: ...` yazısı çıkarsa Neverlose sürümünde o menü öğesinin adı farklı demektir. Script çökmez, sadece o özelliği atlar. Yazıyı bana at, düzeltirim.
+> Konsolda `[ANT-A-M] menude bulunamadi: ...` ya da `[ANT-A-M] ... ayarlanamadi: ...` yazısı çıkarsa Neverlose sürümünde o menü öğesinin ya da seçeneğin adı farklı demektir. Script çökmez, sadece o ayarı atlar ve gerisi çalışmaya devam eder. Yazıyı bana at, düzeltirim.
 
 ## Duruma göre exploit (varsayılanlar)
 
@@ -34,8 +34,11 @@ Script her tick'te hangi durumda olduğunu bulur ve o durumun AA'sını ve explo
 - **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer.
 - **Always on**: Defensive sürekli açık (Lag Options = Always On, HS'de Break LC). Havada ve eğilerek peek atarken vurulmamak için.
 - **Tick based**: Her N komutta bir defensive zorlanır (`force_defensive`).
+- **Off**: Defensive zorlanmaz. Kendi Neverlose ayarın "Always On" olsa bile Neverlose'un en sakin modu olan "On Peek"e çekilir.
 - **Hidden pitch / yaw**: Defensive tick'lerinde sunucuya giden sahte açılar.
-- Elinde bomba (grenade) varken ve fake duck yaparken exploitlere karışılmaz.
+- Elinde bomba (grenade) varken, fake duck yaparken ve merdivende defensive kapanır.
+- E'ye basınca (legit AA) ve spin sırasında DT kapatılmaz; kapatıp açmak her seferinde yeniden şarj demek.
+- Durumlara farklı exploit seçersen (ör. yerde DT, havada HS) her geçişte DT yeniden şarj olur. Hepsini DT'de bırakmak en güvenlisi.
 
 Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başlığında görünür.
 
@@ -51,10 +54,10 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Freestanding | Kapalı | Kafayı duvar tarafına saklar. Tuşa bağla. Dişli simgesinden: havada kapalı (varsayılan), eğilirken / slow walk'ta / yürürken kapat seçenekleri. |
 | Static inverter | Kapalı | Body yaw `Static` olan durumlarda desync tarafını çevirir. |
 | Safe head | Açık | Bıçak/zeus ile havada eğilirken ve düşmandan 35+ birim yüksekteyken kafayı sabitler. |
-| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca tarafı ve limitleri değiştirir. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
+| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. Aynı düşmanın DT çift atışı tek atış sayılır. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
 | Avoid backstab | Açık | Bıçaklı düşman arkana gelince döner. |
-| Legit AA on use | Açık | E'ye basılı tutarken AA çalışmaya devam eder. Kapı açma ve silah alma bozulmaz. CT olarak bomba başındaysan karışmaz. |
-| Spin when idle | Açık | Warmup'ta ve hiç canlı düşman kalmayınca spin yapar. |
+| Legit AA on use | Açık | E'ye basılı tutarken AA çalışmaya devam eder. Kapı açma ve silah alma bozulmaz. CT olarak bomba ya da rehine yanındaysan karışmaz. |
+| Spin when idle | Açık | Hiç canlı düşman kalmayınca spin yapar. Warmup'ta spin isteğe bağlı (varsayılan kapalı, çünkü HvH sunucularında warmup'ta da savaşılıyor). |
 
 ### Exploits
 | Ayar | Varsayılan | Ne işe yarar |
@@ -63,7 +66,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Hidden spin speed | 10 | Hidden yaw `Spin` hızı. |
 
 ### Builder
-`State` listesinden durumu seç. Her durum kendi ayarlarıyla gelir. Hareket durumlarında `Override` kapatılırsa o durum **Global**'in AA ayarlarını kullanır (exploit ayarı yine kendisinden gelir).
+`State` listesinden durumu seç. Her durum kendi ayarlarıyla gelir. Hareket durumlarında `Override` kapatılırsa o durum **Global**'in AA ayarlarını kullanır (exploit ayarı yine kendisinden gelir). Varsayılan olarak bütün `Override`'lar açık olduğundan Global'i değiştirmek bir şey yapmaz; tek bir ayarla oynamak istersen durumların `Override`'ını kapat.
 
 | Ayar | Ne işe yarar |
 |---|---|
@@ -78,6 +81,9 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 ### Visuals
 Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-brute fazı. Yanlarda manuel oklar ve desync tarafı. Renkler ayarlanabilir; dürbünle bakarken indikatör kenara kayar.
 
+- **DT**: beyaz = şarjlı, turuncu = şarj oluyor, soluk = kapalı.
+- **DEF**: renkli = defensive penceresi şu an gerçekten açık (tickbase'den tespit edilir), beyaz = bu durumda defensive sürekli açık, soluk = sadece peek'te.
+
 ## Vuruluyorsan ne yapmalı
 
 Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama şunlar çok fark eder:
@@ -91,5 +97,5 @@ Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama
 ## Notlar
 
 - Neverlose'un **CS:GO** Lua API'sine göre yazıldı. CS2 Neverlose'un API'si farklı, orada çalışmaz.
-- Oyunda test edemedim. Neverlose API'sini taklit eden sahte bir ortamda bütün durumlar, exploit seçimleri, defensive modları, hidden açılar, anti-brute, legit AA, spin ve menü görünürlüğü test edildi. Eksik menü öğesi ya da API olduğunda da çökmediği test edildi.
+- Oyunda test edemedim. Neverlose API'sini taklit eden sahte bir ortamda bütün durumlar, exploit seçimleri, defensive modları, hidden açılar, anti-brute, legit AA, spin, merdiven, indikatör renkleri ve menü görünürlüğü test edildi. Eksik menü öğesi, eksik API ya da Neverlose'un kabul etmediği bir değer olduğunda da çökmediği test edildi.
 - Sadece HvH sunucularında kullan. Resmi maçlarda (MM) rage anti-aim çok kısa sürede ban yedirir.
