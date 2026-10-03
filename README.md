@@ -24,14 +24,15 @@ Script her tick'te hangi durumda olduğunu bulur ve o durumun AA'sını ve explo
 | Slow walk | Slow walk tuşu basılı | DT | On peek | Up / Sideways |
 | Crouching | Eğilmiş duruyorsun | DT | On peek | Up / Sideways |
 | Crouch move | Eğilerek yürüyorsun | DT | **Always on** | Switch / Sideways |
-| Peek | Peek Assist (quick peek) tuşu basılı | DT | **Always on** | Up / Sideways |
+| Peek | Peek Assist (quick peek) tuşu basılı ya da hareket ederken düşmanın görüş alanına giriyorsun | DT | **Always on** | Up / Sideways |
 | Air | Havadasın | DT | **Always on** | Up / Spin |
 | Air crouch | Havada eğiliyorsun | DT | **Always on** | Up / Random |
 | Manual | Manuel yaw açık | DT | On peek | — |
-| Freestanding | Freestanding bir duvar buldu | DT | On peek | — |
-| Safe head | Bıçak/zeus ile havada eğiliyorsun ya da düşmandan yüksektesin | DT | Kapalı | — |
+| Freestanding | Freestanding kafanı bir duvarın arkasına saklayabildi | DT | On peek | — |
+| Safe head | Bıçak/zeus ile havada eğiliyorsun ya da düşmandan yüksektesin ve kafanı görebiliyor | DT | On peek | — |
 
 - **On peek**: Neverlose peek attığını kendisi algılar ve tam o an defensive'e geçer. Yani yerde peek atınca exploit kendiliğinden devreye girer.
+- **Auto peek** (varsayılan açık): Script düşmanın kafana mermi geçirebilip geçiremediğini her 2 tick'te hesaplar (şimdi ve 0.2 saniye sonraki konumun için). Hareket ederken görüş alanına giriyorsan, peek assist tuşuna basmasan da Peek durumuna geçer. Görüş kesilince 8 tick daha Peek'te kalır. Durursan açı tutuyorsun demektir, normal duruma döner.
 - **Always on**: Defensive sürekli açık (Lag Options = Always On, HS'de Break LC). Havada ve eğilerek peek atarken vurulmamak için.
 - **Tick based**: Her N komutta bir defensive zorlanır (`force_defensive`).
 - **Off**: Defensive zorlanmaz. Kendi Neverlose ayarın "Always On" olsa bile Neverlose'un en sakin modu olan "On Peek"e çekilir.
@@ -51,10 +52,10 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Pitch | Down | `Fake Down/Up` sadece untrusted'a izin veren sunucularda. |
 | Yaw base | At Target | En yakın düşmana göre döner. |
 | Manual yaw | Off | Sol / Sağ / İleri. Tuşa bağla. |
-| Freestanding | Kapalı | Kafayı duvar tarafına saklar. Tuşa bağla. Dişli simgesinden: havada kapalı (varsayılan), eğilirken / slow walk'ta / yürürken kapat seçenekleri. |
+| Freestanding | Kapalı | Kafayı duvar tarafına saklar. Tuşa bağla. Kafan yine de açıkta kalıyorsa (freestanding saklayamadıysa) normal jitter'a döner. Dişli simgesinden: havada kapalı (varsayılan), eğilirken / slow walk'ta / yürürken kapat seçenekleri. |
 | Static inverter | Kapalı | Body yaw `Static` olan durumlarda desync tarafını çevirir. |
-| Safe head | Açık | Bıçak/zeus ile havada eğilirken ve düşmandan 35+ birim yüksekteyken kafayı sabitler. |
-| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. Aynı düşmanın DT çift atışı tek atış sayılır. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
+| Safe head | Açık | Bıçak/zeus ile havada eğilirken kafayı sabitler. Düşmandan 35+ birim yüksekteyken de sabitler, ama sadece düşman kafanı gerçekten görebiliyorsa (duvar arkasındaysan gerek yok). |
+| Anti-bruteforce | Açık | Düşman mermisi kafanın 40 birim yakınından geçince ya da vurunca 3 faz arasında döner. Static body yaw'da tarafı çevirir; jitter'da desync'i yaw sırasının tersine kaydırır, böylece resolver'ın öğrendiği desen bozulur. 2. ve 3. fazda kafa ayrıca ±10° kayar. Aynı düşmanın DT çift atışı tek atış sayılır. 6 saniye sonra, round başında ya da ölünce sıfırlanır. |
 | Avoid backstab | Açık | Bıçaklı düşman arkana gelince döner. |
 | Legit AA on use | Açık | E'ye basılı tutarken AA çalışmaya devam eder. Kapı açma ve silah alma bozulmaz. CT olarak bomba ya da rehine yanındaysan karışmaz. |
 | Spin when idle | Açık | Hiç canlı düşman kalmayınca spin yapar. Warmup'ta spin isteğe bağlı (varsayılan kapalı, çünkü HvH sunucularında warmup'ta da savaşılıyor). |
@@ -63,6 +64,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
 | Auto exploit | Açık | Her durumun exploit seçimini (DT / HS / Binds) uygular. Kapatırsan DT/HS'yi kendi bind'lerin yönetir. |
+| Auto peek | Açık | Hareket ederken düşmanın görüş alanına girince Peek durumuna geçer (yukarıya bak). |
 | Hidden spin speed | 10 | Hidden yaw `Spin` hızı. |
 
 ### Builder
@@ -70,7 +72,9 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 
 | Ayar | Ne işe yarar |
 |---|---|
-| Yaw left / right | Desync sola ve sağa bakarken eklenen yaw. İkisi farklı olunca yaw, body yaw ile **senkron** jitter yapar. |
+| Yaw mode | `L&R` (varsayılan) ya da `X-Way`. |
+| Yaw left / right | `L&R`'de desync sola ve sağa bakarken eklenen yaw. İkisi farklı olunca yaw, body yaw ile **senkron** jitter yapar. |
+| Ways / Way 1-5 | `X-Way`'de yaw her flip'te sıradaki açıya geçer (3-5 açı, varsayılan -30 / 0 / 30 / -15 / 15). Desync her flip'te taraf değiştirdiği için açı-taraf eşleşmesi sürekli kayar. |
 | Yaw randomize | Her flip'te yaw'a ± bu kadar rastgele açı ekler. |
 | Yaw modifier / offset | Neverlose'un kendi modifier'ları (Center, Offset, Random, Spin, 3-Way, 5-Way). Dişliden randomize. |
 | Body yaw | `Jitter`: taraf lua tarafından paket döngüsüne göre çevrilir. `Static`: Static inverter'a göre. `Off`: desync yok. Dişliden: Avoid overlap, body freestanding, delay ve limit randomize. |
@@ -97,5 +101,6 @@ Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama
 ## Notlar
 
 - Neverlose'un **CS:GO** Lua API'sine göre yazıldı. CS2 Neverlose'un API'si farklı, orada çalışmaz.
-- Oyunda test edemedim. Neverlose API'sini taklit eden sahte bir ortamda bütün durumlar, exploit seçimleri, defensive modları, hidden açılar, anti-brute, legit AA, spin, merdiven, indikatör renkleri ve menü görünürlüğü test edildi. Eksik menü öğesi, eksik API ya da Neverlose'un kabul etmediği bir değer olduğunda da çökmediği test edildi.
+- Oyunda test edemedim. Neverlose API'sini taklit eden sahte bir ortamda bütün durumlar, exploit seçimleri, defensive modları, hidden açılar, görüş tespiti, auto peek, X-Way, anti-brute, legit AA, spin, merdiven, indikatör renkleri ve menü görünürlüğü test edildi. Eksik menü öğesi, eksik API (`rage`, `utils.trace_bullet`) ya da Neverlose'un kabul etmediği bir değer olduğunda da çökmediği test edildi.
+- Script'e yeni menü öğeleri eklendikçe config'indeki bazı lua ayarları varsayılana dönebilir. Kendi değerlerini ayarladıysan güncellemeden sonra bir göz at.
 - Sadece HvH sunucularında kullan. Resmi maçlarda (MM) rage anti-aim çok kısa sürede ban yedirir.

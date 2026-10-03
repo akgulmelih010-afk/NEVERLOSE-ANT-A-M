@@ -14,7 +14,12 @@
         hep acik; yerde Neverlose'un "On Peek" defensive'i peek'te devreye girer.
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
-        uygulanir (fakelag'da her paket zaten cok tick surer).
+        uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
+        yerine 3-5 aci arasinda donen X-Way yaw.
+      - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
+        simdi ve 0.2 sn sonra. Hareket ederken gorus alanina girince otomatik
+        Peek durumu; safe head sadece kafa gercekten gorunurken; freestanding
+        kafayi saklayamadiysa normal jitter'a donus.
       - Yaw / modifier / limit rastgeleligi; rastgele deger her flip'te bir kez
         secilir, boylece bir paket icinde aci sabit kalir.
       - Durum gecislerinde histerezis ve inis toleransi (titreme yok).
@@ -193,7 +198,7 @@ local MOVEMENT_STATES = 9
 local SPECIAL_INFO = {
     ["Global"]       = "Used by states whose Override is off.",
     ["Manual"]       = "Used while manual yaw is active.",
-    ["Freestanding"] = "Used while freestanding has a target.",
+    ["Freestanding"] = "Used while freestanding hides your head.",
     ["Safe head"]    = "Used while a safe head condition matches.",
 }
 
@@ -226,8 +231,11 @@ local EXPLOIT_DEFAULTS = {
     ["Air crouch"]   = { "Double tap", "Always on", "Up",     "Random" },
     ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
     ["Freestanding"] = { "Double tap", "On peek",   "Off",    "Off" },
-    ["Safe head"]    = { "Double tap", "Off",       "Off",    "Off" },
+    ["Safe head"]    = { "Double tap", "On peek",   "Off",    "Off" },
 }
+
+-- X-Way varsayilan acilari (Way 1..5)
+local WAY_DEFAULTS = { -30, 0, 30, -15, 15 }
 
 local MODIFIERS = { "Disabled", "Center", "Offset", "Random", "Spin", "3-Way", "5-Way" }
 local EXPLOITS = { "Double tap", "Hide shots", "Binds" }
@@ -267,13 +275,18 @@ menu.spin_pitch     = spin_gear:combo("Pitch", { "Disabled", "Down" })
 menu.spin_speed     = spin_gear:slider("Speed", 1, 20, 6)
 
 menu.auto_exploit = g_defensive:switch("Auto exploit", true)
+-- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
+-- peek assist tusu olmadan da Peek durumuna gecilir.
+menu.auto_peek    = g_defensive:switch("Auto peek", true)
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 
 menu.state = g_builder:combo("State", STATES)
 
 local AA_KEYS = {
-    yaw_left = true, yaw_right = true, yaw_random = true, modifier = true, mod_random = true, mod_offset = true,
+    yaw_mode = true, yaw_left = true, yaw_right = true, ways = true,
+    way1 = true, way2 = true, way3 = true, way4 = true, way5 = true,
+    yaw_random = true, modifier = true, mod_random = true, mod_offset = true,
     body_yaw = true, avoid_overlap = true, body_fs = true, delay_random = true, limit_random = true,
     delay = true, left_limit = true, right_limit = true,
 }
@@ -289,8 +302,15 @@ for i, state in ipairs(STATES) do
     if i > 1 and not special then
         s.override = g_builder:switch("Override", true)
     end
+    -- L&R: desync tarafina gore iki aci. X-Way: her flip'te siradaki aciya gecer;
+    -- desync her flip'te taraf degistirdigi icin aci/taraf eslesmesi surekli kayar.
+    s.yaw_mode      = g_builder:combo("Yaw mode", { "L&R", "X-Way" })
     s.yaw_left      = g_builder:slider("Yaw left", -180, 180, d[1], nil, DEG)
     s.yaw_right     = g_builder:slider("Yaw right", -180, 180, d[2], nil, DEG)
+    s.ways          = g_builder:slider("Ways", 3, 5, 3)
+    for n = 1, 5 do
+        s["way" .. n] = g_builder:slider("Way " .. n, -180, 180, WAY_DEFAULTS[n], nil, DEG)
+    end
     s.yaw_random    = g_builder:slider("Yaw randomize", 0, 30, 0, nil, DEG)
     s.modifier      = g_builder:combo("Yaw modifier", MODIFIERS)
     s.mod_random    = s.modifier:create():slider("Randomize", 0, 60, 0, nil, DEG)
@@ -348,6 +368,13 @@ local function update_visibility()
             end
         end
         if active then
+            local xway = s.yaw_mode:get() == "X-Way"
+            s.yaw_left:visibility(not xway)
+            s.yaw_right:visibility(not xway)
+            s.ways:visibility(xway)
+            for n = 1, 5 do
+                s["way" .. n]:visibility(xway and n <= s.ways:get())
+            end
             local body = s.body_yaw:get()
             local modded = s.modifier:get() ~= "Disabled"
             local desync = body ~= "Off"
@@ -378,7 +405,7 @@ for _, element in ipairs({ menu.enabled, menu.auto_exploit, menu.indicators, men
     element:set_callback(update_visibility)
 end
 for _, s in pairs(builder) do
-    for _, key in ipairs({ "override", "modifier", "body_yaw", "def_mode", "hidden_pitch", "hidden_yaw" }) do
+    for _, key in ipairs({ "override", "yaw_mode", "ways", "modifier", "body_yaw", "def_mode", "hidden_pitch", "hidden_yaw" }) do
         if s[key] ~= nil then
             s[key]:set_callback(update_visibility)
         end
@@ -398,6 +425,63 @@ local LANDING_TICKS = 3
 
 -- Yerdeyken yuklenince ilk tick'lerde "havada" sayilmasin diye dolu baslar.
 local motion = { ground_ticks = 64, moving = false, ducked = false }
+
+-- Gorus tespiti: tehdit kafana mermi gecirebiliyor mu (simdi ve kisa sure sonra)?
+-- utils.trace_bullet yoksa "available" false olur ve buna bagli ozellikler eski
+-- davranisa doner.
+local trace_bullet = nil
+do
+    local ok, fn = pcall(function() return utils.trace_bullet end)
+    if ok and type(fn) == "function" then
+        trace_bullet = fn
+    end
+end
+
+local EXPOSE_EVERY = 2         -- tick; iz cizmek ucuz degil, her tick gerekmez
+local EXPOSE_LOOKAHEAD = 0.2   -- saniye; bu kadar sonra nerede olacagina da bakilir
+local PEEK_HOLD = 8            -- tick; gorus kesilince Peek'te bu kadar daha kalinir
+
+local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false }
+local peek = { until_tick = -1000 }
+
+local function head_visible_to(threat, eye, head, dx, dy)
+    local target = vector(head.x + dx, head.y + dy, head.z)
+    local ok, damage = pcall(trace_bullet, threat, eye, target)
+    return ok and type(damage) == "number" and damage > 0
+end
+
+local function update_exposure(lp)
+    if not exposure.available then
+        return
+    end
+    local now = globals.tickcount
+    if now >= exposure.tick and now - exposure.tick < EXPOSE_EVERY then
+        return
+    end
+    exposure.tick = now
+    exposure.now, exposure.soon = false, false
+
+    local ok, threat = pcall(entity.get_threat)
+    if not ok or threat == nil then
+        return
+    end
+    -- Dormant tehdidin konumu eski; ona gore karar verilmez.
+    local ok_dormant, dormant = pcall(threat.is_dormant, threat)
+    if ok_dormant and dormant then
+        return
+    end
+    local ok_eye, eye = pcall(threat.get_eye_position, threat)
+    local head = lp:get_hitbox_position(0)
+    if not ok_eye or eye == nil or head == nil then
+        return
+    end
+
+    exposure.now = head_visible_to(threat, eye, head, 0, 0)
+    if not exposure.now then
+        local velocity = lp.m_vecVelocity
+        exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD, velocity.y * EXPOSE_LOOKAHEAD)
+    end
+end
 
 local function detect_movement(lp, cmd)
     local on_ground = bit.band(lp.m_fFlags, 1) ~= 0
@@ -423,6 +507,16 @@ local function detect_movement(lp, cmd)
     end
     if get("peek_assist") then
         return "Peek"
+    end
+    -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
+    -- tutuyorsundur, o zaman normal duruma donulur.
+    if menu.auto_peek:get() and motion.moving then
+        if exposure.now or exposure.soon then
+            peek.until_tick = globals.tickcount + PEEK_HOLD
+        end
+        if globals.tickcount >= peek.until_tick - PEEK_HOLD and globals.tickcount <= peek.until_tick then
+            return "Peek"
+        end
     end
     if crouching then
         return motion.moving and "Crouch move" or "Crouching"
@@ -477,7 +571,10 @@ local function on_high_ground(lp)
     return mine ~= nil and theirs ~= nil and mine.z - 35 > theirs.z
 end
 
-local HIGH_GROUND_STATES = { ["Standing"] = true, ["Crouching"] = true, ["Crouch move"] = true, ["Slow walk"] = true }
+local HIGH_GROUND_STATES = {
+    ["Standing"] = true, ["Moving"] = true, ["Slow walk"] = true,
+    ["Crouching"] = true, ["Crouch move"] = true, ["Peek"] = true,
+}
 
 local function safe_head_active(lp, move_state, class)
     if not menu.safe_head:get() then
@@ -491,7 +588,10 @@ local function safe_head_active(lp, move_state, class)
             return true
         end
     end
+    -- Yuksekteyken ama duvar arkasindaysan kafayi sabitlemeye gerek yok; sadece
+    -- tehdit kafani gercekten gorebiliyorsa (iz yoksa sadece yukseklige bakilir).
     return HIGH_GROUND_STATES[move_state] == true and menu.safe_high:get() and on_high_ground(lp)
+        and (not exposure.available or exposure.now)
 end
 
 local function freestanding_allowed(move_state)
@@ -513,8 +613,12 @@ local function freestanding_allowed(move_state)
     return true
 end
 
--- Neverlose freestanding bir aci bulmadiysa normal hareket durumu kullanilir.
+-- Neverlose freestanding bir aci bulmadiysa ya da kafa yine de aciktaysa (yani
+-- freestanding saklayamamis) normal hareket durumunun jitter'i kullanilir.
 local function freestanding_has_target()
+    if exposure.available and exposure.now then
+        return false
+    end
     if api.get_target == nil then
         return true
     end
@@ -624,10 +728,11 @@ local MANUAL_YAW = { Left = -90, Right = 90, Forward = 180 }
 local OPTIONS_OVERLAP, OPTIONS_NONE = { "Avoid Overlap" }, {}
 
 -- Anti-brute fazlari: her isabet / yakin kacan mermide bir sonrakine gecer.
+-- shift kafayi birkac derece kaydirir; ogrenilmis aciya atilan mermi iska gecer.
 local BRUTE_PHASES = {
-    { invert = true,  scale = 1.0 },
-    { invert = false, scale = 0.6 },
-    { invert = true,  scale = 0.8 },
+    { invert = true,  scale = 1.0, shift = 0 },
+    { invert = false, scale = 0.6, shift = 10 },
+    { invert = true,  scale = 0.8, shift = -10 },
 }
 local BRUTE_RADIUS = 40
 -- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
@@ -638,7 +743,7 @@ local brute = { stage = 0, time = 0, last = {} }
 
 -- Rastgele degerler -1..1 (limit icin 0..1) olarak tutulur ve o anki durumun
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
-local flip = { side = false, packets = 0, extra = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
+local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false }
 
@@ -656,6 +761,7 @@ local function update_flip(s, exploit, choked)
     end
     flip.side = not flip.side
     flip.packets = 0
+    flip.step = flip.step + 1
     local spread = s.delay_random:get()
     flip.extra = spread > 0 and random(0, spread) or 0
     flip.yaw_n = random() * 2 - 1
@@ -833,6 +939,7 @@ events.createmove:set(function(cmd)
     end
 
     update_tickbase(lp)
+    update_exposure(lp)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
     local choked = cmd.choked_commands or globals.choked_commands or 0
@@ -938,12 +1045,17 @@ events.createmove:set(function(cmd)
     right = max(0, right - limit_cut)
 
     local yaw_offset
-    if yaw_side then
+    if s.yaw_mode:get() == "X-Way" then
+        yaw_offset = s["way" .. (flip.step % s.ways:get() + 1)]:get()
+    elseif yaw_side then
         yaw_offset = s.yaw_right:get()
     else
         yaw_offset = s.yaw_left:get()
     end
     yaw_offset = yaw_offset + round(flip.yaw_n * s.yaw_random:get())
+    if phase ~= nil then
+        yaw_offset = yaw_offset + phase.shift
+    end
 
     local yaw_base = menu.yaw_base:get()
     if state == "Manual" then
