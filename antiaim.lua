@@ -36,7 +36,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "2.8"
+local VERSION = "2.9"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -212,10 +212,37 @@ local stats, pending_misses = {}, {}
 
 pcall(ui.sidebar, SCRIPT, "shield")
 
-local g_main      = ui.create("Anti-Aim", "Main", 1)
-local g_defensive = ui.create("Anti-Aim", "Exploits", 1)
-local g_builder   = ui.create("Anti-Aim", "Builder", 2)
-local g_visuals   = ui.create("Visuals", "Indicators", 1)
+-- "Always use recommended settings": Neverlose lua ayarlarini config'e kaydeder; eski
+-- bir surumle kaydedilmis config eski varsayilanlari geri getirir. Bu yuzden AA,
+-- exploit ve builder ayarlarinin varsayilanlari kaydedilir ve script / config her
+-- yuklendiginde onlara donulur. Bind'lenen ayarlar (manual, freestanding, inverter),
+-- builder'daki durum secici ve gorsel tercihler bu listeye girmez.
+local recommended = {}
+
+local function remember(element, value)
+    if element ~= nil then
+        recommended[#recommended + 1] = { element = element, value = value }
+    end
+    return element
+end
+
+local function tracked(group)
+    return {
+        switch = function(_, name, def, ...) return remember(group:switch(name, def, ...), def == true) end,
+        combo = function(_, name, items, ...) return remember(group:combo(name, items, ...), items[1]) end,
+        slider = function(_, name, low, high, def, ...) return remember(group:slider(name, low, high, def, ...), def) end,
+        label = function(_, ...) return group:label(...) end,
+        button = function(_, ...) return group:button(...) end,
+        color_picker = function(_, ...) return group:color_picker(...) end,
+    }
+end
+
+local g_main_raw    = ui.create("Anti-Aim", "Main", 1)
+local g_main        = tracked(g_main_raw)
+local g_defensive   = tracked(ui.create("Anti-Aim", "Exploits", 1))
+local g_builder_raw = ui.create("Anti-Aim", "Builder", 2)
+local g_builder     = tracked(g_builder_raw)
+local g_visuals     = ui.create("Visuals", "Indicators", 1)
 
 local STATES = {
     "Global", "Standing", "Moving", "Slow walk", "Crouching", "Crouch move", "Peek", "Air", "Air crouch",
@@ -281,30 +308,31 @@ local HIDDEN_PITCHES = { "Off", "Down", "Up", "Zero", "Switch", "Random", "Custo
 local HIDDEN_YAWS = { "Off", "Sideways", "Spin", "Random", "Forward", "Custom" }
 
 local menu = {}
-menu.enabled        = g_main:switch("Enable", true)
+menu.enabled        = g_main_raw:switch("Enable", true)
+menu.recommended    = g_main_raw:switch("Always use recommended settings", true)
 menu.pitch          = g_main:combo("Pitch", { "Down", "Disabled", "Fake Down", "Fake Up" })
 menu.yaw_base       = g_main:combo("Yaw base", { "At Target", "Local View" })
-menu.manual         = g_main:combo("Manual yaw", { "Off", "Left", "Right", "Forward" })
-menu.freestanding   = g_main:switch("Freestanding", false)
-local fs_gear       = menu.freestanding:create()
+menu.manual         = g_main_raw:combo("Manual yaw", { "Off", "Left", "Right", "Forward" })
+menu.freestanding   = g_main_raw:switch("Freestanding", false)
+local fs_gear       = tracked(menu.freestanding:create())
 menu.fs_air         = fs_gear:switch("Disable in air", true)
 menu.fs_crouch      = fs_gear:switch("Disable while crouching", false)
 menu.fs_slow        = fs_gear:switch("Disable while slow walking", false)
 menu.fs_moving      = fs_gear:switch("Disable while moving", false)
-menu.inverter       = g_main:switch("Static inverter", false)
+menu.inverter       = g_main_raw:switch("Static inverter", false)
 menu.safe_head      = g_main:switch("Safe head", true)
-local safe_gear     = menu.safe_head:create()
+local safe_gear     = tracked(menu.safe_head:create())
 menu.safe_knife     = safe_gear:switch("Knife/Zeus in air crouch", true)
 menu.safe_air       = safe_gear:switch("Any air crouch", false)
 menu.safe_high      = safe_gear:switch("High ground", true)
 menu.anti_brute     = g_main:switch("Anti-bruteforce", true)
-local brute_gear    = menu.anti_brute:create()
+local brute_gear    = tracked(menu.anti_brute:create())
 menu.brute_reset    = brute_gear:slider("Reset after", 1, 15, 6, nil, "s")
 menu.brute_log      = brute_gear:switch("Console log", false)
 menu.avoid_backstab = g_main:switch("Avoid backstab", true)
 menu.legit_use      = g_main:switch("Legit AA on use", true)
 menu.spin           = g_main:switch("Spin when idle", true)
-local spin_gear     = menu.spin:create()
+local spin_gear     = tracked(menu.spin:create())
 -- HvH sunucularinda warmup'ta da savasiliyor, o yuzden varsayilan kapali.
 menu.spin_warmup    = spin_gear:switch("Warmup", false)
 menu.spin_enemies   = spin_gear:switch("No enemies alive", true)
@@ -321,7 +349,7 @@ menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots"
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 
-menu.state = g_builder:combo("State", STATES)
+menu.state = g_builder_raw:combo("State", STATES)
 
 local AA_KEYS = {
     yaw_mode = true, yaw_left = true, yaw_right = true, ways = true,
@@ -353,12 +381,12 @@ for i, state in ipairs(STATES) do
     end
     s.yaw_random    = g_builder:slider("Yaw randomize", 0, 30, 0, nil, DEG)
     s.modifier      = g_builder:combo("Yaw modifier", MODIFIERS)
-    s.mod_random    = s.modifier:create():slider("Randomize", 0, 60, 0, nil, DEG)
+    s.mod_random    = tracked(s.modifier:create()):slider("Randomize", 0, 60, 0, nil, DEG)
     s.mod_offset    = g_builder:slider("Modifier offset", -180, 180, 0, nil, DEG)
     -- Combo varsayilani ilk eleman oldugu icin ozel durumlarda Static basta.
     local static_default = special or state == "Fake duck"
     s.body_yaw      = g_builder:combo("Body yaw", static_default and { "Static", "Jitter", "Off" } or { "Jitter", "Static", "Off" })
-    local body_gear = s.body_yaw:create()
+    local body_gear = tracked(s.body_yaw:create())
     s.avoid_overlap = body_gear:switch("Avoid overlap", false)
     s.body_fs       = body_gear:combo("Freestanding",
         state == "Fake duck" and { "Peek Fake", "Off", "Peek Real" } or { "Off", "Peek Fake", "Peek Real" })
@@ -463,6 +491,38 @@ for _, s in pairs(builder) do
     end
 end
 update_visibility()
+
+-- Kaydedilmis varsayilanlara don. Script yuklenince hemen, ayrica ilk oyun tick'inde
+-- ve her config yuklemesinden sonra calisir (Neverlose config degerlerini lua
+-- ayarlarina script'ten sonra da uygulayabilir).
+local pending_recommended = true
+
+local function apply_recommended()
+    pending_recommended = false
+    if not menu.recommended:get() then
+        return
+    end
+    for _, item in ipairs(recommended) do
+        pcall(item.element.set, item.element, item.value)
+    end
+    update_visibility()
+end
+
+menu.recommended:set_callback(function()
+    if menu.recommended:get() then
+        apply_recommended()
+    end
+end)
+apply_recommended()
+pending_recommended = true
+
+pcall(function()
+    events.config_state:set(function(state)
+        if state == "post_load" then
+            pending_recommended = true
+        end
+    end)
+end)
 
 -------------------------------------------------------------------------------
 -- Durum tespiti
@@ -1204,6 +1264,9 @@ local MOVETYPE_LADDER = 9
 
 events.createmove:set(function(cmd)
     current.defensive = false
+    if pending_recommended then
+        apply_recommended()
+    end
     if not menu.enabled:get() then
         reset_overrides()
         return

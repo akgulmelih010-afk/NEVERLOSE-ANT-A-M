@@ -8,7 +8,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim ve exploit lua'sı. Sadece
 
 1. `antiaim.lua` dosyasını Neverlose'un script klasörüne at. Menüde **Scripts** sekmesinden klasörü açabilirsin, genelde `Counter-Strike Global Offensive/nl/scripts` olur.
 2. Oyunda Neverlose menüsü → **Scripts** → `antiaim` → **Load**.
-3. Konsolda `[ANT-A-M] v2.8 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
+3. Konsolda `[ANT-A-M] v2.9 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
 4. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
 5. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
 
@@ -52,6 +52,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
 | Enable | Açık | Lua'yı açar/kapatır. Kapatınca Neverlose'un kendi ayarların geri gelir. |
+| Always use recommended settings | Açık | Neverlose lua ayarlarını config'e kaydeder; eski bir sürümle kaydedilmiş config eski varsayılanları geri getirir. Bu açıkken script her yüklendiğinde ve her config yüklendiğinde bütün AA, exploit ve builder ayarları o sürümün önerilen değerlerine döner, yani güncellemelerdeki yeni varsayılanlar hemen uygulanır. Bind'lenen ayarlara (Manual yaw, Freestanding, Static inverter), builder'daki durum seçiciye ve Visuals'a dokunmaz. Kendi ayarlarını kullanmak istersen kapat. |
 | Pitch | Down | `Fake Down/Up` sadece untrusted'a izin veren sunucularda. |
 | Yaw base | At Target | En yakın düşmana göre döner. |
 | Manual yaw | Off | Sol / Sağ / İleri. Tuşa bağla. |
