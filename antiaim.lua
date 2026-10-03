@@ -36,7 +36,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "2.7"
+local VERSION = "2.8"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -120,9 +120,11 @@ local overridden = {}
 -- Bir ayarin degerini en son ne zaman degistirdigimiz (log icin; ornegin defensive
 -- modunu degistirmek DT'yi yeniden sarj ettiriyor mu gorebilmek icin).
 local changed_at = {}
--- Neverlose'un kabul etmedigi degerler (surume gore secenek adi farkli olabilir).
--- Hata her tick butun AA'yi durdurmasin diye bir kez yazilir ve atlanir.
-local rejected = {}
+-- Neverlose'un kabul etmedigi degerler (surume gore secenek adi farkli olabilir ya da
+-- ayar o an kilitli olabilir). Hata her tick butun AA'yi durdurmasin diye bir kez
+-- yazilir; deger 5 sn sonra tekrar denenir, anlik bir hata kalici olmaz.
+local REJECT_RETRY = 5
+local rejected, reported = {}, {}
 
 -- value nil ise o ayar kullanicinin kendi Neverlose degerine birakilir.
 local function override(name, value)
@@ -138,15 +140,27 @@ local function override(name, value)
         return
     end
     local key = name .. "=" .. tostring(value)
-    if rejected[key] then
+    local now = globals.realtime
+    local failed_at = rejected[key]
+    if failed_at ~= nil and now >= failed_at and now - failed_at < REJECT_RETRY then
         return
     end
     local ok, err = pcall(ref.override, ref, value)
     if not ok then
-        rejected[key] = true
-        print(("[%s] %s = %s ayarlanamadi: %s"):format(SCRIPT, name, tostring(value), tostring(err)))
+        rejected[key] = now
+        -- Onceki degerimiz takili kalmasin (orn. scout'ta DT acik kalmasin): ezmeyi
+        -- birak, ayar senin kendi degerine donsun.
+        if overridden[name] ~= nil then
+            pcall(ref.override, ref)
+            overridden[name] = nil
+        end
+        if not reported[key] then
+            reported[key] = true
+            print(("[%s] %s = %s ayarlanamadi: %s"):format(SCRIPT, name, tostring(value), tostring(err)))
+        end
         return
     end
+    rejected[key] = nil
     if overridden[name] ~= value then
         changed_at[name] = globals.realtime
     end
@@ -1375,6 +1389,20 @@ local function exploit_status()
         parts[1] = "HS"
     else
         parts[1] = "DT yok"
+    end
+    -- Gorunen exploit'i script degil senin bind'in belirliyorsa (Auto exploit kapali,
+    -- durumun exploit'i Binds, fake duck ya da Neverlose ayari reddetti). Neverlose'da
+    -- DT, HS'den once gelir; DT'yi kapatamadiysak HS acik olsa da DT gorunur.
+    local by_bind
+    if parts[1] == "HS" then
+        by_bind = overridden.hideshots == nil
+    elseif parts[1] == "DT yok" then
+        by_bind = overridden.doubletap == nil and overridden.hideshots == nil
+    else
+        by_bind = overridden.doubletap == nil
+    end
+    if by_bind then
+        parts[1] = parts[1] .. " (bind)"
     end
     parts[2] = defensive_active() and "DEF acik" or "DEF yok"
     -- Fake duck'ta DT/HS calismaz; "DT %0" gorunurse sebebi budur.

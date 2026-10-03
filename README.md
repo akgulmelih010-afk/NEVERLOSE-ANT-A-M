@@ -8,11 +8,11 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim ve exploit lua'sı. Sadece
 
 1. `antiaim.lua` dosyasını Neverlose'un script klasörüne at. Menüde **Scripts** sekmesinden klasörü açabilirsin, genelde `Counter-Strike Global Offensive/nl/scripts` olur.
 2. Oyunda Neverlose menüsü → **Scripts** → `antiaim` → **Load**.
-3. Konsolda `[ANT-A-M] v2.7 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
+3. Konsolda `[ANT-A-M] v2.8 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
 4. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
 5. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
 
-> Konsolda `[ANT-A-M] menude bulunamadi: ...` ya da `[ANT-A-M] ... ayarlanamadi: ...` yazısı çıkarsa Neverlose sürümünde o menü öğesinin ya da seçeneğin adı farklı demektir. Script çökmez, sadece o ayarı atlar ve gerisi çalışmaya devam eder. Yazıyı bana at, düzeltirim.
+> Konsolda `[ANT-A-M] menude bulunamadi: ...` ya da `[ANT-A-M] ... ayarlanamadi: ...` yazısı çıkarsa Neverlose sürümünde o menü öğesinin ya da seçeneğin adı farklı demektir, ya da ayar o an kilitliydi. Script çökmez: reddedilen değeri 5 saniye sonra tekrar dener, bu arada o ayarı senin kendi değerine bırakır, gerisi çalışmaya devam eder. Yazıyı bana at, düzeltirim.
 
 ## Duruma göre exploit (varsayılanlar)
 
@@ -95,7 +95,7 @@ Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-
 
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
-| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| sen r8 \| isim` → bölge, hasar, düşmanın silahı, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`), defensive penceresi o an açık mıydı, kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn), senin o an tuttuğun silah. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. Molotof, yangın ve el bombası hasarı yazılmaz ve istatistiğe girmez. |
+| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| sen r8 \| isim` → bölge, hasar, düşmanın silahı, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`; yanında `(bind)` yazıyorsa o exploit'i script değil senin kendi bind'in belirliyor), defensive penceresi o an açık mıydı, kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn), senin o an tuttuğun silah. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. Molotof, yangın ve el bombası hasarı yazılmaz ve istatistiğe girmez. |
 | Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska / DT / DEF`. Sen ateş etmezken (atıştan sonraki 1 sn hariç): **DT** = DT'nin yüzde kaç dolu olduğu (düşükse o durumun ayarları DT'yi boşaltıyor), **DEF** = exploit hazırken defensive penceresinin yüzde kaç açık olduğu ("Always on" bir durumda düşükse defensive gerçekten çalışmıyor). Ölünce de görünür. |
 | Reset stats | — | İstatistikleri sıfırlar. |
 
