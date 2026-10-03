@@ -35,6 +35,8 @@
 ]]
 
 local SCRIPT = "ANT-A-M"
+-- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
+local VERSION = "2.7"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1714,3 +1716,5 @@ events.render:set(function()
 end)
 
 events.shutdown:set(reset_overrides)
+
+print(("[%s] v%s yuklendi"):format(SCRIPT, VERSION))

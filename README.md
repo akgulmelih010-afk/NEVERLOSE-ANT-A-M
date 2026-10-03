@@ -8,8 +8,9 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim ve exploit lua'sı. Sadece
 
 1. `antiaim.lua` dosyasını Neverlose'un script klasörüne at. Menüde **Scripts** sekmesinden klasörü açabilirsin, genelde `Counter-Strike Global Offensive/nl/scripts` olur.
 2. Oyunda Neverlose menüsü → **Scripts** → `antiaim` → **Load**.
-3. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
-4. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
+3. Konsolda `[ANT-A-M] v2.7 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
+4. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
+5. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
 
 > Konsolda `[ANT-A-M] menude bulunamadi: ...` ya da `[ANT-A-M] ... ayarlanamadi: ...` yazısı çıkarsa Neverlose sürümünde o menü öğesinin ya da seçeneğin adı farklı demektir. Script çökmez, sadece o ayarı atlar ve gerisi çalışmaya devam eder. Yazıyı bana at, düzeltirim.
 
