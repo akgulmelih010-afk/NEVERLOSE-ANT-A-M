@@ -1,11 +1,11 @@
 --[[
-    ANT-A-M v2  |  Neverlose (CS:GO) icin HvH anti-aim lua'si
+    ANT-A-M v4  |  Neverlose (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     Kurar kurmaz calisir: butun varsayilanlar ayarlanmis halde gelir.
 
     Neler var
-      - 12 durumlu builder: Global, Standing, Moving, Slow walk, Crouching,
-        Crouch move, Peek, Air, Air crouch + ozel durumlar Manual,
+      - 13 durumlu builder: Global, Standing, Moving, Slow walk, Crouching,
+        Crouch move, Peek, Air, Air crouch, Fake duck + ozel durumlar Manual,
         Freestanding, Safe head. Her durum kendi ayarlariyla gelir
         ("Override" kapatilirsa o durum Global'in AA ayarlarini kullanir).
       - Duruma ozel exploit: her durumda DT / HS secimi, defensive modu
@@ -18,12 +18,16 @@
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
         ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
         (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
+        Her aimbot atisi konsola tek satir yazilir.
+      - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
+        harita degisince de kalir (en fazla 64 oyuncu).
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
         yerine 3-5 aci arasinda donen X-Way yaw.
       - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
-        simdi ve 0.2 sn sonra. Hareket ederken gorus alanina girince otomatik
+        simdi ve 0.2 sn sonra; ayrica diger dusmanlar sirayla kontrol edilir.
+        Hareket ederken gorus alanina girince otomatik
         Peek durumu; safe head sadece kafa gercekten gorunurken; freestanding
         kafayi saklayamadiysa normal jitter'a donus.
       - Yaw / modifier / limit rastgeleligi; rastgele deger her flip'te bir kez
@@ -35,14 +39,15 @@
         freestanding (hedef varsa) + devre disi kosullari, manuel yaw,
         avoid backstab, use'a basinca legit AA, warmup / dusman yokken spin.
       - Kapatinca ya da kaldirinca butun Neverlose ayarlarini geri verir.
-        Bulunamayan menu yolu ya da API olursa cokmez, o ozelligi atlar.
+        Bulunamayan menu yolu ya da API olursa cokmez, o ozelligi atlar. Bir olay
+        fonksiyonu hata verirse hata bir kez konsola yazilir, script calismaya devam eder.
 
     Kurulum ve ayar tavsiyeleri icin README.md'ye bak.
 ]]
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "3.4"
+local VERSION = "4.0"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -82,6 +87,19 @@ local function rage_method(object_name, method)
             return result
         end
         return nil
+    end
+end
+
+-- Bir olay fonksiyonu hata verirse (beklenmedik bir API degeri vb.) script sessizce
+-- durmasin ve konsol dolmasin: hata bir kez yazilir, sonraki olaylarda yine calisir.
+local handler_errors = {}
+local function protect(name, fn)
+    return function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok and not handler_errors[name] then
+            handler_errors[name] = true
+            print(("[%s] %s hata verdi: %s"):format(SCRIPT, name, tostring(err)))
+        end
     end
 end
 
@@ -213,6 +231,9 @@ end
 -- Hangi durumda vuruldugunu gormek icin istatistikler. Menudeki sifirlama dugmesi
 -- de kullandigi icin menuden once tanimli.
 local stats, pending_misses = {}, {}
+
+-- Ogrenilen dusman bellegini siler; bellek menuden sonra tanimlandigi icin sonradan atanir.
+local forget_enemies
 
 -- Senin aimbot atislarinin sonuclari (Neverlose'un aim_ack nedenleri).
 local function new_aim_stats()
@@ -378,6 +399,15 @@ menu.resolver_log  = g_resolver:switch("Console log", true)
 -- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
 menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
+-- Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile harita degisince de
+-- kalir; bu dugme hepsini siler.
+pcall(function()
+    menu.forget = g_resolver:button("Forget learned enemies", function()
+        if forget_enemies ~= nil then
+            forget_enemies()
+        end
+    end, true)
+end)
 
 menu.state = g_builder_raw:combo("State", STATES)
 
@@ -550,11 +580,11 @@ apply_recommended()
 pending_recommended = true
 
 pcall(function()
-    events.config_state:set(function(state)
+    events.config_state:set(protect("config_state", function(state)
         if state == "post_load" then
             pending_recommended = true
         end
-    end)
+    end))
 end)
 
 -------------------------------------------------------------------------------
@@ -589,8 +619,41 @@ local PEEK_HOLD = 8            -- tick; gorus kesilince Peek'te bu kadar daha ka
 -- ustune cikar. Dikey konum da tahmin edilir (sv_gravity 800, ziplama hizi ~302).
 local GRAVITY, JUMP_SPEED = 800, 301.99
 
-local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false }
+-- Diger dusmanlar: her guncellemede tehdit disindaki bir dusman sirayla kontrol edilir
+-- (tek ek iz). Yandan bakan bir dusman da Smart defensive, Break LC, Safe recharge ve
+-- auto peek'i tetikler. Bir dusmanin gorusu OTHER_HOLD tick gecerli sayilir; tur bitmeden
+-- tekrar kontrol edilemeyebilir.
+local OTHER_HOLD = 12
+
+-- others[index] = dusmanin kafani en son gordugu tick; any = kisa sure icinde biri gordu
+local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
+    any = false, others = {}, turn = 0 }
 local peek = { until_tick = -1000 }
+
+-- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
+-- soruyordu; tick basina bir kez okunur.
+local threat_cache = { tick = nil, value = nil }
+local function current_threat()
+    local tick = globals.tickcount
+    if threat_cache.tick ~= tick then
+        local ok, threat = pcall(entity.get_threat)
+        threat_cache.tick, threat_cache.value = tick, ok and threat or nil
+    end
+    return threat_cache.value
+end
+
+local function index_of(ent)
+    local ok, index = pcall(function() return ent:get_index() end)
+    if ok and type(index) == "number" then
+        return index
+    end
+    return nil
+end
+
+local function dormant(ent)
+    local ok, value = pcall(function() return ent:is_dormant() end)
+    return ok and value == true
+end
 
 local function head_visible_to(threat, eye, head, dx, dy, dz)
     local target = vector(head.x + dx, head.y + dy, head.z + dz)
@@ -623,28 +686,64 @@ local function update_exposure(lp, cmd)
     end
     exposure.tick = now
     exposure.now, exposure.soon = false, false
-
-    local ok, threat = pcall(entity.get_threat)
-    if not ok or threat == nil then
-        return
-    end
-    -- Dormant tehdidin konumu eski; ona gore karar verilmez.
-    local ok_dormant, dormant = pcall(threat.is_dormant, threat)
-    if ok_dormant and dormant then
-        return
-    end
-    local ok_eye, eye = pcall(threat.get_eye_position, threat)
     local head = lp:get_hitbox_position(0)
-    if not ok_eye or eye == nil or head == nil then
+    if head == nil then
+        exposure.any, exposure.others = false, {}
         return
     end
 
-    exposure.now = head_visible_to(threat, eye, head, 0, 0, 0)
-    if not exposure.now then
-        local velocity = lp.m_vecVelocity
-        exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD, velocity.y * EXPOSE_LOOKAHEAD,
-            vertical_lookahead(lp, cmd))
+    local threat = current_threat()
+    local threat_index = threat ~= nil and index_of(threat) or nil
+    -- Dormant tehdidin konumu eski; ona gore karar verilmez.
+    if threat ~= nil and not dormant(threat) then
+        local ok_eye, eye = pcall(threat.get_eye_position, threat)
+        if ok_eye and eye ~= nil then
+            exposure.now = head_visible_to(threat, eye, head, 0, 0, 0)
+            if not exposure.now then
+                local velocity = lp.m_vecVelocity
+                exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD,
+                    velocity.y * EXPOSE_LOOKAHEAD, vertical_lookahead(lp, cmd))
+            end
+        end
     end
+
+    -- Tehdit olmayan, canli, dormant olmayan dusmanlar; siradaki bir tanesine iz atilir.
+    -- Listede olmayan / olen / dormant olan dusmanin eski gorusu hemen silinir.
+    local present, candidates = {}, {}
+    local ok, list = pcall(entity.get_players, true)
+    if ok and type(list) == "table" then
+        for _, enemy in ipairs(list) do
+            local index = index_of(enemy)
+            local ok_alive, alive = pcall(function() return enemy:is_alive() end)
+            if index ~= nil and index ~= threat_index and ok_alive and alive and not dormant(enemy) then
+                present[index] = true
+                candidates[#candidates + 1] = { enemy = enemy, index = index }
+            end
+        end
+    end
+    if #candidates > 0 then
+        exposure.turn = exposure.turn % #candidates + 1
+        local pick = candidates[exposure.turn]
+        local ok_eye, eye = pcall(pick.enemy.get_eye_position, pick.enemy)
+        if ok_eye and eye ~= nil and head_visible_to(pick.enemy, eye, head, 0, 0, 0) then
+            exposure.others[pick.index] = now
+        else
+            exposure.others[pick.index] = nil
+        end
+    end
+    exposure.any = false
+    for index, seen in pairs(exposure.others) do
+        if not present[index] or now < seen or now - seen > OTHER_HOLD then
+            exposure.others[index] = nil
+        else
+            exposure.any = true
+        end
+    end
+end
+
+-- Herhangi bir dusman kafani goruyor ya da tehdit birazdan gorecek.
+local function seen_by_enemy()
+    return exposure.now or exposure.soon or exposure.any
 end
 
 local function detect_movement(lp, cmd)
@@ -680,7 +779,7 @@ local function detect_movement(lp, cmd)
     -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
     -- tutuyorsundur, o zaman normal duruma donulur.
     if menu.auto_peek:get() and motion.moving then
-        if exposure.now or exposure.soon then
+        if seen_by_enemy() then
             peek.until_tick = globals.tickcount + PEEK_HOLD
         end
         if globals.tickcount >= peek.until_tick - PEEK_HOLD and globals.tickcount <= peek.until_tick then
@@ -742,8 +841,8 @@ end
 
 -- Hedeften en az 35 birim yukaridaysak kafa onun icin acikta kalir.
 local function on_high_ground(lp)
-    local ok, threat = pcall(entity.get_threat)
-    if not ok or threat == nil then
+    local threat = current_threat()
+    if threat == nil then
         return false
     end
     local mine, theirs = origin_of(lp), origin_of(threat)
@@ -933,10 +1032,14 @@ local MISS_WINDOW = 0.15
 --                  oyuncuyu round'lar boyunca hatirlar; her round ayni AA'yi
 --                  gostermek ona cozdugu aciyi yeniden vermek olur.
 --   last, shot_stage : son mermi zamani ve o mermi geldiginde uygulanan faz
---   name         : ayni index'e baska oyuncu gelirse kayit sifirlanir
+--   name, seen   : son gorulen isim ve zaman (log ve bellek siniri icin)
 -- }
+-- Anahtar oyuncunun Steam ID'sidir (player_id). HvH sunucularinda oyuncular harita
+-- degisince kalir ama slot numaralari degisir; ogrenilen faz harita degisince de korunur.
 -- hurt[userid] = son hasar zamani
 local brute = { enemies = {}, recent = nil, hurt = {} }
+-- Hatirlanan en fazla oyuncu; dolunca en uzun suredir gorulmeyen unutulur.
+local MEMORY_LIMIT = 64
 
 local function entity_key(ent)
     local ok, index = pcall(ent.get_index, ent)
@@ -965,26 +1068,57 @@ local function brute_entry_stage(entry)
     return entry.base
 end
 
-local function brute_entry(ent, fallback_key)
-    local key = entity_key(ent) or fallback_key
-    local name = player_name(ent)
-    local entry = brute.enemies[key]
-    if entry == nil or entry.name ~= name then
-        entry = { stage = 0, time = 0, base = 0, last = nil, shot_stage = nil, name = name }
-        brute.enemies[key] = entry
+-- Kalici oyuncu kimligi: Steam ID. Bot ya da okunamayan Steam ID'de isim, o da yoksa slot.
+local function player_id(ent)
+    local ok, xuid = pcall(function() return ent:get_xuid() end)
+    if ok and type(xuid) == "string" and #xuid > 4 and xuid ~= "0" and not xuid:find("BOT", 1, true) then
+        return "s:" .. xuid
     end
-    return key, entry
+    local name = player_name(ent)
+    if name ~= "?" then
+        return "n:" .. name
+    end
+    local index = entity_key(ent)
+    return index ~= nil and ("i:" .. index) or nil
+end
+
+-- map[id] kaydini getirir ya da olusturur; bellek dolunca en eski kaydi siler.
+local function memory_entry(map, id, ent, make)
+    local entry = map[id]
+    if entry == nil then
+        local count, oldest_id, oldest = 0, nil, huge
+        for key, value in pairs(map) do
+            count = count + 1
+            if value.seen < oldest then
+                oldest_id, oldest = key, value.seen
+            end
+        end
+        if count >= MEMORY_LIMIT and oldest_id ~= nil then
+            map[oldest_id] = nil
+        end
+        entry = make()
+        map[id] = entry
+    end
+    entry.name, entry.seen = player_name(ent), globals.realtime
+    return entry
+end
+
+local function brute_entry(ent, fallback_key)
+    local key = player_id(ent) or fallback_key
+    return key, memory_entry(brute.enemies, key, ent, function()
+        return { stage = 0, time = 0, base = 0, last = nil, shot_stage = nil }
+    end)
 end
 
 local function threat_stage()
-    local ok, threat = pcall(entity.get_threat)
-    local key = (ok and threat ~= nil) and entity_key(threat) or nil
+    local threat = current_threat()
+    local key = threat ~= nil and player_id(threat) or nil
     if key == nil then
         return brute_entry_stage(brute.recent ~= nil and brute.enemies[brute.recent] or nil)
     end
     local entry = brute.enemies[key]
-    if entry ~= nil and entry.name ~= player_name(threat) then
-        return 0
+    if entry ~= nil then
+        entry.seen = globals.realtime
     end
     return brute_entry_stage(entry)
 end
@@ -1025,7 +1159,8 @@ local SHOT_MEMORY = 5
 -- seviyeyi yeniden belirler.
 local FORCE_STALL = 1.0
 
--- players[key] = { name, results = { "c" | "h", ... }, states = { [durum] = { ... } } }
+-- players[id] = { name, seen, results = { "c" | "h", ... }, states = { [durum] = { ... } } }
+-- id = Steam ID (player_id); harita degisince de korunur.
 -- shots[id] = { state, time }: ates anindaki dusman durumu
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false } }
@@ -1057,17 +1192,11 @@ local function enemy_state(ent)
 end
 
 local function resolver_entry(ent)
-    local key = entity_key(ent)
+    local key = player_id(ent)
     if key == nil then
         return nil
     end
-    local name = player_name(ent)
-    local entry = resolver.players[key]
-    if entry == nil or entry.name ~= name then
-        entry = { name = name, results = {}, states = {} }
-        resolver.players[key] = entry
-    end
-    return entry
+    return memory_entry(resolver.players, key, ent, function() return { results = {}, states = {} } end)
 end
 
 local function window_push(list, result)
@@ -1104,22 +1233,19 @@ local function resolver_target()
             return target
         end
     end
-    local ok, threat = pcall(entity.get_threat)
-    if ok then
-        return threat
-    end
-    return nil
+    return current_threat()
 end
 
 local function resolver_level(target)
     if target == nil then
         return 0
     end
-    local key = entity_key(target)
+    local key = player_id(target)
     local entry = key ~= nil and resolver.players[key] or nil
-    if entry == nil or entry.name ~= player_name(target) then
+    if entry == nil then
         return 0
     end
+    entry.seen = globals.realtime
     local state = enemy_state(target)
     return entry_level(entry, state), key, state, entry
 end
@@ -1382,7 +1508,7 @@ local SMART_MAX = 64
 local smart = { start = -1000, last = -1000 }
 
 local function smart_window(now)
-    if exposure.now or exposure.soon then
+    if seen_by_enemy() then
         if now < smart.last or now - smart.last > SMART_HOLD then
             smart.start = now
         end
@@ -1404,7 +1530,7 @@ local function apply_defensive(cmd, s, class, state)
     -- dahil) Break LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu.
     local now = globals.tickcount
     local on_peek = mode == "On peek" or mode == "Smart"
-    if on_peek and hs and (state == "Peek" or exposure.now or exposure.soon) then
+    if on_peek and hs and (state == "Peek" or seen_by_enemy()) then
         hs_lc.until_tick = now + HS_LC_HOLD
     end
     local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
@@ -1537,7 +1663,7 @@ local function update_recharge()
             end
             local since = globals.realtime - max(own.last_shot, recharge.released)
             hold = (dt or recharge.hs_charges) and charge < 1 and since >= 0 and since <= RECHARGE_HOLD_MAX
-                and (exposure.now or exposure.soon)
+                and seen_by_enemy()
         end
     end
     set_charge(not hold)
@@ -1579,7 +1705,7 @@ end
 
 local MOVETYPE_LADDER = 9
 
-events.createmove:set(function(cmd)
+events.createmove:set(protect("createmove", function(cmd)
     current.defensive, current.forced = false, false
     if pending_recommended then
         apply_recommended()
@@ -1739,7 +1865,7 @@ events.createmove:set(function(cmd)
     apply_defensive(cmd, builder[state], class, state)
     update_recharge()
     sample_exploit(state)
-end)
+end))
 
 -------------------------------------------------------------------------------
 -- Anti-bruteforce
@@ -1830,7 +1956,7 @@ local function weapon_label()
     return "sen " .. class:gsub("^CWeapon", ""):gsub("^C", ""):lower()
 end
 
-events.bullet_impact:set(function(e)
+events.bullet_impact:set(protect("bullet_impact", function(e)
     if not menu.enabled:get() then
         return
     end
@@ -1882,9 +2008,9 @@ events.bullet_impact:set(function(e)
     if menu.brute_log:get() then
         print(("[%s] anti-brute: %s faz %d"):format(SCRIPT, player_name(shooter), entry.stage))
     end
-end)
+end))
 
-events.player_hurt:set(function(e)
+events.player_hurt:set(protect("player_hurt", function(e)
     if not menu.enabled:get() then
         return
     end
@@ -1936,15 +2062,15 @@ events.player_hurt:set(function(e)
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, tostring(e.weapon or "?"),
             current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker)))
     end
-end)
+end))
 
 pcall(function()
-    events.weapon_fire:set(function(e)
+    events.weapon_fire:set(protect("weapon_fire", function(e)
         local lp = entity.get_local_player()
         if lp ~= nil and entity.get(e.userid, true) == lp then
             own.last_shot = globals.realtime
         end
-    end)
+    end))
 end)
 
 local function event_number(e, name)
@@ -1991,7 +2117,7 @@ local function aim_target_entity(target)
 end
 
 pcall(function()
-    events.aim_fire:set(function(e)
+    events.aim_fire:set(protect("aim_fire", function(e)
         local target = aim_target_entity(e.target)
         if target == nil then
             return
@@ -2011,14 +2137,14 @@ pcall(function()
                 hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
         end
         local stall = resolver.stall
-        if stall.key ~= nil and stall.key == entity_key(target) then
+        if stall.key ~= nil and stall.key == player_id(target) then
             stall.visible = 0
         end
-    end)
+    end))
 end)
 
 pcall(function()
-    events.aim_ack:set(function(e)
+    events.aim_ack:set(protect("aim_ack", function(e)
         if not menu.enabled:get() then
             return
         end
@@ -2059,7 +2185,7 @@ pcall(function()
         window_push(entry.states[enemy], result)
         local level = entry_level(entry, enemy)
         local stall = resolver.stall
-        if stall.key == entity_key(target) and stall.state == enemy then
+        if stall.key == player_id(target) and stall.state == enemy then
             reset_stall(stall.key, stall.state)
         end
         if menu.resolver_log:get() and level ~= before then
@@ -2068,7 +2194,7 @@ pcall(function()
             print(("[%s] resolver: %s %s %s | seviye %d -> safe points %s"):format(
                 SCRIPT, entry.name, enemy, what, level, SAFE_POINT_LEVELS[level]))
         end
-    end)
+    end))
 end)
 
 -- Round / olum sonrasi aktif fazlar biter, ogrenilen kalici fazlar kalir.
@@ -2079,29 +2205,38 @@ local function reset_brute()
     brute.recent, brute.hurt = nil, {}
 end
 
-events.round_start:set(function()
+forget_enemies = function()
+    brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+    resolver.players, resolver.shots, resolver.aim_target = {}, {}, nil
+    reset_stall(nil, nil)
+    pending_misses = {}
+end
+
+events.round_start:set(protect("round_start", function()
     reset_brute()
     pending_misses = {}
     set_charge(true)
-end)
+end))
 
--- Harita degisince oyuncular ve index'ler degisir; her sey sifirlanir.
+-- Harita degisince slot numaralari degisir, oyuncular cogunlukla kalir. Aktif fazlar,
+-- bekleyen atislar ve hedef sifirlanir; Steam ID ile ogrenilenler (anti-brute fazi,
+-- resolver seviyeleri) korunur.
 pcall(function()
-    events.level_init:set(function()
-        brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+    events.level_init:set(protect("level_init", function()
+        reset_brute()
         pending_misses = {}
-        resolver.players, resolver.shots, resolver.aim_target = {}, {}, nil
+        resolver.shots, resolver.aim_target = {}, nil
         reset_stall(nil, nil)
-    end)
+    end))
 end)
 
-events.player_death:set(function(e)
+events.player_death:set(protect("player_death", function(e)
     local lp = entity.get_local_player()
     if lp ~= nil and entity.get(e.userid, true) == lp then
         reset_brute()
         set_charge(true)
     end
-end)
+end))
 
 -------------------------------------------------------------------------------
 -- Indikatorler
@@ -2170,10 +2305,11 @@ local function draw_indicators(lp, cx, cy)
         { "FS", current.freestand and WHITE or DIM },
         { "DEF", def_color },
     }
-    -- VIS: renkli = tehdit kafani su an goruyor, beyaz = birazdan gorecek.
+    -- VIS: renkli = tehdit ya da baska bir dusman kafani su an goruyor, beyaz = tehdit
+    -- birazdan gorecek.
     if exposure.available then
         local vis_color = DIM
-        if exposure.now then
+        if exposure.now or exposure.any then
             vis_color = accent
         elseif exposure.soon then
             vis_color = WHITE
@@ -2262,7 +2398,7 @@ local function safe_draw(name, fn, ...)
     end
 end
 
-events.render:set(function()
+events.render:set(protect("render", function()
     if not menu.enabled:get() then
         return
     end
@@ -2285,11 +2421,11 @@ events.render:set(function()
     if menu.arrows:get() then
         safe_draw("arrows", draw_arrows, cx, cy)
     end
-end)
+end))
 
-events.shutdown:set(function()
+events.shutdown:set(protect("shutdown", function()
     reset_overrides()
     set_charge(true)
-end)
+end))
 
 print(("[%s] v%s yuklendi"):format(SCRIPT, VERSION))
