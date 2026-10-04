@@ -1702,10 +1702,21 @@ local FORCE_STALL = 0.5
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {},
     body_stall = { key = nil, visible = 0, last = nil, relaxed = false },
-    -- Kendi lag'imiz sirasinda (DEF = zorlanan DT defensive'i, LC = Hide shots'in Break LC'si)
-    -- atilip sunucuda gecmeyen ("unregistered shot", "damage rejection") atislarin zamanlari;
-    -- ayni turden ikisi unreg_window sn icinde olursa o lag unreg_pause sn durur (pause).
-    unreg = { DEF = {}, LC = {} }, unreg_window = 10, unreg_pause = 10, pause = { DEF = -1000, LC = -1000 } }
+    -- Kendi lag'imiz sirasinda (DEF = zorlanan DT defensive'i, LC = Hide shots'in Break LC'si,
+    -- TP = havada teleport'tan sonraki tp_window sn) atilip sunucuda gecmeyen ("unregistered shot",
+    -- "damage rejection") atislarin zamanlari; ayni turden ikisi unreg_window sn icinde olursa o lag
+    -- unreg_pause sn durur (pause). TP (V1.0): loglarda 3 teleport'tan hemen sonraki scout atisi
+    -- "unregistered shot" oldu.
+    unreg = { DEF = {}, LC = {}, TP = {} }, unreg_window = 10, unreg_pause = 10, tp_window = 0.3,
+    pause = { DEF = -1000, LC = -1000, TP = -1000 },
+    lag_names = { DEF = { "defensive", "zorlanan defensive" }, LC = { "Break LC", "Hide shots Break LC" },
+        TP = { "teleport", "teleport sonrasi" } } }
+
+-- Bu lag su an durdurulmus mu (bkz. aim_ack).
+resolver.paused = function(kind)
+    local stop, real = resolver.pause[kind], globals.realtime
+    return stop ~= nil and real >= stop - resolver.unreg_pause and real < stop
+end
 
 local function prop(ent, name)
     local ok, value = pcall(function() return ent[name] end)
@@ -2512,11 +2523,7 @@ do
         -- yok" iken izlerin gormedigi dusmanlardan kafadan vuruldun.
         local now = globals.tickcount
         -- Atislarin sunucuda gecmedigi goruldukten sonra o lag bir sure durur (bkz. aim_ack).
-        local real = globals.realtime
-        local function paused(kind)
-            local stop = resolver.pause[kind]
-            return real >= stop - resolver.unreg_pause and real < stop
-        end
+        local paused = resolver.paused
         local lc_ok = not paused("LC")
         local on_peek = mode == "On peek" or mode == "Smart"
         if on_peek and hs and (state == "Peek" or moving or seen_by_enemy()) then
@@ -2908,7 +2915,7 @@ teleport.update = function(lp, move_state)
         end
     end
     if teleport.count >= teleport.max_jump or (now >= teleport.last and now - teleport.last < teleport.gap)
-        or not menu.air_teleport:get() or api.teleport == nil then
+        or not menu.air_teleport:get() or api.teleport == nil or resolver.paused("TP") then
         return
     end
     -- Fake duck'ta exploit calismaz (bind'in "acik" gorunse de): v5.0 loglarinda FD'de teleport tetiklendi.
@@ -3664,8 +3671,11 @@ events.createmove:set(protect("createmove", function(cmd)
     end
 
     -- Faz 5: desync sabit, tarafi Neverlose'un body freestanding'i secer (kafa duvar tarafinda).
+    -- Kendi AA'si olan ozel durumlarda (Fake duck, Safe head, Manual) uygulanmaz: V1.0 loglarinda
+    -- fake duck'ta faz 5 ile kafadan vuruldun; Static + Peek Fake fake duck'in her pakette rastgele
+    -- tarafini eziyordu (eski "fake duck'ta hep ayni taraf" sorunu).
     local body_fs = s.body_fs:get()
-    if phase ~= nil and phase.freestand then
+    if phase ~= nil and phase.freestand and not brute.unlearned[state] then
         body, body_fs = "Static", "Peek Fake"
     end
     apply({
@@ -4063,9 +4073,12 @@ pcall(function()
         end
         local state = enemy_state(target)
         ai_peek.fired(e.id, target)
-        -- Atis anindaki kendi lag'imiz: DEF = zorlanan DT defensive'i, LC = Hide shots Break LC,
-        -- FD = fake duck. Atis satirinda silahin yanina yazilir.
-        local lag = current.forced and "DEF" or (current.lc and "LC") or (effective("fakeduck") and "FD") or nil
+        -- Atis anindaki kendi lag'imiz: TP = havada teleport'tan hemen sonra (tickbase kaydi), DEF =
+        -- zorlanan DT defensive'i, LC = Hide shots Break LC, FD = fake duck. Atis satirinda silahin
+        -- yanina yazilir.
+        local since_tp = now - teleport.last
+        local lag = (since_tp >= 0 and since_tp <= resolver.tp_window and "TP") or (current.forced and "DEF")
+            or (current.lc and "LC") or (effective("fakeduck") and "FD") or nil
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
                 body = effective("body_aim"), md = effective("min_damage"), health = prop(target, "m_iHealth"),
@@ -4133,9 +4146,9 @@ pcall(function()
             print(shot_line(e, shot, target))
         end
         ai_peek.result(e, target ~= nil and player_name(target) or nil)
-        -- Kendi lag'imiz sirasinda (zorlanan defensive / Break LC) atilan mermi sunucuda gecmediyse
-        -- ("iska unregistered shot", "iska damage rejection"), ayni turden ikincisinde o lag
-        -- unreg_pause sn durdurulur. Loglarda DEF / LC / FD anlarinda damage rejection'lar vardi.
+        -- Kendi lag'imiz sirasinda (zorlanan defensive / Break LC / teleport sonrasi) atilan mermi
+        -- sunucuda gecmediyse ("iska unregistered shot", "iska damage rejection"), ayni turden ikincisinde
+        -- o lag unreg_pause sn durdurulur. Loglarda DEF / LC / FD / TP anlarinda boyle iskalar vardi.
         local lag = shot ~= nil and shot.lag or nil
         if (state == "unregistered shot" or state == "damage rejection") and resolver.unreg[lag] ~= nil then
             local now = globals.realtime
@@ -4150,9 +4163,9 @@ pcall(function()
             if #list >= 2 then
                 resolver.unreg[lag], resolver.pause[lag] = {}, now + resolver.unreg_pause
                 if menu.shot_log:get() then
+                    local names = resolver.lag_names[lag]
                     print(("[%s] %s %d sn durduruldu: %s sirasinda %d atis sunucuda gecmedi (son: %s)"):format(SCRIPT,
-                        lag == "DEF" and "defensive" or "Break LC", resolver.unreg_pause,
-                        lag == "DEF" and "zorlanan defensive" or "Hide shots Break LC", #list, state))
+                        names[1], resolver.unreg_pause, names[2], #list, state))
                 end
             end
         end
