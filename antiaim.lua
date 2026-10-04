@@ -12,7 +12,9 @@
         (Off / On peek / Smart / Always on / Tick based) ve hidden pitch / yaw.
         Hareket ederken ve havadayken "Smart": Neverlose'un "On Peek"ine ek olarak
         tehdit kafani gormeye baslayinca (ya da 0.2 sn icinde gorecekse) defensive
-        zorlanir. Scout / AWP / R8'de Hide shots, gorulurken Break LC.
+        zorlanir. Hide shots acikken hareket ettigin surece Break LC (anti-backtrack:
+        dusman eski kaydini vuramaz). Scout / AWP / R8'de "Auto (learn)": Hide shots
+        ile Double tap arasindan kafana daha az mermi yedigin secilir.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
@@ -22,8 +24,9 @@
         jitter'i izlenir: defensive'deki iskalar resolver'a sayilmaz, jitter'li AA'ya
         ilk atistan safe point "Prefer".
       - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
-        AWP / R8'de govde oldurmuyorsa kafa acik kalir; resolver bir dusmanda iki kez
-        yanildiysa (DT'li silahlarda) govde.
+        AWP / R8'de govde oldurmuyorsa sadece kafa (Min. Damage = dusmanin cani, en
+        fazla 100: govdeye atis acilmaz); resolver bir dusmanda iki kez yanildiysa
+        (DT'li silahlarda) govde.
       - Bicak / zeus tutan dusman yaklasinca fake duck birakilir.
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
@@ -35,8 +38,9 @@
         yerine 3-5 aci arasinda donen X-Way yaw.
       - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
         simdi ve 0.2 sn sonra; ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
-      - Akilli AA hedefi: Neverlose'un tehdidi yoksa en yakin dusmana, tehdit gormuyor
-        ama yandan biri goruyorsa ona gore donulur.
+      - Akilli AA hedefi: az once kafana ates eden dusmana (1 sn), Neverlose'un tehdidi
+        yoksa en yakin dusmana, tehdit gormuyor ama yandan biri goruyorsa ona gore
+        donulur. Yerinde dururken otomatik freestanding.
         Hareket ederken gorus alanina girince otomatik
         Peek durumu; safe head sadece kafa gercekten gorunurken; freestanding
         kafayi saklayamadiysa normal jitter'a donus.
@@ -46,9 +50,9 @@
       - Durum gecislerinde histerezis ve inis toleransi (titreme yok).
       - Vuruldum / iska kaydi (konsol) ve durum basina istatistik paneli: hangi
         durumda vuruldugunu gorup o durumu ayarlarsin.
-      - Kendi kendine ogrenen AA: her anti-brute fazinda kafana gelen mermiler sayilir,
-        verisi olmayan dusmanlar en az vurulan fazla baslar (yeni faz 4: yaw'dan
-        bagimsiz rastgele desync tarafi).
+      - Kendi kendine ogrenen AA: her anti-brute fazinda kafana gelen mermiler yerde /
+        hareket / havada ayri sayilir, verisi olmayan dusmanlar o grupta en az vurulan
+        fazla baslar (faz 4: yaw'dan bagimsiz rastgele desync tarafi).
       - Mermi izine gore, dusman basina anti-bruteforce, safe head (bicak/zeus, yuksek zemin),
         freestanding (hedef varsa) + devre disi kosullari, manuel yaw,
         avoid backstab, use'a basinca legit AA, warmup / dusman yokken spin.
@@ -61,7 +65,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.5"
+local VERSION = "4.6"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -153,6 +157,7 @@ local refs = {
     hs_options      = find("Aimbot", "Ragebot", "Main", "Hide Shots", "Options"),
     peek_assist     = find("Aimbot", "Ragebot", "Main", "Peek Assist"),
     safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
+    min_damage      = find("Aimbot", "Ragebot", "Selection", "Min. Damage"),
     body_aim        = find("Aimbot", "Ragebot", "Safety", "Body Aim"),
 }
 
@@ -377,6 +382,9 @@ menu.fs_air         = fs_gear:switch("Disable in air", true)
 menu.fs_crouch      = fs_gear:switch("Disable while crouching", false)
 menu.fs_slow        = fs_gear:switch("Disable while slow walking", false)
 menu.fs_moving      = fs_gear:switch("Disable while moving", false)
+-- Freestanding tusun kapaliyken de ayakta / egilip dururken (aci tutarken) acilir: kafa
+-- duvara donuk saklanir. Kafa yine de gorunuyorsa normal jitter'a donulur.
+menu.fs_auto        = fs_gear:switch("Auto when standing still", true)
 menu.inverter       = g_main_raw:switch("Static inverter", false)
 menu.safe_head      = g_main:switch("Safe head", true)
 local safe_gear     = tracked(menu.safe_head:create())
@@ -404,9 +412,10 @@ menu.auto_exploit = g_defensive:switch("Auto exploit", true)
 -- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
 -- peek assist tusu olmadan da Peek durumuna gecilir.
 menu.auto_peek    = g_defensive:switch("Auto peek", true)
--- Bolt-action tufekler ve R8 DT ile cift atis yapamaz; DT her atistan sonra bosalir ve
--- uzun sure sarj olur. Hide shots atis anindaki acini gizler, defensive "Break LC" ile surer.
-menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots", "Same as state" })
+-- Scout / AWP / R8'de exploit. "Auto (learn)": Hide shots ile baslar, kafana gelen
+-- mermilere gore Double tap daha az vurduruyorsa ona gecer (bkz. sniper). "Hide shots"
+-- her zaman HS, "Same as state" durumun kendi exploit'i (varsayilan DT).
+menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Auto (learn)", "Hide shots", "Same as state" })
 -- DT / HS atistan ya da fake duck'tan sonra yeniden sarj olurken oyuncu sunucuda yerinde
 -- donar. Tehdit kafani goruyorken sarj bekletilir, siperin arkasina gecince dolar.
 menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
@@ -421,6 +430,9 @@ menu.resolver_log  = g_resolver:switch("Console log", true)
 -- Body Aim'i hedefe gore secer: govde olduruyorsa (tek mermi ya da DT ile iki) govde,
 -- scout / AWP / R8'de govde oldurmuyorsa kafa, resolver iki kez yanildiysa govde.
 menu.smart_baim    = g_resolver:switch("Smart body aim", true)
+-- Scout / AWP / R8'de minimum hasar hedefin canina cekilir: aimbot sadece oldurecek yere
+-- ates eder. Tam canli dusmanda bu kafa demek; govde ancak olduruyorsa vurulur.
+menu.head_only     = g_resolver:switch("Head unless body kills (snipers)", true)
 -- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
 menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
@@ -862,8 +874,34 @@ do
 end
 
 -- Herhangi bir dusman kafani goruyor ya da tehdit birazdan gorecek.
-local function seen_by_enemy()
-    return exposure.now or exposure.soon or exposure.any
+-- Kafanin yanindan mermi atan dusman (bkz. bullet_impact): izler onu gormese bile
+-- (duvardan, dormant iken) seni goruyor demektir. shot = { index, tick }; 32 tick "goruyor"
+-- sayilir, tehdit seni gormuyorsa AA 64 tick ona doner.
+local seen_by_enemy, recent_shooter
+do
+    local function shot_recently(hold)
+        local now = globals.tickcount
+        return exposure.shot ~= nil and now >= exposure.shot.tick and now - exposure.shot.tick <= hold
+    end
+
+    seen_by_enemy = function()
+        return exposure.now or exposure.soon or exposure.any or shot_recently(32)
+    end
+
+    -- Tehdit seni gormuyorken son 1 sn icinde kafana ates eden dusman; yoksa nil. Loglarda bir
+    -- dusman uc kez "AA hedefi degil, gormedi" iken ates etti: AA hep baskasina donuktu.
+    recent_shooter = function()
+        if exposure.now or exposure.soon or not shot_recently(64) then
+            return nil
+        end
+        local ok, ent = pcall(entity.get, exposure.shot.index)
+        local ok_alive, alive = pcall(function() return ent:is_alive() end)
+        -- Dormant dusmanin konumu eski; ona donulmez.
+        if ok and ok_alive and alive and not dormant(ent) then
+            return ent
+        end
+        return nil
+    end
 end
 
 -- Tehdit seni gormuyor (ve birazdan da gormeyecek) ama baska bir dusman goruyorsa, en son
@@ -1025,7 +1063,8 @@ do
 end
 
 local function freestanding_allowed(move_state)
-    if not menu.freestanding:get() then
+    local auto = menu.fs_auto:get() and (move_state == "Standing" or move_state == "Crouching")
+    if not menu.freestanding:get() and not auto then
         return false
     end
     if (move_state == "Air" or move_state == "Air crouch") and menu.fs_air:get() then
@@ -1198,12 +1237,30 @@ local MISS_WINDOW = 0.15
 -- Anahtar oyuncunun Steam ID'sidir (player_id). HvH sunucularinda oyuncular harita
 -- degisince kalir ama slot numaralari degisir; ogrenilen faz harita degisince de korunur.
 -- hurt[userid] = son hasar zamani
--- phases[faz] = { shots, hits }: butun dusmanlarin o faz uygulanirken kafana attigi
+-- phases[grup][faz] = { shots, hits }: butun dusmanlarin o faz uygulanirken kafana attigi
 -- mermiler (kafadan isabet + kafanin yanindan iska) ve kafadan isabetler. Verisi olmayan
--- dusmanlar en az vurulan fazla baslar (bkz. brute_default). default = son secilen faz.
-local brute = { enemies = {}, recent = nil, hurt = {}, phases = {}, default = 0 }
-for phase = 0, #BRUTE_PHASES do
-    brute.phases[phase] = { shots = 0, hits = 0 }
+-- dusmanlar en az vurulan fazla baslar (bkz. brute_default). default[grup] = secilen faz.
+-- Grup senin hareketin: yerde durma, hareket ve hava farkli AA ayarlariyla oynanir; birinde
+-- en iyi faz digerinde en iyi olmayabilir.
+local brute = { enemies = {}, recent = nil, hurt = {}, phases = {}, default = {},
+    groups = { "still", "move", "air" },
+    group_of = { Moving = "move", ["Slow walk"] = "move", ["Crouch move"] = "move", Peek = "move",
+        Air = "air", ["Air crouch"] = "air" },
+    group_label = { still = "yerde", move = "hareket", air = "hava" } }
+
+brute.reset_phases = function()
+    for _, group in ipairs(brute.groups) do
+        brute.phases[group], brute.default[group] = {}, 0
+        for phase = 0, #BRUTE_PHASES do
+            brute.phases[group][phase] = { shots = 0, hits = 0 }
+        end
+    end
+end
+brute.reset_phases()
+
+-- Hareket durumunun faz grubu; bilinmeyen durumlar (Standing, Crouching, Fake duck...) "still".
+brute.group_for = function(state)
+    return brute.group_of[state] or "still"
 end
 -- Hatirlanan en fazla oyuncu; dolunca en uzun suredir gorulmeyen unutulur.
 local MEMORY_LIMIT = 64
@@ -1231,32 +1288,27 @@ end
 -- (isabet + 2) / (mermi + 4): hic denenmemis faz 0.5 sayilir, yani cok vurulan bir faz
 -- denenmemis olana yer birakir. Tek bir isabet secimi degistirmesin diye yeni faz ancak
 -- simdiki varsayilandan 0.1 daha iyiyse secilir; esitlikte kucuk faz kazanir.
-local function phase_rate(phase)
-    local stat = brute.phases[phase]
+brute.rate = function(stat)
     return (stat.hits + 2) / (stat.shots + 4)
 end
 
-local function brute_default()
+local function brute_default(group)
+    local stats, current_default = brute.phases[group], brute.default[group]
     local best, best_rate = 0, huge
     for phase = 0, #BRUTE_PHASES do
-        local rate = phase_rate(phase)
+        local rate = brute.rate(stats[phase])
         if rate < best_rate - 1e-9 then
             best, best_rate = phase, rate
         end
     end
-    if best ~= brute.default and best_rate < phase_rate(brute.default) - 0.1 then
+    if best ~= current_default and best_rate < brute.rate(stats[current_default]) - 0.1 then
         return best
     end
-    return brute.default
+    return current_default
 end
 
--- Kafana gelen bir mermiyi, mermi geldiginde uygulanan faza yazar. Sayilar 40'i gecince
--- yarilanir: eski oyunlar degil son karsilasmalar agir basar.
-local function record_phase(phase, hit)
-    local stat = brute.phases[phase]
-    if stat == nil then
-        return
-    end
+-- Sayilar 40'i gecince yarilanir: eski oyunlar degil son karsilasmalar agir basar.
+brute.count = function(stat, hit)
     stat.shots = stat.shots + 1
     if hit then
         stat.hits = stat.hits + 1
@@ -1265,20 +1317,29 @@ local function record_phase(phase, hit)
         stat.shots, stat.hits = stat.shots / 2, stat.hits / 2
     end
     persist.dirty = true
-    local best = brute_default()
-    if best ~= brute.default then
-        brute.default = best
+end
+
+-- Kafana gelen bir mermiyi, mermi geldiginde uygulanan faza ve hareket grubuna yazar.
+local function record_phase(group, phase, hit)
+    local stats = brute.phases[group]
+    if stats == nil or stats[phase] == nil then
+        return
+    end
+    brute.count(stats[phase], hit)
+    local best = brute_default(group)
+    if best ~= brute.default[group] then
+        brute.default[group] = best
         if menu.hit_log:get() then
-            local chosen = brute.phases[best]
-            print(("[%s] AA: en az vurulan faz %d (%d/%d kafa isabeti) -> verisi olmayan dusmanlara faz %d"):format(
-                SCRIPT, best, floor(chosen.hits + 0.5), floor(chosen.shots + 0.5), best))
+            local chosen = stats[best]
+            print(("[%s] AA (%s): en az vurulan faz %d (%d/%d kafa isabeti) -> verisi olmayan dusmanlara faz %d"):format(
+                SCRIPT, brute.group_label[group], best, floor(chosen.hits + 0.5), floor(chosen.shots + 0.5), best))
         end
     end
 end
 
-local function brute_entry_stage(entry)
+local function brute_entry_stage(entry, group)
     if entry == nil then
-        return brute.default
+        return brute.default[group]
     end
     local now = globals.realtime
     if entry.stage > 0 and now >= entry.time and now - entry.time <= menu.brute_reset:get() then
@@ -1288,7 +1349,59 @@ local function brute_entry_stage(entry)
     if entry.learned then
         return entry.base
     end
-    return brute.default
+    return brute.default[group]
+end
+
+-- Scout / AWP / R8 (tek atisli silahlar).
+local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
+
+-- Sniper'da hangi exploit daha az kafadan vurduruyor? Hide shots atis anindaki aciyi gizler
+-- (eski loglarda DT ile atistan hemen sonra vuruluyordun); Double tap'te Smart defensive,
+-- Neverlose'un On Peek'i ve hidden acilar var (yeni loglarda HS ile peek'te ve havada
+-- kafadan vuruldun). Sniper elindeyken kafana gelen mermiler (kafadan isabet ya da kafanin
+-- yanindan iska) o an acik olan exploit'e yazilir; fazlarla ayni oran ve 0.1 esik. Once HS.
+local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "hs" }
+
+-- Sniper elindeyken acik olan exploit: "hs", "dt" ya da nil (sniper yok, fake duck...).
+sniper.mode = function(class)
+    if not SNIPERS[class] or effective("fakeduck") then
+        return nil
+    end
+    if effective("doubletap") then
+        return "dt"
+    end
+    if effective("hideshots") then
+        return "hs"
+    end
+    return nil
+end
+
+sniper.decide = function()
+    local hs, dt = brute.rate(sniper.stats.hs), brute.rate(sniper.stats.dt)
+    if sniper.choice == "hs" and dt < hs - 0.1 then
+        return "dt"
+    elseif sniper.choice == "dt" and hs < dt - 0.1 then
+        return "hs"
+    end
+    return sniper.choice
+end
+
+sniper.record = function(mode, hit)
+    local stat = mode ~= nil and sniper.stats[mode] or nil
+    if stat == nil then
+        return
+    end
+    brute.count(stat, hit)
+    local choice = sniper.decide()
+    if choice ~= sniper.choice then
+        sniper.choice = choice
+        if menu.hit_log:get() then
+            local hs, dt = sniper.stats.hs, sniper.stats.dt
+            print(("[%s] sniper exploit: Hide shots %d/%d, Double tap %d/%d kafa isabeti -> %s"):format(SCRIPT,
+                floor(hs.hits + 0.5), floor(hs.shots + 0.5), floor(dt.hits + 0.5), floor(dt.shots + 0.5),
+                choice == "hs" and "Hide shots" or "Double tap"))
+        end
+    end
 end
 
 -- Kalici oyuncu kimligi: Steam ID. Bot ya da okunamayan Steam ID'de isim, o da yoksa slot.
@@ -1337,20 +1450,20 @@ end
 -- ama baska bir dusman goruyorsa desync'ini o cozmeye calisiyor, onun fazi uygulanir.
 -- Kimse gormuyorsa tehdidinki.
 local function brute_target()
-    return seeing_flanker() or current_threat()
+    return recent_shooter() or seeing_flanker() or current_threat()
 end
 
-local function threat_stage()
+local function threat_stage(group)
     local threat = brute_target()
     local key = threat ~= nil and player_id(threat) or nil
     if key == nil then
-        return brute_entry_stage(brute.recent ~= nil and brute.enemies[brute.recent] or nil)
+        return brute_entry_stage(brute.recent ~= nil and brute.enemies[brute.recent] or nil, group)
     end
     local entry = brute.enemies[key]
     if entry ~= nil then
         entry.seen = globals.realtime
     end
-    return brute_entry_stage(entry)
+    return brute_entry_stage(entry, group)
 end
 
 -------------------------------------------------------------------------------
@@ -1715,7 +1828,8 @@ local function process_pending_misses()
             if now >= miss.time then
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
-                record_phase(miss.applied, false)
+                record_phase(miss.group, miss.applied, false)
+                sniper.record(miss.sniper, false)
                 if menu.hit_log:get() then
                     print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s)"):format(
                         SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
@@ -1730,7 +1844,8 @@ end
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0, rand_side = false }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
-    brute = 0, resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false }
+    brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
+    head_only = false }
 
 -- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
 -- Hedefi ve takilma korumasindan onceki seviyeyi dondurur (body aim icin).
@@ -1855,6 +1970,26 @@ do
         else
             override("body_aim", wanted)
         end
+
+        -- Kafa ya da oldurucu atis: tek atisli silahta minimum hasar hedefin canina cekilir (en
+        -- fazla 100), aimbot sadece oldurecek yere ates eder. Tam canli dusmanda bu kafa demek;
+        -- govde ancak olduruyorsa. Neverlose'un Body Aim'inde "hic govde" secenegi yok: loglarda
+        -- Body Aim "Default" iken de tam canli dusmanlara 67-93'luk govde vuruslari vardi.
+        -- Senin daha yuksek minimum hasarin dusurulmez.
+        if overridden.min_damage == nil then
+            resolver.user_md = get("min_damage")
+        end
+        local info = WEAPONS[class]
+        local health = target ~= nil and prop(target, "m_iHealth") or nil
+        local min_damage = nil
+        if menu.head_only:get() and info ~= nil and info[4] and type(health) == "number" and health > 0 then
+            min_damage = min(100, health)
+            if type(resolver.user_md) == "number" and resolver.user_md >= min_damage then
+                min_damage = nil
+            end
+        end
+        current.head_only = min_damage ~= nil
+        override("min_damage", min_damage)
     end
 end
 
@@ -1947,7 +2082,6 @@ local function apply(v)
 end
 
 -- Durumun exploit secimi; fake duck ile DT/HS birlikte calismaz, o zaman karisilmaz.
-local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 local NON_GUNS = { CKnife = true, CKnifeGG = true, CWeaponTaser = true, CC4 = true }
 
 -- Bicak / zeus / bomba ile exploit degismez, son silahinki korunur. Scout -> bicak ->
@@ -1961,7 +2095,8 @@ local function apply_exploit(s, class)
     end
     if choice ~= "Binds" then
         local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
-        if SNIPERS[class] and menu.sniper_exploit:get() == "Hide shots" then
+        local sniper_setting = menu.sniper_exploit:get()
+        if SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs")) then
             choice = "Hide shots"
         elseif not holding_gun and exploit_memory.choice ~= nil then
             choice = exploit_memory.choice
@@ -2036,7 +2171,7 @@ do
         return now >= smart.last and now - smart.last <= SMART_HOLD and now - smart.start < SMART_MAX
     end
 
-    apply_defensive = function(cmd, s, class, state)
+    apply_defensive = function(cmd, s, class, state, moving)
         local dt, hs = effective("doubletap"), effective("hideshots")
         local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
         -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
@@ -2051,8 +2186,7 @@ do
         -- saldirani izler gormemisti.
         local now = globals.tickcount
         local on_peek = mode == "On peek" or mode == "Smart"
-        local airborne = state == "Air" or state == "Air crouch"
-        if on_peek and hs and (state == "Peek" or airborne or seen_by_enemy()) then
+        if on_peek and hs and (state == "Peek" or moving or seen_by_enemy()) then
             hs_lc.until_tick = now + HS_LC_HOLD
         end
         local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
@@ -2302,9 +2436,9 @@ local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
     end
     local target
     if threat == nil then
-        target = aa_threat()
+        target = recent_shooter() or aa_threat()
     else
-        target = seeing_flanker()
+        target = recent_shooter() or seeing_flanker()
     end
     local mine, theirs = origin_of(lp), target ~= nil and origin_of(target) or nil
     local ok, view = pcall(function() return cmd.view_angles.y end)
@@ -2349,7 +2483,8 @@ events.createmove:set(protect("createmove", function(cmd)
 
     process_pending_misses()
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
-    current.brute = menu.anti_brute:get() and threat_stage() or 0
+    current.phase_group = brute.group_for(move_state)
+    current.brute = menu.anti_brute:get() and threat_stage(current.phase_group) or 0
     local aim_target, resolver_raw = apply_resolver()
     apply_body_aim(lp, class, aim_target, resolver_raw)
 
@@ -2486,7 +2621,8 @@ events.createmove:set(protect("createmove", function(cmd)
         body = body, side = side, left = left, right = right,
         avoid_overlap = s.avoid_overlap:get(), body_fs = s.body_fs:get(), freestand = freestand,
     })
-    apply_defensive(cmd, builder[state], class, state)
+    apply_defensive(cmd, builder[state], class, state,
+        move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck")
     update_recharge()
     sample_exploit(state)
 end))
@@ -2611,11 +2747,14 @@ do
             return
         end
         entry.last = now
+        exposure.shot = { index = index_of(shooter), tick = globals.tickcount }
         -- Hasar olayi mermiden sonra gelirse hangi fazda vuruldugumuzu buradan biliriz.
-        local shot_stage = menu.anti_brute:get() and brute_entry_stage(entry) or 0
+        local shot_stage = menu.anti_brute:get() and brute_entry_stage(entry, current.phase_group) or 0
         entry.shot_stage = shot_stage
-        -- O an gercekten uygulanan faz (AA'nin dondugu dusmaninki); fazlarin istatistigi icin.
-        entry.shot_applied = current.brute
+        -- O an gercekten uygulanan faz (AA'nin dondugu dusmaninki) ve hareket grubun; fazlarin
+        -- istatistigi icin.
+        entry.shot_applied, entry.shot_group, entry.shot_sniper = current.brute, current.phase_group,
+            sniper.mode(current.weapon)
 
         -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
         local hurt = brute.hurt[e.userid]
@@ -2623,7 +2762,7 @@ do
             pending_misses[#pending_misses + 1] = {
                 userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
-                applied = current.brute,
+                applied = current.brute, group = current.phase_group, sniper = sniper.mode(current.weapon),
             }
         end
 
@@ -2669,11 +2808,11 @@ events.player_hurt:set(protect("player_hurt", function(e)
     -- Vuruldugumuz faz: mermi olayi az once geldiyse onun kaydettigi faz (mermi
     -- AA'yi zaten ilerletti), gelmediyse su an uygulanan faz.
     local _, enemy = brute_entry(attacker, "u" .. tostring(e.attacker))
-    local hit_stage, applied
+    local hit_stage, applied, group, shot_sniper = nil, nil, nil, sniper.mode(current.weapon)
     if enemy.shot_stage ~= nil and enemy.last ~= nil and now >= enemy.last and now - enemy.last < MISS_WINDOW then
-        hit_stage, applied = enemy.shot_stage, enemy.shot_applied
+        hit_stage, applied, group, shot_sniper = enemy.shot_stage, enemy.shot_applied, enemy.shot_group, enemy.shot_sniper
     else
-        hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy) or 0
+        hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy, current.phase_group) or 0
     end
     -- Bicak ve zeus yakin mesafe silahi; AA'nin saklayabilecegi bir sey degil. Log'a
     -- yazilir ama durum istatistigine ve anti-brute'a sayilmaz.
@@ -2686,7 +2825,8 @@ events.player_hurt:set(protect("player_hurt", function(e)
     end
     -- Fazin istatistigi de yazilir (kalici hafizayi da kirli isaretler).
     if e.hitgroup == 1 and not melee then
-        record_phase(applied or current.brute, true)
+        record_phase(group or current.phase_group, applied or current.brute, true)
+        sniper.record(shot_sniper, true)
     end
 
     if not melee then
@@ -2758,6 +2898,12 @@ local function shot_line(e, shot, target)
     end
     local safe = shot ~= nil and shot.safe or effective("safe_points")
     local body = shot ~= nil and shot.body or effective("body_aim")
+    local min_damage
+    if shot ~= nil then
+        min_damage = shot.md
+    else
+        min_damage = effective("min_damage")
+    end
     local backtrack = event_number(e, "backtrack") or (shot and shot.backtrack)
     local hitchance = event_number(e, "hitchance") or (shot and shot.hitchance)
     local profile
@@ -2766,10 +2912,11 @@ local function shot_line(e, shot, target)
     else
         profile = enemy_watch.profile(target)
     end
-    return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | bt %s | hc %s | %s | %s"):format(SCRIPT, name, state,
-        type(health) == "number" and tostring(round(health)) or "?", aimed, result,
+    return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | MD %s | bt %s | hc %s | %s | %s"):format(SCRIPT, name,
+        state, type(health) == "number" and tostring(round(health)) or "?", aimed, result,
         type(safe) == "string" and safe or "?",
         type(body) == "string" and body or "?",
+        type(min_damage) == "number" and tostring(round(min_damage)) or "?",
         backtrack ~= nil and ("%dt"):format(round(backtrack)) or "?",
         hitchance ~= nil and ("%d%%"):format(round(hitchance)) or "?",
         shot ~= nil and shot.weapon or weapon_label(), profile_text(profile))
@@ -2801,7 +2948,8 @@ pcall(function()
         local state = enemy_state(target)
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
-                body = effective("body_aim"), health = prop(target, "m_iHealth"), weapon = weapon_label(),
+                body = effective("body_aim"), md = effective("min_damage"), health = prop(target, "m_iHealth"),
+                weapon = weapon_label(),
                 profile = enemy_watch.profile(target),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
                 hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
@@ -2911,16 +3059,22 @@ persist.save = function(force)
     if not persist.dirty or (not force and now >= persist.saved and now - persist.saved < persist.every) then
         return
     end
-    local data = { version = 1, brute = {}, resolver = {}, phases = {} }
+    local data = { version = 1, brute = {}, resolver = {}, phase_groups = {},
+        sniper = { hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
+            dt = { shots = sniper.stats.dt.shots, hits = sniper.stats.dt.hits } } }
     for key, entry in pairs(brute.enemies) do
         if steam_key(key) and entry.learned then
             data.brute[key] = { base = entry.base, name = entry.name }
         end
     end
-    -- Fazlarin istatistigi 1'den baslayan liste olarak (faz 0 -> 1. eleman).
-    for phase = 0, #BRUTE_PHASES do
-        local stat = brute.phases[phase]
-        data.phases[phase + 1] = { shots = stat.shots, hits = stat.hits }
+    -- Fazlarin istatistigi grup basina 1'den baslayan liste olarak (faz 0 -> 1. eleman).
+    for _, group in ipairs(brute.groups) do
+        local list = {}
+        for phase = 0, #BRUTE_PHASES do
+            local stat = brute.phases[group][phase]
+            list[phase + 1] = { shots = stat.shots, hits = stat.hits }
+        end
+        data.phase_groups[group] = list
     end
     -- Kopya yazilir: listeler sonradan degistiginde kayit da degismesin.
     local function copy(list)
@@ -2981,16 +3135,31 @@ persist.load = function()
             end
         end
     end
-    if type(data.phases) == "table" then
-        for phase = 0, #BRUTE_PHASES do
-            local e = data.phases[phase + 1]
+    if type(data.sniper) == "table" then
+        for _, mode in ipairs({ "hs", "dt" }) do
+            local e = data.sniper[mode]
             if type(e) == "table" and type(e.shots) == "number" and type(e.hits) == "number"
                 and e.hits >= 0 and e.hits <= e.shots and e.shots <= 1000 then
-                brute.phases[phase] = { shots = e.shots, hits = e.hits }
+                sniper.stats[mode] = { shots = e.shots, hits = e.hits }
             end
         end
-        brute.default = 0
-        brute.default = brute_default()
+        sniper.choice = "hs"
+        sniper.choice = sniper.decide()
+    end
+    -- v4.5 butun gruplar icin tek liste yaziyordu ("phases"); o liste her gruba uygulanir.
+    for _, group in ipairs(brute.groups) do
+        local list = type(data.phase_groups) == "table" and data.phase_groups[group] or data.phases
+        if type(list) == "table" then
+            for phase = 0, #BRUTE_PHASES do
+                local e = list[phase + 1]
+                if type(e) == "table" and type(e.shots) == "number" and type(e.hits) == "number"
+                    and e.hits >= 0 and e.hits <= e.shots and e.shots <= 1000 then
+                    brute.phases[group][phase] = { shots = e.shots, hits = e.hits }
+                end
+            end
+            brute.default[group] = 0
+            brute.default[group] = brute_default(group)
+        end
     end
     if type(data.resolver) == "table" then
         for key, e in pairs(data.resolver) do
@@ -3015,10 +3184,10 @@ persist.load = function()
 end
 
 forget_enemies = function()
-    brute.enemies, brute.recent, brute.hurt, brute.default = {}, nil, {}, 0
-    for phase = 0, #BRUTE_PHASES do
-        brute.phases[phase] = { shots = 0, hits = 0 }
-    end
+    brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+    brute.reset_phases()
+    sniper.stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }
+    sniper.choice = "hs"
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     resolver.jittery = {}
     reset_stall(nil, nil)
@@ -3029,6 +3198,7 @@ end
 
 events.round_start:set(protect("round_start", function()
     reset_brute()
+    exposure.shot = nil
     pending_misses = {}
     set_charge(true)
     persist.save(false)
@@ -3043,6 +3213,7 @@ pcall(function()
         pending_misses = {}
         resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
         reset_stall(nil, nil)
+        exposure.shot = nil
         enemy_watch.list = {}
         persist.save(true)
     end))
@@ -3157,10 +3328,14 @@ local function draw_indicators(lp, cx, cy)
         local why = current.res_prior and "JIT" or (RES_STATE_LABEL[current.res_state] or "")
         render.text(FONT, vector(x, y), accent, "c", ("RES %d %s"):format(current.resolver, why))
     end
-    -- Hedefin cani govde vurusuna yetiyor: Body Aim "Prefer".
+    -- BAIM: hedefin cani govde vurusuna yetiyor (Body Aim Prefer / Force). HEAD: sadece
+    -- oldurecek atis (tam canli dusmanda kafa), govde vurusu yok.
     if current.lethal then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "BAIM")
+    elseif current.head_only then
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", "HEAD")
     end
 end
 
@@ -3196,18 +3371,26 @@ local function draw_stats(screen)
         render.text(FONT, vector(x, y), WHITE, nil, ("ALL   %d / %d / %d / %d / %d"):format(
             aim_stats.shots, aim_stats.hits, aim_stats.correction, aim_stats.spread, aim_stats.other))
     end
-    -- Anti-brute fazlari: kafana gelen mermilerden kac tanesi kafadan isabet etti (isabet /
-    -- mermi); * = verisi olmayan dusmanlara uygulanan, en az vurulan faz.
-    local parts = {}
-    for phase = 0, #BRUTE_PHASES do
-        local stat = brute.phases[phase]
-        parts[#parts + 1] = ("%d%s %d/%d"):format(phase, phase == brute.default and "*" or "",
-            floor(stat.hits + 0.5), floor(stat.shots + 0.5))
-    end
+    -- Anti-brute fazlari, hareket grubu basina: kafana gelen mermilerden kac tanesi kafadan
+    -- isabet etti (isabet / mermi); * = verisi olmayan dusmanlara uygulanan, en az vurulan faz.
     y = y + 16
     render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA FAZ   KAFA ISABETI / MERMI")
+    for _, group in ipairs(brute.groups) do
+        local parts = { brute.group_label[group]:upper() }
+        for phase = 0, #BRUTE_PHASES do
+            local stat = brute.phases[group][phase]
+            parts[#parts + 1] = ("%d%s %d/%d"):format(phase, phase == brute.default[group] and "*" or "",
+                floor(stat.hits + 0.5), floor(stat.shots + 0.5))
+        end
+        y = y + 10
+        render.text(FONT, vector(x, y), WHITE, nil, table.concat(parts, "   "))
+    end
+    -- Sniper exploit'i: kafana gelen mermilerden kafadan isabet / mermi; * = secilen.
+    local hs, dt = sniper.stats.hs, sniper.stats.dt
     y = y + 10
-    render.text(FONT, vector(x, y), WHITE, nil, table.concat(parts, "   "))
+    render.text(FONT, vector(x, y), WHITE, nil, ("SNIPER   HS%s %d/%d   DT%s %d/%d"):format(
+        sniper.choice == "hs" and "*" or "", floor(hs.hits + 0.5), floor(hs.shots + 0.5),
+        sniper.choice == "dt" and "*" or "", floor(dt.hits + 0.5), floor(dt.shots + 0.5)))
 end
 
 local function draw_arrows(cx, cy)
