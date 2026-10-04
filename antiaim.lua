@@ -18,6 +18,8 @@
       - AI peek: Peek Assist tusunu basili tutup hareket tuslarina basmazsan script
         yanlari tarar ve oldurecek atisin oldugu en yakin noktaya kendisi yurur;
         yururken Neverlose'un Peek Assist'i kapatilir, atistan sonra script geri yurur.
+        Nokta iki taramada teyit edilir, yururken tek kotu tarama geri dondurmez, aci kayarsa
+        ayni tarafta takip edilir; yururken AA o dusmana doner ve DT defensive'i onceden baslar.
         Her peek'in sonucu konsola yazilir.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
@@ -31,7 +33,8 @@
         AWP / R8'de biri kafani gorebiliyorken sadece oldurecek atis (Min. Damage 101 =
         can + 1, Body Aim Prefer; hedeften bagimsiz); resolver bir dusmanda iki kez
         yanildiysa (DT'li silahlarda) govde.
-      - Bicak / zeus tutan dusman yaklasinca, havadayken ve hareket ederken fake duck birakilir.
+      - Bicak / zeus tutan dusman yaklasinca, havadayken ve hareket ederken (0.15 sn) fake duck
+        birakilir; fake duck'ta safe point en az "Prefer" (her atis degerli).
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
         harita degisince ve oyun yeniden acilinca da kalir (Neverlose db, en fazla
@@ -40,11 +43,11 @@
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
         yerine 3-5 aci arasinda donen X-Way yaw.
-      - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
+      - Gorus tespiti (utils.trace_bullet): tehdit kafana (merkez ya da iki kenari) mermi gecirebiliyor mu,
         simdi ve 0.2 sn sonra (senin ve dusmanin hareketiyle: sana peek atan dusman
         gorunmeden yakalanir); ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
       - Dusman peek'ine karsi defensive (dururken de) ve havada gorulunce teleport (sarj
-        dolunca tekrar, ziplama basina en fazla 3).
+        dolunca tekrar, ziplama basina en fazla 5; inise 0.2 sn kala yok, DT inise dolu kalsin).
       - Air lag: havada DT doluyken defensive her tick (surekli lag, hidden acilar); scout /
         AWP / R8 havada DT'ye gecer ki lag ve teleport onlarda da calissin.
       - Akilli AA hedefi: az once kafana ates eden dusmana (1 sn), Neverlose'un tehdidi
@@ -74,7 +77,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.3"
+local VERSION = "5.4"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -453,6 +456,8 @@ menu.auto_peek    = g_defensive:switch("Auto peek", true)
 -- Peek Assist tusu basiliyken (hareket tuslarina basmadan) script yanlari tarar, oradan
 -- dusmani vurabilecegin en yakin noktaya kendisi yurur (bkz. ai_peek).
 menu.ai_peek      = g_defensive:switch("AI peek (hold Peek Assist)", true)
+-- AI peek yururken / beklerken DT defensive'i zorlanir: dusman seni gormeden lag baslar.
+menu.peek_defensive = g_defensive:switch("Defensive during AI peek", true)
 -- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
 -- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
 menu.anti_peek    = g_defensive:switch("Defensive vs enemy peeks", true)
@@ -486,6 +491,9 @@ menu.smart_baim    = g_resolver:switch("Smart body aim", true)
 -- Scout / AWP / R8'de minimum hasar hedefin canina cekilir: aimbot sadece oldurecek yere
 -- ates eder. Tam canli dusmanda bu kafa demek; govde ancak olduruyorsa vurulur.
 menu.head_only     = g_resolver:switch("Head unless body kills (snipers)", true)
+-- Fake duck'ta DT yok ve atis ancak ~0.2 sn'de bir gelir (egilip kalkma dongusu): her atis
+-- degerli. Safe point en az "Prefer" (resolver'in acisindan bagimsiz noktalar once).
+menu.fd_safe       = g_resolver:switch("Safe points while fake ducking", true)
 -- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
 menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
@@ -758,8 +766,10 @@ local SIGHT = { gap = 24, keep = 64, recent = 32 }
 
 -- others[index] = dusmanin kafani en son gordugu tick; any = kisa sure icinde biri gordu
 -- peeked = bir dusman hareket ederek kafani gorecegi yere geliyor (bkz. enemy_eye_ahead).
+-- edge: kafa merkezinin yanindaki iki noktaya da bakilir (bkz. head_visible_to).
+-- peeking: AI peek'in su an peek attigi dusman (yururken / beklerken), yoksa nil.
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
-    any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil }
+    any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil, edge = 3.5, peeking = nil }
 local peek = { until_tick = -1000 }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
@@ -819,10 +829,25 @@ local function aa_threat()
     return threat_cache.near
 end
 
+-- Merkez gorunmuyorsa kafanin iki yan kenarina da (gorus cizgisine dik, exposure.edge birim)
+-- iz atilir. Dusmanin aimbot'u kafanin kenarina da (multipoint) ates eder: loglarda "gormedi"
+-- iken kafadan vurulmalar vardi, merkez siperin arkasinda kalinca gorus kaciyordu.
 local function head_visible_to(threat, eye, head, dx, dy, dz)
-    local target = vector(head.x + dx, head.y + dy, head.z + dz)
-    local ok, damage = pcall(trace_bullet, threat, eye, target)
-    return ok and type(damage) == "number" and damage > 0
+    local x, y, z = head.x + dx, head.y + dy, head.z + dz
+    local function hits(px, py)
+        local ok, damage = pcall(trace_bullet, threat, eye, vector(px, py, z))
+        return ok and type(damage) == "number" and damage > 0
+    end
+    if hits(x, y) then
+        return true
+    end
+    local sx, sy = x - eye.x, y - eye.y
+    local length = sqrt(sx * sx + sy * sy)
+    if length < 1 then
+        return false
+    end
+    local ex, ey = -sy / length * exposure.edge, sx / length * exposure.edge
+    return hits(x + ex, y + ey) or hits(x - ex, y - ey)
 end
 
 -- EXPOSE_LOOKAHEAD sonra kafa ne kadar yukari / asagi gidecek. Yerdeyken 0; ziplama
@@ -1964,8 +1989,12 @@ local function apply_resolver()
         level = stall_level(raw, key, state, entry)
     end
     current.resolver, current.res_state, current.res_prior = level, state, prior == true
-    if level > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
-        override("safe_points", SAFE_POINT_LEVELS[level])
+    local safe = level
+    if menu.fd_safe:get() and effective("fakeduck") then
+        safe = max(safe, 1)
+    end
+    if safe > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
+        override("safe_points", SAFE_POINT_LEVELS[safe])
     else
         override("safe_points", nil)
     end
@@ -2350,10 +2379,13 @@ do
         local airborne = state == "Air" or state == "Air crouch"
         local window = mode == "Smart" and (smart_window(now) or (airborne and menu.air_lag:get()))
         local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now)
+        -- AI peek yururken / beklerken: defensive dusman seni gormeden baslar, ilk gordugu
+        -- kayit eski ve acilar gizli olur (defensive peek).
+        local peeking = on_peek and exposure.peeking ~= nil and menu.peek_defensive:get()
         -- Atislarin kayda gecmedigi goruldukten sonra zorlama bir sure durur (bkz. aim_ack).
         local real = globals.realtime
         local paused = real >= resolver.def_pause - resolver.unreg_pause and real < resolver.def_pause
-        local forced = (window or guard) and dt and exploit_active() and not paused
+        local forced = (window or guard or peeking) and dt and exploit_active() and not paused
         current.defensive = not on_peek or hs_peek or forced
         current.forced = forced
 
@@ -2527,10 +2559,13 @@ end
 local update_fd_guard
 do
     local KNIFE_NEAR, KNIFE_FAR = 260, 360
-    -- Hareket: FD_MOVE birim/sn ustunde birakilir, FD_STOP altina inince geri verilir.
-    -- why = "move" / "knife": neden biz biraktik; logged = son "hareket" logunun zamani.
-    local FD_MOVE, FD_STOP = 40, 10
-    local fd = { why = nil, logged = -1000 }
+    -- Hareket: FD_MOVE birim/sn ustunde FD_GRACE tick kalinca birakilir, FD_STOP altina inince
+    -- geri verilir. Kisa kipirdama (sag-sol aci ayari) birakmaz: fake duck'i birakip geri vermek
+    -- gozunu kaldirip indirir, aimbot'un o anki atisi yanlis goz yuksekliginden iskalar.
+    -- why = "move" / "knife": neden biz biraktik; logged = son "hareket" logunun zamani;
+    -- moving = hizin kac tick'tir FD_MOVE ustunde oldugu.
+    local FD_MOVE, FD_STOP, FD_GRACE = 40, 10, 10
+    local fd = { why = nil, logged = -1000, moving = 0 }
 
     local function fd_pointless(lp)
         if not menu.fd_still:get() then
@@ -2543,7 +2578,14 @@ do
             local v = lp.m_vecVelocity
             return sqrt(v.x * v.x + v.y * v.y)
         end)
-        return ok and type(speed) == "number" and speed > (fd.why == "move" and FD_STOP or FD_MOVE)
+        if not ok or type(speed) ~= "number" then
+            return false
+        end
+        if fd.why == "move" then
+            return speed > FD_STOP
+        end
+        fd.moving = speed > FD_MOVE and fd.moving + 1 or 0
+        return fd.moving >= FD_GRACE
     end
 
     local function knife_enemy(lp, radius)
@@ -2633,8 +2675,15 @@ local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
     if yaw_base ~= "At Target" or freestand then
         return yaw_base, yaw_offset
     end
+    -- AI peek'te peek atilan dusmana donulur: kendini bilerek ona gosteriyorsun.
     local target
-    if threat == nil then
+    local ok_peek, peeking = pcall(entity.get, exposure.peeking)
+    peeking = exposure.peeking ~= nil and ok_peek and peeking or nil
+    if peeking ~= nil and index_of(peeking) ~= index_of(threat) then
+        target = peeking
+    elseif peeking ~= nil and threat ~= nil and index_of(peeking) == index_of(threat) then
+        return yaw_base, yaw_offset
+    elseif threat == nil then
         target = recent_shooter() or aa_threat()
     else
         target = recent_shooter() or seeing_flanker()
@@ -2660,8 +2709,26 @@ local MOVETYPE_LADDER = 9
 -- demektir, bir kez yazilir ve o haritada HS ile bir daha denenmez.
 -- refilled: bu ziplamada teleport'tan sonra sarj havada yeniden doldu mu (inince ozet yazilir:
 -- tek teleport ve dolmadiysa ikincisi sarj yuzunden gelmedi demektir).
-local teleport = { last = -1000, count = 0, min_speed = 150, gap = 0.25, max_jump = 3, pending = nil, hs_ok = nil,
-    refilled = false }
+-- v5.3 loglarinda her ziplamada 3 teleport (sinir) vardi ve sarj her seferinde doldu: sinir 5,
+-- ara 0.15 sn; asil sinir sarjin dolmasi. Inise land_guard sn'den az kaldiysa teleport yok:
+-- sarj (~0.22 sn) inene kadar dolmaz, yere DT'siz inip sarj olurken yerinde donardin.
+local teleport = { last = -1000, count = 0, min_speed = 150, gap = 0.15, max_jump = 5, land_guard = 0.2,
+    pending = nil, hs_ok = nil, refilled = false }
+
+-- Yere kac sn kaldi (dikey hiz ve yer cekimiyle); 400 birim icinde yer yoksa ya da iz
+-- atilamazsa huge.
+teleport.land_time = function(lp)
+    local ok, t = pcall(function()
+        local origin, vz = lp:get_origin(), lp.m_vecVelocity.z
+        local result = utils.trace_line(origin, vector(origin.x, origin.y, origin.z - 400), lp, 0x201400B)
+        if result.fraction >= 1 then
+            return huge
+        end
+        return (vz + sqrt(vz * vz + 2 * GRAVITY * 400 * result.fraction)) / GRAVITY
+    end)
+    return ok and type(t) == "number" and t or huge
+end
+
 teleport.update = function(lp, move_state)
     local now = globals.realtime
     -- Bir onceki tick'te HS ile denendiyse sarj harcandi mi?
@@ -2710,7 +2777,7 @@ teleport.update = function(lp, move_state)
         local v = lp.m_vecVelocity
         return sqrt(v.x * v.x + v.y * v.y)
     end)
-    if not ok or type(speed) ~= "number" or speed < teleport.min_speed then
+    if not ok or type(speed) ~= "number" or speed < teleport.min_speed or teleport.land_time(lp) < teleport.land_guard then
         return
     end
     api.teleport()
@@ -2742,10 +2809,18 @@ end
 -- basana kadar peek atilmaz: v4.7 loglarinda ayni dusmana 7 kez bos peek atildi, her
 -- seferinde kendini gosterdin. Her bos peek'te ne kadar yuruyebildigin konsola yazilir.
 -- R8'de bekleme daha uzun: horoz cekilir ve isabeti toparlanir.
+-- v5.3 loglarinda 4 peek'in 3'u 3-8 birim yurunup "aci kapandi" ile bitti: nokta tek bir
+-- taramada gorunmus, hemen sonraki taramada kaybolmustu (dusmanin jitter'i / hareketi). Artik:
+--  - nokta confirm_every tick sonra ikinci taramada da ayni tarafta bulunmazsa yurunmez;
+--  - yururken tek kotu tarama geri dondurmez, lost_max tarama ust uste olmazsa donulur;
+--  - beklerken aci kayarsa (dusman yurudu) ayni tarafta biraz ileri gidilir (reach birime kadar);
+--  - kafa ve gogsun yaninda mide de denenir (cani azsa scout'la mide de oldurur).
+-- Vazgecince nedeni hasariyla yazilir ("hasar 0/101": aci tamamen kapandi; "95/101": sinirda).
 local ai_peek = { mode = nil, home = nil, target = nil, side = nil, until_time = -1000, scan_tick = -1000,
     rest = -1000, fails = 0, blocked = nil, reached = 0, step = 0, enemy = nil, name = nil, shots = {},
-    held_since = nil, reported = false, why = nil, quiet = 1.0,
-    steps = { 18, 32, 46, 60 }, every = 4, hold = 0.5, hold_r8 = 0.75, after_shot = 0.8, back_time = 0.6 }
+    held_since = nil, reported = false, why = nil, quiet = 1.0, candidate = nil, lost = 0, started = -1000,
+    steps = { 18, 32, 46, 60 }, every = 4, confirm_every = 2, walk_every = 2, lost_max = 3, reach = 74,
+    hold = 0.5, hold_r8 = 0.75, after_shot = 0.8, back_time = 0.6 }
 local update_ai_peek
 do
     local MASK_PLAYERSOLID = 0x201400B
@@ -2788,7 +2863,7 @@ do
         return ok_ground and ground
     end
 
-    -- Dusmanin kafasi ve gogsu (hitbox okunamazsa goz ve govde ortasi).
+    -- Dusmanin kafasi, gogsu ve midesi (hitbox okunamazsa goz, govde ortasi ve bel).
     local function aim_points(enemy)
         local points = {}
         local ok_head, head = pcall(function() return enemy:get_hitbox_position(0) end)
@@ -2798,13 +2873,15 @@ do
         if ok_head and head ~= nil then
             points[#points + 1] = head
         end
-        local ok_chest, chest = pcall(function() return enemy:get_hitbox_position(5) end)
-        if not ok_chest or chest == nil then
-            local base = origin_of(enemy)
-            ok_chest, chest = base ~= nil, base ~= nil and vector(base.x, base.y, base.z + 50) or nil
-        end
-        if ok_chest and chest ~= nil then
-            points[#points + 1] = chest
+        for _, body in ipairs({ { 5, 50 }, { 3, 40 } }) do
+            local ok_body, point = pcall(function() return enemy:get_hitbox_position(body[1]) end)
+            if not ok_body or point == nil then
+                local base = origin_of(enemy)
+                ok_body, point = base ~= nil, base ~= nil and vector(base.x, base.y, base.z + body[2]) or nil
+            end
+            if ok_body and point ~= nil then
+                points[#points + 1] = point
+            end
         end
         return points
     end
@@ -2890,13 +2967,13 @@ do
         return found
     end
 
-    -- Bu noktadan (goz yuksekliginde) dusmana oldurecek / yeterli atis var mi.
-    local function spot_hits(lp, mine, spot, enemy)
-        local points = aim_points(enemy)
+    -- Bu noktadan (goz yuksekliginde) dusmana en iyi hasar ve gereken hasar.
+    local function spot_damage(lp, mine, spot, enemy)
+        local points, need = aim_points(enemy), required_damage(enemy)
         if #points == 0 then
-            return false
+            return 0, need
         end
-        return best_damage(lp, vector(spot.x, spot.y, spot.z + eye_height(lp, mine)), points) >= required_damage(enemy)
+        return best_damage(lp, vector(spot.x, spot.y, spot.z + eye_height(lp, mine)), points), need
     end
 
     -- Hedefe dogru tam hizla (son 12 birimde yavaslayarak) yurur; uzakligi dondurur.
@@ -2967,6 +3044,7 @@ do
     ai_peek.reset = function()
         ai_peek.mode, ai_peek.home, ai_peek.target, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
         ai_peek.held_since, ai_peek.reported, ai_peek.why, ai_peek.shot = nil, false, nil, false
+        ai_peek.candidate, ai_peek.lost = nil, 0
         override("peek_assist", nil)
     end
 
@@ -3056,6 +3134,8 @@ do
         else
             override("peek_assist", nil)
         end
+        -- Defensive ve AA hedefi icin: su an kime kendini gosteriyorsun.
+        exposure.peeking = (ai_peek.mode == "go" or ai_peek.mode == "hold") and ai_peek.enemy or nil
     end
 
     step = function(lp, cmd, class)
@@ -3099,9 +3179,11 @@ do
             return
         end
 
-        local due = tick < ai_peek.scan_tick or tick - ai_peek.scan_tick >= ai_peek.every
+        local walking = ai_peek.mode == "go" or ai_peek.mode == "hold"
+        local gap = walking and ai_peek.walk_every or (ai_peek.candidate ~= nil and ai_peek.confirm_every) or ai_peek.every
+        local due = tick < ai_peek.scan_tick or tick - ai_peek.scan_tick >= gap
         local hold = class == "Revolver" and ai_peek.hold_r8 or ai_peek.hold
-        if ai_peek.mode == "go" or ai_peek.mode == "hold" then
+        if walking then
             local enemy = peek_enemy()
             if enemy == nil or now > ai_peek.until_time then
                 give_up(cmd, mine, now, enemy == nil and "hedef yok" or "sure doldu")
@@ -3111,29 +3193,52 @@ do
                 ai_peek.scan_tick = tick
                 -- Once buradan / hedef noktadan hala oluyor mu; olmuyorsa yeniden taranir.
                 local result
-                if spot_hits(lp, mine, mine, enemy) then
+                local damage, need = spot_damage(lp, mine, mine, enemy)
+                if damage >= need then
                     result = "here"
-                elseif ai_peek.mode == "go" and ai_peek.target ~= nil and spot_hits(lp, mine, ai_peek.target, enemy) then
-                    result = { spot = ai_peek.target, side = ai_peek.side }
                 else
-                    result = scan(lp, mine, enemy)
+                    if ai_peek.mode == "go" and ai_peek.target ~= nil then
+                        local at_spot = spot_damage(lp, mine, ai_peek.target, enemy)
+                        damage = max(damage, at_spot)
+                        if at_spot >= need then
+                            result = { spot = ai_peek.target, side = ai_peek.side }
+                        end
+                    end
+                    result = result or scan(lp, mine, enemy)
                 end
-                if result == "here" then
+                -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir. Diger
+                -- taraf sayilmaz (yon degistirip gidip gelme olmasin), baslangictan reach
+                -- birimden uzak nokta da.
+                local why, far = nil, 0
+                if type(result) == "table" and result.side ~= ai_peek.side then
+                    why, result = "aci sadece diger tarafta", nil
+                elseif type(result) == "table" and ai_peek.home ~= nil then
+                    local fx, fy = result.spot.x - ai_peek.home.x, result.spot.y - ai_peek.home.y
+                    far = sqrt(fx * fx + fy * fy)
+                    if far > ai_peek.reach then
+                        why, result = ("aci %d birimden uzakta"):format(ai_peek.reach), nil
+                    end
+                end
+                if result == nil then
+                    -- Tek kotu tarama (dusmanin jitter'i) geri dondurmez; ust uste lost_max kez.
+                    ai_peek.lost = ai_peek.lost + 1
+                    if ai_peek.lost >= ai_peek.lost_max then
+                        give_up(cmd, mine, now, why or ("aci kapandi, hasar %d/%d"):format(floor(damage + 0.5), need))
+                        return
+                    end
+                elseif result == "here" then
                     -- Aci acildi: dur, aimbot ates etsin.
+                    ai_peek.lost = 0
                     if ai_peek.mode == "go" then
                         ai_peek.mode, ai_peek.until_time = "hold", now + hold
                     end
-                elseif result == nil then
-                    give_up(cmd, mine, now, "aci kapandi")
-                    return
-                elseif ai_peek.mode == "go" and result.side == ai_peek.side then
-                    -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir.
-                    ai_peek.target = result.spot
-                elseif ai_peek.mode == "go" then
-                    -- Bu tarafta artik olmuyor, sadece diger tarafta: yon degistirilmez (gidip
-                    -- gelme olmasin), geri donulur; oradan yeniden taranir.
-                    give_up(cmd, mine, now, "aci kapandi")
-                    return
+                else
+                    -- Beklerken aci kaydiysa (dusman yurudu) ayni tarafta ileri gidilir.
+                    if ai_peek.mode == "hold" then
+                        ai_peek.mode, ai_peek.until_time = "go", max(ai_peek.until_time, now + 0.25)
+                    end
+                    -- step: logda "gidildi / hedef" icin baslangictan hedefe uzaklik.
+                    ai_peek.lost, ai_peek.target, ai_peek.step = 0, result.spot, max(ai_peek.step, floor(far + 0.5))
                 end
             end
             if ai_peek.mode == "hold" then
@@ -3171,17 +3276,27 @@ do
         ai_peek.scan_tick = tick
         local result = scan(lp, mine, enemy)
         if type(result) ~= "table" then
+            ai_peek.candidate = nil
             ai_peek.why = result == "here" and ("%s buradan vurulabiliyor, aimbot ates etmeli"):format(player_name(enemy))
                 or ("%s icin 60 birime kadar oldurecek atis yok"):format(player_name(enemy))
             return
         end
+        -- Ilk taramada bulunan nokta teyit edilir: confirm_every tick sonra ayni dusmana ayni
+        -- tarafta yine bulunursa yurunur (tek taramalik gorus jitter / hareket olabilir).
+        local candidate = ai_peek.candidate
+        if candidate == nil or candidate.enemy ~= index or candidate.side ~= result.side
+            or tick - candidate.tick > 3 * ai_peek.confirm_every then
+            ai_peek.candidate = { enemy = index, side = result.side, tick = tick }
+            return
+        end
+        ai_peek.candidate = nil
         ai_peek.reported = true
         -- Baska bir dusmana gecildiyse bos peek sayisi o dusman icin bastan baslar.
         if index ~= ai_peek.enemy then
             ai_peek.fails = 0
         end
         ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
-        ai_peek.enemy, ai_peek.reached, ai_peek.step = index, 0, result.step
+        ai_peek.enemy, ai_peek.reached, ai_peek.step, ai_peek.lost = index, 0, result.step, 0
         aim_stats.ai_peeks = aim_stats.ai_peeks + 1
         ai_peek.until_time = now + 0.25 + result.step / 120
         move_to(cmd, mine, result.spot)
@@ -3699,7 +3814,7 @@ pcall(function()
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
                 body = effective("body_aim"), md = effective("min_damage"), health = prop(target, "m_iHealth"),
-                weapon = weapon_label(),
+                weapon = weapon_label() .. (effective("fakeduck") and " FD" or ""),
                 profile = enemy_watch.profile(target),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
                 hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack"),
