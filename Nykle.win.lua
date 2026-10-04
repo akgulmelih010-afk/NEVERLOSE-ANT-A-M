@@ -1,94 +1,45 @@
 --[[
-    ANT-A-M v4  |  Neverlose (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0  |  Neverlose (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
-    Kurar kurmaz calisir: butun varsayilanlar ayarlanmis halde gelir.
+    Kurar kurmaz calisir: butun varsayilanlar ayarlanmis halde gelir ("Always use recommended
+    settings" acik kaldikca her surumde en iyi bilinen degerler korunur).
+
+    V1.0 (eski adi ANT-A-M, v5.6'nin uzerine):
+      - Resolver v5.2'nin sade ve kararli mantigina donduruldu (v5.3'un sniper duzeltmesiyle).
+        Kaldirilanlar: dusman defensive'deyken atisi bekletme (ilk atisi geciktiriyordu), uzak
+        mesafede tek iskada Force safe point (atis kesiyordu), fake duck / uzak icin veri olmadan
+        Prefer, kendi fake duck'inda zorla Prefer.
+      - Resolver bizim numaralarimiza kanmaz: dusmanin defensive kaydina (sahte kayit) giden
+        correction iskasi ogrenilmez (safe point onu duzeltemez); jitter sadece gercek kayitlardan
+        olculur (hidden spin / random yaw jitter on bilgisini bozmaz).
+      - Menu bastan duzenlendi: Home / Anti-Aim / Exploits / Builder / Ragebot / Visuals sekmeleri,
+        ikonlar, aciklamalar; butun konsol loglari tek yerde.
 
     Neler var
-      - 13 durumlu builder: Global, Standing, Moving, Slow walk, Crouching,
-        Crouch move, Peek, Air, Air crouch, Fake duck + ozel durumlar Manual,
-        Freestanding, Safe head. Her durum kendi ayarlariyla gelir
-        ("Override" kapatilirsa o durum Global'in AA ayarlarini kullanir).
-      - Duruma ozel exploit: her durumda DT / HS secimi, defensive modu
-        (Off / On peek / Smart / Always on / Tick based) ve hidden pitch / yaw.
-        Hareket ederken ve havadayken "Smart": Neverlose'un "On Peek"ine ek olarak
-        tehdit kafani gormeye baslayinca (ya da 0.2 sn icinde gorecekse) defensive
-        zorlanir (gorus surdukce). Hide shots acikken hareket ettigin surece Break LC
-        (anti-backtrack: dusman eski kaydini vuramaz). Scout / AWP / R8'de Hide shots;
-        istersen "Auto (learn)": HS ile DT arasindan kafana daha az mermi yedigin.
-      - AI peek: Peek Assist tusunu basili tutup hareket tuslarina basmazsan script
-        yanlari tarar ve oldurecek atisin oldugu en yakin noktaya kendisi yurur;
-        yururken Neverlose'un Peek Assist'i kapatilir, atistan sonra script geri yurur.
-        Nokta iki taramada teyit edilir, yururken tek kotu tarama geri dondurmez, aci kayarsa
-        ayni tarafta takip edilir; yururken AA o dusmana doner ve DT defensive'i onceden baslar.
-        Baska bir dusmanin da kafani gorecegi noktaya gidilmez; dusman defensive'deyken aci
-        kaybi sayilmaz.
-        Her peek'in sonucu konsola yazilir.
-      - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
-        donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
-      - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
-        ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
-        (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
-        Her aimbot atisi konsola tek satir yazilir. Dusmanlarin defensive / LC kirma, fake duck'i
-        ve jitter'i izlenir: jitter'li ve fake duck yapan dusmana ilk atistan safe point "Prefer";
-        hedef defensive'deyken (kaydi sahte) aimbot gercek kaydi bekler (en fazla ~0.2 sn); DT'li
-        silahta defensive / fake duck yapan hedefe govde; uzaktaki (1500+) hedefe ilk atistan
-        "Prefer", tek iskada "Force". Resolver paneli (sadece yazi): hedefin canli cozum yuzdesi
-        ve isabet sansi, her tick; menu acikken fareyle tasinir ve buyutulur.
-      - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
-        AWP / R8'de biri kafani gorebiliyorken sadece oldurecek atis (Min. Damage 101 =
-        can + 1, Body Aim Prefer; hedeften bagimsiz); resolver bir dusmanda iki kez
-        yanildiysa (DT'li silahlarda) govde.
-      - Bicak / zeus tutan dusman yaklasinca, havadayken ve hareket ederken (0.15 sn) fake duck
-        birakilir; fake duck'ta safe point en az "Prefer" (her atis degerli); fake duck AA'si her
-        pakette rastgele yaw, desync miktari ve taraf.
-      - Kendi lag'imiz (zorlanan defensive, HS Break LC) sirasinda atislar sunucuda gecmezse o lag
-        10 sn durur; atis satirinda o anki lag (DEF / LC / FD) yazar.
-      - Hidden yaw "Random" (Sideways / Switch desync tarafini ele veriyordu); anti-brute'ta faz 5:
-        Neverlose'un body freestanding'iyle kafa duvar tarafinda. Scout / AWP / R8 exploit'i
-        senin maclarina gore ogrenilir (HS / DT). Her round basinda konsola round ozeti.
-      - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
-      - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
-        harita degisince ve oyun yeniden acilinca da kalir (Neverlose db, en fazla
-        64 oyuncu).
-      - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
-        Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
-        uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
-        yerine 3-5 aci arasinda donen X-Way yaw.
-      - Gorus tespiti (utils.trace_bullet): tehdit kafana (merkez ya da iki kenari) mermi gecirebiliyor mu,
-        simdi ve 0.2 sn sonra (senin ve dusmanin hareketiyle: sana peek atan dusman
-        gorunmeden yakalanir); ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
-      - Dusman peek'ine karsi defensive (dururken de) ve havada gorulunce teleport (sarj
-        dolunca tekrar, ziplama basina en fazla 5; inise 0.2 sn kala yok, DT inise dolu kalsin).
-      - Air lag: havada DT doluyken defensive her tick (surekli lag, hidden acilar); scout /
-        AWP / R8 havada DT'ye gecer ki lag ve teleport onlarda da calissin.
-      - Akilli AA hedefi: az once kafana ates eden dusmana (1 sn), Neverlose'un tehdidi
-        yoksa en yakin dusmana, tehdit gormuyor ama yandan biri goruyorsa ona gore
-        donulur. Yerinde dururken otomatik freestanding.
-        Hareket ederken gorus alanina girince otomatik
-        Peek durumu; safe head sadece kafa gercekten gorunurken; freestanding
-        kafayi saklayamadiysa normal jitter'a donus.
-      - Yaw / modifier / limit rastgeleligi; rastgele deger her flip'te bir kez
-        secilir, boylece bir paket icinde aci sabit kalir. Body yaw "Random": desync
-        tarafi her pakette rastgele (fake duck ve safe head'de varsayilan).
-      - Durum gecislerinde histerezis ve inis toleransi (titreme yok).
-      - Vuruldum / iska kaydi (konsol) ve durum basina istatistik paneli: hangi
-        durumda vuruldugunu gorup o durumu ayarlarsin.
-      - Kendi kendine ogrenen AA: her anti-brute fazinda kafana gelen mermiler yerde /
-        hareket / peek / havada ayri sayilir, verisi olmayan dusmanlar o grupta en az vurulan
-        fazla baslar (faz 4: yaw'dan bagimsiz rastgele desync tarafi).
-      - Mermi izine gore, dusman basina anti-bruteforce, safe head (bicak/zeus, yuksek zemin),
-        freestanding (hedef varsa) + devre disi kosullari, manuel yaw,
-        avoid backstab, use'a basinca legit AA, warmup / dusman yokken spin.
-      - Kapatinca ya da kaldirinca butun Neverlose ayarlarini geri verir.
-        Bulunamayan menu yolu ya da API olursa cokmez, o ozelligi atlar. Bir olay
-        fonksiyonu hata verirse hata bir kez konsola yazilir, script calismaya devam eder.
+      - 13 durumlu builder (Global, Standing, Moving, Slow walk, Crouching, Crouch move, Peek, Air,
+        Air crouch, Fake duck + Manual, Freestanding, Safe head); her durumun kendi AA'si ve
+        exploit'i (DT / HS, defensive modu, hidden pitch / yaw).
+      - Smart defensive (biri kafani gorunce / birazdan gorecekken), dusman peek'ine karsi defensive,
+        havada lag ve teleport, Hide shots'ta hareket ederken Break LC, safe recharge.
+      - AI peek: Peek Assist tusunu basili tut, script oldurecek atisin oldugu en yakin noktaya
+        yurur, atistan sonra geri doner.
+      - Adaptive resolver: Neverlose'un resolver'i bir dusmanda yanildikca sadece o dusmana ve o
+        hareket durumuna karsi safe point yukselir, isabetlerle iner. Smart body aim, sniper'da
+        sadece oldurecek atis.
+      - Kendi kendine ogrenen anti-bruteforce (5 faz), safe head, freestanding, manuel yaw, avoid
+        backstab, legit AA on use, fake duck korumalari.
+      - Resolver paneli (canli cozum yuzdesi ve isabet sansi), indikatorler, istatistikler, round
+        ozeti ve atis loglari.
+      - Ogrenilenler Steam ID ile Neverlose db'de kalir (harita / oyun degisince de).
+      - Kapatinca butun Neverlose ayarlarini geri verir; bulunamayan menu yolu ya da API olursa
+        cokmez, o ozelligi atlar.
 
-    Kurulum ve ayar tavsiyeleri icin README.md'ye bak.
+    Kurulum, ayarlar ve degisiklikler icin README.md'ye bak.
 ]]
 
-local SCRIPT = "ANT-A-M"
+local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.6"
+local VERSION = "1.0"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -182,7 +133,6 @@ local refs = {
     peek_assist     = find("Aimbot", "Ragebot", "Main", "Peek Assist"),
     safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
     min_damage      = find("Aimbot", "Ragebot", "Selection", "Min. Damage"),
-    hitboxes        = find("Aimbot", "Ragebot", "Selection", "Hitboxes"),
     body_aim        = find("Aimbot", "Ragebot", "Safety", "Body Aim"),
 }
 
@@ -311,20 +261,38 @@ local aim_stats = new_aim_stats()
 -- Menu
 -------------------------------------------------------------------------------
 
-pcall(ui.sidebar, SCRIPT, "shield")
+-- Basliklar: \f<ikon> Neverlose'un ikon fontu, \v tema rengi, \r normal renk. plain: loglar
+-- ve onerilen ayar raporlari icin bicimsiz ad. tip: aciklama (fareyle uzerine gelince).
+local style = {}
+style.title = function(icon, text)
+    return "\v\f<" .. icon .. ">\r  " .. text
+end
+style.plain = function(text)
+    local out = tostring(text):gsub("\a%x%x%x%x%x%x%x%x", ""):gsub("\a{[^}]*}", ""):gsub("\aDEFAULT", "")
+    out = out:gsub("\f<[^>]*>", ""):gsub("[\v\r]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    return out
+end
+style.tip = function(element, text)
+    if element ~= nil then
+        pcall(element.tooltip, element, text)
+    end
+    return element
+end
+
+pcall(ui.sidebar, SCRIPT, "crown")
 
 -- "Always use recommended settings": Neverlose lua ayarlarini config'e kaydeder; eski
 -- bir surumle kaydedilmis config eski varsayilanlari geri getirir. Bu yuzden AA,
 -- exploit ve builder ayarlarinin varsayilanlari kaydedilir ve acik oldugu surece bu
 -- degerlerde tutulur (ayar degistirmek icin kapat). Bind'lenen ayarlar (manual, freestanding, inverter),
--- builder'daki durum secici ve gorsel tercihler bu listeye girmez.
+-- builder'daki durum secici, loglar ve gorsel tercihler bu listeye girmez.
 local recommended = {}
 -- Log icin ayarin adinin onune eklenir (builder'da durum adi: "Fake duck Left limit").
 local label_prefix = ""
 
 local function remember(element, value, name)
     if element ~= nil then
-        recommended[#recommended + 1] = { element = element, value = value, label = label_prefix .. tostring(name) }
+        recommended[#recommended + 1] = { element = element, value = value, label = label_prefix .. style.plain(name) }
     end
     return element
 end
@@ -340,13 +308,33 @@ local function tracked(group)
     }
 end
 
-local g_main_raw    = ui.create("Anti-Aim", "Main", 1)
-local g_main        = tracked(g_main_raw)
-local g_defensive   = tracked(ui.create("Anti-Aim", "Exploits", 1))
-local g_builder_raw = ui.create("Anti-Aim", "Builder", 2)
-local g_builder     = tracked(g_builder_raw)
-local g_resolver    = tracked(ui.create("Resolver", "Resolver", 1))
-local g_visuals     = ui.create("Visuals", "Indicators", 1)
+-- Sekmeler: Home (script, hafiza, loglar), Anti-Aim, Exploits, Builder (durum basina AA ve
+-- exploit), Ragebot (resolver), Visuals. *_raw: onerilen ayarlara girmeyen (bind / tercih) gruplar.
+local grp = {}
+do
+    local TAB = { home = "\f<house>  Home", aa = "\f<shield-halved>  Anti-Aim", exploits = "\f<bolt>  Exploits",
+        builder = "\f<sliders>  Builder", rage = "\f<crosshairs>  Ragebot", visuals = "\f<eye>  Visuals" }
+    local function group(tab, icon, name, column)
+        return ui.create(tab, style.title(icon, name), column)
+    end
+    grp.info        = group(TAB.home, "crown", SCRIPT, 1)
+    grp.data        = group(TAB.home, "database", "Memory", 2)
+    grp.console     = group(TAB.home, "terminal", "Console", 2)
+    grp.aa_raw      = group(TAB.aa, "shield-halved", "Main", 1)
+    grp.aa          = tracked(grp.aa_raw)
+    grp.protect_raw = group(TAB.aa, "user-shield", "Protection", 2)
+    grp.protect     = tracked(grp.protect_raw)
+    grp.exploits    = tracked(group(TAB.exploits, "bolt", "Exploits", 1))
+    grp.peek        = tracked(group(TAB.exploits, "person-running", "Peek", 1))
+    grp.defensive   = tracked(group(TAB.exploits, "shield", "Defensive", 2))
+    grp.angles_raw  = group(TAB.builder, "sliders", "Angles", 1)
+    grp.angles      = tracked(grp.angles_raw)
+    grp.bexploit_raw = group(TAB.builder, "bolt", "State exploit", 2)
+    grp.bexploit    = tracked(grp.bexploit_raw)
+    grp.resolver    = tracked(group(TAB.rage, "crosshairs", "Resolver", 1))
+    grp.indicators  = group(TAB.visuals, "eye", "Indicators", 1)
+    grp.panel       = group(TAB.visuals, "chart-simple", "Resolver panel", 2)
+end
 
 local STATES = {
     "Global", "Standing", "Moving", "Slow walk", "Crouching", "Crouch move", "Peek", "Air", "Air crouch",
@@ -420,112 +408,155 @@ local HIDDEN_PITCHES = { "Off", "Down", "Up", "Zero", "Switch", "Random", "Custo
 local HIDDEN_YAWS = { "Off", "Sideways", "Spin", "Random", "Forward", "Custom" }
 
 local menu = {}
-menu.enabled        = g_main_raw:switch("Enable", true)
-menu.recommended    = g_main_raw:switch("Always use recommended settings", true)
-menu.pitch          = g_main:combo("Pitch", { "Down", "Disabled", "Fake Down", "Fake Up" })
-menu.yaw_base       = g_main:combo("Yaw base", { "At Target", "Local View" })
-menu.manual         = g_main_raw:combo("Manual yaw", { "Off", "Left", "Right", "Forward" })
-menu.freestanding   = g_main_raw:switch("Freestanding", false)
-local fs_gear       = tracked(menu.freestanding:create())
-menu.fs_air         = fs_gear:switch("Disable in air", true)
-menu.fs_crouch      = fs_gear:switch("Disable while crouching", false)
-menu.fs_slow        = fs_gear:switch("Disable while slow walking", false)
-menu.fs_moving      = fs_gear:switch("Disable while moving", false)
--- Freestanding tusun kapaliyken de ayakta / egilip dururken (aci tutarken) acilir: kafa
--- duvara donuk saklanir. Kafa yine de gorunuyorsa normal jitter'a donulur.
-menu.fs_auto        = fs_gear:switch("Auto when standing still", true)
-menu.inverter       = g_main_raw:switch("Static inverter", false)
-menu.safe_head      = g_main:switch("Safe head", true)
-local safe_gear     = tracked(menu.safe_head:create())
-menu.safe_knife     = safe_gear:switch("Knife/Zeus in air crouch", true)
-menu.safe_air       = safe_gear:switch("Any air crouch", false)
--- Yuksekte sabit kafa (yaw 0, desync 30) varsayilan kapali: v4.8 loglarinda alttaki dusman
--- kafani gorurken Safe head'de 5 kafa mermisinin 4'u isabet etti (gordu 0.00-0.03 sn).
--- Dusuk desync tam gorulurken kafayi ortaya getiriyordu; hareket durumunun AA'si kalir.
-menu.safe_high      = safe_gear:switch("High ground", false)
-menu.anti_brute     = g_main:switch("Anti-bruteforce", true)
-local brute_gear    = tracked(menu.anti_brute:create())
-menu.brute_reset    = brute_gear:slider("Reset after", 1, 15, 6, nil, "s")
-menu.brute_log      = brute_gear:switch("Console log", false)
-menu.avoid_backstab = g_main:switch("Avoid backstab", true)
+-- Home: script, hafiza ve loglar. Baslik satirlari menu tablosunda degil (Enable kapaliyken de
+-- gorunsun).
+style.header = grp.info:label(style.title("crown", ("%s  V%s"):format(SCRIPT, VERSION)))
+do
+    local ok, name = pcall(function() return common.get_username() end)
+    if ok and type(name) == "string" and name ~= "" then
+        style.user = grp.info:label(style.title("user", name))
+    end
+end
+menu.enabled        = style.tip(grp.info:switch(style.title("power-off", "Enable"), true),
+    "Kapatinca butun Neverlose ayarlarin geri verilir.")
+menu.recommended    = style.tip(grp.info:switch(style.title("wand-magic-sparkles", "Always use recommended settings"), true),
+    "Acikken AA, exploit, builder ve resolver ayarlari her surumde en iyi bilinen degerlerde tutulur. " ..
+    "Kendi ayarini denemek icin kapat.")
+menu.home_info      = grp.info:label("Ayarlara dokunmana gerek yok; binds: manual yaw, freestanding, inverter.")
+-- Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile harita degisince de
+-- kalir; bu dugme hepsini siler. Dugme API'si yoksa script'i dusurmesin.
+pcall(function()
+    menu.forget = style.tip(grp.data:button(style.title("trash-can", "Forget learned enemies"), function()
+        if forget_enemies ~= nil then
+            forget_enemies()
+        end
+    end, true), "Ogrenilen fazlari, resolver seviyelerini ve sniper verisini siler (db dahil).")
+end)
+pcall(function()
+    menu.stats_reset = grp.data:button(style.title("rotate-left", "Reset stats"), function()
+        stats, pending_misses, aim_stats = {}, {}, new_aim_stats()
+    end, true)
+end)
+-- Konsol loglari tek yerde (tercih; onerilen ayarlara girmez). Resolver ve AA'yi verilerle
+-- ayarlamak icin: resolver seviyesi, her aimbot atisi, vuruldun / iska ve round ozeti, anti-brute fazi.
+menu.resolver_log   = style.tip(grp.console:switch(style.title("crosshairs", "Resolver log"), true),
+    "Resolver seviyesi degisince ve jitter on bilgisinde tek satir.")
+menu.shot_log       = style.tip(grp.console:switch(style.title("gun", "Shot log"), true),
+    "Her aimbot atisi: hedef, sonuc, safe point, body aim, backtrack, hit chance, dusmanin AA'si. AI peek loglari da.")
+menu.hit_log        = style.tip(grp.console:switch(style.title("heart-crack", "Hit log"), true),
+    "Vuruldun / iska satirlari, round ozeti, teleport ve fake duck notlari.")
+menu.brute_log      = grp.console:switch(style.title("arrows-rotate", "Anti-brute log"), false)
+
+-- Anti-Aim
+menu.pitch          = grp.aa:combo(style.title("arrows-up-down", "Pitch"), { "Down", "Disabled", "Fake Down", "Fake Up" })
+menu.yaw_base       = grp.aa:combo(style.title("compass", "Yaw base"), { "At Target", "Local View" })
+menu.manual         = grp.aa_raw:combo(style.title("arrows-left-right", "Manual yaw"), { "Off", "Left", "Right", "Forward" })
+menu.inverter       = grp.aa_raw:switch(style.title("repeat", "Static inverter"), false)
+menu.avoid_backstab = grp.aa:switch(style.title("person-falling", "Avoid backstab"), true)
+menu.legit_use      = style.tip(grp.aa:switch(style.title("hand-pointer", "Legit AA on use"), true),
+    "E'ye basili tutarken AA devam eder (bomba / rehine yaninda karisilmaz).")
+menu.spin           = style.tip(grp.aa:switch(style.title("rotate", "Spin when idle"), true),
+    "Canli dusman yokken (istersen warmup'ta) spin.")
+do
+    local gear = tracked(menu.spin:create())
+    -- HvH sunucularinda warmup'ta da savasiliyor, o yuzden varsayilan kapali.
+    menu.spin_warmup  = gear:switch("Warmup", false)
+    menu.spin_enemies = gear:switch("No enemies alive", true)
+    menu.spin_pitch   = gear:combo("Pitch", { "Disabled", "Down" })
+    menu.spin_speed   = gear:slider("Speed", 1, 20, 6)
+end
+menu.freestanding   = grp.protect_raw:switch(style.title("arrows-turn-to-dots", "Freestanding"), false)
+do
+    local gear = tracked(menu.freestanding:create())
+    menu.fs_air     = gear:switch("Disable in air", true)
+    menu.fs_crouch  = gear:switch("Disable while crouching", false)
+    menu.fs_slow    = gear:switch("Disable while slow walking", false)
+    menu.fs_moving  = gear:switch("Disable while moving", false)
+    -- Freestanding tusun kapaliyken de ayakta / egilip dururken (aci tutarken) acilir: kafa
+    -- duvara donuk saklanir. Kafa yine de gorunuyorsa normal jitter'a donulur.
+    menu.fs_auto    = gear:switch("Auto when standing still", true)
+end
+menu.safe_head      = style.tip(grp.protect:switch(style.title("helmet-safety", "Safe head"), true),
+    "Bicak / zeus ile havada egilirken (istersen yuksekte) kafa sabit ve az desync.")
+do
+    local gear = tracked(menu.safe_head:create())
+    menu.safe_knife = gear:switch("Knife/Zeus in air crouch", true)
+    menu.safe_air   = gear:switch("Any air crouch", false)
+    -- Yuksekte sabit kafa (yaw 0, desync 30) varsayilan kapali: v4.8 loglarinda alttaki dusman
+    -- kafani gorurken Safe head'de 5 kafa mermisinin 4'u isabet etti (gordu 0.00-0.03 sn).
+    -- Dusuk desync tam gorulurken kafayi ortaya getiriyordu; hareket durumunun AA'si kalir.
+    menu.safe_high  = gear:switch("High ground", false)
+end
+menu.anti_brute     = style.tip(grp.protect:switch(style.title("shuffle", "Anti-bruteforce"), true),
+    "Kafana gelen her mermide faz degisir; en az vuruldugun faz ogrenilir ve dusman basina hatirlanir.")
+do
+    local gear = tracked(menu.anti_brute:create())
+    menu.brute_reset = gear:slider("Reset after", 1, 15, 6, nil, "s")
+end
 -- Fake duck'ta egik ve yavassin, DT/HS calismaz. Bicak / zeus tutan bir dusman
 -- yaklasinca fake duck birakilir; uzaklasinca senin tusun yine gecerli olur.
-menu.fd_guard       = g_main:switch("Release fake duck near knife", true)
+menu.fd_guard       = grp.protect:switch(style.title("user-ninja", "Release fake duck near knife"), true)
 -- Havadayken ve hareket ederken fake duck'in faydasi yok, sadece DT/HS'yi kapatir: v4.9-v5.0
 -- loglarinda kafa olumlerinin cogu "Fake duck | FD, DT %0 (bind)" idi (havada FD de vardi;
 -- fake duck egilme tusuna bagli olabilir). Yerinde dururken fake duck aynen calisir.
-menu.fd_still       = g_main:switch("Fake duck only when standing still", true)
-menu.legit_use      = g_main:switch("Legit AA on use", true)
-menu.spin           = g_main:switch("Spin when idle", true)
-local spin_gear     = tracked(menu.spin:create())
--- HvH sunucularinda warmup'ta da savasiliyor, o yuzden varsayilan kapali.
-menu.spin_warmup    = spin_gear:switch("Warmup", false)
-menu.spin_enemies   = spin_gear:switch("No enemies alive", true)
-menu.spin_pitch     = spin_gear:combo("Pitch", { "Disabled", "Down" })
-menu.spin_speed     = spin_gear:slider("Speed", 1, 20, 6)
+menu.fd_still       = grp.protect:switch(style.title("person", "Fake duck only when standing still"), true)
 
-menu.auto_exploit = g_defensive:switch("Auto exploit", true)
--- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
--- peek assist tusu olmadan da Peek durumuna gecilir.
-menu.auto_peek    = g_defensive:switch("Auto peek", true)
--- Peek Assist tusu basiliyken (hareket tuslarina basmadan) script yanlari tarar, oradan
--- dusmani vurabilecegin en yakin noktaya kendisi yurur (bkz. ai_peek).
-menu.ai_peek      = g_defensive:switch("AI peek (hold Peek Assist)", true)
--- AI peek yururken / beklerken DT defensive'i zorlanir: dusman seni gormeden lag baslar.
-menu.peek_defensive = g_defensive:switch("Defensive during AI peek", true)
--- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
--- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
-menu.anti_peek    = g_defensive:switch("Defensive vs enemy peeks", true)
--- Havadayken bir dusman kafani gorunce DT ile isinlanilir (ziplama basina bir kez).
-menu.air_teleport = g_defensive:switch("Teleport in air when seen", true)
--- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
--- hidden acilar (spin). "Havada lag olmuyor": Smart sadece biri seni gorunce zorluyordu.
-menu.air_lag      = g_defensive:switch("Air lag (defensive every tick)", true)
--- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots): Neverlose'un lua'dan
--- defensive zorlamasi ve teleport'u DT ister; HS ile havada lag olmuyordu.
-menu.sniper_air_dt = g_defensive:switch("Snipers use DT in the air", true)
+-- Exploits
+menu.auto_exploit   = style.tip(grp.exploits:switch(style.title("bolt", "Auto exploit"), true),
+    "Her durumun DT / HS secimi Builder'dan; kapaliyken senin bind'lerin.")
 -- Scout / AWP / R8'de exploit. "Auto (learn)" (varsayilan, v5.6): kafana gelen mermilere gore
 -- HS / DT secer, once HS, en az 4 mermi gormeden degistirmez (bkz. sniper). v4.7-v5.5'te HS
 -- sabitti: v4.6'da DT'ye gecince atistan hemen sonra vuruluyordun, v5.3-v5.5 loglarinda HS
 -- ile de peek'te ve atistan 0.06-0.14 sn sonra kafadan vurulmalar surdu; hangisi daha iyi,
 -- senin maclarindaki veri karar verir. "Hide shots": hep HS. "Same as state": durumun exploit'i.
-menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Auto (learn)", "Hide shots", "Same as state" })
+menu.sniper_exploit = style.tip(grp.exploits:combo(style.title("bullseye", "Snipers (SSG08/AWP/R8)"),
+    { "Auto (learn)", "Hide shots", "Same as state" }),
+    "Auto: kafana daha az mermi yedigin exploit (once HS, en az 4 mermiden sonra karar).")
 -- DT / HS atistan ya da fake duck'tan sonra yeniden sarj olurken oyuncu sunucuda yerinde
 -- donar. Tehdit kafani goruyorken sarj bekletilir, siperin arkasina gecince dolar.
-menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
-menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
-menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
+menu.safe_recharge  = style.tip(grp.exploits:switch(style.title("battery-half", "Safe recharge"), true),
+    "Biri kafani goruyorken DT sarji bekletilir (sarj olurken yerinde donarsin), siperde dolar.")
+menu.hidden_spin    = grp.exploits:slider(style.title("rotate", "Hidden spin speed"), 1, 30, 10)
+menu.exploit_info   = grp.exploits:label("Per-state exploit settings are in the Builder.")
+-- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
+-- peek assist tusu olmadan da Peek durumuna gecilir.
+menu.auto_peek      = style.tip(grp.peek:switch(style.title("eye", "Auto peek"), true),
+    "Hareket ederken gorus alanina girince Peek durumu (tus gerekmez).")
+-- Peek Assist tusu basiliyken (hareket tuslarina basmadan) script yanlari tarar, oradan
+-- dusmani vurabilecegin en yakin noktaya kendisi yurur (bkz. ai_peek).
+menu.ai_peek        = style.tip(grp.peek:switch(style.title("robot", "AI peek (hold Peek Assist)"), true),
+    "Peek Assist tusunu basili tut, hareket tuslarina basma: oldurecek atisin oldugu en yakin noktaya yurur.")
+-- AI peek yururken / beklerken DT defensive'i zorlanir: dusman seni gormeden lag baslar.
+menu.peek_defensive = grp.peek:switch(style.title("shield-halved", "Defensive during AI peek"), true)
+-- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
+-- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
+menu.anti_peek      = style.tip(grp.defensive:switch(style.title("shield", "Defensive vs enemy peeks"), true),
+    "Aci tutarken sana peek atan dusman gorunmeden defensive baslar.")
+-- Havadayken bir dusman kafani gorunce DT ile isinlanilir (sarj dolunca tekrar).
+menu.air_teleport   = grp.defensive:switch(style.title("person-running", "Teleport in air when seen"), true)
+-- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
+-- hidden acilar (spin). "Havada lag olmuyor": Smart sadece biri seni gorunce zorluyordu.
+menu.air_lag        = grp.defensive:switch(style.title("cloud", "Air lag (defensive every tick)"), true)
+-- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots): Neverlose'un lua'dan
+-- defensive zorlamasi ve teleport'u DT ister; HS ile havada lag olmuyordu.
+menu.sniper_air_dt  = grp.defensive:switch(style.title("crosshairs", "Snipers use DT in the air"), true)
 
--- Neverlose'un kendi resolver'i acilari cozmeye devam eder. Bu katman, bir dusmana
+-- Ragebot. Neverlose'un kendi resolver'i acilari cozmeye devam eder. Bu katman, bir dusmana
 -- resolver yuzunden ("correction") iska gectikce sadece o dusmana karsi safe point'i
 -- yukseltir; isabetler geldikce geri indirir.
-menu.resolver      = g_resolver:switch("Adaptive resolver", true)
-menu.resolver_log  = g_resolver:switch("Console log", true)
+menu.resolver       = style.tip(grp.resolver:switch(style.title("brain", "Adaptive resolver"), true),
+    "Correction iskasinda sadece o dusmana ve o hareket durumuna karsi safe point: 1 iska Prefer, 2 iska Force.")
 -- Body Aim'i hedefe gore secer: govde olduruyorsa (tek mermi ya da DT ile iki) govde,
 -- scout / AWP / R8'de govde oldurmuyorsa kafa, resolver iki kez yanildiysa govde.
-menu.smart_baim    = g_resolver:switch("Smart body aim", true)
+menu.smart_baim     = style.tip(grp.resolver:switch(style.title("person-rays", "Smart body aim"), true),
+    "Govde olduruyorsa govde (tek mermi ya da DT ile iki); resolver iki kez yanildiysa govde.")
 -- Scout / AWP / R8'de minimum hasar hedefin canina cekilir: aimbot sadece oldurecek yere
 -- ates eder. Tam canli dusmanda bu kafa demek; govde ancak olduruyorsa vurulur.
-menu.head_only     = g_resolver:switch("Head unless body kills (snipers)", true)
--- Fake duck'ta DT yok ve atis ancak ~0.2 sn'de bir gelir (egilip kalkma dongusu): her atis
--- degerli. Safe point en az "Prefer" (resolver'in acisindan bagimsiz noktalar once).
-menu.fd_safe       = g_resolver:switch("Safe points while fake ducking", true)
--- Hedef defensive'deyken (kaydi sahte) aimbot'un ates etmesi beklenir (bkz. resolver.wait).
-menu.def_wait      = g_resolver:switch("Wait out enemy defensive", true)
--- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
-menu.shot_log      = g_resolver:switch("Shot log (console)", true)
-menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
--- Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile harita degisince de
--- kalir; bu dugme hepsini siler.
-pcall(function()
-    menu.forget = g_resolver:button("Forget learned enemies", function()
-        if forget_enemies ~= nil then
-            forget_enemies()
-        end
-    end, true)
-end)
+menu.head_only      = style.tip(grp.resolver:switch(style.title("skull", "Head unless body kills (snipers)"), true),
+    "Biri seni gorebiliyorken scout / AWP / R8 sadece oldurecek atisa ates eder (Min. Damage can + 1).")
+menu.resolver_info  = grp.resolver:label("Raises safe points per enemy after resolver misses.")
 
-menu.state = g_builder_raw:combo("State", STATES)
+menu.state = grp.angles_raw:combo(style.title("list", "State"), STATES)
 
 local AA_KEYS = {
     yaw_mode = true, yaw_left = true, yaw_right = true, ways = true,
@@ -542,28 +573,28 @@ for i, state in ipairs(STATES) do
     local special = i > MOVEMENT_STATES
     local s = {}
     if SPECIAL_INFO[state] ~= nil then
-        s.info = g_builder:label(SPECIAL_INFO[state])
+        s.info = grp.angles:label(SPECIAL_INFO[state])
     end
     if i > 1 and not special then
-        s.override = g_builder:switch("Override", true)
+        s.override = grp.angles:switch("Override", true)
     end
     -- L&R: desync tarafina gore iki aci. X-Way: her flip'te siradaki aciya gecer;
     -- desync her flip'te taraf degistirdigi icin aci/taraf eslesmesi surekli kayar.
-    s.yaw_mode      = g_builder:combo("Yaw mode", { "L&R", "X-Way" })
-    s.yaw_left      = g_builder:slider("Yaw left", -180, 180, d[1], nil, DEG)
-    s.yaw_right     = g_builder:slider("Yaw right", -180, 180, d[2], nil, DEG)
-    s.ways          = g_builder:slider("Ways", 3, 5, 3)
+    s.yaw_mode      = grp.angles:combo("Yaw mode", { "L&R", "X-Way" })
+    s.yaw_left      = grp.angles:slider("Yaw left", -180, 180, d[1], nil, DEG)
+    s.yaw_right     = grp.angles:slider("Yaw right", -180, 180, d[2], nil, DEG)
+    s.ways          = grp.angles:slider("Ways", 3, 5, 3)
     for n = 1, 5 do
-        s["way" .. n] = g_builder:slider("Way " .. n, -180, 180, WAY_DEFAULTS[n], nil, DEG)
+        s["way" .. n] = grp.angles:slider("Way " .. n, -180, 180, WAY_DEFAULTS[n], nil, DEG)
     end
     -- Fake duck: paket ~14 tick bogulu, dusman her pakette tek kayit gorur. Her pakette rastgele
     -- yaw (20) ve desync miktari (10) + rastgele taraf: v5.3-v5.4 loglarinda fake duck'ta kafadan
     -- vurulmalar surdu; sabit yaw'da tek bilinmeyen desync tarafiydi.
     local fd_state = state == "Fake duck"
-    s.yaw_random    = g_builder:slider("Yaw randomize", 0, 30, fd_state and 20 or 0, nil, DEG)
-    s.modifier      = g_builder:combo("Yaw modifier", MODIFIERS)
+    s.yaw_random    = grp.angles:slider("Yaw randomize", 0, 30, fd_state and 20 or 0, nil, DEG)
+    s.modifier      = grp.angles:combo("Yaw modifier", MODIFIERS)
     s.mod_random    = tracked(s.modifier:create()):slider("Randomize", 0, 60, 0, nil, DEG)
-    s.mod_offset    = g_builder:slider("Modifier offset", -180, 180, 0, nil, DEG)
+    s.mod_offset    = grp.angles:slider("Modifier offset", -180, 180, 0, nil, DEG)
     -- Combo varsayilani ilk eleman oldugu icin ozel durumlarda Static basta.
     -- Random: desync tarafi her paket dongusunde (Jitter delay kadar) rastgele secilir; Jitter
     -- gibi sirayla donmez, tahmin edilecek bir desen yoktur. Fake duck ve Safe head'de
@@ -577,7 +608,7 @@ for i, state in ipairs(STATES) do
     else
         body_items = { "Jitter", "Static", "Random", "Off" }
     end
-    s.body_yaw      = g_builder:combo("Body yaw", body_items)
+    s.body_yaw      = grp.angles:combo("Body yaw", body_items)
     local body_gear = tracked(s.body_yaw:create())
     s.avoid_overlap = body_gear:switch("Avoid overlap", false)
     s.body_fs       = body_gear:combo("Freestanding",
@@ -587,47 +618,46 @@ for i, state in ipairs(STATES) do
     -- donuste 0-1 paket rastgele bekleme bu kati sirayi bozar. Sadece DT/HS aktifken.
     s.delay_random  = body_gear:slider("Delay randomize", 0, 5, static_default and 0 or 1, nil, "t")
     s.limit_random  = body_gear:slider("Limit randomize", 0, 30, fd_state and 10 or 0, nil, DEG)
-    s.delay         = g_builder:slider("Jitter delay", 1, 10, d[3], nil, "t")
-    s.left_limit    = g_builder:slider("Left limit", 0, 60, d[4], nil, DEG)
-    s.right_limit   = g_builder:slider("Right limit", 0, 60, d[5], nil, DEG)
+    s.delay         = grp.angles:slider("Jitter delay", 1, 10, d[3], nil, "t")
+    s.left_limit    = grp.angles:slider("Left limit", 0, 60, d[4], nil, DEG)
+    s.right_limit   = grp.angles:slider("Right limit", 0, 60, d[5], nil, DEG)
 
     local e = EXPLOIT_DEFAULTS[state]
     if e ~= nil then
-        s.exploit_label      = g_builder:label("Exploit")
-        s.exploit            = g_builder:combo("Exploit", default_first(EXPLOITS, e[1]))
-        s.def_mode           = g_builder:combo("Defensive", default_first(DEF_MODES, e[2]))
-        s.def_ticks          = g_builder:slider("Defensive every", 2, 22, 14, nil, "t")
-        s.hidden_pitch       = g_builder:combo("Hidden pitch", default_first(HIDDEN_PITCHES, e[3]))
-        s.hidden_pitch_value = g_builder:slider("Pitch value", -89, 89, 0, nil, DEG)
-        s.hidden_yaw         = g_builder:combo("Hidden yaw", default_first(HIDDEN_YAWS, e[4]))
-        s.hidden_yaw_value   = g_builder:slider("Yaw value", -180, 180, 90, nil, DEG)
+        s.exploit_label      = grp.bexploit:label(style.title("bolt", state))
+        s.exploit            = grp.bexploit:combo("Exploit", default_first(EXPLOITS, e[1]))
+        s.def_mode           = grp.bexploit:combo("Defensive", default_first(DEF_MODES, e[2]))
+        s.def_ticks          = grp.bexploit:slider("Defensive every", 2, 22, 14, nil, "t")
+        s.hidden_pitch       = grp.bexploit:combo("Hidden pitch", default_first(HIDDEN_PITCHES, e[3]))
+        s.hidden_pitch_value = grp.bexploit:slider("Pitch value", -89, 89, 0, nil, DEG)
+        s.hidden_yaw         = grp.bexploit:combo("Hidden yaw", default_first(HIDDEN_YAWS, e[4]))
+        s.hidden_yaw_value   = grp.bexploit:slider("Yaw value", -180, 180, 90, nil, DEG)
     end
     builder[state] = s
 end
 label_prefix = ""
+-- Global ve Fake duck'in exploit ayari yok (Global AA'yi paylasir, fake duck'ta DT/HS calismaz).
+menu.no_exploit = grp.bexploit_raw:label("This state has no exploit settings (Global shares AA only, " ..
+    "fake duck turns DT/HS off).")
 
-menu.indicators  = g_visuals:switch("Crosshair indicators", true)
+-- Visuals (tercih; onerilen ayarlara girmez).
+menu.indicators  = grp.indicators:switch(style.title("crosshairs", "Crosshair indicators"), true)
 menu.accent      = menu.indicators:color_picker(color(150, 190, 255, 255))
-menu.arrows      = g_visuals:switch("Manual arrows", true)
+menu.arrows      = grp.indicators:switch(style.title("arrows-left-right", "Manual arrows"), true)
 menu.arrow_color = menu.arrows:color_picker(color(150, 190, 255, 255))
-menu.hit_log     = g_visuals:switch("Hit log (console)", true)
-menu.stats_panel = g_visuals:switch("Stats panel", false)
+menu.stats_panel = style.tip(grp.indicators:switch(style.title("table-list", "Stats panel"), false),
+    "Durum basina vurulma / kafa / iska, DT ve defensive orani, AI peek ve faz istatistikleri.")
 -- Resolver paneli: her dusman icin resolver'in onu ne kadar cozdugu (resolver'a bagli isabet /
 -- (isabet + correction iskasi)). Menu acikken fareyle tutup tasinir, sag alt kosesinden cekilerek
 -- buyutulur; yeri (ekranin binde biri) ve boyutu config'e kaydedilir.
-menu.res_panel   = g_visuals:switch("Resolver panel", true)
+menu.res_panel   = style.tip(grp.panel:switch(style.title("chart-simple", "Resolver panel"), true),
+    "Hedefin canli cozum yuzdesi ve isabet sansi. Menu acikken fareyle tasi, sag alt kosesinden buyut.")
 do
     local gear = menu.res_panel:create()
     menu.panel_size = gear:slider("Size", 70, 200, 100, nil, "%")
     menu.panel_x    = gear:slider("Position X", 0, 1000, 12)
     menu.panel_y    = gear:slider("Position Y", 0, 1000, 330)
 end
--- Dugme API'si yoksa script'i dusurmesin; sadece sifirlama dugmesi olmaz.
-pcall(function()
-    menu.stats_reset = g_visuals:button("Reset stats", function()
-        stats, pending_misses, aim_stats = {}, {}, new_aim_stats()
-    end, true)
-end)
 
 local function update_visibility()
     local on = menu.enabled:get()
@@ -639,8 +669,10 @@ local function update_visibility()
     menu.accent:visibility(on and menu.indicators:get())
     menu.arrow_color:visibility(on and menu.arrows:get())
     menu.sniper_exploit:visibility(on and menu.auto_exploit:get())
+    menu.peek_defensive:visibility(on and menu.ai_peek:get())
 
     local selected = menu.state:get()
+    menu.no_exploit:visibility(on and builder[selected] ~= nil and builder[selected].def_mode == nil)
     for _, state in ipairs(STATES) do
         local s = builder[state]
         local shown = on and state == selected
@@ -686,7 +718,7 @@ local function update_visibility()
     end
 end
 
-for _, element in ipairs({ menu.enabled, menu.auto_exploit, menu.indicators, menu.arrows, menu.state }) do
+for _, element in ipairs({ menu.enabled, menu.auto_exploit, menu.ai_peek, menu.indicators, menu.arrows, menu.state }) do
     element:set_callback(update_visibility)
 end
 for _, s in pairs(builder) do
@@ -1417,6 +1449,7 @@ end
 local MEMORY_LIMIT = 64
 -- Ogrenilenler oyun kapaninca da kalsin diye Neverlose'un db deposuna yazilir (asagida
 -- persist.save / persist.load). dirty = son yazmadan beri yeni bir sey ogrenildi.
+-- Anahtar eski adla (ANT-A-M) kaldi: v5.x'te ogrenilenler V1.0'a aynen gecer.
 local persist = { key = "ant_a_m_memory", every = 60, dirty = false, saved = -huge }
 
 local function entity_key(ent)
@@ -1688,8 +1721,8 @@ end
 --             kaydirma: defensive / hidden AA). O anki kayit dusmanin gercek acisi degil.
 --  lc: iki guncelleme arasinda 64 birimden fazla yer degistirdi (lag compensation kirildi,
 --      eski kayitlara backtrack gecersiz).
---  jitter: son `samples` guncelleme arasindaki ortalama yaw degisimi (derece); jitter ya
---          da spin AA. En az 4 guncellemeden sonra hesaplanir.
+--  jitter: son `samples` gercek (defensive olmayan) guncelleme arasindaki ortalama yaw degisimi
+--          (derece); jitter ya da spin AA. En az 4 guncellemeden sonra hesaplanir.
 -- Bayraklar `hold` tick gecerli kalir: atis sonucu ~0.05-0.3 sn sonra gelir.
 -- jitter_prior: bu kadar jitter'li ve o durumda hic sonucu olmayan dusmana ilk atistan
 -- "Prefer" (iska beklenmez). Karar jitter_memory sn hatirlanir: loglarda ayni dusmanin
@@ -1750,7 +1783,8 @@ do
                     if t == nil or abs(sim - t.max_sim) > 1 then
                         enemy_watch.list[index] = fresh(sim, enemy)
                     elseif sim ~= t.sim then
-                        if sim < t.max_sim then
+                        local fake = sim < t.max_sim
+                        if fake then
                             t.def_tick = now
                         else
                             t.max_sim = sim
@@ -1770,14 +1804,20 @@ do
                                 t.lc_tick = now
                             end
                         end
+                        -- Jitter sadece gercek kayitlardan: defensive kaydindaki aci hidden yaw'dir
+                        -- (spin / random; bizim de kullandigimiz numara) ve jitter on bilgisini
+                        -- bozuyordu. Gercek kayit son gercek kayitla karsilastirilir.
                         local yaw = eye_yaw(enemy)
-                        if yaw ~= nil and t.yaw ~= nil then
-                            t.deltas[#t.deltas + 1] = abs((yaw - t.yaw + 180) % 360 - 180)
-                            if #t.deltas > enemy_watch.samples then
-                                table.remove(t.deltas, 1)
+                        if not fake then
+                            if yaw ~= nil and t.yaw ~= nil then
+                                t.deltas[#t.deltas + 1] = abs((yaw - t.yaw + 180) % 360 - 180)
+                                if #t.deltas > enemy_watch.samples then
+                                    table.remove(t.deltas, 1)
+                                end
                             end
+                            t.yaw = yaw
                         end
-                        t.sim, t.origin, t.yaw = sim, origin, yaw
+                        t.sim, t.origin = sim, origin
                     end
                 end
             end
@@ -1923,11 +1963,7 @@ local function resolver_target()
     return brute_target()
 end
 
--- Seviye, anahtar, durum, kayit ve seviyenin jitter on bilgisinden gelip gelmedigi.
--- Dusmanin o durumda hic sonucu yoksa ve AA'si jitter'liyse (ortalama yaw degisimi
--- jitter_prior derece ve ustu) ilk atistan "Prefer": Neverlose'un resolver'i jitter'da en
--- cok yanilir ve iska beklemek bir atis kaybettirir. O durumda ilk sonuc gelince veri gecer.
--- Bizden hedefe uzaklik (birim); okunamazsa nil.
+-- Bizden hedefe uzaklik (birim); okunamazsa nil. Sadece resolver paneli icin.
 resolver.distance = function(target)
     local lp = entity.get_local_player()
     local mine, theirs = lp ~= nil and origin_of(lp) or nil, origin_of(target)
@@ -1938,10 +1974,13 @@ resolver.distance = function(target)
     return sqrt(dx * dx + dy * dy + dz * dz)
 end
 
--- Uzaktaki dusman (FAR_RANGE birimden uzak): kafa kucuk, acidaki kucuk bir hata iska.
--- Veri yokken de ilk atistan "Prefer", tek resolver iskasinda "Force" (yakinda iki iska).
-local FAR_RANGE = 1500
-
+-- Seviye, anahtar, durum, kayit ve seviyenin jitter on bilgisinden gelip gelmedigi.
+-- Dusmanin o durumda hic sonucu yoksa ve AA'si jitter'liyse (ortalama yaw degisimi
+-- jitter_prior derece ve ustu) ilk atistan "Prefer": Neverlose'un resolver'i jitter'da en
+-- cok yanilir ve iska beklemek bir atis kaybettirir. O durumda ilk sonuc gelince veri gecer.
+-- V1.0: v5.2'nin kurali. v5.5-v5.6'da fake duck ve uzak (1500+) dusmana da veri olmadan
+-- "Prefer", uzakta tek iskada "Force" veriliyordu: Force safe point bulunamayinca atis hic
+-- gelmiyordu ve resolver her surumde daha kotu hissettirdi; kaldirildi.
 local function resolver_level(target)
     if target == nil then
         return 0
@@ -1964,26 +2003,13 @@ local function resolver_level(target)
     end
     local seen = key ~= nil and resolver.jittery[key] or nil
     local jittery = seen ~= nil and now >= seen and now - seen <= enemy_watch.jitter_memory
-    local far = resolver.distance(target)
-    far = far ~= nil and far >= FAR_RANGE and far or nil
-    resolver.far = far ~= nil
-    -- Uzakta tek iska yeter: kafa kucuk, resolver'in kucuk hatasi bile iska.
-    if far ~= nil and level == 1 and data then
-        level = 2
-    end
-    -- Fake duck yapan dusmanin kafa yuksekligi kayittan kayda degisir, uzaktaki dusmanin kafasi
-    -- kucuk: onlar da jitter gibi ilk atistan "Prefer".
-    if not data and level < 1 and (jittery or state == "Fakeduck" or far ~= nil) then
+    if not data and level < 1 and jittery then
         level, prior = 1, true
         if key ~= nil and not resolver.prior_logged[key] and menu.resolver_log:get() then
             resolver.prior_logged[key] = true
-            local what = far ~= nil and ("uzakta (%d birim)"):format(floor(far)) or "fake duck"
-            if jittery then
-                local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
-                what = "jitter" .. amount
-            end
-            print(("[%s] resolver: %s %s -> safe points Prefer (veri yok, on bilgi)"):format(
-                SCRIPT, player_name(target), what))
+            local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
+            print(("[%s] resolver: %s jitter%s -> safe points Prefer (veri yok, on bilgi)"):format(
+                SCRIPT, player_name(target), amount))
         end
     end
     return level, key, state, entry, prior
@@ -2066,7 +2092,6 @@ end
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0, rand_side = false }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false, lc = false,
-    waiting = false, res_far = false,
     brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
     head_only = false }
 
@@ -2094,54 +2119,20 @@ local function apply_resolver()
         raw, key, state, entry, prior = resolver_level(target)
         level = stall_level(raw, key, state, entry)
     end
-    current.resolver, current.res_state, current.res_prior, current.res_far = level, state, prior == true, resolver.far
-    local safe = level
-    if menu.fd_safe:get() and effective("fakeduck") then
-        safe = max(safe, 1)
-    end
-    if safe > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
-        override("safe_points", SAFE_POINT_LEVELS[safe])
+    current.resolver, current.res_state, current.res_prior = level, state, prior == true
+    -- V1.0: kendi fake duck'inda zorla "Prefer" (v5.4) kaldirildi; seviye sadece dusmana gore.
+    if level > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
+        override("safe_points", SAFE_POINT_LEVELS[level])
     else
         override("safe_points", nil)
     end
     return target, raw
 end
 
--- Dusman defensive'deyken (su anki kaydi gordugumuz en yenisinden eski: tickbase'ini kaydirmis,
--- acilari gizli / spin) aimbot o kayda ates edince sunucu kabul etmez: loglarda bir dusmana
--- giden butun iskalar "def" ile geldi (damage rejection, correction; safe point Force'ta bile,
--- bir atista 26 tick backtrack), defensive'siz dusmanlara isabet. Bizim de kullandigimiz numara
--- (havada her tick defensive + hidden spin). Hedef defensive'deyken aimbot'un hitbox listesi bos
--- verilir, ates etmez; gercek kayit gelince (ya da en fazla max tick sonra) serbest. Ragebot ve
--- DT'ye dokunulmaz. Ayni dusmanda sinira takildiysa cooldown sn beklenmez (surekli defensive
--- kullanana da ates edilir).
-resolver.wait = { ticks = 0, max = 14, cooldown = 0.5, free_until = {}, logged = -1000, empty = {} }
-resolver.wait_defensive = function(target)
-    local w = resolver.wait
-    local now = globals.realtime
-    local index = target ~= nil and index_of(target) or nil
-    local profile = index ~= nil and enemy_watch.profile(target) or nil
-    local free = index ~= nil and w.free_until[index] or nil
-    local cooling = free ~= nil and now >= free - w.cooldown and now < free
-    local wait = menu.def_wait:get() and profile ~= nil and profile.defensive_now and not cooling
-    if wait then
-        w.ticks = w.ticks + 1
-        if w.ticks > w.max then
-            w.free_until[index], wait = now + w.cooldown, false
-        end
-    end
-    if not wait then
-        w.ticks, current.waiting = 0, false
-        override("hitboxes", nil)
-        return
-    end
-    current.waiting = true
-    override("hitboxes", w.empty)
-    if menu.resolver_log:get() and (now < w.logged or now - w.logged > 5) then
-        w.logged = now
-        print(("[%s] resolver: %s defensive'de (kaydi sahte), atis bekletiliyor"):format(SCRIPT, player_name(target)))
-    end
-end
+-- V1.0: v5.5'teki "dusman defensive'deyken atisi beklet" (hitbox listesini bosaltma) kaldirildi.
+-- Defensive'i surekli acik dusmanlarda her temasta ilk atisi ~0.2 sn geciktiriyordu (once ates
+-- eden kazanir). Yerine: defensive kaydina giden iska resolver'a sayilmaz (bkz. aim_ack) ve
+-- dusmanin jitter'i sadece gercek kayitlardan olculur (bkz. enemy_watch).
 
 -- HvH silahlari: { hasar, zirh orani, menzil carpani, tek atis } (CS:GO silah dosyalari).
 -- Zirhli govdeye can hasari = hasar * zirh orani / 2 (scout gogus 88 * 0.85 = 74.8, mide
@@ -3542,7 +3533,6 @@ events.createmove:set(protect("createmove", function(cmd)
     current.phase_group = brute.group_for(move_state)
     current.brute = menu.anti_brute:get() and threat_stage(current.phase_group) or 0
     local aim_target, resolver_raw = apply_resolver()
-    resolver.wait_defensive(aim_target)
     apply_body_aim(lp, class, aim_target, resolver_raw)
     update_ai_peek(lp, cmd, class)
 
@@ -3993,7 +3983,9 @@ local function profile_text(profile)
     end
     local parts = { profile.jitter == nil and "AA ?"
         or (profile.jitter >= 15 and ("AA jit %d"):format(round(profile.jitter)) or "AA statik") }
-    if profile.defensive then
+    if profile.defensive_now then
+        parts[#parts + 1] = "def (sahte kayit)"
+    elseif profile.defensive then
         parts[#parts + 1] = "def"
     end
     if profile.lc then
@@ -4119,11 +4111,13 @@ pcall(function()
             end
         elseif state == "correction" then
             -- Dusman ates aninda LC kiriyorduysa (64+ birim sicrama) eski kayit gecersizdi: bu
-            -- iska resolver'in hatasi degil, safe point de duzeltmez. Ogrenilmez. Defensive
-            -- sayilmaz: oyun loglarinda neredeyse her atista dusman defensive'deydi ve
-            -- kafadan isabetler de geldi; sayilmasaydi resolver hic ogrenmezdi.
+            -- iska resolver'in hatasi degil, safe point de duzeltmez. Ogrenilmez. Ates edilen kayit
+            -- defensive kaydiysa (sahte: gordugumuz en yeni kayittan eski, acilar hidden) da ayni:
+            -- v5.5 loglarinda bu iskalar Force'ta bile surdu, seviyeyi bosuna yukseltip sonraki gercek
+            -- kayitlarda kafa atisini kesiyordu. Sadece o an defensive olan kayit sayilmaz (son 16
+            -- tick'te defensive "def" degil: loglarda neredeyse her atista vardi).
             local profile = shot ~= nil and shot.profile or nil
-            if profile ~= nil and profile.lc then
+            if profile ~= nil and (profile.lc or profile.defensive_now) then
                 aim_stats.other = aim_stats.other + 1
             else
                 aim_stats.correction = aim_stats.correction + 1
@@ -4510,8 +4504,7 @@ local function draw_indicators(lp, cx, cy)
     -- hangi durumunda yanildigi ya da JIT = jitter'li AA icin on bilgi.
     if current.resolver > 0 then
         y = y + 9
-        local why = current.res_far and "FAR" or current.res_prior and (current.res_state == "Fakeduck" and "FD" or "JIT")
-            or (anim.labels[current.res_state] or "")
+        local why = current.res_prior and "JIT" or (anim.labels[current.res_state] or "")
         render.text(FONT, vector(x, y), accent, "c", ("RES %d %s"):format(current.resolver, why))
     end
     -- BAIM: hedefin cani govde vurusuna yetiyor (Body Aim Prefer / Force). HEAD: sadece
@@ -4527,11 +4520,6 @@ local function draw_indicators(lp, cx, cy)
     if ai_peek.mode == "go" or ai_peek.mode == "hold" then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "AI PEEK")
-    end
-    -- WAIT DEF: hedef defensive'de (kaydi sahte), aimbot gercek kaydi bekliyor.
-    if current.waiting then
-        y = y + 9
-        render.text(FONT, vector(x, y), CHARGING, "c", "WAIT DEF")
     end
 end
 
@@ -4671,7 +4659,7 @@ do
         local far = resolver.distance(target)
         if far ~= nil and far >= 2500 then
             value = value * 0.75
-        elseif far ~= nil and far >= FAR_RANGE then
+        elseif far ~= nil and far >= 1500 then
             value = value * 0.85
         end
         local level = entry ~= nil and entry_level(entry, state) or 0
@@ -4872,6 +4860,6 @@ end))
 -- Kalici hafiza yuklenir; kac oyuncu hatirlandigi surum satirina eklenir.
 do
     local loaded = persist.load()
-    print(("[%s] v%s yuklendi%s"):format(SCRIPT, VERSION,
+    print(("[%s] V%s yuklendi%s"):format(SCRIPT, VERSION,
         loaded > 0 and (" (hafiza: %d oyuncu)"):format(loaded) or ""))
 end
