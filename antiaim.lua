@@ -19,6 +19,10 @@
         ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
         (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
         Her aimbot atisi konsola tek satir yazilir.
+      - Scout / AWP / R8'de body aim sadece oldururken: govde vurusu hedefin canina
+        yetmiyorsa kafa acik kalir, yetiyorsa govde tercih edilir.
+      - Bicak / zeus tutan dusman yaklasinca fake duck birakilir.
+      - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
         harita degisince de kalir (en fazla 64 oyuncu).
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
@@ -47,7 +51,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.0"
+local VERSION = "4.1"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -139,6 +143,7 @@ local refs = {
     hs_options      = find("Aimbot", "Ragebot", "Main", "Hide Shots", "Options"),
     peek_assist     = find("Aimbot", "Ragebot", "Main", "Peek Assist"),
     safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
+    body_aim        = find("Aimbot", "Ragebot", "Safety", "Body Aim"),
 }
 
 -- Ezdigimiz ayarlar ve verdigimiz degerler. Kapatinca hepsini geri veririz.
@@ -249,23 +254,25 @@ pcall(ui.sidebar, SCRIPT, "shield")
 
 -- "Always use recommended settings": Neverlose lua ayarlarini config'e kaydeder; eski
 -- bir surumle kaydedilmis config eski varsayilanlari geri getirir. Bu yuzden AA,
--- exploit ve builder ayarlarinin varsayilanlari kaydedilir ve script / config her
--- yuklendiginde onlara donulur. Bind'lenen ayarlar (manual, freestanding, inverter),
+-- exploit ve builder ayarlarinin varsayilanlari kaydedilir ve acik oldugu surece bu
+-- degerlerde tutulur (ayar degistirmek icin kapat). Bind'lenen ayarlar (manual, freestanding, inverter),
 -- builder'daki durum secici ve gorsel tercihler bu listeye girmez.
 local recommended = {}
+-- Log icin ayarin adinin onune eklenir (builder'da durum adi: "Fake duck Left limit").
+local label_prefix = ""
 
-local function remember(element, value)
+local function remember(element, value, name)
     if element ~= nil then
-        recommended[#recommended + 1] = { element = element, value = value }
+        recommended[#recommended + 1] = { element = element, value = value, label = label_prefix .. tostring(name) }
     end
     return element
 end
 
 local function tracked(group)
     return {
-        switch = function(_, name, def, ...) return remember(group:switch(name, def, ...), def == true) end,
-        combo = function(_, name, items, ...) return remember(group:combo(name, items, ...), items[1]) end,
-        slider = function(_, name, low, high, def, ...) return remember(group:slider(name, low, high, def, ...), def) end,
+        switch = function(_, name, def, ...) return remember(group:switch(name, def, ...), def == true, name) end,
+        combo = function(_, name, items, ...) return remember(group:combo(name, items, ...), items[1], name) end,
+        slider = function(_, name, low, high, def, ...) return remember(group:slider(name, low, high, def, ...), def, name) end,
         label = function(_, ...) return group:label(...) end,
         button = function(_, ...) return group:button(...) end,
         color_picker = function(_, ...) return group:color_picker(...) end,
@@ -369,6 +376,9 @@ local brute_gear    = tracked(menu.anti_brute:create())
 menu.brute_reset    = brute_gear:slider("Reset after", 1, 15, 6, nil, "s")
 menu.brute_log      = brute_gear:switch("Console log", false)
 menu.avoid_backstab = g_main:switch("Avoid backstab", true)
+-- Fake duck'ta egik ve yavassin, DT/HS calismaz. Bicak / zeus tutan bir dusman
+-- yaklasinca fake duck birakilir; uzaklasinca senin tusun yine gecerli olur.
+menu.fd_guard       = g_main:switch("Release fake duck near knife", true)
 menu.legit_use      = g_main:switch("Legit AA on use", true)
 menu.spin           = g_main:switch("Spin when idle", true)
 local spin_gear     = tracked(menu.spin:create())
@@ -396,6 +406,10 @@ menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 -- yukseltir; isabetler geldikce geri indirir.
 menu.resolver      = g_resolver:switch("Adaptive resolver", true)
 menu.resolver_log  = g_resolver:switch("Console log", true)
+-- Scout / AWP / R8 tek atista oldurmeli. Govde vurusu oldurmuyorsa (oyun loglarinda
+-- scout'la 87-93 govde, dusman hayatta kaldi) Body Aim "Prefer" kaldirilir, kafa acik
+-- kalir; govde olduruyorsa Body Aim "Prefer": resolver'a bagli olmayan kesin oldurme.
+menu.lethal_baim   = g_resolver:switch("Body aim only if lethal (snipers)", true)
 -- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
 menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
@@ -421,6 +435,7 @@ local AA_KEYS = {
 
 local builder = {}
 for i, state in ipairs(STATES) do
+    label_prefix = state .. " "
     local d = DEFAULTS[state]
     local special = i > MOVEMENT_STATES
     local s = {}
@@ -472,6 +487,7 @@ for i, state in ipairs(STATES) do
     end
     builder[state] = s
 end
+label_prefix = ""
 
 menu.indicators  = g_visuals:switch("Crosshair indicators", true)
 menu.accent      = menu.indicators:color_picker(color(150, 190, 255, 255))
@@ -555,20 +571,51 @@ for _, s in pairs(builder) do
 end
 update_visibility()
 
--- Kaydedilmis varsayilanlara don. Script yuklenince hemen, ayrica ilk oyun tick'inde
--- ve her config yuklemesinden sonra calisir (Neverlose config degerlerini lua
--- ayarlarina script'ten sonra da uygulayabilir).
-local pending_recommended = true
+-- Kaydedilmis varsayilanlara don. Script yuklenince, ilk oyun tick'inde, her config
+-- yuklemesinden sonra ve acik oldugu surece 64 tick'te bir: onerilen
+-- degerden farkli olan ayar geri alinir. Sadece yukleme aninda donmek yetmiyordu: oyun
+-- loglarinda Fake duck'ta limit 58 yerine 60 ve hep ayni taraf goruldu, yani Fake duck
+-- eski bir config'in (Fake duck durumu eklenmeden onceki Manual'in) degerleriyle
+-- calisiyordu. Neverlose config degerlerini lua ayarlarina sonradan da uygulayabiliyor.
+-- Kapaliyken hicbir sey degistirilmez; yuklemede kac ayarin farkli oldugu yazilir.
+-- every: kontrol araligi (tick). report: ayni uyari en fazla bu kadar saniyede bir yazilir.
+-- report_off: kapaliyken farklari bir kez yaz (ilk oyun tick'inde ve config yuklenince).
+local recommended_state = { every = 64, report = 30, pending = true, tick = -1000, reported = -huge, report_off = false }
 
 local function apply_recommended()
-    pending_recommended = false
-    if not menu.recommended:get() then
+    local rec = recommended_state
+    rec.pending, rec.tick = false, globals.tickcount
+    local on = menu.recommended:get()
+    -- Kapaliyken sadece bir kez (report_off) farklar sayilip yazilir.
+    if not on and not rec.report_off then
         return
     end
+    rec.report_off = false
+    local count, example = 0, nil
     for _, item in ipairs(recommended) do
-        pcall(item.element.set, item.element, item.value)
+        local ok, value = pcall(item.element.get, item.element)
+        if ok and value ~= item.value then
+            count = count + 1
+            example = example or ("%s %s, onerilen %s"):format(item.label, tostring(value), tostring(item.value))
+            if on then
+                pcall(item.element.set, item.element, item.value)
+            end
+        end
+    end
+    if count == 0 then
+        return
+    end
+    if not on then
+        print(("[%s] Always use recommended settings kapali: %d ayar onerilenden farkli (orn. %s)"):format(
+            SCRIPT, count, example))
+        return
     end
     update_visibility()
+    local now = globals.realtime
+    if now < rec.reported or now - rec.reported >= rec.report then
+        rec.reported = now
+        print(("[%s] %d ayar onerilen degerine donduruldu (orn. %s)"):format(SCRIPT, count, example))
+    end
 end
 
 menu.recommended:set_callback(function()
@@ -577,12 +624,12 @@ menu.recommended:set_callback(function()
     end
 end)
 apply_recommended()
-pending_recommended = true
+recommended_state.pending, recommended_state.report_off = true, true
 
 pcall(function()
     events.config_state:set(protect("config_state", function(state)
         if state == "post_load" then
-            pending_recommended = true
+            recommended_state.pending, recommended_state.report_off = true, true
         end
     end))
 end)
@@ -590,15 +637,6 @@ end)
 -------------------------------------------------------------------------------
 -- Durum tespiti
 -------------------------------------------------------------------------------
-
--- Histerezis: girme ve cikma esikleri farkli, boylece sinirda durum titremez.
-local MOVE_ENTER, MOVE_LEAVE = 10, 5
-local DUCK_ENTER, DUCK_LEAVE = 0.7, 0.5
--- Yere indikten sonra bu kadar tick daha "havada" sayilir.
-local LANDING_TICKS = 3
-
--- Yerdeyken yuklenince ilk tick'lerde "havada" sayilmasin diye dolu baslar.
-local motion = { ground_ticks = 64, moving = false, ducked = false }
 
 -- Gorus tespiti: tehdit kafana mermi gecirebiliyor mu (simdi ve kisa sure sonra)?
 -- utils.trace_bullet yoksa "available" false olur ve buna bagli ozellikler eski
@@ -625,9 +663,15 @@ local GRAVITY, JUMP_SPEED = 800, 301.99
 -- tekrar kontrol edilemeyebilir.
 local OTHER_HOLD = 12
 
+-- Log icin: sight[index] = { first, last } = bir dusmanin kafani kesintisiz gordugu ilk ve
+-- son tick. gap tick'ten uzun kesilen gorus yeni gorus sayilir (diger dusmanlar sirayla
+-- kontrol edildigi icin araliklar uzun olabilir); keep tick sonra unutulur. Hasar olayi
+-- ping kadar gec geldigi icin log son recent tick'teki gorusu sayar.
+local SIGHT = { gap = 24, keep = 64, recent = 32 }
+
 -- others[index] = dusmanin kafani en son gordugu tick; any = kisa sure icinde biri gordu
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
-    any = false, others = {}, turn = 0 }
+    any = false, others = {}, turn = 0, sight = {} }
 local peek = { until_tick = -1000 }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
@@ -676,67 +720,88 @@ local function vertical_lookahead(lp, cmd)
     return vz * t - 0.5 * GRAVITY * t * t
 end
 
-local function update_exposure(lp, cmd)
-    if not exposure.available then
-        return
-    end
-    local now = globals.tickcount
-    if now >= exposure.tick and now - exposure.tick < EXPOSE_EVERY then
-        return
-    end
-    exposure.tick = now
-    exposure.now, exposure.soon = false, false
-    local head = lp:get_hitbox_position(0)
-    if head == nil then
-        exposure.any, exposure.others = false, {}
-        return
-    end
-
-    local threat = current_threat()
-    local threat_index = threat ~= nil and index_of(threat) or nil
-    -- Dormant tehdidin konumu eski; ona gore karar verilmez.
-    if threat ~= nil and not dormant(threat) then
-        local ok_eye, eye = pcall(threat.get_eye_position, threat)
-        if ok_eye and eye ~= nil then
-            exposure.now = head_visible_to(threat, eye, head, 0, 0, 0)
-            if not exposure.now then
-                local velocity = lp.m_vecVelocity
-                exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD,
-                    velocity.y * EXPOSE_LOOKAHEAD, vertical_lookahead(lp, cmd))
-            end
+local update_exposure
+do
+    local function mark_sight(index, now)
+        local s = exposure.sight[index]
+        if s == nil or now < s.last or now - s.last > SIGHT.gap then
+            exposure.sight[index] = { first = now, last = now }
+        else
+            s.last = now
         end
     end
 
-    -- Tehdit olmayan, canli, dormant olmayan dusmanlar; siradaki bir tanesine iz atilir.
-    -- Listede olmayan / olen / dormant olan dusmanin eski gorusu hemen silinir.
-    local present, candidates = {}, {}
-    local ok, list = pcall(entity.get_players, true)
-    if ok and type(list) == "table" then
-        for _, enemy in ipairs(list) do
-            local index = index_of(enemy)
-            local ok_alive, alive = pcall(function() return enemy:is_alive() end)
-            if index ~= nil and index ~= threat_index and ok_alive and alive and not dormant(enemy) then
-                present[index] = true
-                candidates[#candidates + 1] = { enemy = enemy, index = index }
+    update_exposure = function(lp, cmd)
+        if not exposure.available then
+            return
+        end
+        local now = globals.tickcount
+        if now >= exposure.tick and now - exposure.tick < EXPOSE_EVERY then
+            return
+        end
+        exposure.tick = now
+        exposure.now, exposure.soon = false, false
+        local head = lp:get_hitbox_position(0)
+        if head == nil then
+            exposure.any, exposure.others = false, {}
+            return
+        end
+
+        local threat = current_threat()
+        local threat_index = threat ~= nil and index_of(threat) or nil
+        -- Dormant tehdidin konumu eski; ona gore karar verilmez.
+        if threat ~= nil and not dormant(threat) then
+            local ok_eye, eye = pcall(threat.get_eye_position, threat)
+            if ok_eye and eye ~= nil then
+                exposure.now = head_visible_to(threat, eye, head, 0, 0, 0)
+                if exposure.now and threat_index ~= nil then
+                    mark_sight(threat_index, now)
+                end
+                if not exposure.now then
+                    local velocity = lp.m_vecVelocity
+                    exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD,
+                        velocity.y * EXPOSE_LOOKAHEAD, vertical_lookahead(lp, cmd))
+                end
             end
         end
-    end
-    if #candidates > 0 then
-        exposure.turn = exposure.turn % #candidates + 1
-        local pick = candidates[exposure.turn]
-        local ok_eye, eye = pcall(pick.enemy.get_eye_position, pick.enemy)
-        if ok_eye and eye ~= nil and head_visible_to(pick.enemy, eye, head, 0, 0, 0) then
-            exposure.others[pick.index] = now
-        else
-            exposure.others[pick.index] = nil
+
+        -- Tehdit olmayan, canli, dormant olmayan dusmanlar; siradaki bir tanesine iz atilir.
+        -- Listede olmayan / olen / dormant olan dusmanin eski gorusu hemen silinir.
+        local present, candidates = {}, {}
+        local ok, list = pcall(entity.get_players, true)
+        if ok and type(list) == "table" then
+            for _, enemy in ipairs(list) do
+                local index = index_of(enemy)
+                local ok_alive, alive = pcall(function() return enemy:is_alive() end)
+                if index ~= nil and index ~= threat_index and ok_alive and alive and not dormant(enemy) then
+                    present[index] = true
+                    candidates[#candidates + 1] = { enemy = enemy, index = index }
+                end
+            end
         end
-    end
-    exposure.any = false
-    for index, seen in pairs(exposure.others) do
-        if not present[index] or now < seen or now - seen > OTHER_HOLD then
-            exposure.others[index] = nil
-        else
-            exposure.any = true
+        if #candidates > 0 then
+            exposure.turn = exposure.turn % #candidates + 1
+            local pick = candidates[exposure.turn]
+            local ok_eye, eye = pcall(pick.enemy.get_eye_position, pick.enemy)
+            if ok_eye and eye ~= nil and head_visible_to(pick.enemy, eye, head, 0, 0, 0) then
+                exposure.others[pick.index] = now
+                mark_sight(pick.index, now)
+            else
+                exposure.others[pick.index] = nil
+            end
+        end
+        exposure.any = false
+        for index, seen in pairs(exposure.others) do
+            if not present[index] or now < seen or now - seen > OTHER_HOLD then
+                exposure.others[index] = nil
+            else
+                exposure.any = true
+            end
+        end
+        for index, s in pairs(exposure.sight) do
+            if now < s.last or now - s.last > SIGHT.keep then
+                exposure.sight[index] = nil
+            end
         end
     end
 end
@@ -746,53 +811,65 @@ local function seen_by_enemy()
     return exposure.now or exposure.soon or exposure.any
 end
 
-local function detect_movement(lp, cmd)
-    local on_ground = bit.band(lp.m_fFlags, 1) ~= 0
-    motion.ground_ticks = on_ground and min(motion.ground_ticks + 1, 64) or 0
+local detect_movement
+do
+    -- Histerezis: girme ve cikma esikleri farkli, boylece sinirda durum titremez.
+    local MOVE_ENTER, MOVE_LEAVE = 10, 5
+    local DUCK_ENTER, DUCK_LEAVE = 0.7, 0.5
+    -- Yere indikten sonra bu kadar tick daha "havada" sayilir.
+    local LANDING_TICKS = 3
 
-    local speed = lp.m_vecVelocity:length2d()
-    if speed > MOVE_ENTER then
-        motion.moving = true
-    elseif speed < MOVE_LEAVE then
-        motion.moving = false
-    end
+    -- Yerdeyken yuklenince ilk tick'lerde "havada" sayilmasin diye dolu baslar.
+    local motion = { ground_ticks = 64, moving = false, ducked = false }
 
-    local duck = lp.m_flDuckAmount
-    if duck > DUCK_ENTER then
-        motion.ducked = true
-    elseif duck < DUCK_LEAVE then
-        motion.ducked = false
-    end
+    detect_movement = function(lp, cmd)
+        local on_ground = bit.band(lp.m_fFlags, 1) ~= 0
+        motion.ground_ticks = on_ground and min(motion.ground_ticks + 1, 64) or 0
 
-    local crouching = motion.ducked or get("fakeduck")
-    if cmd.in_jump == true or motion.ground_ticks < LANDING_TICKS then
-        return crouching and "Air crouch" or "Air"
-    end
-    -- Fake duck peek'ten de once gelir: exploit calismadigi icin Peek'in exploit
-    -- ayarlari burada ise yaramaz, AA tek basina korur.
-    if get("fakeduck") then
-        return "Fake duck"
-    end
-    if get("peek_assist") then
-        return "Peek"
-    end
-    -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
-    -- tutuyorsundur, o zaman normal duruma donulur.
-    if menu.auto_peek:get() and motion.moving then
-        if seen_by_enemy() then
-            peek.until_tick = globals.tickcount + PEEK_HOLD
+        local speed = lp.m_vecVelocity:length2d()
+        if speed > MOVE_ENTER then
+            motion.moving = true
+        elseif speed < MOVE_LEAVE then
+            motion.moving = false
         end
-        if globals.tickcount >= peek.until_tick - PEEK_HOLD and globals.tickcount <= peek.until_tick then
+
+        local duck = lp.m_flDuckAmount
+        if duck > DUCK_ENTER then
+            motion.ducked = true
+        elseif duck < DUCK_LEAVE then
+            motion.ducked = false
+        end
+
+        local crouching = motion.ducked or effective("fakeduck")
+        if cmd.in_jump == true or motion.ground_ticks < LANDING_TICKS then
+            return crouching and "Air crouch" or "Air"
+        end
+        -- Fake duck peek'ten de once gelir: exploit calismadigi icin Peek'in exploit
+        -- ayarlari burada ise yaramaz, AA tek basina korur.
+        if effective("fakeduck") then
+            return "Fake duck"
+        end
+        if get("peek_assist") then
             return "Peek"
         end
+        -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
+        -- tutuyorsundur, o zaman normal duruma donulur.
+        if menu.auto_peek:get() and motion.moving then
+            if seen_by_enemy() then
+                peek.until_tick = globals.tickcount + PEEK_HOLD
+            end
+            if globals.tickcount >= peek.until_tick - PEEK_HOLD and globals.tickcount <= peek.until_tick then
+                return "Peek"
+            end
+        end
+        if crouching then
+            return motion.moving and "Crouch move" or "Crouching"
+        end
+        if motion.moving then
+            return get("slowwalk") and "Slow walk" or "Moving"
+        end
+        return "Standing"
     end
-    if crouching then
-        return motion.moving and "Crouch move" or "Crouching"
-    end
-    if motion.moving then
-        return get("slowwalk") and "Slow walk" or "Moving"
-    end
-    return "Standing"
 end
 
 local function settings_for(state)
@@ -805,10 +882,8 @@ end
 
 local MELEE = { CKnife = true, CKnifeGG = true, CWeaponTaser = true }
 
-local R8_INDEX = 64
-
 -- Silahin sinif adi. R8, Desert Eagle ile ayni sinifi (CDEagle) kullandigi icin
--- item index'ine bakilip "Revolver" olarak ayrilir.
+-- item index'ine (64) bakilip "Revolver" olarak ayrilir.
 local function weapon_class(lp)
     local weapon = lp:get_player_weapon()
     if weapon == nil then
@@ -820,7 +895,7 @@ local function weapon_class(lp)
     end
     if class == "CDEagle" then
         local ok_index, index = pcall(function() return weapon.m_iItemDefinitionIndex end)
-        if ok_index and index == R8_INDEX then
+        if ok_index and index == 64 then
             return "Revolver"
         end
     end
@@ -840,36 +915,39 @@ local function origin_of(ent)
 end
 
 -- Hedeften en az 35 birim yukaridaysak kafa onun icin acikta kalir.
-local function on_high_ground(lp)
-    local threat = current_threat()
-    if threat == nil then
-        return false
-    end
-    local mine, theirs = origin_of(lp), origin_of(threat)
-    return mine ~= nil and theirs ~= nil and mine.z - 35 > theirs.z
-end
-
-local HIGH_GROUND_STATES = {
-    ["Standing"] = true, ["Moving"] = true, ["Slow walk"] = true,
-    ["Crouching"] = true, ["Crouch move"] = true, ["Peek"] = true,
-}
-
-local function safe_head_active(lp, move_state, class)
-    if not menu.safe_head:get() then
-        return false
-    end
-    if move_state == "Air crouch" then
-        if menu.safe_air:get() then
-            return true
+local safe_head_active
+do
+    local function on_high_ground(lp)
+        local threat = current_threat()
+        if threat == nil then
+            return false
         end
-        if menu.safe_knife:get() and MELEE[class] then
-            return true
-        end
+        local mine, theirs = origin_of(lp), origin_of(threat)
+        return mine ~= nil and theirs ~= nil and mine.z - 35 > theirs.z
     end
-    -- Yuksekteyken ama duvar arkasindaysan kafayi sabitlemeye gerek yok; sadece
-    -- tehdit kafani gercekten gorebiliyorsa (iz yoksa sadece yukseklige bakilir).
-    return HIGH_GROUND_STATES[move_state] == true and menu.safe_high:get() and on_high_ground(lp)
-        and (not exposure.available or exposure.now)
+
+    local HIGH_GROUND_STATES = {
+        ["Standing"] = true, ["Moving"] = true, ["Slow walk"] = true,
+        ["Crouching"] = true, ["Crouch move"] = true, ["Peek"] = true,
+    }
+
+    safe_head_active = function(lp, move_state, class)
+        if not menu.safe_head:get() then
+            return false
+        end
+        if move_state == "Air crouch" then
+            if menu.safe_air:get() then
+                return true
+            end
+            if menu.safe_knife:get() and MELEE[class] then
+                return true
+            end
+        end
+        -- Yuksekteyken ama duvar arkasindaysan kafayi sabitlemeye gerek yok; sadece
+        -- tehdit kafani gercekten gorebiliyorsa (iz yoksa sadece yukseklige bakilir).
+        return HIGH_GROUND_STATES[move_state] == true and menu.safe_high:get() and on_high_ground(lp)
+            and (not exposure.available or exposure.now)
+    end
 end
 
 local function freestanding_allowed(move_state)
@@ -914,88 +992,94 @@ local function exploit_active()
     return type(charge) ~= "number" or charge >= 1
 end
 
-local enemies = { tick = -1000, alive = true }
+local spin_active
+do
+    local enemies = { tick = -1000, alive = true }
 
--- Dormant dusmanlar da sayilir; gorunmuyorlar diye spin'e gecmek tehlikeli.
-local function enemies_alive()
-    local now = globals.tickcount
-    if now >= enemies.tick and now - enemies.tick < 16 then
-        return enemies.alive
-    end
-    enemies.tick = now
-    local ok, list = pcall(entity.get_players, true, true)
-    if not ok or type(list) ~= "table" then
-        enemies.alive = true
-        return true
-    end
-    enemies.alive = false
-    for _, player in ipairs(list) do
-        if player:is_alive() then
-            enemies.alive = true
-            break
+    -- Dormant dusmanlar da sayilir; gorunmuyorlar diye spin'e gecmek tehlikeli.
+    local function enemies_alive()
+        local now = globals.tickcount
+        if now >= enemies.tick and now - enemies.tick < 16 then
+            return enemies.alive
         end
-    end
-    return enemies.alive
-end
-
-local function spin_active()
-    if not menu.spin:get() then
-        return false
-    end
-    if menu.spin_warmup:get() then
-        local ok, rules = pcall(entity.get_game_rules)
-        if ok and rules ~= nil and rules.m_bWarmupPeriod == true then
+        enemies.tick = now
+        local ok, list = pcall(entity.get_players, true, true)
+        if not ok or type(list) ~= "table" then
+            enemies.alive = true
             return true
         end
+        enemies.alive = false
+        for _, player in ipairs(list) do
+            if player:is_alive() then
+                enemies.alive = true
+                break
+            end
+        end
+        return enemies.alive
     end
-    return menu.spin_enemies:get() and not enemies_alive()
+
+    spin_active = function()
+        if not menu.spin:get() then
+            return false
+        end
+        if menu.spin_warmup:get() then
+            local ok, rules = pcall(entity.get_game_rules)
+            if ok and rules ~= nil and rules.m_bWarmupPeriod == true then
+                return true
+            end
+        end
+        return menu.spin_enemies:get() and not enemies_alive()
+    end
 end
 
-local OBJECTIVE_RANGE = 100
+local legit_use_active
+do
+    local OBJECTIVE_RANGE = 100
 
--- CT olarak kurulu bombanin ya da bir rehinenin yanindaysak E'ye basili tutmak
--- gercekten gerekli (defuse / rehine tasima), o zaman use'a karisilmaz.
-local function near_objective(lp)
-    if lp.m_iTeamNum ~= 3 then
-        return false
-    end
-    local mine = origin_of(lp)
-    if mine == nil then
-        return false
-    end
-    for _, class in ipairs({ "CPlantedC4", "CHostage" }) do
-        local ok, list = pcall(entity.get_entities, class)
-        if ok and type(list) == "table" then
-            for _, ent in ipairs(list) do
-                local pos = origin_of(ent)
-                if pos ~= nil then
-                    local dx, dy, dz = mine.x - pos.x, mine.y - pos.y, mine.z - pos.z
-                    if dx * dx + dy * dy + dz * dz < OBJECTIVE_RANGE * OBJECTIVE_RANGE then
-                        return true
+    -- CT olarak kurulu bombanin ya da bir rehinenin yanindaysak E'ye basili tutmak
+    -- gercekten gerekli (defuse / rehine tasima), o zaman use'a karisilmaz.
+    local function near_objective(lp)
+        if lp.m_iTeamNum ~= 3 then
+            return false
+        end
+        local mine = origin_of(lp)
+        if mine == nil then
+            return false
+        end
+        for _, class in ipairs({ "CPlantedC4", "CHostage" }) do
+            local ok, list = pcall(entity.get_entities, class)
+            if ok and type(list) == "table" then
+                for _, ent in ipairs(list) do
+                    local pos = origin_of(ent)
+                    if pos ~= nil then
+                        local dx, dy, dz = mine.x - pos.x, mine.y - pos.y, mine.z - pos.z
+                        if dx * dx + dy * dy + dz * dz < OBJECTIVE_RANGE * OBJECTIVE_RANGE then
+                            return true
+                        end
                     end
                 end
             end
         end
-    end
-    return false
-end
-
-local use = { start = nil }
-
--- E'ye basili tutarken AA calismaya devam etsin. Ilk tick'ler oyuna gecer ki
--- kapi acma / silah alma bozulmasin; defuse ve rehine tasimaya hic karisilmaz.
-local function legit_use_active(lp, cmd)
-    if not menu.legit_use:get() or cmd.in_use ~= true or near_objective(lp) then
-        use.start = nil
         return false
     end
-    if use.start == nil or use.start > globals.tickcount then
-        use.start = globals.tickcount
+
+    local use = { start = nil }
+
+    -- E'ye basili tutarken AA calismaya devam etsin. Ilk tick'ler oyuna gecer ki
+    -- kapi acma / silah alma bozulmasin; defuse ve rehine tasimaya hic karisilmaz.
+    legit_use_active = function(lp, cmd)
+        if not menu.legit_use:get() or cmd.in_use ~= true or near_objective(lp) then
+            use.start = nil
+            return false
+        end
+        if use.start == nil or use.start > globals.tickcount then
+            use.start = globals.tickcount
+        end
+        if globals.tickcount - use.start >= 2 then
+            pcall(function() cmd.in_use = false end)
+        end
+        return true
     end
-    if globals.tickcount - use.start >= 2 then
-        pcall(function() cmd.in_use = false end)
-    end
-    return true
 end
 
 -------------------------------------------------------------------------------
@@ -1110,8 +1194,29 @@ local function brute_entry(ent, fallback_key)
     end)
 end
 
-local function threat_stage()
+-- Faz, kafani goren dusmana gore secilir: tehdit gormuyor (ve birazdan da gormeyecek)
+-- ama baska bir dusman goruyorsa desync'ini o cozmeye calisiyor, onun fazi uygulanir.
+-- Kimse gormuyorsa tehdidinki.
+local function brute_target()
     local threat = current_threat()
+    if exposure.now or exposure.soon or not exposure.any then
+        return threat
+    end
+    local best, best_tick = nil, nil
+    for index, seen in pairs(exposure.others) do
+        if best_tick == nil or seen > best_tick then
+            best, best_tick = index, seen
+        end
+    end
+    local ok, ent = pcall(entity.get, best)
+    if ok and ent ~= nil then
+        return ent
+    end
+    return threat
+end
+
+local function threat_stage()
+    local threat = brute_target()
     local key = threat ~= nil and player_id(threat) or nil
     if key == nil then
         return brute_entry_stage(brute.recent ~= nil and brute.enemies[brute.recent] or nil)
@@ -1162,7 +1267,7 @@ local FORCE_STALL = 1.0
 -- players[id] = { name, seen, results = { "c" | "h", ... }, states = { [durum] = { ... } } }
 -- id = Steam ID (player_id); harita degisince de korunur.
 -- shots[id] = { state, time }: ates anindaki dusman durumu
-local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil,
+local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false } }
 
 local function prop(ent, name)
@@ -1189,6 +1294,43 @@ local function enemy_state(ent)
         return "Moving"
     end
     return "Standing"
+end
+
+-- Log icin saldiran: hareket durumu, AA'nin baktigi tehdit mi ve bizim izlerimize gore
+-- kafani ne kadar suredir goruyordu. "gormedi" = izler gormedi (duvarin arkasindan, ya
+-- da diger dusmanlar sirayla kontrol edilirken sira ona gelmeden vurdu).
+local attacker_info
+do
+    local function tick_interval()
+        local ok, value = pcall(function() return globals.tickinterval end)
+        if ok and type(value) == "number" and value > 0 then
+            return value
+        end
+        return 1 / 64
+    end
+
+    attacker_info = function(ent)
+        local parts = { enemy_state(ent) }
+        local threat = current_threat()
+        local index = index_of(ent)
+        if threat == nil then
+            parts[#parts + 1] = "tehdit yok"
+        elseif index ~= nil and index_of(threat) == index then
+            parts[#parts + 1] = "AA hedefi"
+        else
+            parts[#parts + 1] = "AA hedefi degil"
+        end
+        if exposure.available then
+            local s = index ~= nil and exposure.sight[index] or nil
+            local now = globals.tickcount
+            if s ~= nil and now >= s.last and now - s.last <= SIGHT.recent then
+                parts[#parts + 1] = ("gordu %.2fs"):format((s.last - s.first) * tick_interval())
+            else
+                parts[#parts + 1] = "gormedi"
+            end
+        end
+        return table.concat(parts, ", ")
+    end
 end
 
 local function resolver_entry(ent)
@@ -1312,8 +1454,8 @@ local function process_pending_misses()
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
                 if menu.hit_log:get() then
-                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name))
+                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s)"):format(
+                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
                 end
             end
         end
@@ -1325,7 +1467,7 @@ end
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
-    brute = 0, resolver = 0, weapon = nil }
+    brute = 0, resolver = 0, weapon = nil, lethal = false }
 
 -- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
 local function apply_resolver()
@@ -1343,6 +1485,54 @@ local function apply_resolver()
         override("safe_points", SAFE_POINT_LEVELS[level])
     else
         override("safe_points", nil)
+    end
+end
+
+-- Tek atista oldurmesi gereken silahlar: { hasar, zirh orani, menzil carpani } (CS:GO
+-- silah dosyalari). Zirhli govdeye can hasari = hasar * zirh orani / 2 (scout gogus
+-- 88 * 0.85 = 74.8, mide x1.25 = 93.5: loglardaki 74 ve 92-93). Hasar her 500 birimde
+-- menzil carpaniyla azalir. Gogus olcu alinir: mide de oldururse gogus oldurmeyebilir.
+local apply_body_aim
+do
+    local ONE_SHOT = {
+        CWeaponSSG08 = { 88, 1.7, 0.98 },
+        CWeaponAWP   = { 115, 1.95, 0.99 },
+        Revolver     = { 86, 1.864, 0.94 },
+    }
+
+    local function chest_damage(lp, target, info)
+        local damage = info[1]
+        local mine, theirs = origin_of(lp), origin_of(target)
+        if mine ~= nil and theirs ~= nil then
+            local dx, dy, dz = theirs.x - mine.x, theirs.y - mine.y, theirs.z - mine.z
+            damage = damage * info[3] ^ (sqrt(dx * dx + dy * dy + dz * dz) / 500)
+        end
+        local armor = prop(target, "m_ArmorValue")
+        if type(armor) ~= "number" or armor > 0 then
+            damage = damage * info[2] / 2
+        end
+        return damage
+    end
+
+    -- Body Aim: hedefin cani gogus hasarina yetiyorsa "Prefer", yetmiyorsa "Default".
+    -- Senin kendi "Force"un (baim tusu) hic degistirilmez. Diger silahlarda dokunulmaz.
+    apply_body_aim = function(lp, class)
+        if overridden.body_aim == nil then
+            resolver.user_body = get("body_aim")
+        end
+        local info = ONE_SHOT[class]
+        local target = (info ~= nil and menu.lethal_baim:get()) and resolver_target() or nil
+        local health = target ~= nil and prop(target, "m_iHealth") or nil
+        local wanted = nil
+        if type(health) == "number" and health > 0 then
+            wanted = health <= chest_damage(lp, target, info) and "Prefer" or "Default"
+        end
+        current.lethal = wanted == "Prefer"
+        if wanted == nil or resolver.user_body == "Force" or resolver.user_body == wanted then
+            override("body_aim", nil)
+        else
+            override("body_aim", wanted)
+        end
     end
 end
 
@@ -1439,7 +1629,7 @@ local exploit_memory = { choice = nil }
 
 local function apply_exploit(s, class)
     local choice = s ~= nil and s.exploit ~= nil and s.exploit:get() or "Binds"
-    if not menu.auto_exploit:get() or get("fakeduck") then
+    if not menu.auto_exploit:get() or effective("fakeduck") then
         choice = "Binds"
     end
     if choice ~= "Binds" then
@@ -1473,104 +1663,107 @@ local function defensive_off()
     override("hidden", false)
 end
 
-local function hidden_pitch_value(s)
-    local mode = s.hidden_pitch:get()
-    if mode == "Down" then return 89 end
-    if mode == "Up" then return -89 end
-    if mode == "Zero" then return 0 end
-    if mode == "Switch" then return flip.side and 89 or -89 end
-    if mode == "Random" then return random(-89, 89) end
-    if mode == "Custom" then return s.hidden_pitch_value:get() end
-    return nil
-end
+local apply_defensive
+do
+    local function hidden_pitch_value(s)
+        local mode = s.hidden_pitch:get()
+        if mode == "Down" then return 89 end
+        if mode == "Up" then return -89 end
+        if mode == "Zero" then return 0 end
+        if mode == "Switch" then return flip.side and 89 or -89 end
+        if mode == "Random" then return random(-89, 89) end
+        if mode == "Custom" then return s.hidden_pitch_value:get() end
+        return nil
+    end
 
-local function hidden_yaw_value(s)
-    local mode = s.hidden_yaw:get()
-    if mode == "Sideways" then return flip.side and 90 or -90 end
-    if mode == "Spin" then return normalize_yaw(globals.tickcount * menu.hidden_spin:get() * 3) end
-    if mode == "Random" then return random(-180, 180) end
-    if mode == "Forward" then return 180 end
-    if mode == "Custom" then return s.hidden_yaw_value:get() end
-    return nil
-end
+    local function hidden_yaw_value(s)
+        local mode = s.hidden_yaw:get()
+        if mode == "Sideways" then return flip.side and 90 or -90 end
+        if mode == "Spin" then return normalize_yaw(globals.tickcount * menu.hidden_spin:get() * 3) end
+        if mode == "Random" then return random(-180, 180) end
+        if mode == "Forward" then return 180 end
+        if mode == "Custom" then return s.hidden_yaw_value:get() end
+        return nil
+    end
 
--- HS icin "On peek" emulasyonu: Break LC acildiktan sonra bu kadar tick acik kalir,
--- gorus her 2 tick'te degisebildigi icin acilip kapanip titremesin.
-local HS_LC_HOLD = 32
-local hs_lc = { until_tick = -1000 }
+    -- HS icin "On peek" emulasyonu: Break LC acildiktan sonra bu kadar tick acik kalir,
+    -- gorus her 2 tick'te degisebildigi icin acilip kapanip titremesin.
+    local HS_LC_HOLD = 32
+    local hs_lc = { until_tick = -1000 }
 
--- "Smart" + DT: tehdit kafani gordugu (ya da 0.2 sn icinde gorecegi) surece ve gorus
--- kesildikten sonra SMART_HOLD tick daha defensive zorlanir. Ayni gorus SMART_MAX
--- tick'ten uzun surerse durulur: peek ani gecti, artik "Always on" gibi davranmaya
--- gerek yok. Gorus SMART_HOLD tick'ten uzun kesilince yeniden kurulur.
-local SMART_HOLD = 8
-local SMART_MAX = 64
-local smart = { start = -1000, last = -1000 }
+    -- "Smart" + DT: tehdit kafani gordugu (ya da 0.2 sn icinde gorecegi) surece ve gorus
+    -- kesildikten sonra SMART_HOLD tick daha defensive zorlanir. Ayni gorus SMART_MAX
+    -- tick'ten uzun surerse durulur: peek ani gecti, artik "Always on" gibi davranmaya
+    -- gerek yok. Gorus SMART_HOLD tick'ten uzun kesilince yeniden kurulur.
+    local SMART_HOLD = 8
+    local SMART_MAX = 64
+    local smart = { start = -1000, last = -1000 }
 
-local function smart_window(now)
-    if seen_by_enemy() then
-        if now < smart.last or now - smart.last > SMART_HOLD then
-            smart.start = now
+    local function smart_window(now)
+        if seen_by_enemy() then
+            if now < smart.last or now - smart.last > SMART_HOLD then
+                smart.start = now
+            end
+            smart.last = now
         end
-        smart.last = now
+        return now >= smart.last and now - smart.last <= SMART_HOLD and now - smart.start < SMART_MAX
     end
-    return now >= smart.last and now - smart.last <= SMART_HOLD and now - smart.start < SMART_MAX
-end
 
-local function apply_defensive(cmd, s, class, state)
-    local dt, hs = effective("doubletap"), effective("hideshots")
-    local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
-    -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
-    if not (dt or hs) or mode == "Off" or is_grenade(class) or get("fakeduck") then
-        defensive_off()
-        return
-    end
-    -- Hide shots'in Neverlose'da "On Peek" secenegi yok, sadece Break LC var. Peek
-    -- durumundayken ya da tehdit kafani goruyor / birazdan gorecekken (havadan peek
-    -- dahil) Break LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu.
-    local now = globals.tickcount
-    local on_peek = mode == "On peek" or mode == "Smart"
-    if on_peek and hs and (state == "Peek" or seen_by_enemy()) then
-        hs_lc.until_tick = now + HS_LC_HOLD
-    end
-    local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
-    -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
-    -- defensive olmaz, o zaman zorlanmaz.
-    local window = mode == "Smart" and smart_window(now)
-    local forced = window and dt and exploit_active()
-    current.defensive = not on_peek or hs_peek or forced
-    current.forced = forced
-
-    if on_peek then
-        -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
-        override("lag_options", "On Peek")
-        override("hs_options", hs_peek and "Break LC" or "Favor Fire Rate")
-        if forced then
-            pcall(function() cmd.force_defensive = true end)
+    apply_defensive = function(cmd, s, class, state)
+        local dt, hs = effective("doubletap"), effective("hideshots")
+        local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
+        -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
+        if not (dt or hs) or mode == "Off" or is_grenade(class) or effective("fakeduck") then
+            defensive_off()
+            return
         end
-    elseif mode == "Always on" then
-        override("lag_options", "Always On")
-        override("hs_options", hs and "Break LC" or "Favor Fire Rate")
-    else
-        override("lag_options", "On Peek")
-        override("hs_options", hs and "Break LC" or "Favor Fire Rate")
-        local ticks = s.def_ticks:get()
-        local number = cmd.command_number or globals.tickcount
-        pcall(function() cmd.force_defensive = number % ticks == 0 end)
-    end
+        -- Hide shots'in Neverlose'da "On Peek" secenegi yok, sadece Break LC var. Peek
+        -- durumundayken ya da tehdit kafani goruyor / birazdan gorecekken (havadan peek
+        -- dahil) Break LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu.
+        local now = globals.tickcount
+        local on_peek = mode == "On peek" or mode == "Smart"
+        if on_peek and hs and (state == "Peek" or seen_by_enemy()) then
+            hs_lc.until_tick = now + HS_LC_HOLD
+        end
+        local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
+        -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
+        -- defensive olmaz, o zaman zorlanmaz.
+        local window = mode == "Smart" and smart_window(now)
+        local forced = window and dt and exploit_active()
+        current.defensive = not on_peek or hs_peek or forced
+        current.forced = forced
 
-    local pitch, yaw = hidden_pitch_value(s), hidden_yaw_value(s)
-    if pitch == nil and yaw == nil then
-        override("hidden", false)
-        return
-    end
-    -- Hidden acilar sadece defensive tick'lerinde kullanilir.
-    override("hidden", true)
-    if pitch ~= nil and api.hidden_pitch ~= nil then
-        api.hidden_pitch(pitch)
-    end
-    if yaw ~= nil and api.hidden_yaw ~= nil then
-        api.hidden_yaw(yaw)
+        if on_peek then
+            -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
+            override("lag_options", "On Peek")
+            override("hs_options", hs_peek and "Break LC" or "Favor Fire Rate")
+            if forced then
+                pcall(function() cmd.force_defensive = true end)
+            end
+        elseif mode == "Always on" then
+            override("lag_options", "Always On")
+            override("hs_options", hs and "Break LC" or "Favor Fire Rate")
+        else
+            override("lag_options", "On Peek")
+            override("hs_options", hs and "Break LC" or "Favor Fire Rate")
+            local ticks = s.def_ticks:get()
+            local number = cmd.command_number or globals.tickcount
+            pcall(function() cmd.force_defensive = number % ticks == 0 end)
+        end
+
+        local pitch, yaw = hidden_pitch_value(s), hidden_yaw_value(s)
+        if pitch == nil and yaw == nil then
+            override("hidden", false)
+            return
+        end
+        -- Hidden acilar sadece defensive tick'lerinde kullanilir.
+        override("hidden", true)
+        if pitch ~= nil and api.hidden_pitch ~= nil then
+            api.hidden_pitch(pitch)
+        end
+        if yaw ~= nil and api.hidden_yaw ~= nil then
+            api.hidden_yaw(yaw)
+        end
     end
 end
 
@@ -1646,7 +1839,7 @@ local function set_charge(allowed)
 end
 
 local function update_recharge()
-    local fakeduck = get("fakeduck")
+    local fakeduck = effective("fakeduck")
     if recharge.fakeduck and not fakeduck then
         recharge.released = globals.realtime
     end
@@ -1703,11 +1896,75 @@ local function sample_exploit(state)
     end
 end
 
+-- Fake duck korumasi: oyun loglarinda fake duck'tayken bicakla uc kez arka arkaya
+-- vurulup olundu. Fake duck'ta egik ve yavas kalirsin, DT/HS de calismaz. Bicak ya da
+-- zeus tutan canli bir dusman KNIFE_NEAR birimden yakinsa fake duck kapatilir (bind'in
+-- basili olsa da); KNIFE_FAR'dan uzaklasinca ya da silah degistirince birakilir.
+local update_fd_guard
+do
+    local KNIFE_NEAR, KNIFE_FAR = 260, 360
+
+    local function knife_enemy(lp, radius)
+        local mine = origin_of(lp)
+        if mine == nil then
+            return nil
+        end
+        local ok, list = pcall(entity.get_players, true)
+        if not ok or type(list) ~= "table" then
+            return nil
+        end
+        local best, best_dist = nil, radius
+        for _, enemy in ipairs(list) do
+            local ok_alive, alive = pcall(function() return enemy:is_alive() end)
+            local ok_class, class = pcall(weapon_class, enemy)
+            if ok_alive and alive and not dormant(enemy) and ok_class and MELEE[class] then
+                local pos = origin_of(enemy)
+                if pos ~= nil then
+                    local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
+                    local dist = sqrt(dx * dx + dy * dy + dz * dz)
+                    if dist < best_dist then
+                        best, best_dist = enemy, dist
+                    end
+                end
+            end
+        end
+        return best, best_dist
+    end
+
+    update_fd_guard = function(lp)
+        local active = overridden.fakeduck ~= nil
+        if not menu.fd_guard:get() then
+            if active then
+                override("fakeduck", nil)
+            end
+            return
+        end
+        if active then
+            if knife_enemy(lp, KNIFE_FAR) == nil then
+                override("fakeduck", nil)
+            end
+            return
+        end
+        if not get("fakeduck") then
+            return
+        end
+        local enemy, dist = knife_enemy(lp, KNIFE_NEAR)
+        if enemy ~= nil then
+            override("fakeduck", false)
+            if overridden.fakeduck ~= nil and menu.hit_log:get() then
+                print(("[%s] fake duck birakildi: %s bicak/zeus ile %d birim yakinda"):format(
+                    SCRIPT, player_name(enemy), round(dist)))
+            end
+        end
+    end
+end
+
 local MOVETYPE_LADDER = 9
 
 events.createmove:set(protect("createmove", function(cmd)
     current.defensive, current.forced = false, false
-    if pending_recommended then
+    local rec, tick = recommended_state, globals.tickcount
+    if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
     end
     if not menu.enabled:get() then
@@ -1719,11 +1976,13 @@ events.createmove:set(protect("createmove", function(cmd)
     local lp = entity.get_local_player()
     if lp == nil or not lp:is_alive() then
         set_charge(true)
+        override("fakeduck", nil)
         return
     end
 
     local choked = cmd.choked_commands or globals.choked_commands or 0
     update_tickbase(lp, choked)
+    update_fd_guard(lp)
     update_exposure(lp, cmd)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
@@ -1733,6 +1992,7 @@ events.createmove:set(protect("createmove", function(cmd)
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
     current.brute = menu.anti_brute:get() and threat_stage() or 0
     apply_resolver()
+    apply_body_aim(lp, class)
 
     override("aa_enabled", true)
     override("yaw", "Backward")
@@ -1871,21 +2131,6 @@ end))
 -- Anti-bruteforce
 -------------------------------------------------------------------------------
 
--- p noktasinin a -> b dogru parcasina en kisa uzakligi
-local function distance_to_segment(p, a, b)
-    local abx, aby, abz = b.x - a.x, b.y - a.y, b.z - a.z
-    local len_sq = abx * abx + aby * aby + abz * abz
-    if len_sq == 0 then
-        return huge
-    end
-    local t = ((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / len_sq
-    t = max(0, min(1, t))
-    local dx = a.x + abx * t - p.x
-    local dy = a.y + aby * t - p.y
-    local dz = a.z + abz * t - p.z
-    return sqrt(dx * dx + dy * dy + dz * dz)
-end
-
 -- Log icin: o anki exploit durumu. DEF acik = defensive penceresi gercekten aktif;
 -- (zorla) = Smart o tick defensive istedi. sarj bekle = Safe recharge DT sarjini
 -- bekletiyor. atis = kendi son atisindan bu yana; mod = defensive modunu en son
@@ -1922,7 +2167,7 @@ local function exploit_status()
 
     local parts = {}
     -- Fake duck'ta DT/HS calismaz; "DT %0" gorunurse sebebi budur.
-    if get("fakeduck") then
+    if effective("fakeduck") then
         parts[#parts + 1] = "FD"
     end
     parts[#parts + 1] = exploit
@@ -1956,59 +2201,76 @@ local function weapon_label()
     return "sen " .. class:gsub("^CWeapon", ""):gsub("^C", ""):lower()
 end
 
-events.bullet_impact:set(protect("bullet_impact", function(e)
-    if not menu.enabled:get() then
-        return
+do
+    -- p noktasinin a -> b dogru parcasina en kisa uzakligi
+    local function distance_to_segment(p, a, b)
+        local abx, aby, abz = b.x - a.x, b.y - a.y, b.z - a.z
+        local len_sq = abx * abx + aby * aby + abz * abz
+        if len_sq == 0 then
+            return huge
+        end
+        local t = ((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / len_sq
+        t = max(0, min(1, t))
+        local dx = a.x + abx * t - p.x
+        local dy = a.y + aby * t - p.y
+        local dz = a.z + abz * t - p.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
     end
 
-    local lp = entity.get_local_player()
-    if lp == nil or not lp:is_alive() then
-        return
-    end
+    events.bullet_impact:set(protect("bullet_impact", function(e)
+        if not menu.enabled:get() then
+            return
+        end
 
-    local shooter = entity.get(e.userid, true)
-    if shooter == nil or not shooter:is_enemy() then
-        return
-    end
+        local lp = entity.get_local_player()
+        if lp == nil or not lp:is_alive() then
+            return
+        end
 
-    local key, entry = brute_entry(shooter, "u" .. tostring(e.userid))
-    local now = globals.realtime
-    if entry.last ~= nil and now >= entry.last and now - entry.last < BRUTE_DEBOUNCE then
-        return
-    end
+        local shooter = entity.get(e.userid, true)
+        if shooter == nil or not shooter:is_enemy() then
+            return
+        end
 
-    local head = lp:get_hitbox_position(0)
-    local eye = shooter:get_eye_position()
-    if head == nil or eye == nil then
-        return
-    end
-    if distance_to_segment(head, eye, vector(e.x, e.y, e.z)) > BRUTE_RADIUS then
-        return
-    end
-    entry.last = now
-    -- Hasar olayi mermiden sonra gelirse hangi fazda vuruldugumuzu buradan biliriz.
-    local shot_stage = menu.anti_brute:get() and brute_entry_stage(entry) or 0
-    entry.shot_stage = shot_stage
+        local key, entry = brute_entry(shooter, "u" .. tostring(e.userid))
+        local now = globals.realtime
+        if entry.last ~= nil and now >= entry.last and now - entry.last < BRUTE_DEBOUNCE then
+            return
+        end
 
-    -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
-    local hurt = brute.hurt[e.userid]
-    if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
-        pending_misses[#pending_misses + 1] = {
-            userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
-            aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(),
-        }
-    end
+        local head = lp:get_hitbox_position(0)
+        local eye = shooter:get_eye_position()
+        if head == nil or eye == nil then
+            return
+        end
+        if distance_to_segment(head, eye, vector(e.x, e.y, e.z)) > BRUTE_RADIUS then
+            return
+        end
+        entry.last = now
+        -- Hasar olayi mermiden sonra gelirse hangi fazda vuruldugumuzu buradan biliriz.
+        local shot_stage = menu.anti_brute:get() and brute_entry_stage(entry) or 0
+        entry.shot_stage = shot_stage
 
-    if not menu.anti_brute:get() then
-        return
-    end
-    entry.stage = shot_stage % #BRUTE_PHASES + 1
-    entry.time = now
-    brute.recent = key
-    if menu.brute_log:get() then
-        print(("[%s] anti-brute: %s faz %d"):format(SCRIPT, player_name(shooter), entry.stage))
-    end
-end))
+        -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
+        local hurt = brute.hurt[e.userid]
+        if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
+            pending_misses[#pending_misses + 1] = {
+                userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
+                aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
+            }
+        end
+
+        if not menu.anti_brute:get() then
+            return
+        end
+        entry.stage = shot_stage % #BRUTE_PHASES + 1
+        entry.time = now
+        brute.recent = key
+        if menu.brute_log:get() then
+            print(("[%s] anti-brute: %s faz %d"):format(SCRIPT, player_name(shooter), entry.stage))
+        end
+    end))
+end
 
 events.player_hurt:set(protect("player_hurt", function(e)
     if not menu.enabled:get() then
@@ -2046,21 +2308,28 @@ events.player_hurt:set(protect("player_hurt", function(e)
     else
         hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy) or 0
     end
+    -- Bicak ve zeus yakin mesafe silahi; AA'nin saklayabilecegi bir sey degil. Log'a
+    -- yazilir ama durum istatistigine ve anti-brute'a sayilmaz.
+    local weapon = tostring(e.weapon or "?")
+    local melee = weapon:find("knife", 1, true) ~= nil or weapon == "bayonet" or weapon == "taser"
     -- Sadece kafa isabeti resolver'in aciyi cozdugunu gosterir; govde ve bacak
     -- isabetleri baim / safe point'tir, desync onlari saklayamaz.
-    if e.hitgroup == 1 and menu.anti_brute:get() then
+    if e.hitgroup == 1 and not melee and menu.anti_brute:get() then
         enemy.base = (hit_stage + 1) % (#BRUTE_PHASES + 1)
     end
 
-    local entry = stat_for(current.state)
-    entry.hits = entry.hits + 1
-    if e.hitgroup == 1 then
-        entry.head = entry.head + 1
+    if not melee then
+        local entry = stat_for(current.state)
+        entry.hits = entry.hits + 1
+        if e.hitgroup == 1 then
+            entry.head = entry.head + 1
+        end
     end
     if menu.hit_log:get() then
-        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s"):format(
-            SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, tostring(e.weapon or "?"),
-            current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker)))
+        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s)"):format(
+            SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
+            current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker),
+            attacker_info(attacker)))
     end
 end))
 
@@ -2081,12 +2350,13 @@ local function event_number(e, name)
     return nil
 end
 
--- Atis kaydi: dusman, ates anindaki durumu, aimbot'un hedefledigi bolge ve hasar, sonuc,
--- ates anindaki safe points, backtrack ve isabet sansi. ack'teki degerler varsa onlar,
--- yoksa ates anindakiler kullanilir.
+-- Atis kaydi: dusman, ates anindaki durumu ve cani, aimbot'un hedefledigi bolge ve hasar,
+-- sonuc, ates anindaki safe points ve body aim, backtrack, isabet sansi ve senin silahin.
+-- ack'teki degerler varsa onlar, yoksa ates anindakiler kullanilir.
 local function shot_line(e, shot, target)
     local name = target ~= nil and player_name(target) or "?"
     local state = shot ~= nil and shot.state or (target ~= nil and enemy_state(target)) or "?"
+    local health = shot ~= nil and shot.health or nil
     local wanted = event_number(e, "wanted_hitgroup") or (shot and shot.hitgroup)
     local wanted_damage = event_number(e, "wanted_damage") or (shot and shot.damage) or 0
     local aimed = wanted ~= nil and ("hedef %s %d"):format(HITGROUPS[wanted] or "?", round(wanted_damage)) or "hedef ?"
@@ -2099,12 +2369,16 @@ local function shot_line(e, shot, target)
         result = "iska " .. tostring(reason):sub(1, 32)
     end
     local safe = shot ~= nil and shot.safe or effective("safe_points")
+    local body = shot ~= nil and shot.body or effective("body_aim")
     local backtrack = event_number(e, "backtrack") or (shot and shot.backtrack)
     local hitchance = event_number(e, "hitchance") or (shot and shot.hitchance)
-    return ("[%s] atis: %s | %s | %s | %s | SP %s | bt %s | hc %s"):format(SCRIPT, name, state, aimed, result,
+    return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | bt %s | hc %s | %s"):format(SCRIPT, name, state,
+        type(health) == "number" and tostring(round(health)) or "?", aimed, result,
         type(safe) == "string" and safe or "?",
+        type(body) == "string" and body or "?",
         backtrack ~= nil and ("%dt"):format(round(backtrack)) or "?",
-        hitchance ~= nil and ("%d%%"):format(round(hitchance)) or "?")
+        hitchance ~= nil and ("%d%%"):format(round(hitchance)) or "?",
+        shot ~= nil and shot.weapon or weapon_label())
 end
 
 -- aim_ack'teki hedef dokumanda entity index'i; bazi surumlerde entity'nin kendisi.
@@ -2133,6 +2407,7 @@ pcall(function()
         local state = enemy_state(target)
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
+                body = effective("body_aim"), health = prop(target, "m_iHealth"), weapon = weapon_label(),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
                 hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
         end
@@ -2335,6 +2610,11 @@ local function draw_indicators(lp, cx, cy)
     if current.resolver > 0 then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", ("RES %d"):format(current.resolver))
+    end
+    -- Hedefin cani govde vurusuna yetiyor: Body Aim "Prefer".
+    if current.lethal then
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", "BAIM")
     end
 end
 
