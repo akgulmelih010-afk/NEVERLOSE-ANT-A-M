@@ -16,7 +16,8 @@
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
-        ("correction" iskasi) sadece o dusmana karsi safe point'i yukseltir.
+        ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
+        (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
@@ -41,7 +42,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "3.2"
+local VERSION = "3.3"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -987,16 +988,21 @@ end
 -- Adaptive resolver
 -------------------------------------------------------------------------------
 
--- Lua'dan dusmanin gercek acisini Neverlose'un yerine koymak guvenilir degil: Lua sadece
--- govde donus parametresini (m_flPoseParameter[11]) yazabilir, modelin ayak yonu ise
--- Neverlose'un kendi cozumunden gelir. Ikisi birbirini tutmayinca hitbox'lar yeni bir
--- yanlis aciya kayar. Bu yuzden acilari Neverlose cozer; bu katman sonuclara bakar.
+-- Dusmanin acisi Neverlose'un yerine konmaz. Acik Lua API'si sadece govde donus
+-- parametresini (m_flPoseParameter[11]) yazabilir; modelin ayak yonu Neverlose'un kendi
+-- cozumunden gelir ve ikisi tutmayinca hitbox'lar yeni bir yanlis aciya kayar. Ayak
+-- yonunu yazmak icin FFI ile oyun belleginde sabit ofsetlere yazmak gerekir: bu tek bir
+-- client.dll surumunde gecerlidir ve Neverlose'un atis kayitlarina etkisi Lua'dan
+-- dogrulanamaz. Bu yuzden acilari Neverlose cozer; bu katman sonuclara bakar.
 --
 -- aim_ack her atisin sonucunu verir. "correction" = mermi isabet edecekti ama resolver
--- acida yanildi. Bir dusmana karsi son RESOLVER_WINDOW sonuctaki correction iskasi
--- sayisi o dusmanin seviyesidir:
+-- acida yanildi. Bir dusmana karsi, ATES ANINDAKI hareket durumunda (Standing / Moving /
+-- Crouch / Air) son RESOLVER_WINDOW sonuctaki correction iskasi sayisi seviyedir:
 --   1 -> Safe points "Prefer": guvenli nokta varsa ona ates eder
 --   2 -> Safe points "Force": sadece desync hangi taraftaysa da isabet eden noktalara
+-- AA lua'lari her durumda farkli ayar kullanir; havada cozulemeyen bir dusman yerde
+-- cozulebilir. Dusmanin o anki durumunda hic sonuc yoksa, butun durumlardaki son
+-- sonuclar on bilgi olur ama en fazla "Prefer".
 -- Isabetler pencereye girip eski iskalari itince seviye kendiliginden duser. Spread,
 -- tahmin hatasi gibi resolver disi iskalar sayilmaz. Seviye round'lar arasi kalir
 -- (Neverlose resolver'i da oyunculari hatirlar), harita degisince sifirlanir.
@@ -1006,9 +1012,44 @@ local SAFE_POINT_RANK = { Default = 0, Prefer = 1, Force = 2 }
 -- Aimbot az once birine ates ettiyse siradaki atislar da buyuk ihtimalle ona; bu kadar
 -- saniye o hedefin seviyesi kullanilir, sonra AA'nin baktigi tehdide donulur.
 local AIM_TARGET_HOLD = 1.5
+-- Ates edilip sonucu gelmeyen atislarin kaydi bu kadar saniye tutulur.
+local SHOT_MEMORY = 5
+-- Force safe point'te guvenli nokta yoksa aimbot hic ates etmez ve seviye de hic
+-- dusmez (sonuc gelmez). Dusman seni goruyorken (karsilikli gorus) FORCE_STALL sn
+-- boyunca ona ates edilmediyse "Prefer"e inilir; o durumun bir sonraki atis sonucu
+-- seviyeyi yeniden belirler.
+local FORCE_STALL = 1.0
 
--- players[key] = { name, results = { "c" | "h", ... }, level }
-local resolver = { players = {}, aim_target = nil, aim_time = -1000, user_safe = nil }
+-- players[key] = { name, results = { "c" | "h", ... }, states = { [durum] = { ... } } }
+-- shots[id] = { state, time }: ates anindaki dusman durumu
+local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil,
+    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false } }
+
+local function prop(ent, name)
+    local ok, value = pcall(function() return ent[name] end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
+-- Okunamayan alanlar "Standing" sayilir (en sik durum, en az varsayim).
+local function enemy_state(ent)
+    local flags = prop(ent, "m_fFlags")
+    if type(flags) == "number" and bit.band(flags, 1) == 0 then
+        return "Air"
+    end
+    local duck = prop(ent, "m_flDuckAmount")
+    if type(duck) == "number" and duck > 0.6 then
+        return "Crouch"
+    end
+    local velocity = prop(ent, "m_vecVelocity")
+    local ok, speed = pcall(function() return velocity:length2d() end)
+    if ok and type(speed) == "number" and speed > 6 then
+        return "Moving"
+    end
+    return "Standing"
+end
 
 local function resolver_entry(ent)
     local key = entity_key(ent)
@@ -1018,10 +1059,35 @@ local function resolver_entry(ent)
     local name = player_name(ent)
     local entry = resolver.players[key]
     if entry == nil or entry.name ~= name then
-        entry = { name = name, results = {}, level = 0 }
+        entry = { name = name, results = {}, states = {} }
         resolver.players[key] = entry
     end
     return entry
+end
+
+local function window_push(list, result)
+    list[#list + 1] = result
+    if #list > RESOLVER_WINDOW then
+        table.remove(list, 1)
+    end
+end
+
+local function window_misses(list)
+    local misses = 0
+    for _, r in ipairs(list) do
+        if r == "c" then
+            misses = misses + 1
+        end
+    end
+    return misses
+end
+
+local function entry_level(entry, state)
+    local list = entry.states[state]
+    if list ~= nil and #list > 0 then
+        return min(window_misses(list), #SAFE_POINT_LEVELS)
+    end
+    return min(window_misses(entry.results), 1)
 end
 
 local function resolver_target()
@@ -1049,7 +1115,40 @@ local function resolver_level(target)
     if entry == nil or entry.name ~= player_name(target) then
         return 0
     end
-    return entry.level
+    local state = enemy_state(target)
+    return entry_level(entry, state), key, state, entry
+end
+
+local function reset_stall(key, state)
+    local stall = resolver.stall
+    stall.key, stall.state, stall.visible, stall.last, stall.relaxed = key, state, 0, nil, false
+end
+
+-- Force'un ates engelleyip engellemedigini izler; takildiysa 1 dondurur.
+local function stall_level(level, key, state, entry)
+    local stall = resolver.stall
+    if level < 2 then
+        if stall.key ~= nil then
+            reset_stall(nil, nil)
+        end
+        return level
+    end
+    if stall.key ~= key or stall.state ~= state then
+        reset_stall(key, state)
+    end
+    local now = globals.realtime
+    if stall.last ~= nil and exposure.now and not stall.relaxed then
+        stall.visible = stall.visible + max(0, min(0.1, now - stall.last))
+        if stall.visible >= FORCE_STALL then
+            stall.relaxed = true
+            if menu.resolver_log:get() then
+                print(("[%s] resolver: %s %s safe point bulunamadi, ates yok -> safe points Prefer"):format(
+                    SCRIPT, entry.name, state))
+            end
+        end
+    end
+    stall.last = now
+    return stall.relaxed and 1 or level
 end
 
 local NON_BULLET_DAMAGE = {
@@ -1102,7 +1201,12 @@ local function apply_resolver()
     if overridden.safe_points == nil then
         resolver.user_safe = get("safe_points")
     end
-    local level = menu.resolver:get() and resolver_level(resolver_target()) or 0
+    local level = 0
+    if menu.resolver:get() then
+        local key, state, entry
+        level, key, state, entry = resolver_level(resolver_target())
+        level = stall_level(level, key, state, entry)
+    end
     current.resolver = level
     if level > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
         override("safe_points", SAFE_POINT_LEVELS[level])
@@ -1850,8 +1954,24 @@ end
 pcall(function()
     events.aim_fire:set(function(e)
         local target = aim_target_entity(e.target)
-        if target ~= nil then
-            resolver.aim_target, resolver.aim_time = target, globals.realtime
+        if target == nil then
+            return
+        end
+        local now = globals.realtime
+        resolver.aim_target, resolver.aim_time = target, now
+        -- Sonuc ~0.05-0.3 sn sonra gelir; dusman o arada inmis / egilmis olabilir.
+        for id, shot in pairs(resolver.shots) do
+            if now < shot.time or now - shot.time > SHOT_MEMORY then
+                resolver.shots[id] = nil
+            end
+        end
+        local state = enemy_state(target)
+        if e.id ~= nil then
+            resolver.shots[e.id] = { state = state, time = now }
+        end
+        local stall = resolver.stall
+        if stall.key ~= nil and stall.key == entity_key(target) then
+            stall.visible = 0
         end
     end)
 end)
@@ -1876,6 +1996,10 @@ pcall(function()
             aim_stats.other = aim_stats.other + 1
         end
 
+        local shot = e.id ~= nil and resolver.shots[e.id] or nil
+        if shot ~= nil then
+            resolver.shots[e.id] = nil
+        end
         local target = aim_target_entity(e.target)
         if result == nil or target == nil or not menu.resolver:get() then
             return
@@ -1884,24 +2008,21 @@ pcall(function()
         if entry == nil then
             return
         end
-        local results = entry.results
-        results[#results + 1] = result
-        if #results > RESOLVER_WINDOW then
-            table.remove(results, 1)
+        local enemy = shot ~= nil and shot.state or enemy_state(target)
+        local before = entry_level(entry, enemy)
+        window_push(entry.results, result)
+        entry.states[enemy] = entry.states[enemy] or {}
+        window_push(entry.states[enemy], result)
+        local level = entry_level(entry, enemy)
+        local stall = resolver.stall
+        if stall.key == entity_key(target) and stall.state == enemy then
+            reset_stall(stall.key, stall.state)
         end
-        local misses = 0
-        for _, r in ipairs(results) do
-            if r == "c" then
-                misses = misses + 1
-            end
-        end
-        local before = entry.level
-        entry.level = min(misses, #SAFE_POINT_LEVELS)
-        if menu.resolver_log:get() and (result == "c" or entry.level ~= before) then
+        if menu.resolver_log:get() and (result == "c" or level ~= before) then
             local what = result == "c" and "iska (correction)"
                 or ("isabet %s -%d"):format(HITGROUPS[e.hitgroup] or "?", tonumber(e.damage) or 0)
-            print(("[%s] resolver: %s %s | seviye %d -> safe points %s"):format(
-                SCRIPT, entry.name, what, entry.level, SAFE_POINT_LEVELS[entry.level]))
+            print(("[%s] resolver: %s %s %s | seviye %d -> safe points %s"):format(
+                SCRIPT, entry.name, enemy, what, level, SAFE_POINT_LEVELS[level]))
         end
     end)
 end)
@@ -1925,7 +2046,8 @@ pcall(function()
     events.level_init:set(function()
         brute.enemies, brute.recent, brute.hurt = {}, nil, {}
         pending_misses = {}
-        resolver.players, resolver.aim_target = {}, nil
+        resolver.players, resolver.shots, resolver.aim_target = {}, {}, nil
+        reset_stall(nil, nil)
     end)
 end)
 

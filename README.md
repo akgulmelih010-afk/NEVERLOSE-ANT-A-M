@@ -8,7 +8,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim ve exploit lua'sı. Sadece
 
 1. `antiaim.lua` dosyasını Neverlose'un script klasörüne at. Menüde **Scripts** sekmesinden klasörü açabilirsin, genelde `Counter-Strike Global Offensive/nl/scripts` olur.
 2. Oyunda Neverlose menüsü → **Scripts** → `antiaim` → **Load**.
-3. Konsolda `[ANT-A-M] v3.2 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
+3. Konsolda `[ANT-A-M] v3.3 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
 4. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim**, **Resolver** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
 5. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
 
@@ -95,9 +95,9 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
 | Adaptive resolver | Açık | Düşman başına çalışan resolver katmanı (aşağıya bak). |
-| Console log | Açık | Resolver'ın her `correction` ıskasını ve seviye değişikliğini konsola yazar. |
+| Console log | Açık | Resolver'ın her `correction` ıskasını ve seviye değişikliğini konsola yazar. Örnek: `resolver: isim Air iska (correction) \| seviye 1 -> safe points Prefer`. |
 
-**Nasıl çalışır:** Açıları yine Neverlose'un kendi resolver'ı çözer. Bu katman her aimbot atışının sonucuna bakar (Neverlose'un `aim_ack` olayı). `correction` = mermi isabet edecekti ama resolver düşmanın açısında yanıldı. Bir düşmana karşı son 4 atıştaki `correction` ıskası sayısı o düşmanın seviyesidir:
+**Nasıl çalışır:** Açıları yine Neverlose'un kendi resolver'ı çözer. Bu katman her aimbot atışının sonucuna bakar (Neverlose'un `aim_ack` olayı). `correction` = mermi isabet edecekti ama resolver düşmanın açısında yanıldı. Seviye **düşman başına ve düşmanın hareket durumu başına** (`Standing` / `Moving` / `Crouch` / `Air`) tutulur: AA lua'ları her durumda farklı ayar kullanır, havada çözülemeyen biri yerde çözülebilir. Atışın hangi durumda yapıldığı ateş anında kaydedilir; sonuç geldiğinde düşman inmiş ya da eğilmiş olsa bile ıska doğru duruma yazılır. O durumda son 4 atıştaki `correction` ıskası sayısı seviyedir:
 
 | Seviye | Ne zaman | Safe Points |
 |---|---|---|
@@ -106,10 +106,12 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | 2 | 2+ resolver ıskası | `Force`: sadece desync hangi taraftaysa da isabet eden noktalara ateş eder |
 
 - İsabetler son 4 atışa girip eski ıskaları dışarı ittikçe seviye kendiliğinden düşer. Spread, tahmin hatası, backtrack gibi resolver dışı ıskalar sayılmaz.
-- Seviye **sadece o düşmana karşı** uygulanır: aimbot az önce (1.5 sn içinde) kime ateş ettiyse onunki, yoksa AA'nın baktığı tehdidinki. Göstergede `RES 1` / `RES 2` yazar.
+- Düşmanın o anki durumunda hiç sonuç yoksa diğer durumlardaki son sonuçlar ön bilgi olur, ama en fazla `Prefer`.
+- **Force takılırsa:** `Force`'ta düşmanın güvenli noktası yoksa aimbot hiç ateş etmez (ve sonuç gelmediği için seviye de düşmez). Düşman seni görürken 1 saniye boyunca ona hiç ateş edilmediyse `Prefer`'e inilir ve konsola `safe point bulunamadi` yazılır; o durumun bir sonraki atış sonucu seviyeyi yeniden belirler.
+- Seviye **sadece o düşmana ve onun o anki durumuna karşı** uygulanır: aimbot az önce (1.5 sn içinde) kime ateş ettiyse onunki, yoksa AA'nın baktığı tehdidinki. Göstergede `RES 1` / `RES 2` yazar.
 - Senin kendi Safe Points ayarın hiç düşürülmez (zaten `Force` ise dokunulmaz). Body aim'e karışmaz; kendi body aim tuşun aynen çalışır.
 - Seviye round'lar arası kalır (Neverlose resolver'ı da oyuncuları hatırlar), harita değişince ya da aynı yere başka oyuncu gelince sıfırlanır.
-- **Neden düşmanın açısını Lua'dan ezmiyor:** Lua sadece gövde dönüş parametresini (`m_flPoseParameter[11]`) yazabiliyor; modelin ayak yönü Neverlose'un kendi çözümünden geliyor. İkisi birbirini tutmayınca hitbox'lar yeni bir yanlış açıya kayar ve isabet düşer. Bu yüzden açıyı Neverlose'a bırakıp, onun yanıldığı düşmanda güvenli noktaya geçmek daha sağlam.
+- **Neden düşmanın açısını Lua'dan ezmiyor:** Neverlose'un açık Lua API'si sadece gövde dönüş parametresini (`m_flPoseParameter[11]`) yazabiliyor; modelin ayak yönü Neverlose'un kendi çözümünden geliyor ve ikisi tutmayınca hitbox'lar yeni bir yanlış açıya kayar. Ayak yönünü yazmak için FFI ile oyun belleğinde sabit ofsetlere yazmak gerekiyor: bu sadece tek bir `client.dll` sürümünde geçerli ve Neverlose'un atış kayıtlarına etkisi Lua'dan doğrulanamıyor (bunu yapan örnek resolver'ın kendi başlığında da "UNVERIFIED" yazıyor). Bu yüzden açıyı Neverlose'a bırakıp, onun yanıldığı düşmanda ve durumda güvenli noktaya geçmek daha sağlam.
 - **Başka bir resolver script'iyle birlikte çalıştırma** (ör. kenar çubuğundaki `RESOLVER`). İki script aynı ayarlara ya da animasyonlara karışırsa hangisinin işe yaradığı anlaşılmaz.
 
 ### Visuals
