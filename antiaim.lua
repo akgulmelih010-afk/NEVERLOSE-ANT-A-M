@@ -28,9 +28,9 @@
         jitter'i izlenir: defensive'deki iskalar resolver'a sayilmaz, jitter'li AA'ya
         ilk atistan safe point "Prefer".
       - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
-        AWP / R8'de govde oldurmuyorsa sadece kafa (Min. Damage = dusmanin cani, en
-        fazla 100: govdeye atis acilmaz); resolver bir dusmanda iki kez yanildiysa
-        (DT'li silahlarda) govde.
+        AWP / R8'de biri kafani gorebiliyorken sadece oldurecek atis (Min. Damage 101 =
+        can + 1, Body Aim Prefer; hedeften bagimsiz); resolver bir dusmanda iki kez
+        yanildiysa (DT'li silahlarda) govde.
       - Bicak / zeus tutan dusman yaklasinca, havadayken ve hareket ederken fake duck birakilir.
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
@@ -74,7 +74,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.2"
+local VERSION = "5.3"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1600,7 +1600,10 @@ local FORCE_STALL = 0.5
 -- jittery[id] = dusmanin AA'sinin en son jitter'li goruldugu zaman (sn)
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {},
-    body_stall = { key = nil, visible = 0, last = nil, relaxed = false } }
+    body_stall = { key = nil, visible = 0, last = nil, relaxed = false },
+    -- Zorlanan defensive sirasinda atilip sunucuda kayda gecmeyen ("unregistered shot") atislarin
+    -- zamanlari; ikisi unreg_window sn icinde olursa zorlama unreg_pause sn durur (def_pause).
+    unreg = {}, unreg_window = 10, unreg_pause = 10, def_pause = -1000 }
 
 local function prop(ent, name)
     local ok, value = pcall(function() return ent[name] end)
@@ -2037,12 +2040,47 @@ do
     --  4. Resolver bu dusmana bu durumda iki kez yanildi (seviye 2) -> "Prefer": govde
     --     hitbox'lari desync'le kafa kadar kaymaz. Tek atisli silahlarda degil.
     -- Senin kendi "Force"un (baim tusu) hic degistirilmez.
+    -- Scout / AWP / R8 ve "Head unless body kills": Min. Damage 101 (Neverlose'da 100 ustu "can +
+    -- fazlasi", yani can + 1) ve Body Aim "Prefer". Ikisi de hedeften bagimsiz: aimbot hangi
+    -- dusmana ates ederse etsin sadece oldurecek atis (tam canliya kafa, cani azsa govde).
+    -- Eskiden tahmin edilen tek hedefe gore ayarlaniyordu; loglarda aimbot baska dusmana ates
+    -- edince tam canli dusmana "BA Force | MD 31" ile 40'lik govde atisi yapildi.
+    -- Kural sadece bir dusman kafani gorebiliyorken (ya da birazdan gorecekken) gecerli: seni
+    -- geri vuramayacaksa uzaktan ince bir bosluktan gorunen kol / govdeye atis bedava hasardir
+    -- ("uzakta ince yerlerden sikamiyor"). Iz yoksa her zaman gecerli.
+    local HP_PLUS_ONE = 101
+
+    -- Ezdigimiz bir ayarin senin tarafindaki degeri: o ayara bagli aktif bind (baim tusu gibi).
+    -- Neverlose'un :get()'i ezilen degeri dondurebilir; bind listesi tusun kendisini verir.
+    local function bind_value(name, fallback)
+        local ok, binds = pcall(function() return ui.get_binds() end)
+        if ok and type(binds) == "table" then
+            for _, bind in ipairs(binds) do
+                local ok_bind, ref, active, value = pcall(function() return bind.reference, bind.active, bind.value end)
+                if ok_bind and ref ~= nil and ref == refs[name] and active == true and value ~= nil then
+                    return value
+                end
+            end
+        end
+        return fallback
+    end
+
     apply_body_aim = function(lp, class, target, level)
         if overridden.body_aim == nil then
             resolver.user_body = get("body_aim")
+        else
+            -- Biz ezerken baim tusuna basarsan (Force) fark edilir ve ezme birakilir.
+            resolver.user_body = bind_value("body_aim", resolver.user_body)
         end
         local wanted, lethal = nil, false
-        if target ~= nil and menu.smart_baim:get() then
+        local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
+        local sniper = menu.head_only:get() and WEAPONS[class] ~= nil and WEAPONS[class][4] and exposed
+        if sniper and menu.smart_baim:get() then
+            wanted = "Prefer"
+            -- Gosterge icin: tahmin edilen hedefte govde olduruyor mu (BAIM / HEAD).
+            local health = target ~= nil and prop(target, "m_iHealth") or nil
+            lethal = type(health) == "number" and health > 0 and health <= chest_damage(lp, target, WEAPONS[class])
+        elseif target ~= nil and menu.smart_baim:get() then
             local info = WEAPONS[class]
             local health = prop(target, "m_iHealth")
             if info ~= nil and type(health) == "number" and health > 0 then
@@ -2060,11 +2098,15 @@ do
                 wanted = "Prefer"
             end
         end
-        if not lethal then
+        if not lethal or sniper then
             local stall = resolver.body_stall
             stall.key, stall.visible, stall.last, stall.relaxed = nil, 0, nil, false
         end
-        current.lethal = wanted == "Prefer" or wanted == "Force"
+        if sniper then
+            current.lethal = lethal
+        else
+            current.lethal = wanted == "Prefer" or wanted == "Force"
+        end
         if wanted == nil or resolver.user_body == "Force" or resolver.user_body == wanted then
             override("body_aim", nil)
         else
@@ -2079,11 +2121,9 @@ do
         if overridden.min_damage == nil then
             resolver.user_md = get("min_damage")
         end
-        local info = WEAPONS[class]
-        local health = target ~= nil and prop(target, "m_iHealth") or nil
         local min_damage = nil
-        if menu.head_only:get() and info ~= nil and info[4] and type(health) == "number" and health > 0 then
-            min_damage = min(100, health)
+        if sniper then
+            min_damage = HP_PLUS_ONE
             if type(resolver.user_md) == "number" and resolver.user_md >= min_damage then
                 min_damage = nil
             end
@@ -2310,7 +2350,10 @@ do
         local airborne = state == "Air" or state == "Air crouch"
         local window = mode == "Smart" and (smart_window(now) or (airborne and menu.air_lag:get()))
         local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now)
-        local forced = (window or guard) and dt and exploit_active()
+        -- Atislarin kayda gecmedigi goruldukten sonra zorlama bir sure durur (bkz. aim_ack).
+        local real = globals.realtime
+        local paused = real >= resolver.def_pause - resolver.unreg_pause and real < resolver.def_pause
+        local forced = (window or guard) and dt and exploit_active() and not paused
         current.defensive = not on_peek or hs_peek or forced
         current.forced = forced
 
@@ -2615,7 +2658,10 @@ local MOVETYPE_LADDER = 9
 -- "ucma"). Yatay hiz en az min_speed. Fake duck'ta yok (exploit calismaz). Hide shots'ta
 -- (scout / AWP / R8) da denenir: sarj harcanmadiysa Neverlose HS ile teleport yapmiyor
 -- demektir, bir kez yazilir ve o haritada HS ile bir daha denenmez.
-local teleport = { last = -1000, count = 0, min_speed = 150, gap = 0.25, max_jump = 3, pending = nil, hs_ok = nil }
+-- refilled: bu ziplamada teleport'tan sonra sarj havada yeniden doldu mu (inince ozet yazilir:
+-- tek teleport ve dolmadiysa ikincisi sarj yuzunden gelmedi demektir).
+local teleport = { last = -1000, count = 0, min_speed = 150, gap = 0.25, max_jump = 3, pending = nil, hs_ok = nil,
+    refilled = false }
 teleport.update = function(lp, move_state)
     local now = globals.realtime
     -- Bir onceki tick'te HS ile denendiyse sarj harcandi mi?
@@ -2631,8 +2677,18 @@ teleport.update = function(lp, move_state)
         end
     end
     if move_state ~= "Air" and move_state ~= "Air crouch" then
-        teleport.count = 0
+        if teleport.count > 0 and menu.hit_log:get() then
+            print(("[%s] teleport: bu ziplamada %d kez%s"):format(SCRIPT, teleport.count,
+                teleport.refilled and "" or " (sarj havada tekrar dolmadi)"))
+        end
+        teleport.count, teleport.refilled = 0, false
         return
+    end
+    if teleport.count > 0 and api.charge ~= nil then
+        local charge = api.charge()
+        if type(charge) == "number" and charge >= 1 then
+            teleport.refilled = true
+        end
     end
     if teleport.count >= teleport.max_jump or (now >= teleport.last and now - teleport.last < teleport.gap)
         or not menu.air_teleport:get() or api.teleport == nil then
@@ -2771,6 +2827,11 @@ do
         if type(health) ~= "number" or health <= 0 then
             health = 100
         end
+        -- Peek atinca dusman seni gorecek: scout / AWP / R8'de (Head unless body kills) su an
+        -- kimse gormese de sadece oldurecek atis icin peek atilir.
+        if menu.head_only:get() and SNIPERS[current.weapon] then
+            return health + 1
+        end
         local md = effective("min_damage")
         if type(md) ~= "number" then
             return health
@@ -2829,6 +2890,15 @@ do
         return found
     end
 
+    -- Bu noktadan (goz yuksekliginde) dusmana oldurecek / yeterli atis var mi.
+    local function spot_hits(lp, mine, spot, enemy)
+        local points = aim_points(enemy)
+        if #points == 0 then
+            return false
+        end
+        return best_damage(lp, vector(spot.x, spot.y, spot.z + eye_height(lp, mine)), points) >= required_damage(enemy)
+    end
+
     -- Hedefe dogru tam hizla (son 12 birimde yavaslayarak) yurur; uzakligi dondurur.
     local function move_to(cmd, mine, dest)
         local dx, dy = dest.x - mine.x, dest.y - mine.y
@@ -2875,13 +2945,23 @@ do
         return class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
     end
 
-    local function enemy_target()
-        local enemy = aa_threat()
+    local function usable(enemy)
         if enemy == nil or dormant(enemy) then
             return nil
         end
         local ok, alive = pcall(function() return enemy:is_alive() end)
         return ok and alive and enemy or nil
+    end
+
+    local function enemy_target()
+        return usable(aa_threat())
+    end
+
+    -- Peek atilan dusman: yururken tehdit degisse de ayni dusman (yeni tehdide gore tarama
+    -- yarida vazgecirmesin).
+    local function peek_enemy()
+        local ok, enemy = pcall(entity.get, ai_peek.enemy)
+        return usable(ok and enemy or nil)
     end
 
     ai_peek.reset = function()
@@ -3019,17 +3099,25 @@ do
             return
         end
 
-        local enemy = enemy_target()
         local due = tick < ai_peek.scan_tick or tick - ai_peek.scan_tick >= ai_peek.every
         local hold = class == "Revolver" and ai_peek.hold_r8 or ai_peek.hold
         if ai_peek.mode == "go" or ai_peek.mode == "hold" then
+            local enemy = peek_enemy()
             if enemy == nil or now > ai_peek.until_time then
                 give_up(cmd, mine, now, enemy == nil and "hedef yok" or "sure doldu")
                 return
             end
             if due then
                 ai_peek.scan_tick = tick
-                local result = scan(lp, mine, enemy)
+                -- Once buradan / hedef noktadan hala oluyor mu; olmuyorsa yeniden taranir.
+                local result
+                if spot_hits(lp, mine, mine, enemy) then
+                    result = "here"
+                elseif ai_peek.mode == "go" and ai_peek.target ~= nil and spot_hits(lp, mine, ai_peek.target, enemy) then
+                    result = { spot = ai_peek.target, side = ai_peek.side }
+                else
+                    result = scan(lp, mine, enemy)
+                end
                 if result == "here" then
                     -- Aci acildi: dur, aimbot ates etsin.
                     if ai_peek.mode == "go" then
@@ -3039,9 +3127,13 @@ do
                     give_up(cmd, mine, now, "aci kapandi")
                     return
                 elseif ai_peek.mode == "go" and result.side == ai_peek.side then
-                    -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir. Diger
-                    -- taraf daha yakin cikarsa yon degistirilmez (gidip gelme olmasin).
+                    -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir.
                     ai_peek.target = result.spot
+                elseif ai_peek.mode == "go" then
+                    -- Bu tarafta artik olmuyor, sadece diger tarafta: yon degistirilmez (gidip
+                    -- gelme olmasin), geri donulur; oradan yeniden taranir.
+                    give_up(cmd, mine, now, "aci kapandi")
+                    return
                 end
             end
             if ai_peek.mode == "hold" then
@@ -3054,6 +3146,7 @@ do
         end
 
         -- Bekleme: baslangic noktasi tus basiliyken durdugun yer.
+        local enemy = enemy_target()
         if ai_peek.home == nil then
             ai_peek.home = mine
         end
@@ -3609,7 +3702,8 @@ pcall(function()
                 weapon = weapon_label(),
                 profile = enemy_watch.profile(target),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
-                hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
+                hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack"),
+                forced = current.forced }
         end
         local stall = resolver.stall
         if stall.key ~= nil and stall.key == player_id(target) then
@@ -3668,6 +3762,26 @@ pcall(function()
             print(shot_line(e, shot, target))
         end
         ai_peek.result(e, target ~= nil and player_name(target) or nil)
+        -- Kendi zorladigimiz defensive sirasinda atilan mermi sunucuda kayda gecmediyse (loglarda
+        -- "iska unregistered shot"), kisa surede ikincisinde zorlama unreg_pause sn durdurulur.
+        if state == "unregistered shot" and shot ~= nil and shot.forced then
+            local now = globals.realtime
+            local list = {}
+            for _, t in ipairs(resolver.unreg) do
+                if now >= t and now - t <= resolver.unreg_window then
+                    list[#list + 1] = t
+                end
+            end
+            list[#list + 1] = now
+            resolver.unreg = list
+            if #list >= 2 then
+                resolver.unreg, resolver.def_pause = {}, now + resolver.unreg_pause
+                if menu.shot_log:get() then
+                    print(("[%s] defensive %d sn durduruldu: zorlanan defensive sirasinda %d atis kayda gecmedi (unregistered shot)"):format(
+                        SCRIPT, resolver.unreg_pause, #list))
+                end
+            end
+        end
         if result == nil or target == nil or not menu.resolver:get() then
             return
         end
