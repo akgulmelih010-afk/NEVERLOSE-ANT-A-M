@@ -9,9 +9,12 @@
         Freestanding, Safe head. Her durum kendi ayarlariyla gelir
         ("Override" kapatilirsa o durum Global'in AA ayarlarini kullanir).
       - Duruma ozel exploit: her durumda DT / HS secimi, defensive modu
-        (Off / On peek / Always on / Tick based) ve hidden pitch / yaw.
-        Havada, egilerek yururken ve peek atarken defensive kendiliginden
-        hep acik; yerde Neverlose'un "On Peek" defensive'i peek'te devreye girer.
+        (Off / On peek / Smart / Always on / Tick based) ve hidden pitch / yaw.
+        Hareket ederken ve havadayken "Smart": Neverlose'un "On Peek"ine ek olarak
+        tehdit kafani gormeye baslayinca (ya da 0.2 sn icinde gorecekse) defensive
+        zorlanir. Scout / AWP / R8'de Hide shots, gorulurken Break LC.
+      - Safe recharge: DT atistan sonra sarj olurken yerinde donar; tehdit seni
+        goruyorken sarj bekletilir, siperin arkasinda dolar.
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
@@ -36,7 +39,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "2.9"
+local VERSION = "3.0"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -85,6 +88,7 @@ local api = {
     hidden_pitch = rage_method("antiaim", "override_hidden_pitch"),
     hidden_yaw   = rage_method("antiaim", "override_hidden_yaw_offset"),
     charge       = rage_method("exploit", "get"),
+    allow_charge = rage_method("exploit", "allow_charge"),
 }
 
 local refs = {
@@ -282,17 +286,20 @@ local DEFAULTS = {
 -- Exploit varsayilanlari: { exploit, defensive, hidden pitch, hidden yaw }
 -- Hicbir durum varsayilan olarak "Always on" kullanmaz: oyun loglarinda zipladiktan,
 -- egilip yurumeye ya da peek'e gectikten ~0.4 sn sonra (defensive modu "Always on"a
--- donunce) DT %0'a dusuyor ve vurulma tam o sirada geliyordu. "On peek"te durumlar
--- arasinda mod degismez; Neverlose defensive'i peek aninda kendisi acar.
+-- donunce) DT %0'a dusuyor ve vurulma tam o sirada geliyordu. "On peek" ve "Smart"ta
+-- Neverlose'un modu hep "On Peek" kalir, durumlar arasinda degismez.
+-- Hareket ederken ve havada "Smart": loglarda "Air | DT dolu, DEF yok" ve "Peek | DT
+-- dolu, DEF yok" isabetleri vardi, yani Neverlose'un peek tespiti o anlari kacirdi.
+-- Dururken / egilip beklerken aci tutan sensin; orada ilk atis hizi daha onemli.
 local EXPLOIT_DEFAULTS = {
     ["Standing"]     = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Moving"]       = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Slow walk"]    = { "Double tap", "On peek",   "Up",     "Sideways" },
+    ["Moving"]       = { "Double tap", "Smart",     "Up",     "Sideways" },
+    ["Slow walk"]    = { "Double tap", "Smart",     "Up",     "Sideways" },
     ["Crouching"]    = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Crouch move"]  = { "Double tap", "On peek",   "Switch", "Sideways" },
-    ["Peek"]         = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Air"]          = { "Double tap", "On peek",   "Up",     "Spin" },
-    ["Air crouch"]   = { "Double tap", "On peek",   "Up",     "Random" },
+    ["Crouch move"]  = { "Double tap", "Smart",     "Switch", "Sideways" },
+    ["Peek"]         = { "Double tap", "Smart",     "Up",     "Sideways" },
+    ["Air"]          = { "Double tap", "Smart",     "Up",     "Spin" },
+    ["Air crouch"]   = { "Double tap", "Smart",     "Up",     "Random" },
     ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
     ["Freestanding"] = { "Double tap", "On peek",   "Off",    "Off" },
     ["Safe head"]    = { "Double tap", "On peek",   "Off",    "Off" },
@@ -303,7 +310,7 @@ local WAY_DEFAULTS = { -30, 0, 30, -15, 15 }
 
 local MODIFIERS = { "Disabled", "Center", "Offset", "Random", "Spin", "3-Way", "5-Way" }
 local EXPLOITS = { "Double tap", "Hide shots", "Binds" }
-local DEF_MODES = { "Off", "On peek", "Always on", "Tick based" }
+local DEF_MODES = { "Off", "On peek", "Smart", "Always on", "Tick based" }
 local HIDDEN_PITCHES = { "Off", "Down", "Up", "Zero", "Switch", "Random", "Custom" }
 local HIDDEN_YAWS = { "Off", "Sideways", "Spin", "Random", "Forward", "Custom" }
 
@@ -346,6 +353,9 @@ menu.auto_peek    = g_defensive:switch("Auto peek", true)
 -- Bolt-action tufekler ve R8 DT ile cift atis yapamaz; DT her atistan sonra bosalir ve
 -- uzun sure sarj olur. Hide shots atis anindaki acini gizler, defensive "Break LC" ile surer.
 menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots", "Same as state" })
+-- DT atistan sonra yeniden sarj olurken oyuncu sunucuda yerinde donar. Tehdit kafani
+-- goruyorken sarj bekletilir, siperin arkasina gecince dolar.
+menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 
@@ -552,16 +562,35 @@ local EXPOSE_EVERY = 2         -- tick; iz cizmek ucuz degil, her tick gerekmez
 local EXPOSE_LOOKAHEAD = 0.2   -- saniye; bu kadar sonra nerede olacagina da bakilir
 local PEEK_HOLD = 8            -- tick; gorus kesilince Peek'te bu kadar daha kalinir
 
+-- Havadayken kafanin yuksekligi de degisir: kutu ustunden zipladiginda kafa siperin
+-- ustune cikar. Dikey konum da tahmin edilir (sv_gravity 800, ziplama hizi ~302).
+local GRAVITY, JUMP_SPEED = 800, 301.99
+
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false }
 local peek = { until_tick = -1000 }
 
-local function head_visible_to(threat, eye, head, dx, dy)
-    local target = vector(head.x + dx, head.y + dy, head.z)
+local function head_visible_to(threat, eye, head, dx, dy, dz)
+    local target = vector(head.x + dx, head.y + dy, head.z + dz)
     local ok, damage = pcall(trace_bullet, threat, eye, target)
     return ok and type(damage) == "number" and damage > 0
 end
 
-local function update_exposure(lp)
+-- EXPOSE_LOOKAHEAD sonra kafa ne kadar yukari / asagi gidecek. Yerdeyken 0; ziplama
+-- tusuna yeni basildiysa ziplama hizi kullanilir (hiz o tick'te daha 0).
+local function vertical_lookahead(lp, cmd)
+    local vz
+    if bit.band(lp.m_fFlags, 1) == 0 then
+        vz = lp.m_vecVelocity.z
+    elseif cmd.in_jump == true then
+        vz = JUMP_SPEED
+    else
+        return 0
+    end
+    local t = EXPOSE_LOOKAHEAD
+    return vz * t - 0.5 * GRAVITY * t * t
+end
+
+local function update_exposure(lp, cmd)
     if not exposure.available then
         return
     end
@@ -587,10 +616,11 @@ local function update_exposure(lp)
         return
     end
 
-    exposure.now = head_visible_to(threat, eye, head, 0, 0)
+    exposure.now = head_visible_to(threat, eye, head, 0, 0, 0)
     if not exposure.now then
         local velocity = lp.m_vecVelocity
-        exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD, velocity.y * EXPOSE_LOOKAHEAD)
+        exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD, velocity.y * EXPOSE_LOOKAHEAD,
+            vertical_lookahead(lp, cmd))
     end
 end
 
@@ -978,7 +1008,8 @@ end
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
-local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, brute = 0, weapon = nil }
+local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
+    brute = 0, weapon = nil }
 
 local function update_flip(s, exploit, choked)
     -- Bir onceki paket gonderildiyse yeni bir choke dongusu basliyor demektir.
@@ -1133,6 +1164,24 @@ end
 local HS_LC_HOLD = 32
 local hs_lc = { until_tick = -1000 }
 
+-- "Smart" + DT: tehdit kafani gordugu (ya da 0.2 sn icinde gorecegi) surece ve gorus
+-- kesildikten sonra SMART_HOLD tick daha defensive zorlanir. Ayni gorus SMART_MAX
+-- tick'ten uzun surerse durulur: peek ani gecti, artik "Always on" gibi davranmaya
+-- gerek yok. Gorus SMART_HOLD tick'ten uzun kesilince yeniden kurulur.
+local SMART_HOLD = 8
+local SMART_MAX = 64
+local smart = { start = -1000, last = -1000 }
+
+local function smart_window(now)
+    if exposure.now or exposure.soon then
+        if now < smart.last or now - smart.last > SMART_HOLD then
+            smart.start = now
+        end
+        smart.last = now
+    end
+    return now >= smart.last and now - smart.last <= SMART_HOLD and now - smart.start < SMART_MAX
+end
+
 local function apply_defensive(cmd, s, class, state)
     local dt, hs = effective("doubletap"), effective("hideshots")
     local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
@@ -1145,16 +1194,25 @@ local function apply_defensive(cmd, s, class, state)
     -- durumundayken ya da tehdit kafani goruyor / birazdan gorecekken (havadan peek
     -- dahil) Break LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu.
     local now = globals.tickcount
-    if mode == "On peek" and hs and (state == "Peek" or exposure.now or exposure.soon) then
+    local on_peek = mode == "On peek" or mode == "Smart"
+    if on_peek and hs and (state == "Peek" or exposure.now or exposure.soon) then
         hs_lc.until_tick = now + HS_LC_HOLD
     end
-    local hs_peek = mode == "On peek" and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
-    current.defensive = mode ~= "On peek" or hs_peek
+    local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
+    -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
+    -- defensive olmaz, o zaman zorlanmaz.
+    local window = mode == "Smart" and smart_window(now)
+    local forced = window and dt and exploit_active()
+    current.defensive = not on_peek or hs_peek or forced
+    current.forced = forced
 
-    if mode == "On peek" then
+    if on_peek then
         -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
         override("lag_options", "On Peek")
         override("hs_options", hs_peek and "Break LC" or "Favor Fire Rate")
+        if forced then
+            pcall(function() cmd.force_defensive = true end)
+        end
     elseif mode == "Always on" then
         override("lag_options", "Always On")
         override("hs_options", hs and "Break LC" or "Favor Fire Rate")
@@ -1230,6 +1288,34 @@ local function defensive_active()
     return tickbase.left > 0 or tickbase.jump
 end
 
+-- Safe recharge: DT sarj olurken oyuncunun komutlari sunucuda islenmez, ~14 tick
+-- yerinde donarsin. Oyun loglarinda peek'te ates ettikten 0.05-0.36 sn sonra "DT %0"
+-- iken kafadan vuruldun; tam bu donma. Tehdit kafani goruyorken (ya da birazdan
+-- gorecekken) sarj bekletilir; siperin arkasina gecince dolar. Hep goruluyorsan
+-- atistan RECHARGE_HOLD_MAX sn sonra yine de sarj olur, DT'siz kalinmaz.
+local RECHARGE_HOLD_MAX = 1.2
+local recharge = { held = false }
+
+local function set_charge(allowed)
+    if api.allow_charge == nil or recharge.held == not allowed then
+        return
+    end
+    api.allow_charge(allowed)
+    recharge.held = not allowed
+end
+
+local function update_recharge()
+    local hold = false
+    if menu.safe_recharge:get() and exposure.available and api.charge ~= nil
+        and effective("doubletap") and not get("fakeduck") then
+        local charge = api.charge()
+        local since = globals.realtime - own.last_shot
+        hold = type(charge) == "number" and charge < 1 and since >= 0 and since <= RECHARGE_HOLD_MAX
+            and (exposure.now or exposure.soon)
+    end
+    set_charge(not hold)
+end
+
 -- Sen ates etmezken (atistan sonraki 1 sn haric) durum basina:
 --  DT  = DT'nin dolu oldugu tick orani. Dusukse o durumun ayarlari DT'yi bosaltiyor.
 --  DEF = exploit hazirken defensive penceresinin acik oldugu tick orani. "Always on"
@@ -1244,6 +1330,10 @@ local function sample_exploit(state)
         return
     end
     local entry = stat_for(state)
+    -- Bilerek bekletilen sarj "DT bosaltiyor" sayilmaz.
+    if dt and recharge.held then
+        return
+    end
     if dt and api.charge ~= nil then
         local charge = api.charge()
         if type(charge) == "number" then
@@ -1263,23 +1353,25 @@ end
 local MOVETYPE_LADDER = 9
 
 events.createmove:set(function(cmd)
-    current.defensive = false
+    current.defensive, current.forced = false, false
     if pending_recommended then
         apply_recommended()
     end
     if not menu.enabled:get() then
         reset_overrides()
+        set_charge(true)
         return
     end
 
     local lp = entity.get_local_player()
     if lp == nil or not lp:is_alive() then
+        set_charge(true)
         return
     end
 
     local choked = cmd.choked_commands or globals.choked_commands or 0
     update_tickbase(lp, choked)
-    update_exposure(lp)
+    update_exposure(lp, cmd)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
     current.weapon = class
@@ -1302,6 +1394,7 @@ events.createmove:set(function(cmd)
         -- Merdivende hareket durumu hep "Air" cikar; yer exploit'i kullanilir.
         apply_exploit(builder["Standing"], class)
         defensive_off()
+        update_recharge()
         sample_exploit(current.state)
         return
     end
@@ -1312,6 +1405,7 @@ events.createmove:set(function(cmd)
         current.state = "Legit"
         apply_exploit(builder[move_state], class)
         defensive_off()
+        update_recharge()
         sample_exploit(current.state)
         apply({
             pitch = "Disabled", yaw_base = "Local View", yaw_offset = 180, modifier = "Disabled", mod_offset = 0,
@@ -1325,6 +1419,7 @@ events.createmove:set(function(cmd)
         current.state = "Spin"
         apply_exploit(builder[move_state], class)
         defensive_off()
+        update_recharge()
         sample_exploit(current.state)
         apply({
             pitch = menu.spin_pitch:get(), yaw_base = "Local View",
@@ -1414,6 +1509,7 @@ events.createmove:set(function(cmd)
         avoid_overlap = s.avoid_overlap:get(), body_fs = s.body_fs:get(), freestand = freestand,
     })
     apply_defensive(cmd, builder[state], class, state)
+    update_recharge()
     sample_exploit(state)
 end)
 
@@ -1436,48 +1532,55 @@ local function distance_to_segment(p, a, b)
     return sqrt(dx * dx + dy * dy + dz * dz)
 end
 
--- Log icin: o anki exploit durumu. DEF acik = defensive penceresi gercekten aktif.
--- atis = kendi son atisindan bu yana; mod = defensive modunu en son degistirdigimizden
--- bu yana (sadece yakin zamanda degistiyse yazilir).
+-- Log icin: o anki exploit durumu. DEF acik = defensive penceresi gercekten aktif;
+-- (zorla) = Smart o tick defensive istedi. sarj bekle = Safe recharge DT sarjini
+-- bekletiyor. atis = kendi son atisindan bu yana; mod = defensive modunu en son
+-- degistirdigimizden bu yana (sadece yakin zamanda degistiyse yazilir).
 local function exploit_status()
-    local parts = {}
+    local exploit
     if effective("doubletap") then
         local charge = api.charge ~= nil and api.charge() or nil
         if type(charge) ~= "number" or charge >= 1 then
-            parts[1] = "DT dolu"
+            exploit = "DT dolu"
         else
-            parts[1] = ("DT %%%d"):format(round(max(0, charge) * 100))
+            exploit = ("DT %%%d"):format(round(max(0, charge) * 100))
         end
     elseif effective("hideshots") then
-        parts[1] = "HS"
+        exploit = "HS"
     else
-        parts[1] = "DT yok"
+        exploit = "DT yok"
     end
     -- Gorunen exploit'i script degil senin bind'in belirliyorsa (Auto exploit kapali,
     -- durumun exploit'i Binds, fake duck ya da Neverlose ayari reddetti). Neverlose'da
     -- DT, HS'den once gelir; DT'yi kapatamadiysak HS acik olsa da DT gorunur.
     local by_bind
-    if parts[1] == "HS" then
+    if exploit == "HS" then
         by_bind = overridden.hideshots == nil
-    elseif parts[1] == "DT yok" then
+    elseif exploit == "DT yok" then
         by_bind = overridden.doubletap == nil and overridden.hideshots == nil
     else
         by_bind = overridden.doubletap == nil
     end
     if by_bind then
-        parts[1] = parts[1] .. " (bind)"
+        exploit = exploit .. " (bind)"
     end
-    parts[2] = defensive_active() and "DEF acik" or "DEF yok"
+
+    local parts = {}
     -- Fake duck'ta DT/HS calismaz; "DT %0" gorunurse sebebi budur.
     if get("fakeduck") then
-        table.insert(parts, 1, "FD")
+        parts[#parts + 1] = "FD"
+    end
+    parts[#parts + 1] = exploit
+    parts[#parts + 1] = (defensive_active() and "DEF acik" or "DEF yok") .. (current.forced and " (zorla)" or "")
+    if recharge.held then
+        parts[#parts + 1] = "sarj bekle"
     end
     local now = globals.realtime
     local shot = now - own.last_shot
-    parts[3] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
+    parts[#parts + 1] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
     local mode = changed_at.lag_options ~= nil and now - changed_at.lag_options or nil
     if mode ~= nil and mode >= 0 and mode < 2 then
-        parts[4] = ("mod %.2fs"):format(mode)
+        parts[#parts + 1] = ("mod %.2fs"):format(mode)
     end
     return table.concat(parts, ", ")
 end
@@ -1626,6 +1729,7 @@ end
 events.round_start:set(function()
     reset_brute()
     pending_misses = {}
+    set_charge(true)
 end)
 
 -- Harita degisince oyuncular ve index'ler degisir; her sey sifirlanir.
@@ -1640,6 +1744,7 @@ events.player_death:set(function(e)
     local lp = entity.get_local_player()
     if lp ~= nil and entity.get(e.userid, true) == lp then
         reset_brute()
+        set_charge(true)
     end
 end)
 
@@ -1685,8 +1790,9 @@ local function draw_indicators(lp, cx, cy)
     render.text(FONT, vector(x, y), WHITE, "c", current.state:upper())
 
     y = y + 9
-    -- DT: beyaz = sarjli, turuncu = sarj oluyor. DEF: renkli = pencere su an acik,
-    -- beyaz = surekli defensive ayarli, soluk = sadece peek'te.
+    -- DT: beyaz = sarjli, turuncu = sarj oluyor (ya da Safe recharge bekletiyor).
+    -- DEF: renkli = pencere su an acik, beyaz = defensive zorlaniyor / surekli acik,
+    -- soluk = Neverlose'un peek tespitine birakildi.
     local dt_color = DIM
     if effective("doubletap") then
         local charge = api.charge ~= nil and api.charge() or nil
@@ -1806,6 +1912,9 @@ events.render:set(function()
     end
 end)
 
-events.shutdown:set(reset_overrides)
+events.shutdown:set(function()
+    reset_overrides()
+    set_charge(true)
+end)
 
 print(("[%s] v%s yuklendi"):format(SCRIPT, VERSION))
