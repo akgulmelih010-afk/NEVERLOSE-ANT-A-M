@@ -842,9 +842,10 @@ local SIGHT = { gap = 24, keep = 64, recent = 32 }
 -- peeking: AI peek'in su an peek attigi dusman (yururken / beklerken), yoksa nil.
 -- enemy_peek: kafani goren bir dusman sana peek atiyor (yeni gorundu ya da hizla hareket ediyor, bkz.
 -- peeking_us); fresh: "yeni gorundu" suresi (tick), peek_speed: peek sayilan yatay hiz (birim/sn).
+-- duel: { index, time } aimbot'un en son ates ettigi dusman (bkz. duel_target), duel_hold sn.
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
     any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil, edge = 3.5, peeking = nil,
-    enemy_peek = false, fresh = 16, peek_speed = 120 }
+    enemy_peek = false, fresh = 16, peek_speed = 120, duel = nil, duel_hold = 1.0 }
 local peek = { until_tick = -1000 }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
@@ -1081,7 +1082,7 @@ end
 -- Kafanin yanindan mermi atan dusman (bkz. bullet_impact): izler onu gormese bile
 -- (duvardan, dormant iken) seni goruyor demektir. shot = { index, tick }; 32 tick "goruyor"
 -- sayilir, tehdit seni gormuyorsa AA 64 tick ona doner.
-local seen_by_enemy, recent_shooter
+local seen_by_enemy, recent_shooter, duel_target
 do
     local function shot_recently(hold)
         local now = globals.tickcount
@@ -1105,6 +1106,29 @@ do
             return ent
         end
         return nil
+    end
+
+    -- Aimbot'un son duel_hold sn icinde ates ettigi dusman, hayattaysa ve kafani goruyorsa; yoksa nil.
+    -- Vuramadigin dusman geri ates eder: V1.0 loglarinda 0x41'e gogus vuruldu (-53), AA baska bir
+    -- dusmana donuktu ve 0.35 sn sonra 0x41 kafadan vurdu ("AA hedefi degil").
+    duel_target = function()
+        local d = exposure.duel
+        local now = globals.realtime
+        if d == nil or now < d.time or now - d.time > exposure.duel_hold then
+            return nil
+        end
+        local ok, ent = pcall(entity.get, d.index)
+        local ok_alive, alive = pcall(function() return ent:is_alive() end)
+        if not ok or ent == nil or not ok_alive or not alive or dormant(ent) then
+            return nil
+        end
+        local tick, seen = globals.tickcount, exposure.others[d.index]
+        local sees = seen ~= nil and tick >= seen and tick - seen <= OTHER_HOLD
+        local threat = current_threat()
+        if threat ~= nil and index_of(threat) == d.index then
+            sees = exposure.now or exposure.soon
+        end
+        return sees and ent or nil
     end
 end
 
@@ -1695,7 +1719,7 @@ end
 -- ama baska bir dusman goruyorsa desync'ini o cozmeye calisiyor, onun fazi uygulanir.
 -- Kimse gormuyorsa tehdidinki.
 local function brute_target()
-    return recent_shooter() or seeing_flanker() or current_threat()
+    return duel_target() or recent_shooter() or seeing_flanker() or current_threat()
 end
 
 local function threat_stage(group)
@@ -2353,7 +2377,7 @@ do
             -- Biz ezerken baim tusuna basarsan (Force) fark edilir ve ezme birakilir.
             resolver.user_body = bind_value("body_aim", resolver.user_body)
         end
-        local wanted, lethal = nil, false
+        local wanted, lethal, stalled = nil, false, false
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
         local sniper = menu.head_only:get() and WEAPONS[class] ~= nil and WEAPONS[class][4] and exposed
         if sniper and menu.smart_baim:get() then
@@ -2361,13 +2385,20 @@ do
             -- Gosterge icin: tahmin edilen hedefte govde olduruyor mu (BAIM / HEAD).
             local health = target ~= nil and prop(target, "m_iHealth") or nil
             lethal = type(health) == "number" and health > 0 and health <= chest_damage(lp, target, WEAPONS[class])
+            -- Aimbot'un az once (AIM_TARGET_HOLD sn) ates ettigi hedefi govde olduruyorsa "Force" (V1.0):
+            -- bu hedefle zaten catisiyorsun. Loglarda gogus -73 (100 -> 27) sonrasi "Prefer"de Neverlose
+            -- kafaya gitti, iskaladi; surgu cekerken dusman tec9 ile vurdu ("sikmadi adama").
+            local since = globals.realtime - resolver.aim_time
+            if lethal and target == resolver.aim_target and since >= 0 and since <= AIM_TARGET_HOLD then
+                wanted, stalled = body_stall(target), true
+            end
         elseif target ~= nil and menu.smart_baim:get() then
             local info = WEAPONS[class]
             local health = prop(target, "m_iHealth")
             if info ~= nil and type(health) == "number" and health > 0 then
                 local chest = chest_damage(lp, target, info)
                 if health <= chest then
-                    wanted, lethal = body_stall(target), true
+                    wanted, lethal, stalled = body_stall(target), true, true
                 elseif not info[4] and dt_ready() and health <= 2 * chest then
                     wanted = "Prefer"
                 elseif info[4] then
@@ -2388,7 +2419,7 @@ do
                 wanted = "Prefer"
             end
         end
-        if not lethal or sniper then
+        if not stalled then
             local stall = resolver.body_stall
             stall.key, stall.visible, stall.last, stall.relaxed = nil, 0, nil, false
         end
@@ -2952,10 +2983,17 @@ local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
         target = peeking
     elseif peeking ~= nil and threat ~= nil and index_of(peeking) == index_of(threat) then
         return yaw_base, yaw_offset
-    elseif threat == nil then
-        target = recent_shooter() or aa_threat()
     else
-        target = recent_shooter() or seeing_flanker()
+        -- Az once ates ettigin ve seni goren dusman once (tehdit kendisiyse At Target zaten ona bakar).
+        local duel = duel_target()
+        if duel ~= nil and threat ~= nil and index_of(duel) == index_of(threat) then
+            duel = nil
+        end
+        if threat == nil then
+            target = duel or recent_shooter() or aa_threat()
+        else
+            target = duel or recent_shooter() or seeing_flanker()
+        end
     end
     local mine, theirs = origin_of(lp), target ~= nil and origin_of(target) or nil
     local ok, view = pcall(function() return cmd.view_angles.y end)
@@ -4196,6 +4234,7 @@ pcall(function()
         end
         local now = globals.realtime
         resolver.aim_target, resolver.aim_time = target, now
+        exposure.duel = { index = index_of(target), time = now }
         -- Sonuc ~0.05-0.3 sn sonra gelir; dusman o arada inmis / egilmis olabilir.
         for id, shot in pairs(resolver.shots) do
             if now < shot.time or now - shot.time > SHOT_MEMORY then
