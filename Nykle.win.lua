@@ -133,6 +133,7 @@ local refs = {
     peek_assist     = find("Aimbot", "Ragebot", "Main", "Peek Assist"),
     safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
     min_damage      = find("Aimbot", "Ragebot", "Selection", "Min. Damage"),
+    hitboxes        = find("Aimbot", "Ragebot", "Selection", "Hitboxes"),
     body_aim        = find("Aimbot", "Ragebot", "Safety", "Body Aim"),
 }
 
@@ -562,6 +563,11 @@ menu.smart_baim     = style.tip(grp.resolver:switch(style.title("person-rays", "
 -- ates eder. Tam canli dusmanda bu kafa demek; govde ancak olduruyorsa vurulur.
 menu.head_only      = style.tip(grp.resolver:switch(style.title("skull", "Head unless body kills (snipers)"), true),
     "Biri seni gorebiliyorken scout / AWP / R8 sadece oldurecek atisa ates eder (Min. Damage can + 1).")
+-- Scout / AWP / R8: hedefin kaydi defensive'de (sahte) iken kafa atisi yok, sadece govde (olduruyorsa);
+-- kafa gercek kayda gider (bkz. resolver.fake).
+menu.fake_body      = style.tip(grp.resolver:switch(style.title("user-secret", "Snipers: no head on fake records"), true),
+    "Hedefin kaydi defensive'de (sahte) iken scout / AWP / R8 sadece oldurecek govdeye ates eder; kafa " ..
+    "atisi gercek kayda gider (en fazla 12 tick bekler).")
 menu.resolver_info  = grp.resolver:label("Raises safe points per enemy after resolver misses.")
 
 menu.state = grp.angles_raw:combo(style.title("list", "State"), STATES)
@@ -2196,6 +2202,11 @@ brute.stat_group = function()
     return current.phase_group
 end
 
+-- Sahte kayit (defensive) icin sniper govde kurali (bkz. apply_body_aim): ticks = ayni hedefte arka
+-- arkaya bekleme, max'tan sonra cooldown sn serbest; body = verilen hitbox listesi.
+resolver.fake = { ticks = 0, max = 12, cooldown = 0.5, free_until = -1000, logged = -1000, index = nil,
+    body = { "Chest", "Stomach" } }
+
 -- Hedefin govdesine (gogus ya da mide) gozumuzden mermi gecer mi. Iz ya da hitbox okunamazsa evet.
 resolver.body_open = function(target)
     if trace_bullet == nil or target == nil then
@@ -2451,6 +2462,39 @@ do
         end
         current.head_only = min_damage ~= nil
         override("min_damage", min_damage)
+
+        -- Sahte kayda kafa atisi yok (V1.0): scout / AWP / R8 sadece oldurecek atis yaparken hedefin kaydi
+        -- defensive'de (gordugumuz en yeni kayittan eski, acilar hidden) ise hitbox'lar gogus + mide:
+        -- tam canli dusmana atis gelmez (govde oldurmez), cani azsa govdeye. Kafa atisi gercek kayda
+        -- gider. Loglarda sahte / havadaki kayda kafaya nisan alinan atislar govdeye geldi (gogus -45,
+        -- -53, mide -92), dusman hayatta kaldi ve surgu cekerken vurdu. En fazla max tick beklenir, sonra
+        -- cooldown sn serbest (surekli defensive kullanana da kafa atisi gider).
+        local f = resolver.fake
+        local now = globals.realtime
+        local index = target ~= nil and index_of(target) or nil
+        local profile = index ~= nil and enemy_watch.profile(target) or nil
+        local fake = profile ~= nil and profile.defensive_now
+        if index ~= f.index then
+            f.index, f.ticks = index, 0
+        end
+        local cooling = now >= f.free_until - f.cooldown and now < f.free_until
+        local body_only = sniper and fake and menu.fake_body:get() and not cooling
+        if body_only then
+            f.ticks = f.ticks + 1
+            if f.ticks > f.max then
+                f.free_until, body_only = now + f.cooldown, false
+            end
+        end
+        if not body_only then
+            f.ticks = 0
+        end
+        current.fake_body = body_only
+        override("hitboxes", body_only and f.body or nil)
+        if body_only and menu.resolver_log:get() and (now < f.logged or now - f.logged > 5) then
+            f.logged = now
+            print(("[%s] resolver: %s sahte kayitta (defensive): sniper sadece govdeye, kafa gercek kayda"):format(
+                SCRIPT, player_name(target)))
+        end
     end
 end
 
@@ -4699,6 +4743,11 @@ local function draw_indicators(lp, cx, cy)
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "HEAD")
     end
+    -- DEF BODY: hedefin kaydi sahte (defensive), sniper sadece govdeye; kafa gercek kayda.
+    if current.fake_body then
+        y = y + 9
+        render.text(FONT, vector(x, y), CHARGING, "c", "DEF BODY")
+    end
     -- ANTI-PEEK: bir dusman sana peek atiyor, defensive ona karsi zorlaniyor.
     if current.anti then
         y = y + 9
@@ -4827,28 +4876,31 @@ do
         local key = player_id(target)
         local entry = key ~= nil and resolver.players[key] or nil
         local hits, misses = entry ~= nil and entry.hits or 0, entry ~= nil and entry.misses or 0
-        local value = (hits + 1.2) / (hits + misses + 2)
+        -- V1.0: on bilgi 0.8 (agirlik 4) ve yumusak carpanlar. Eski formul (on bilgi 0.6, jitter / hava /
+        -- defensive icin sert indirim) gercek oranin cok altinda gosteriyordu: V1.0 loglarinda resolver'a
+        -- bagli ~12 isabete 1 correction iskasi vardi, panel %50-60 diyordu.
+        local value = (hits + 3.2) / (hits + misses + 4)
         local profile = enemy_watch.profile(target)
         if profile ~= nil then
             if profile.defensive_now then
-                value = value * 0.25
-            end
-            if profile.lc then
                 value = value * 0.5
             end
+            if profile.lc then
+                value = value * 0.6
+            end
             if profile.jitter ~= nil then
-                value = value * (1 - min(profile.jitter, 120) / 300)
+                value = value * (1 - min(profile.jitter, 120) / 600)
             end
         end
         local state = enemy_state(target)
         if state == "Air" or state == "Fakeduck" then
-            value = value * 0.8
+            value = value * 0.9
         end
         local far = resolver.distance(target)
         if far ~= nil and far >= 2500 then
-            value = value * 0.75
-        elseif far ~= nil and far >= 1500 then
             value = value * 0.85
+        elseif far ~= nil and far >= 1500 then
+            value = value * 0.92
         end
         local level = entry ~= nil and entry_level(entry, state) or 0
         value = value * (1 + 0.05 * level)
