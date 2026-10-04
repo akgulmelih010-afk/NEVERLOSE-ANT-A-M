@@ -17,7 +17,8 @@
         istersen "Auto (learn)": HS ile DT arasindan kafana daha az mermi yedigin.
       - AI peek: Peek Assist tusunu basili tutup hareket tuslarina basmazsan script
         yanlari tarar ve oldurecek atisin oldugu en yakin noktaya kendisi yurur;
-        aimbot ates edince Peek Assist geri ceker. Her peek'in sonucu konsola yazilir.
+        yururken Neverlose'un Peek Assist'i kapatilir, atistan sonra script geri yurur.
+        Her peek'in sonucu konsola yazilir.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
@@ -30,7 +31,7 @@
         AWP / R8'de govde oldurmuyorsa sadece kafa (Min. Damage = dusmanin cani, en
         fazla 100: govdeye atis acilmaz); resolver bir dusmanda iki kez yanildiysa
         (DT'li silahlarda) govde.
-      - Bicak / zeus tutan dusman yaklasinca fake duck birakilir.
+      - Bicak / zeus tutan dusman yaklasinca, havadayken ve hareket ederken fake duck birakilir.
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
         harita degisince ve oyun yeniden acilinca da kalir (Neverlose db, en fazla
@@ -42,7 +43,8 @@
       - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
         simdi ve 0.2 sn sonra (senin ve dusmanin hareketiyle: sana peek atan dusman
         gorunmeden yakalanir); ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
-      - Dusman peek'ine karsi defensive (dururken de) ve havada gorulunce DT teleport.
+      - Dusman peek'ine karsi defensive (dururken de) ve havada gorulunce teleport (sarj
+        dolunca tekrar, ziplama basina en fazla 3).
       - Akilli AA hedefi: az once kafana ates eden dusmana (1 sn), Neverlose'un tehdidi
         yoksa en yakin dusmana, tehdit gormuyor ama yandan biri goruyorsa ona gore
         donulur. Yerinde dururken otomatik freestanding.
@@ -70,7 +72,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.0"
+local VERSION = "5.1"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -244,6 +246,25 @@ local function effective(name)
     return get(name)
 end
 
+-- Peek Assist tusu basili mi. AI peek yururken Peek Assist'i ezdigimizde (false) :get()'in
+-- ezilen degeri dondurdugu bir surumde tus okunamaz; o zaman tusun durumu ui.get_binds()'tan
+-- alinir. O da okunamazsa basili sayilir (peek kendiliginden ~1 sn'de biter, hareket tusu keser).
+local function peek_key_held()
+    if overridden.peek_assist == nil then
+        return get("peek_assist")
+    end
+    local ok, binds = pcall(function() return ui.get_binds() end)
+    if ok and type(binds) == "table" then
+        for _, bind in ipairs(binds) do
+            local ok_bind, name, ref, active = pcall(function() return bind.name, bind.reference, bind.active end)
+            if ok_bind and (name == "Peek Assist" or (ref ~= nil and ref == refs.peek_assist)) then
+                return active == true
+            end
+        end
+    end
+    return true
+end
+
 local function default_first(items, first)
     local list = { first }
     for _, item in ipairs(items) do
@@ -410,6 +431,10 @@ menu.avoid_backstab = g_main:switch("Avoid backstab", true)
 -- Fake duck'ta egik ve yavassin, DT/HS calismaz. Bicak / zeus tutan bir dusman
 -- yaklasinca fake duck birakilir; uzaklasinca senin tusun yine gecerli olur.
 menu.fd_guard       = g_main:switch("Release fake duck near knife", true)
+-- Havadayken ve hareket ederken fake duck'in faydasi yok, sadece DT/HS'yi kapatir: v4.9-v5.0
+-- loglarinda kafa olumlerinin cogu "Fake duck | FD, DT %0 (bind)" idi (havada FD de vardi;
+-- fake duck egilme tusuna bagli olabilir). Yerinde dururken fake duck aynen calisir.
+menu.fd_still       = g_main:switch("Fake duck only when standing still", true)
 menu.legit_use      = g_main:switch("Legit AA on use", true)
 menu.spin           = g_main:switch("Spin when idle", true)
 local spin_gear     = tracked(menu.spin:create())
@@ -1008,7 +1033,7 @@ do
         if effective("fakeduck") then
             return "Fake duck"
         end
-        if get("peek_assist") then
+        if peek_key_held() then
             return "Peek"
         end
         -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
@@ -2445,6 +2470,24 @@ end
 local update_fd_guard
 do
     local KNIFE_NEAR, KNIFE_FAR = 260, 360
+    -- Hareket: FD_MOVE birim/sn ustunde birakilir, FD_STOP altina inince geri verilir.
+    -- why = "move" / "knife": neden biz biraktik; logged = son "hareket" logunun zamani.
+    local FD_MOVE, FD_STOP = 40, 10
+    local fd = { why = nil, logged = -1000 }
+
+    local function fd_pointless(lp)
+        if not menu.fd_still:get() then
+            return false
+        end
+        if bit.band(lp.m_fFlags, 1) == 0 then
+            return true
+        end
+        local ok, speed = pcall(function()
+            local v = lp.m_vecVelocity
+            return sqrt(v.x * v.x + v.y * v.y)
+        end)
+        return ok and type(speed) == "number" and speed > (fd.why == "move" and FD_STOP or FD_MOVE)
+    end
 
     local function knife_enemy(lp, radius)
         local mine = origin_of(lp)
@@ -2474,28 +2517,49 @@ do
     end
 
     update_fd_guard = function(lp)
-        local active = overridden.fakeduck ~= nil
-        if not menu.fd_guard:get() then
-            if active then
+        local pointless = fd_pointless(lp)
+        if overridden.fakeduck ~= nil then
+            -- Biz biraktik: neden bitince (durdun / indin, bicak uzaklasti) tus yine senin.
+            if fd.why == "move" then
+                if not pointless then
+                    override("fakeduck", nil)
+                    fd.why = nil
+                end
+            elseif not menu.fd_guard:get() or knife_enemy(lp, KNIFE_FAR) == nil then
                 override("fakeduck", nil)
+                fd.why = nil
             end
             return
         end
-        if active then
-            if knife_enemy(lp, KNIFE_FAR) == nil then
-                override("fakeduck", nil)
-            end
-            return
-        end
+        fd.why = nil
         if not get("fakeduck") then
+            return
+        end
+        if pointless then
+            override("fakeduck", false)
+            if overridden.fakeduck ~= nil then
+                fd.why = "move"
+                local now = globals.realtime
+                if menu.hit_log:get() and (now < fd.logged or now - fd.logged > 10) then
+                    fd.logged = now
+                    print(("[%s] fake duck birakildi: %s (fake duck DT/HS'yi kapatir; yerinde dururken calisir)"):format(
+                        SCRIPT, bit.band(lp.m_fFlags, 1) == 0 and "havadasin" or "hareket ediyorsun"))
+                end
+            end
+            return
+        end
+        if not menu.fd_guard:get() then
             return
         end
         local enemy, dist = knife_enemy(lp, KNIFE_NEAR)
         if enemy ~= nil then
             override("fakeduck", false)
-            if overridden.fakeduck ~= nil and menu.hit_log:get() then
-                print(("[%s] fake duck birakildi: %s bicak/zeus ile %d birim yakinda"):format(
-                    SCRIPT, player_name(enemy), round(dist)))
+            if overridden.fakeduck ~= nil then
+                fd.why = "knife"
+                if menu.hit_log:get() then
+                    print(("[%s] fake duck birakildi: %s bicak/zeus ile %d birim yakinda"):format(
+                        SCRIPT, player_name(enemy), round(dist)))
+                end
             end
         end
     end
@@ -2530,22 +2594,46 @@ end
 
 local MOVETYPE_LADDER = 9
 
--- Havada teleport: havadayken bir dusman kafani gorurken (ya da birazdan gorecekken) DT dolu
--- ise Neverlose'un teleport'u tetiklenir; DT'nin biriktirdigi tick'ler bir anda oynanir ve
--- ziplama yonunde ileri sicrarsin, dusmanin elindeki kayit gecersizlesir. Ziplama basina bir
--- kez; yatay hiz en az min_speed (yavasken teleport bir yere goturmez). Hide shots'ta
--- (scout / AWP / R8) yok: teleport DT ister. Sonrasinda DT sarj olur; Safe recharge gorulurken
--- sarji bekletir (havada donmazsin).
-local teleport = { last = -1000, used = false, min_speed = 150 }
+-- Havada teleport: havadayken bir dusman kafani gorurken (ya da birazdan gorecekken) exploit
+-- doluysa Neverlose'un teleport'u tetiklenir; biriken tick'ler bir anda oynanir, ziplama
+-- yonunde ileri sicrarsin ve dusmanin elindeki kayit gecersizlesir. Sarj dolunca tekrar:
+-- ziplama basina en fazla max_jump kez, en az gap sn arayla (teleport, sarj, teleport: havada
+-- "ucma"). Yatay hiz en az min_speed. Fake duck'ta yok (exploit calismaz). Hide shots'ta
+-- (scout / AWP / R8) da denenir: sarj harcanmadiysa Neverlose HS ile teleport yapmiyor
+-- demektir, bir kez yazilir ve o haritada HS ile bir daha denenmez.
+local teleport = { last = -1000, count = 0, min_speed = 150, gap = 0.25, max_jump = 3, pending = nil, hs_ok = nil }
 teleport.update = function(lp, move_state)
+    local now = globals.realtime
+    -- Bir onceki tick'te HS ile denendiyse sarj harcandi mi?
+    local pending = teleport.pending
+    if pending ~= nil and globals.tickcount > pending.tick then
+        teleport.pending = nil
+        local charge = api.charge ~= nil and api.charge() or nil
+        if type(charge) == "number" then
+            teleport.hs_ok = charge < 0.99
+            if not teleport.hs_ok and menu.hit_log:get() then
+                print(("[%s] teleport: Hide shots ile calismiyor (sarj harcanmadi); sadece DT'li silahlarda"):format(SCRIPT))
+            end
+        end
+    end
     if move_state ~= "Air" and move_state ~= "Air crouch" then
-        teleport.used = false
+        teleport.count = 0
         return
     end
-    if teleport.used or not menu.air_teleport:get() or api.teleport == nil then
+    if teleport.count >= teleport.max_jump or (now >= teleport.last and now - teleport.last < teleport.gap)
+        or not menu.air_teleport:get() or api.teleport == nil then
         return
     end
-    if not (exposure.now or exposure.soon or exposure.any) or not effective("doubletap") or not exploit_active() then
+    -- Fake duck'ta exploit calismaz (bind'in "acik" gorunse de): v5.0 loglarinda FD'de teleport tetiklendi.
+    if not (exposure.now or exposure.soon or exposure.any) or effective("fakeduck") then
+        return
+    end
+    local dt, hs = effective("doubletap"), effective("hideshots")
+    if not dt and not (hs and teleport.hs_ok ~= false) then
+        return
+    end
+    local charge = api.charge ~= nil and api.charge() or nil
+    if type(charge) == "number" and charge < 1 then
         return
     end
     local ok, speed = pcall(function()
@@ -2556,9 +2644,13 @@ teleport.update = function(lp, move_state)
         return
     end
     api.teleport()
-    teleport.used, teleport.last = true, globals.realtime
+    teleport.count, teleport.last = teleport.count + 1, now
+    if not dt and teleport.hs_ok == nil then
+        teleport.pending = { tick = globals.tickcount }
+    end
     if menu.hit_log:get() then
-        print(("[%s] teleport: havada goruldun, DT ile isinlanildi"):format(SCRIPT))
+        print(("[%s] teleport: havada goruldun, %s ile isinlanildi (%d. kez)"):format(SCRIPT, dt and "DT" or "HS",
+            teleport.count))
     end
 end
 
@@ -2570,9 +2662,12 @@ end
 -- tehdide dik, sola ve saga 18 / 32 / 46 / 60 birim. Bir noktaya yurunebiliyorsa (yolda
 -- duvar yok, altinda zemin var) ve o noktadan dusmanin kafasina ya da gogsune ates etsen
 -- aimbot'un minimum hasari geciyorsa (scout'ta canini, yani oldurecek atis), en yakin boyle
--- noktaya script yurur. Aimbot ates edince Neverlose'un Peek Assist'i seni geri ceker;
--- ates edilmezse 0.4 sn sonra baslangic noktana donulur. Hareket tusuna basinca kontrol
--- hemen sende. DT sarj olurken ve atistan hemen sonra peek atilmaz.
+-- noktaya script yurur ve ates edilince (ya da edilmezse bekleyip) baslangic noktana kendisi
+-- geri yurur. AI peek yururken Neverlose'un Peek Assist'i gecici olarak kapatilir: v4.9'da
+-- nokta bulunuyor ("ai peek: sag 18 birim") ama karakter yurumuyordu; tus basili ve hareket
+-- tusu yokken Peek Assist seni baslangicta tutup hareketi eziyordu. Hareket tusuna basinca
+-- kontrol hemen sende (Peek Assist de geri gelir). DT sarj olurken ve atistan hemen sonra
+-- peek atilmaz.
 -- Ayni dusmana iki peek ust uste atissiz biterse (aimbot ates etmedi) o dusmana tusa yeniden
 -- basana kadar peek atilmaz: v4.7 loglarinda ayni dusmana 7 kez bos peek atildi, her
 -- seferinde kendini gosterdin. Her bos peek'te ne kadar yuruyebildigin konsola yazilir.
@@ -2756,7 +2851,7 @@ do
     end
 
     local function allowed(lp, cmd, class)
-        if not ai_peek.available or not menu.ai_peek:get() or not get("peek_assist") then
+        if not ai_peek.available or not menu.ai_peek:get() or not peek_key_held() then
             return false
         end
         if bit.band(lp.m_fFlags, 1) == 0 or cmd.in_jump == true or cmd.in_use == true
@@ -2777,7 +2872,8 @@ do
 
     ai_peek.reset = function()
         ai_peek.mode, ai_peek.home, ai_peek.target, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
-        ai_peek.held_since, ai_peek.reported, ai_peek.why = nil, false, nil
+        ai_peek.held_since, ai_peek.reported, ai_peek.why, ai_peek.shot = nil, false, nil, false
+        override("peek_assist", nil)
     end
 
     -- Tus quiet sn basili ve hic peek yoksa nedeni bir kez yazilir (her basista bir kez).
@@ -2810,7 +2906,7 @@ do
             return
         end
         if menu.shot_log:get() then
-            local why = user_moving(cmd) and "hareket tusu" or (not get("peek_assist") and "Peek Assist birakildi")
+            local why = user_moving(cmd) and "hareket tusu" or (not peek_key_held() and "Peek Assist birakildi")
                 or "kosul degisti"
             print(("[%s] ai peek: iptal, %s"):format(SCRIPT, why))
         end
@@ -2856,7 +2952,19 @@ do
         end
     end
 
+    local step
+
     update_ai_peek = function(lp, cmd, class)
+        step(lp, cmd, class)
+        -- Yururken / beklerken / donerken Peek Assist kapali (hareketi ezmesin); bosta senin.
+        if ai_peek.mode ~= nil then
+            override("peek_assist", false)
+        else
+            override("peek_assist", nil)
+        end
+    end
+
+    step = function(lp, cmd, class)
         local mine = origin_of(lp)
         if mine == nil or not allowed(lp, cmd, class) or user_moving(cmd) then
             cancelled(cmd, lp)
@@ -2867,9 +2975,10 @@ do
         if ai_peek.held_since == nil then
             ai_peek.held_since = now
         end
-        -- Aimbot ates etti: Neverlose geri cekiyor; after_shot sn karisilmaz (asagida).
-        if ai_peek.mode ~= nil and own.last_shot >= ai_peek.started then
-            ai_peek.mode, ai_peek.target, ai_peek.home, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
+        -- Aimbot ates etti: baslangic noktasina geri yurunur; after_shot sn yeni peek yok.
+        if (ai_peek.mode == "go" or ai_peek.mode == "hold") and own.last_shot >= ai_peek.started then
+            ai_peek.mode, ai_peek.target, ai_peek.fails, ai_peek.blocked = "back", nil, 0, nil
+            ai_peek.until_time, ai_peek.shot = now + ai_peek.back_time, true
         end
         if (ai_peek.mode == "go" or ai_peek.mode == "hold") and ai_peek.home ~= nil then
             local rx, ry = mine.x - ai_peek.home.x, mine.y - ai_peek.home.y
@@ -2879,8 +2988,13 @@ do
         if ai_peek.mode == "back" then
             if ai_peek.home == nil or move_to(cmd, mine, ai_peek.home) < 6 or now > ai_peek.until_time then
                 stand(cmd)
-                ai_peek.fails = ai_peek.fails + 1
                 ai_peek.mode, ai_peek.rest = nil, now + 0.3
+                if ai_peek.shot then
+                    -- Atisla biten peek bos sayilmaz.
+                    ai_peek.shot = false
+                    return
+                end
+                ai_peek.fails = ai_peek.fails + 1
                 if ai_peek.fails >= 2 then
                     ai_peek.blocked = ai_peek.enemy
                     if menu.shot_log:get() then
@@ -3747,6 +3861,8 @@ pcall(function()
         reset_stall(nil, nil)
         exposure.shot = nil
         ai_peek.reset()
+        -- HS ile teleport'un calisip calismadigi her haritada bir kez yeniden denenir.
+        teleport.hs_ok, teleport.pending = nil, nil
         enemy_watch.list = {}
         persist.save(true)
     end))
