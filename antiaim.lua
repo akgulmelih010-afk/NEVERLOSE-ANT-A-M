@@ -19,12 +19,14 @@
         ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
         (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
         Her aimbot atisi konsola tek satir yazilir.
-      - Scout / AWP / R8'de body aim sadece oldururken: govde vurusu hedefin canina
-        yetmiyorsa kafa acik kalir, yetiyorsa govde tercih edilir.
+      - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
+        AWP / R8'de govde oldurmuyorsa kafa acik kalir; resolver bir dusmanda iki kez
+        yanildiysa (DT'li silahlarda) govde.
       - Bicak / zeus tutan dusman yaklasinca fake duck birakilir.
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
-        harita degisince de kalir (en fazla 64 oyuncu).
+        harita degisince ve oyun yeniden acilinca da kalir (Neverlose db, en fazla
+        64 oyuncu).
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
@@ -51,7 +53,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.1"
+local VERSION = "4.2"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -406,10 +408,9 @@ menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 -- yukseltir; isabetler geldikce geri indirir.
 menu.resolver      = g_resolver:switch("Adaptive resolver", true)
 menu.resolver_log  = g_resolver:switch("Console log", true)
--- Scout / AWP / R8 tek atista oldurmeli. Govde vurusu oldurmuyorsa (oyun loglarinda
--- scout'la 87-93 govde, dusman hayatta kaldi) Body Aim "Prefer" kaldirilir, kafa acik
--- kalir; govde olduruyorsa Body Aim "Prefer": resolver'a bagli olmayan kesin oldurme.
-menu.lethal_baim   = g_resolver:switch("Body aim only if lethal (snipers)", true)
+-- Body Aim'i hedefe gore secer: govde olduruyorsa (tek mermi ya da DT ile iki) govde,
+-- scout / AWP / R8'de govde oldurmuyorsa kafa, resolver iki kez yanildiysa govde.
+menu.smart_baim    = g_resolver:switch("Smart body aim", true)
 -- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
 menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
@@ -1124,6 +1125,9 @@ local MISS_WINDOW = 0.15
 local brute = { enemies = {}, recent = nil, hurt = {} }
 -- Hatirlanan en fazla oyuncu; dolunca en uzun suredir gorulmeyen unutulur.
 local MEMORY_LIMIT = 64
+-- Ogrenilenler oyun kapaninca da kalsin diye Neverlose'un db deposuna yazilir (asagida
+-- persist.save / persist.load). dirty = son yazmadan beri yeni bir sey ogrenildi.
+local persist = { key = "ant_a_m_memory", every = 60, dirty = false, saved = -huge }
 
 local function entity_key(ent)
     local ok, index = pcall(ent.get_index, ent)
@@ -1248,8 +1252,10 @@ end
 -- cozulebilir. Dusmanin o anki durumunda hic sonuc yoksa, butun durumlardaki son
 -- sonuclar on bilgi olur ama en fazla "Prefer".
 -- Isabetler pencereye girip eski iskalari itince seviye kendiliginden duser. Spread,
--- tahmin hatasi gibi resolver disi iskalar sayilmaz. Seviye round'lar arasi kalir
--- (Neverlose resolver'i da oyunculari hatirlar), harita degisince sifirlanir.
+-- tahmin hatasi gibi resolver disi iskalar sayilmaz; kafaya nisan alinip baska yere
+-- gelen isabet de isabet sayilmaz. Seviye round'lar, haritalar ve oyun oturumlari
+-- arasi kalir (Steam ID, db). Seviye 2'de DT'li silahlarda govde de tercih edilir
+-- (Smart body aim).
 local RESOLVER_WINDOW = 4
 local SAFE_POINT_LEVELS = { [0] = "Default", "Prefer", "Force" }
 local SAFE_POINT_RANK = { Default = 0, Prefer = 1, Force = 2 }
@@ -1366,6 +1372,8 @@ local function entry_level(entry, state)
     return min(window_misses(entry.results), 1)
 end
 
+-- Aimbot'un hedefi: az once ates ettigi dusman, yoksa kafani goren dusman (ayni gorus
+-- hattindan sen de onu vurabilirsin; anti-brute ile ayni secim), yoksa tehdit.
 local function resolver_target()
     local target = resolver.aim_target
     local since = globals.realtime - resolver.aim_time
@@ -1375,7 +1383,7 @@ local function resolver_target()
             return target
         end
     end
-    return current_threat()
+    return brute_target()
 end
 
 local function resolver_level(target)
@@ -1470,15 +1478,17 @@ local current = { state = "Global", side = false, limit = 60, freestand = false,
     brute = 0, resolver = 0, weapon = nil, lethal = false }
 
 -- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
+-- Hedefi ve takilma korumasindan onceki seviyeyi dondurur (body aim icin).
 local function apply_resolver()
     if overridden.safe_points == nil then
         resolver.user_safe = get("safe_points")
     end
-    local level = 0
+    local target = resolver_target()
+    local level, raw = 0, 0
     if menu.resolver:get() then
         local key, state, entry
-        level, key, state, entry = resolver_level(resolver_target())
-        level = stall_level(level, key, state, entry)
+        raw, key, state, entry = resolver_level(target)
+        level = stall_level(raw, key, state, entry)
     end
     current.resolver = level
     if level > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
@@ -1486,19 +1496,32 @@ local function apply_resolver()
     else
         override("safe_points", nil)
     end
+    return target, raw
 end
 
--- Tek atista oldurmesi gereken silahlar: { hasar, zirh orani, menzil carpani } (CS:GO
--- silah dosyalari). Zirhli govdeye can hasari = hasar * zirh orani / 2 (scout gogus
--- 88 * 0.85 = 74.8, mide x1.25 = 93.5: loglardaki 74 ve 92-93). Hasar her 500 birimde
--- menzil carpaniyla azalir. Gogus olcu alinir: mide de oldururse gogus oldurmeyebilir.
+-- HvH silahlari: { hasar, zirh orani, menzil carpani, tek atis } (CS:GO silah dosyalari).
+-- Zirhli govdeye can hasari = hasar * zirh orani / 2 (scout gogus 88 * 0.85 = 74.8, mide
+-- x1.25 = 93.5: loglardaki 74 ve 92-93). Hasar her 500 birimde menzil carpaniyla azalir.
+-- Gogus olcu alinir: mide de oldururse gogus oldurmeyebilir. Tek atis = DT ile ikinci
+-- mermi yok (bolt-action, R8).
 local apply_body_aim
 do
-    local ONE_SHOT = {
-        CWeaponSSG08 = { 88, 1.7, 0.98 },
-        CWeaponAWP   = { 115, 1.95, 0.99 },
-        Revolver     = { 86, 1.864, 0.94 },
+    local WEAPONS = {
+        CWeaponSSG08  = { 88, 1.7, 0.98, true },
+        CWeaponAWP    = { 115, 1.95, 0.99, true },
+        Revolver      = { 86, 1.864, 0.94, true },
+        CWeaponSCAR20 = { 80, 1.65, 0.98, false },
+        CWeaponG3SG1  = { 80, 1.65, 0.98, false },
+        CDEagle       = { 63, 1.864, 0.81, false },
     }
+
+    local function dt_ready()
+        if not effective("doubletap") then
+            return false
+        end
+        local charge = api.charge ~= nil and api.charge() or nil
+        return type(charge) ~= "number" or charge >= 1
+    end
 
     local function chest_damage(lp, target, info)
         local damage = info[1]
@@ -1514,18 +1537,34 @@ do
         return damage
     end
 
-    -- Body Aim: hedefin cani gogus hasarina yetiyorsa "Prefer", yetmiyorsa "Default".
-    -- Senin kendi "Force"un (baim tusu) hic degistirilmez. Diger silahlarda dokunulmaz.
-    apply_body_aim = function(lp, class)
+    -- Body Aim karari, aimbot'un hedefine gore:
+    --  1. Tek govde mermisi olduruyor -> "Prefer" (resolver'a bagli olmayan kesin oldurme).
+    --  2. DT dolu ve iki govde mermisi olduruyor (oto, deagle) -> "Prefer".
+    --  3. Tek atisli silah (scout / AWP / R8) ve govde oldurmuyor -> "Default": kafa acik
+    --     kalir (oyun loglarinda 87-93 govde vuruslarindan sonra dusman hayatta kaldi).
+    --  4. Resolver bu dusmana bu durumda iki kez yanildi (seviye 2) -> "Prefer": govde
+    --     hitbox'lari desync'le kafa kadar kaymaz. Tek atisli silahlarda degil.
+    -- Senin kendi "Force"un (baim tusu) hic degistirilmez.
+    apply_body_aim = function(lp, class, target, level)
         if overridden.body_aim == nil then
             resolver.user_body = get("body_aim")
         end
-        local info = ONE_SHOT[class]
-        local target = (info ~= nil and menu.lethal_baim:get()) and resolver_target() or nil
-        local health = target ~= nil and prop(target, "m_iHealth") or nil
         local wanted = nil
-        if type(health) == "number" and health > 0 then
-            wanted = health <= chest_damage(lp, target, info) and "Prefer" or "Default"
+        if target ~= nil and menu.smart_baim:get() then
+            local info = WEAPONS[class]
+            local health = prop(target, "m_iHealth")
+            if info ~= nil and type(health) == "number" and health > 0 then
+                local chest = chest_damage(lp, target, info)
+                if health <= chest or (not info[4] and dt_ready() and health <= 2 * chest) then
+                    wanted = "Prefer"
+                elseif info[4] then
+                    wanted = "Default"
+                end
+            end
+            local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+            if wanted == nil and level >= 2 and gun and not (info ~= nil and info[4]) then
+                wanted = "Prefer"
+            end
         end
         current.lethal = wanted == "Prefer"
         if wanted == nil or resolver.user_body == "Force" or resolver.user_body == wanted then
@@ -1991,8 +2030,8 @@ events.createmove:set(protect("createmove", function(cmd)
     process_pending_misses()
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
     current.brute = menu.anti_brute:get() and threat_stage() or 0
-    apply_resolver()
-    apply_body_aim(lp, class)
+    local aim_target, resolver_raw = apply_resolver()
+    apply_body_aim(lp, class, aim_target, resolver_raw)
 
     override("aa_enabled", true)
     override("yaw", "Backward")
@@ -2316,6 +2355,7 @@ events.player_hurt:set(protect("player_hurt", function(e)
     -- isabetleri baim / safe point'tir, desync onlari saklayamaz.
     if e.hitgroup == 1 and not melee and menu.anti_brute:get() then
         enemy.base = (hit_stage + 1) % (#BRUTE_PHASES + 1)
+        persist.dirty = true
     end
 
     if not melee then
@@ -2423,12 +2463,25 @@ pcall(function()
         if not menu.enabled:get() then
             return
         end
+        local shot = e.id ~= nil and resolver.shots[e.id] or nil
+        if shot ~= nil then
+            resolver.shots[e.id] = nil
+        end
         local state = e.state
         local result
         aim_stats.shots = aim_stats.shots + 1
         if state == nil then
             aim_stats.hits = aim_stats.hits + 1
-            result = "h"
+            -- Kafaya nisan alinip baska yere isabet (loglarda "hedef head 110 | isabet chest
+            -- -28"): mermi resolver'in kafa sandigi yerden gecip govdeye girdi, yani kafanin
+            -- yeri tutmamis olabilir. Resolver'a isabet sayilmaz, seviyeyi dusurmez.
+            local wanted = event_number(e, "wanted_hitgroup") or (shot and shot.hitgroup)
+            local hit = event_number(e, "hitgroup")
+            if (wanted == 1 or wanted == 8) and hit ~= nil and hit ~= 1 and hit ~= 8 then
+                result = nil
+            else
+                result = "h"
+            end
         elseif state == "correction" then
             aim_stats.correction = aim_stats.correction + 1
             result = "c"
@@ -2436,11 +2489,6 @@ pcall(function()
             aim_stats.spread = aim_stats.spread + 1
         else
             aim_stats.other = aim_stats.other + 1
-        end
-
-        local shot = e.id ~= nil and resolver.shots[e.id] or nil
-        if shot ~= nil then
-            resolver.shots[e.id] = nil
         end
         local target = aim_target_entity(e.target)
         if menu.shot_log:get() then
@@ -2458,6 +2506,7 @@ pcall(function()
         window_push(entry.results, result)
         entry.states[enemy] = entry.states[enemy] or {}
         window_push(entry.states[enemy], result)
+        persist.dirty = true
         local level = entry_level(entry, enemy)
         local stall = resolver.stall
         if stall.key == player_id(target) and stall.state == enemy then
@@ -2480,17 +2529,120 @@ local function reset_brute()
     brute.recent, brute.hurt = nil, {}
 end
 
+-- Kalici hafiza: HvH sunucularinda ayni oyuncularla tekrar tekrar karsilasilir. Steam ID'si
+-- olan oyuncularin kalici anti-brute fazi ve resolver sonuclari db'ye yazilir (isimle
+-- tutulan botlar ve Steam ID'siz oyuncular yazilmaz; isim degisebilir). db okumak ve yazmak
+-- agir: script yuklenirken bir kez okunur; round basinda en fazla dakikada bir, harita
+-- degisirken ve script kapanirken yazilir.
+local function steam_key(key)
+    return type(key) == "string" and key:sub(1, 2) == "s:"
+end
+
+persist.save = function(force)
+    local now = globals.realtime
+    if not persist.dirty or (not force and now >= persist.saved and now - persist.saved < persist.every) then
+        return
+    end
+    local data = { version = 1, brute = {}, resolver = {} }
+    for key, entry in pairs(brute.enemies) do
+        if steam_key(key) and entry.base > 0 then
+            data.brute[key] = { base = entry.base, name = entry.name }
+        end
+    end
+    -- Kopya yazilir: listeler sonradan degistiginde kayit da degismesin.
+    local function copy(list)
+        local out = {}
+        for i, v in ipairs(list) do
+            out[i] = v
+        end
+        return out
+    end
+    for key, entry in pairs(resolver.players) do
+        if steam_key(key) and #entry.results > 0 then
+            local states = {}
+            for state, list in pairs(entry.states) do
+                states[state] = copy(list)
+            end
+            data.resolver[key] = { name = entry.name, results = copy(entry.results), states = states }
+        end
+    end
+    persist.saved = now
+    if pcall(function() db[persist.key] = data end) then
+        persist.dirty = false
+    end
+end
+
+-- Kayitli sonuc listesinden son RESOLVER_WINDOW gecerli sonuc.
+local function stored_window(list)
+    local out = {}
+    if type(list) == "table" then
+        for i = max(1, #list - RESOLVER_WINDOW + 1), #list do
+            if list[i] == "c" or list[i] == "h" then
+                out[#out + 1] = list[i]
+            end
+        end
+    end
+    return out
+end
+
+-- Kac oyuncu yuklendigini dondurur. Bozuk ya da eski bicimli kayitlar atlanir. Yuklenenler
+-- bu oturumda hic gorulmemis sayilir (seen = 0): bellek dolarsa ilk onlar unutulur.
+persist.load = function()
+    local ok, data = pcall(function() return db[persist.key] end)
+    if not ok or type(data) ~= "table" or data.version ~= 1 then
+        return 0
+    end
+    local players, count = {}, 0
+    local function add(key)
+        if not players[key] then
+            players[key], count = true, count + 1
+        end
+    end
+    if type(data.brute) == "table" then
+        for key, e in pairs(data.brute) do
+            if count < MEMORY_LIMIT and steam_key(key) and type(e) == "table" and type(e.base) == "number"
+                and e.base >= 1 and e.base <= #BRUTE_PHASES and e.base == floor(e.base) then
+                brute.enemies[key] = { stage = 0, time = 0, base = e.base, name = tostring(e.name or "?"), seen = 0 }
+                add(key)
+            end
+        end
+    end
+    if type(data.resolver) == "table" then
+        for key, e in pairs(data.resolver) do
+            if (players[key] or count < MEMORY_LIMIT) and steam_key(key) and type(e) == "table" then
+                local entry = { results = stored_window(e.results), states = {}, name = tostring(e.name or "?"), seen = 0 }
+                if type(e.states) == "table" then
+                    for _, state in ipairs({ "Standing", "Moving", "Crouch", "Air" }) do
+                        local list = stored_window(e.states[state])
+                        if #list > 0 then
+                            entry.states[state] = list
+                        end
+                    end
+                end
+                if #entry.results > 0 then
+                    resolver.players[key] = entry
+                    add(key)
+                end
+            end
+        end
+    end
+    return count
+end
+
 forget_enemies = function()
     brute.enemies, brute.recent, brute.hurt = {}, nil, {}
     resolver.players, resolver.shots, resolver.aim_target = {}, {}, nil
     reset_stall(nil, nil)
     pending_misses = {}
+    pcall(function() db[persist.key] = nil end)
+    persist.dirty = false
 end
 
 events.round_start:set(protect("round_start", function()
     reset_brute()
     pending_misses = {}
     set_charge(true)
+    persist.save(false)
 end))
 
 -- Harita degisince slot numaralari degisir, oyuncular cogunlukla kalir. Aktif fazlar,
@@ -2502,6 +2654,7 @@ pcall(function()
         pending_misses = {}
         resolver.shots, resolver.aim_target = {}, nil
         reset_stall(nil, nil)
+        persist.save(true)
     end))
 end)
 
@@ -2706,6 +2859,12 @@ end))
 events.shutdown:set(protect("shutdown", function()
     reset_overrides()
     set_charge(true)
+    persist.save(true)
 end))
 
-print(("[%s] v%s yuklendi"):format(SCRIPT, VERSION))
+-- Kalici hafiza yuklenir; kac oyuncu hatirlandigi surum satirina eklenir.
+do
+    local loaded = persist.load()
+    print(("[%s] v%s yuklendi%s"):format(SCRIPT, VERSION,
+        loaded > 0 and (" (hafiza: %d oyuncu)"):format(loaded) or ""))
+end
