@@ -31,8 +31,9 @@
         Her aimbot atisi konsola tek satir yazilir. Dusmanlarin defensive / LC kirma, fake duck'i
         ve jitter'i izlenir: jitter'li ve fake duck yapan dusmana ilk atistan safe point "Prefer";
         hedef defensive'deyken (kaydi sahte) aimbot gercek kaydi bekler (en fazla ~0.2 sn); DT'li
-        silahta defensive / fake duck yapan hedefe govde. Resolver paneli: her dusman icin cozum
-        yuzdesi ve siradaki atisin isabet sansi; menu acikken fareyle tasinir ve buyutulur.
+        silahta defensive / fake duck yapan hedefe govde; uzaktaki (1500+) hedefe ilk atistan
+        "Prefer", tek iskada "Force". Resolver paneli (sadece yazi): hedefin canli cozum yuzdesi
+        ve isabet sansi, her tick; menu acikken fareyle tasinir ve buyutulur.
       - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
         AWP / R8'de biri kafani gorebiliyorken sadece oldurecek atis (Min. Damage 101 =
         can + 1, Body Aim Prefer; hedeften bagimsiz); resolver bir dusmanda iki kez
@@ -42,6 +43,9 @@
         pakette rastgele yaw, desync miktari ve taraf.
       - Kendi lag'imiz (zorlanan defensive, HS Break LC) sirasinda atislar sunucuda gecmezse o lag
         10 sn durur; atis satirinda o anki lag (DEF / LC / FD) yazar.
+      - Hidden yaw "Random" (Sideways / Switch desync tarafini ele veriyordu); anti-brute'ta faz 5:
+        Neverlose'un body freestanding'iyle kafa duvar tarafinda. Scout / AWP / R8 exploit'i
+        senin maclarina gore ogrenilir (HS / DT). Her round basinda konsola round ozeti.
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
         harita degisince ve oyun yeniden acilinca da kalir (Neverlose db, en fazla
@@ -84,7 +88,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.5"
+local VERSION = "5.6"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -389,13 +393,16 @@ local DEFAULTS = {
 -- Hareket ederken ve havada "Smart": loglarda "Air | DT dolu, DEF yok" ve "Peek | DT
 -- dolu, DEF yok" isabetleri vardi, yani Neverlose'un peek tespiti o anlari kacirdi.
 -- Dururken / egilip beklerken aci tutan sensin; orada ilk atis hizi daha onemli.
+-- Hidden yaw "Random" (v5.6): "Sideways" desync tarafina gore +-90 veriyordu, "Switch" pitch'i
+-- de; defensive tick'lerinde acilari okuyan resolver kafanin hangi tarafta oldugunu oradan
+-- gorebiliyordu. Rastgele aci tarafi ele vermez.
 local EXPLOIT_DEFAULTS = {
-    ["Standing"]     = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Moving"]       = { "Double tap", "Smart",     "Up",     "Sideways" },
-    ["Slow walk"]    = { "Double tap", "Smart",     "Up",     "Sideways" },
-    ["Crouching"]    = { "Double tap", "On peek",   "Up",     "Sideways" },
-    ["Crouch move"]  = { "Double tap", "Smart",     "Switch", "Sideways" },
-    ["Peek"]         = { "Double tap", "Smart",     "Up",     "Sideways" },
+    ["Standing"]     = { "Double tap", "On peek",   "Up",     "Random" },
+    ["Moving"]       = { "Double tap", "Smart",     "Up",     "Random" },
+    ["Slow walk"]    = { "Double tap", "Smart",     "Up",     "Random" },
+    ["Crouching"]    = { "Double tap", "On peek",   "Up",     "Random" },
+    ["Crouch move"]  = { "Double tap", "Smart",     "Up",     "Random" },
+    ["Peek"]         = { "Double tap", "Smart",     "Up",     "Random" },
     ["Air"]          = { "Double tap", "Smart",     "Up",     "Spin" },
     ["Air crouch"]   = { "Double tap", "Smart",     "Up",     "Random" },
     ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
@@ -477,11 +484,12 @@ menu.air_lag      = g_defensive:switch("Air lag (defensive every tick)", true)
 -- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots): Neverlose'un lua'dan
 -- defensive zorlamasi ve teleport'u DT ister; HS ile havada lag olmuyordu.
 menu.sniper_air_dt = g_defensive:switch("Snipers use DT in the air", true)
--- Scout / AWP / R8'de exploit. "Hide shots" (varsayilan): bolt-action'da DT her atistan
--- sonra bosalir; v4.6'da ogrenme DT'ye gecince scout'la atistan 0.15-0.17 sn sonra "DT %0,
--- sarj bekle" iken kafadan vurulma geri geldi. "Auto (learn)": kafana gelen mermilere gore
--- HS / DT secer (bkz. sniper). "Same as state": durumun kendi exploit'i (varsayilan DT).
-menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots", "Auto (learn)", "Same as state" })
+-- Scout / AWP / R8'de exploit. "Auto (learn)" (varsayilan, v5.6): kafana gelen mermilere gore
+-- HS / DT secer, once HS, en az 4 mermi gormeden degistirmez (bkz. sniper). v4.7-v5.5'te HS
+-- sabitti: v4.6'da DT'ye gecince atistan hemen sonra vuruluyordun, v5.3-v5.5 loglarinda HS
+-- ile de peek'te ve atistan 0.06-0.14 sn sonra kafadan vurulmalar surdu; hangisi daha iyi,
+-- senin maclarindaki veri karar verir. "Hide shots": hep HS. "Same as state": durumun exploit'i.
+menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Auto (learn)", "Hide shots", "Same as state" })
 -- DT / HS atistan ya da fake duck'tan sonra yeniden sarj olurken oyuncu sunucuda yerinde
 -- donar. Tehdit kafani goruyorken sarj bekletilir, siperin arkasina gecince dolar.
 menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
@@ -1344,11 +1352,16 @@ local OPTIONS_OVERLAP, OPTIONS_NONE = { "Avoid Overlap" }, {}
 -- kafa isabeti tekrar tekrar geldi.
 -- Faz 4: desync tarafi her flip'te rastgele, yaw'dan bagimsiz. Jitter'da yaw sirayla
 -- donmeye devam eder ama kafanin hangi tarafta oldugunu artik ele vermez.
+-- Faz 5 (v5.6): sabit desync, tarafi Neverlose'un body freestanding'i ("Peek Fake") secer:
+-- gercek kafa duvar tarafinda kalir, dusmana once sahte taraf gorunur. Yaw jitter'i devam
+-- eder (desync'ten bagimsiz). Hangi fazin en az vuruldugunu sistem senin maclarinda olcer
+-- ve verisi olmayan dusmanlara onu uygular (bkz. brute_default).
 local BRUTE_PHASES = {
     { invert = true,  scale = 1.0,  shift = 0 },
     { invert = false, scale = 1.0,  shift = 15 },
     { invert = true,  scale = 0.85, shift = -15 },
     { invert = false, scale = 1.0,  shift = 0, random = true },
+    { invert = false, scale = 1.0,  shift = 0, freestand = true },
 }
 local BRUTE_RADIUS = 40
 -- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
@@ -1914,6 +1927,21 @@ end
 -- Dusmanin o durumda hic sonucu yoksa ve AA'si jitter'liyse (ortalama yaw degisimi
 -- jitter_prior derece ve ustu) ilk atistan "Prefer": Neverlose'un resolver'i jitter'da en
 -- cok yanilir ve iska beklemek bir atis kaybettirir. O durumda ilk sonuc gelince veri gecer.
+-- Bizden hedefe uzaklik (birim); okunamazsa nil.
+resolver.distance = function(target)
+    local lp = entity.get_local_player()
+    local mine, theirs = lp ~= nil and origin_of(lp) or nil, origin_of(target)
+    if mine == nil or theirs == nil then
+        return nil
+    end
+    local dx, dy, dz = theirs.x - mine.x, theirs.y - mine.y, theirs.z - mine.z
+    return sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Uzaktaki dusman (FAR_RANGE birimden uzak): kafa kucuk, acidaki kucuk bir hata iska.
+-- Veri yokken de ilk atistan "Prefer", tek resolver iskasinda "Force" (yakinda iki iska).
+local FAR_RANGE = 1500
+
 local function resolver_level(target)
     if target == nil then
         return 0
@@ -1936,12 +1964,20 @@ local function resolver_level(target)
     end
     local seen = key ~= nil and resolver.jittery[key] or nil
     local jittery = seen ~= nil and now >= seen and now - seen <= enemy_watch.jitter_memory
-    -- Fake duck yapan dusmanin kafa yuksekligi kayittan kayda degisir: o da ilk atistan "Prefer".
-    if not data and level < 1 and (jittery or state == "Fakeduck") then
+    local far = resolver.distance(target)
+    far = far ~= nil and far >= FAR_RANGE and far or nil
+    resolver.far = far ~= nil
+    -- Uzakta tek iska yeter: kafa kucuk, resolver'in kucuk hatasi bile iska.
+    if far ~= nil and level == 1 and data then
+        level = 2
+    end
+    -- Fake duck yapan dusmanin kafa yuksekligi kayittan kayda degisir, uzaktaki dusmanin kafasi
+    -- kucuk: onlar da jitter gibi ilk atistan "Prefer".
+    if not data and level < 1 and (jittery or state == "Fakeduck" or far ~= nil) then
         level, prior = 1, true
         if key ~= nil and not resolver.prior_logged[key] and menu.resolver_log:get() then
             resolver.prior_logged[key] = true
-            local what = "fake duck"
+            local what = far ~= nil and ("uzakta (%d birim)"):format(floor(far)) or "fake duck"
             if jittery then
                 local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
                 what = "jitter" .. amount
@@ -2030,7 +2066,7 @@ end
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0, rand_side = false }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false, lc = false,
-    waiting = false,
+    waiting = false, res_far = false,
     brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
     head_only = false }
 
@@ -2058,7 +2094,7 @@ local function apply_resolver()
         raw, key, state, entry, prior = resolver_level(target)
         level = stall_level(raw, key, state, entry)
     end
-    current.resolver, current.res_state, current.res_prior = level, state, prior == true
+    current.resolver, current.res_state, current.res_prior, current.res_far = level, state, prior == true, resolver.far
     local safe = level
     if menu.fd_safe:get() and effective("fakeduck") then
         safe = max(safe, 1)
@@ -2548,7 +2584,8 @@ end
 local tickbase = { max = 0, left = 0, sent = nil, since_sent = 0, jump = false }
 -- Kendi son atisimiz: DT atistan sonra yeniden sarj olur; bu sure log'da ve DT
 -- istatistiginde ayrilir.
-local own = { last_shot = -1000 }
+-- round: bu round'da kafana / govdene gelen mermiler (round ozeti icin, bkz. own.summary).
+local own = { last_shot = -1000, round = nil }
 local DT_SHOT_GRACE = 1.0
 
 -- Defensive penceresi iki yoldan anlasilir:
@@ -3636,11 +3673,16 @@ events.createmove:set(protect("createmove", function(cmd)
         yaw_base, yaw_offset = face_target(cmd, lp, yaw_base, yaw_offset, freestand)
     end
 
+    -- Faz 5: desync sabit, tarafi Neverlose'un body freestanding'i secer (kafa duvar tarafinda).
+    local body_fs = s.body_fs:get()
+    if phase ~= nil and phase.freestand then
+        body, body_fs = "Static", "Peek Fake"
+    end
     apply({
         pitch = menu.pitch:get(), yaw_base = yaw_base, yaw_offset = yaw_offset,
         modifier = s.modifier:get(), mod_offset = s.mod_offset:get() + round(flip.mod_n * s.mod_random:get()),
         body = body, side = side, left = left, right = right,
-        avoid_overlap = s.avoid_overlap:get(), body_fs = s.body_fs:get(), freestand = freestand,
+        avoid_overlap = s.avoid_overlap:get(), body_fs = body_fs, freestand = freestand,
     })
     apply_defensive(cmd, builder[state], class, state,
         move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck")
@@ -3668,6 +3710,10 @@ local function exploit_status()
         kind = "HS"
         -- Sarj degeri HS'de de anlamliysa (bkz. Safe recharge) yuzde yazilir.
         exploit = (charging and recharge.hs_charges) and ("HS %%%d"):format(round(max(0, charge) * 100)) or "HS"
+        -- Break LC script tarafindan acik (DEF tespiti HS'de her zaman gorunmeyebilir).
+        if current.lc then
+            exploit = exploit .. " LC"
+        end
     else
         kind = "none"
         exploit = "DT yok"
@@ -3805,6 +3851,54 @@ do
     end))
 end
 
+-- Round ozeti: round boyunca sana gelen mermiler durum, faz, exploit ve gorus basina sayilir;
+-- yeni round baslarken tek satir yazilir. AA'yi tahminle degil bu verilerle ayarlamak icin.
+own.count = function(state, stage, head, unseen)
+    local r = own.round or { hits = 0, head = 0, states = {}, order = {}, phases = {}, exploits = {}, unseen = 0 }
+    own.round = r
+    r.hits = r.hits + 1
+    r.head = r.head + (head and 1 or 0)
+    r.unseen = r.unseen + (unseen and 1 or 0)
+    local st = r.states[state]
+    if st == nil then
+        st = { hits = 0, head = 0 }
+        r.states[state], r.order[#r.order + 1] = st, state
+    end
+    st.hits, st.head = st.hits + 1, st.head + (head and 1 or 0)
+    if head then
+        r.phases[stage] = (r.phases[stage] or 0) + 1
+    end
+    local kind = effective("fakeduck") and "FD" or (effective("doubletap") and "DT") or (effective("hideshots") and "HS") or "yok"
+    r.exploits[kind] = (r.exploits[kind] or 0) + 1
+end
+
+own.summary = function()
+    local r = own.round
+    own.round = nil
+    if r == nil or not menu.hit_log:get() then
+        return
+    end
+    local states = {}
+    for _, state in ipairs(r.order) do
+        local st = r.states[state]
+        states[#states + 1] = ("%s %d/%d"):format(state, st.head, st.hits)
+    end
+    local phases = {}
+    for phase = 0, #BRUTE_PHASES do
+        if r.phases[phase] ~= nil then
+            phases[#phases + 1] = ("%d:%d"):format(phase, r.phases[phase])
+        end
+    end
+    local exploits = {}
+    for _, kind in ipairs({ "DT", "HS", "FD", "yok" }) do
+        if r.exploits[kind] ~= nil then
+            exploits[#exploits + 1] = ("%s %d"):format(kind, r.exploits[kind])
+        end
+    end
+    print(("[%s] round ozeti: %d mermi, %d kafa | %s | kafa fazlari %s | %s | gormedi %d"):format(SCRIPT, r.hits, r.head,
+        table.concat(states, ", "), #phases > 0 and table.concat(phases, " ") or "-", table.concat(exploits, ", "), r.unseen))
+end
+
 events.player_hurt:set(protect("player_hurt", function(e)
     if not menu.enabled:get() then
         return
@@ -3858,18 +3952,19 @@ events.player_hurt:set(protect("player_hurt", function(e)
         sniper.record(shot_sniper, true)
     end
 
+    local info = attacker_info(attacker)
     if not melee then
         local entry = stat_for(current.state)
         entry.hits = entry.hits + 1
         if e.hitgroup == 1 then
             entry.head = entry.head + 1
         end
+        own.count(current.state, hit_stage, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
     end
     if menu.hit_log:get() then
         print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s)"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
-            current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker),
-            attacker_info(attacker)))
+            current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
     end
 end))
 
@@ -4280,6 +4375,7 @@ forget_enemies = function()
 end
 
 events.round_start:set(protect("round_start", function()
+    own.summary()
     reset_brute()
     exposure.shot = nil
     ai_peek.reset()
@@ -4414,7 +4510,7 @@ local function draw_indicators(lp, cx, cy)
     -- hangi durumunda yanildigi ya da JIT = jitter'li AA icin on bilgi.
     if current.resolver > 0 then
         y = y + 9
-        local why = current.res_prior and (current.res_state == "Fakeduck" and "FD" or "JIT")
+        local why = current.res_far and "FAR" or current.res_prior and (current.res_state == "Fakeduck" and "FD" or "JIT")
             or (anim.labels[current.res_state] or "")
         render.text(FONT, vector(x, y), accent, "c", ("RES %d %s"):format(current.resolver, why))
     end
@@ -4517,87 +4613,75 @@ end
 
 -- Bir cizim fonksiyonu hata verirse her karede konsolu doldurmasin diye kapatilir.
 -- Resolver paneli (bkz. menu.res_panel). drag: { mode = "move" | "size", ... } fareyle tutulurken.
-anim.panel = { drag = nil, was_down = false, x = 0, y = 0, w = 0, h = 0, size = 100, rows_max = 6,
-    BG = color(12, 12, 16, 225), LINE = color(255, 255, 255, 18), BAR_BG = color(255, 255, 255, 22),
+anim.panel = { drag = nil, was_down = false, x = 0, y = 0, w = 0, h = 0, size = 100, shown = 0, shown_index = nil,
+    SHADOW = color(0, 0, 0, 170), INFO = color(225, 225, 230, 200),
     LOW = color(235, 80, 80, 255), MID = color(245, 200, 85, 255), HIGH = color(110, 225, 130, 255) }
 do
     local res_panel = anim.panel
 
-    local function lerp_color(a, b, t)
-        return color(floor(a.r + (b.r - a.r) * t), floor(a.g + (b.g - a.g) * t), floor(a.b + (b.b - a.b) * t), 255)
-    end
-
     -- Yuzdeye gore renk: kirmizi (0) -> sari (50) -> yesil (100).
     res_panel.tint = function(pct)
         local t = max(0, min(1, pct / 100))
+        local a, b = res_panel.MID, res_panel.HIGH
         if t < 0.5 then
-            return lerp_color(res_panel.LOW, res_panel.MID, t * 2)
+            a, b, t = res_panel.LOW, res_panel.MID, t * 2
+        else
+            t = (t - 0.5) * 2
         end
-        return lerp_color(res_panel.MID, res_panel.HIGH, (t - 0.5) * 2)
+        return color(floor(a.r + (b.r - a.r) * t), floor(a.g + (b.g - a.g) * t), floor(a.b + (b.b - a.b) * t), 255)
     end
 
-    local function percent(hits, misses)
-        local total = hits + misses
-        return total > 0 and floor(hits / total * 100 + 0.5) or nil
-    end
-
-    -- Siradaki atisin tahmini isabet sansi: aimbot'un bu dusmana ortalama hit chance'i (spread'le
-    -- iskalamama) x resolver'in onu cozme orani x resolver disi iskalarin (sunucu reddi, tahmin
-    -- hatasi) olmama orani. Cozum verisi yoksa nil.
-    res_panel.hit_chance = function(entry)
-        local hits, misses = entry.hits or 0, entry.misses or 0
-        if hits + misses == 0 then
-            return nil
-        end
-        local hc = (entry.hc_n or 0) > 0 and entry.hc_sum / entry.hc_n / 100 or 1
-        local shots = entry.shots or 0
+    -- Siradaki atisin tahmini isabet sansi (%): aimbot'un bu dusmana ortalama hit chance'i
+    -- (spread'le iskalamama; veri yoksa 1) x cozum (0-1) x resolver disi iskalarin (sunucu reddi,
+    -- tahmin hatasi) olmama orani.
+    res_panel.hit_chance = function(entry, resolve)
+        local hc = entry ~= nil and (entry.hc_n or 0) > 0 and entry.hc_sum / entry.hc_n / 100 or 1
+        local shots = entry ~= nil and entry.shots or 0
         local clean = shots > 0 and 1 - (entry.other or 0) / shots or 1
-        return floor(max(0, min(1, hc)) * hits / (hits + misses) * max(0, clean) * 100 + 0.5)
+        return floor(max(0, min(1, hc)) * resolve * max(0, clean) * 100 + 0.5)
     end
 
-    -- Canli dusmanlar: aimbot'un su anki hedefi once, sonra en cok atis yapilanlar.
-    res_panel.rows = function()
-        local rows = {}
-        local ok, list = pcall(entity.get_players, true)
-        if not ok or type(list) ~= "table" then
-            return rows
-        end
-        local target = resolver.aim_target ~= nil and index_of(resolver.aim_target) or nil
-        for _, enemy in ipairs(list) do
-            local ok_alive, alive = pcall(function() return enemy:is_alive() end)
-            if ok_alive and alive then
-                local key = player_id(enemy)
-                local entry = key ~= nil and resolver.players[key] or nil
-                local hits, misses = entry ~= nil and entry.hits or 0, entry ~= nil and entry.misses or 0
-                rows[#rows + 1] = { name = player_name(enemy), hits = hits, misses = misses, pct = percent(hits, misses),
-                    hit = entry ~= nil and res_panel.hit_chance(entry) or nil,
-                    target = target ~= nil and index_of(enemy) == target }
+    -- Canli cozum tahmini (%): bu dusmana gecmis resolver sonuclari (veri yoksa 0.6 on bilgi,
+    -- Laplace) x su anki durumu. Kaydi sahte (defensive) x0.25, LC kiriyor x0.5, jitter
+    -- (ortalama yaw degisimi) arttikca dusuk (120 derecede x0.6), havada / fake duck x0.8, uzakta
+    -- (1500+ / 2500+) x0.85 / x0.75; safe point "Prefer" / "Force" kesinligi biraz arttirir.
+    -- Neverlose'un kendi resolver'inin icini gostermez (Lua'ya acik degil); bizim gorduklerimizden
+    -- tahmin. Her tick degisir.
+    res_panel.live = function(target)
+        local key = player_id(target)
+        local entry = key ~= nil and resolver.players[key] or nil
+        local hits, misses = entry ~= nil and entry.hits or 0, entry ~= nil and entry.misses or 0
+        local value = (hits + 1.2) / (hits + misses + 2)
+        local profile = enemy_watch.profile(target)
+        if profile ~= nil then
+            if profile.defensive_now then
+                value = value * 0.25
+            end
+            if profile.lc then
+                value = value * 0.5
+            end
+            if profile.jitter ~= nil then
+                value = value * (1 - min(profile.jitter, 120) / 300)
             end
         end
-        table.sort(rows, function(a, b)
-            if a.target ~= b.target then
-                return a.target
-            end
-            if a.hits + a.misses ~= b.hits + b.misses then
-                return a.hits + a.misses > b.hits + b.misses
-            end
-            return a.name < b.name
-        end)
-        while #rows > res_panel.rows_max do
-            table.remove(rows)
+        local state = enemy_state(target)
+        if state == "Air" or state == "Fakeduck" then
+            value = value * 0.8
         end
-        return rows
+        local far = resolver.distance(target)
+        if far ~= nil and far >= 2500 then
+            value = value * 0.75
+        elseif far ~= nil and far >= FAR_RANGE then
+            value = value * 0.85
+        end
+        local level = entry ~= nil and entry_level(entry, state) or 0
+        value = value * (1 + 0.05 * level)
+        return max(0, min(100, value * 100)), entry
     end
 
-    local function width_of(font, text)
+    res_panel.width_of = function(font, text)
         local ok, size = pcall(render.measure_text, font, nil, text)
         return ok and size ~= nil and size.x or #text * 6
-    end
-
-    local function rect(a, b, col, rounding)
-        if not pcall(render.rect, a, b, col, rounding) then
-            render.rect(a, b, col)
-        end
     end
 
     -- Fare: menu acikken panelin icine basip surukle (tasir), sag alt kosedeki tutamaci surukle
@@ -4646,6 +4730,27 @@ do
         end)
     end
 
+    -- Font: Verdana, kenarlari yumusak (yuklenemezse Neverlose'un yerlesik fontu). Boyuta gore
+    -- bir kez yuklenir.
+    res_panel.fonts = {}
+    res_panel.font_of = function(size)
+        local font = res_panel.fonts[size]
+        if font == nil then
+            local ok, loaded = pcall(render.load_font, "Verdana", size, "a")
+            font = ok and loaded ~= nil and loaded or 1
+            res_panel.fonts[size] = font
+        end
+        return font
+    end
+
+    -- Golgeli yazi (arka plan yok, her zeminde okunur).
+    res_panel.shadow_text = function(font, x, y, col, text)
+        render.text(font, vector(x + 1, y + 1), res_panel.SHADOW, nil, text)
+        render.text(font, vector(x, y), col, nil, text)
+    end
+
+    -- Sadece yazi: hedefin canli cozum yuzdesi (buyuk, renkli) ve adi; altinda kucuk: canli
+    -- isabet sansi ve resolver'a bagli isabet / atis. Sayi hedefe dogru yumusakca kayar.
     res_panel.draw = function(screen)
         -- Surukleme yokken yer ve boyut slider'lardan (menuden de ayarlanabilir).
         if res_panel.drag == nil then
@@ -4654,65 +4759,58 @@ do
             res_panel.y = floor(menu.panel_y:get() / 1000 * screen.y)
         end
         local k = res_panel.size / 100
-        local font = k >= 1.3 and 1 or FONT
-        local rows = res_panel.rows()
-        local pad, head, row_h = floor(8 * k), floor(22 * k), floor(20 * k)
-        local w = floor(220 * k)
-        local h = head + max(1, #rows) * row_h + pad
-        res_panel.w, res_panel.h = w, h
+        local big, small = res_panel.font_of(floor(22 * k + 0.5)), res_panel.font_of(floor(12 * k + 0.5))
+        local target = resolver_target()
+        local ok_alive, alive = pcall(function() return target ~= nil and target:is_alive() end)
+        target = ok_alive and alive and target or nil
+
+        local main, name, info, col
+        if target ~= nil then
+            local live, entry = res_panel.live(target)
+            local index = index_of(target)
+            if res_panel.shown_index ~= index then
+                res_panel.shown_index, res_panel.shown = index, live
+            end
+            local dt = max(0, min(1, (globals.frametime or 0.016) * 8))
+            res_panel.shown = res_panel.shown + (live - res_panel.shown) * dt
+            local hit = res_panel.hit_chance(entry, res_panel.shown / 100)
+            local hits, misses = entry ~= nil and entry.hits or 0, entry ~= nil and entry.misses or 0
+            main = ("%d%%"):format(floor(res_panel.shown + 0.5))
+            col = res_panel.tint(res_panel.shown)
+            name = player_name(target)
+            name = #name > 16 and name:sub(1, 15) .. "." or name
+            info = ("COZUM   HIT %d%%   %d/%d"):format(hit, hits, hits + misses)
+        else
+            res_panel.shown_index = nil
+            main, name, info, col = "--", "", "COZUM   hedef yok", DIM
+        end
+
+        local big_w = res_panel.width_of(big, main)
+        local gap = floor(8 * k)
+        local line1_h = floor(24 * k)
+        local w = max(big_w + gap + res_panel.width_of(big, name), res_panel.width_of(small, info))
+        local h = line1_h + floor(15 * k)
+        -- Tutma alani yazinin cevresindeki cerceveyle ayni; tutamac sag alt kosesinde.
+        res_panel.w, res_panel.h = w + 4, h + 3
         local open = res_panel.input(screen)
         local x, y = res_panel.x, res_panel.y
-        local accent = menu.accent:get()
 
-        rect(vector(x, y), vector(x + w, y + h), res_panel.BG, floor(6 * k))
-        if not pcall(render.gradient, vector(x, y), vector(x + w, y + 2), accent,
-            color(accent.r, accent.g, accent.b, 0), accent, color(accent.r, accent.g, accent.b, 0)) then
-            render.rect(vector(x, y), vector(x + w, y + 2), accent)
+        res_panel.shadow_text(big, x, y, col, main)
+        if name ~= "" then
+            res_panel.shadow_text(big, x + big_w + gap, y, WHITE, name)
         end
-
-        -- Baslik ve sutunlar: COZUM = resolver'in o dusmani cozme orani, HIT = siradaki atisin
-        -- tahmini isabet sansi (bkz. hit_chance).
-        local col_hit = x + w - pad
-        local col_res = x + w - pad - floor(52 * k)
-        render.text(font, vector(x + pad, y + floor(6 * k)), WHITE, nil, "RESOLVER")
-        render.text(FONT, vector(col_res - width_of(FONT, "COZUM"), y + floor(8 * k)), DIM, nil, "COZUM")
-        render.text(FONT, vector(col_hit - width_of(FONT, "HIT"), y + floor(8 * k)), DIM, nil, "HIT")
-        render.rect(vector(x + pad, y + head - 2), vector(x + w - pad, y + head - 1), res_panel.LINE)
-
-        if #rows == 0 then
-            render.text(font, vector(x + pad, y + head + floor(3 * k)), DIM, nil, "dusman yok")
-        end
-        for i, row in ipairs(rows) do
-            local ry = y + head + (i - 1) * row_h
-            if row.target then
-                render.rect(vector(x + 2, ry + 1), vector(x + 4, ry + row_h - 2), accent)
-            end
-            local name = #row.name > 14 and row.name:sub(1, 13) .. "." or row.name
-            render.text(font, vector(x + pad, ry + floor(2 * k)), row.target and WHITE or DIM, nil, name)
-            local res_text = row.pct ~= nil and ("%d%%"):format(row.pct) or "--"
-            local hit_text = row.hit ~= nil and ("%d%%"):format(row.hit) or "--"
-            render.text(font, vector(col_res - width_of(font, res_text), ry + floor(2 * k)),
-                row.pct ~= nil and res_panel.tint(row.pct) or DIM, nil, res_text)
-            local hit_col = row.hit ~= nil and res_panel.tint(row.hit) or DIM
-            render.text(font, vector(col_hit - width_of(font, hit_text), ry + floor(2 * k)), hit_col, nil, hit_text)
-            -- Altinda ince cubuk: isabet sansi.
-            local bar_y = ry + row_h - floor(5 * k)
-            local bar_w = w - 2 * pad
-            local bar_h = max(2, floor(3 * k))
-            rect(vector(x + pad, bar_y), vector(x + pad + bar_w, bar_y + bar_h), res_panel.BAR_BG, 2)
-            if row.hit ~= nil and row.hit > 0 then
-                rect(vector(x + pad, bar_y), vector(x + pad + floor(bar_w * row.hit / 100), bar_y + bar_h), hit_col, 2)
-            end
-        end
+        res_panel.shadow_text(small, x, y + line1_h, res_panel.INFO, info)
 
         -- Menu acikken: tasinabilir oldugu belli olsun, sag altta boyut tutamaci.
         if open then
-            if not pcall(render.rect_outline, vector(x, y), vector(x + w, y + h), color(accent.r, accent.g, accent.b, 120), 1, floor(6 * k)) then
-                render.rect(vector(x, y + h - 1), vector(x + w, y + h), accent)
+            local accent = menu.accent:get()
+            if not pcall(render.rect_outline, vector(x - 4, y - 3), vector(x + w + 4, y + h + 3),
+                color(accent.r, accent.g, accent.b, 90), 1, 4) then
+                render.rect(vector(x - 4, y + h + 2), vector(x + w + 4, y + h + 3), accent)
             end
-            local g = floor(12 * k)
-            render.poly(color(accent.r, accent.g, accent.b, 160), vector(x + w - 2, y + h - g), vector(x + w - 2, y + h - 2),
-                vector(x + w - g, y + h - 2))
+            local g = floor(10 * k)
+            render.poly(color(accent.r, accent.g, accent.b, 160), vector(x + w + 4, y + h + 3 - g),
+                vector(x + w + 4, y + h + 3), vector(x + w + 4 - g, y + h + 3))
         end
     end
 end
