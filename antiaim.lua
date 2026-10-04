@@ -17,7 +17,7 @@
         istersen "Auto (learn)": HS ile DT arasindan kafana daha az mermi yedigin.
       - AI peek: Peek Assist tusunu basili tutup hareket tuslarina basmazsan script
         yanlari tarar ve oldurecek atisin oldugu en yakin noktaya kendisi yurur;
-        aimbot ates edince Peek Assist geri ceker.
+        aimbot ates edince Peek Assist geri ceker. Her peek'in sonucu konsola yazilir.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
@@ -68,7 +68,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.8"
+local VERSION = "4.9"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -259,8 +259,10 @@ local stats, pending_misses = {}, {}
 local forget_enemies
 
 -- Senin aimbot atislarinin sonuclari (Neverlose'un aim_ack nedenleri).
+-- ai_*: AI peek sayaclari (peek, atis, isabet, atissiz biten, peek sirasinda vurulma).
 local function new_aim_stats()
-    return { shots = 0, hits = 0, correction = 0, spread = 0, other = 0 }
+    return { shots = 0, hits = 0, correction = 0, spread = 0, other = 0,
+        ai_peeks = 0, ai_shots = 0, ai_hits = 0, ai_empty = 0, ai_hurt = 0 }
 end
 local aim_stats = new_aim_stats()
 
@@ -393,7 +395,10 @@ menu.safe_head      = g_main:switch("Safe head", true)
 local safe_gear     = tracked(menu.safe_head:create())
 menu.safe_knife     = safe_gear:switch("Knife/Zeus in air crouch", true)
 menu.safe_air       = safe_gear:switch("Any air crouch", false)
-menu.safe_high      = safe_gear:switch("High ground", true)
+-- Yuksekte sabit kafa (yaw 0, desync 30) varsayilan kapali: v4.8 loglarinda alttaki dusman
+-- kafani gorurken Safe head'de 5 kafa mermisinin 4'u isabet etti (gordu 0.00-0.03 sn).
+-- Dusuk desync tam gorulurken kafayi ortaya getiriyordu; hareket durumunun AA'si kalir.
+menu.safe_high      = safe_gear:switch("High ground", false)
 menu.anti_brute     = g_main:switch("Anti-bruteforce", true)
 local brute_gear    = tracked(menu.anti_brute:create())
 menu.brute_reset    = brute_gear:slider("Reset after", 1, 15, 6, nil, "s")
@@ -1863,6 +1868,17 @@ local current = { state = "Global", side = false, limit = 60, freestand = false,
     brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
     head_only = false }
 
+-- Istatistigin yazilacagi grup; AA'si hareket durumundan farkli olan ozel durumlarda nil
+-- (yazilmaz). v4.8 loglarinda Safe head'deki (yaw 0, desync 30) kafa isabetleri "yerde"
+-- grubuna yazildi ve normal durusun varsayilan fazini degistirdi.
+brute.unlearned = { ["Safe head"] = true, Manual = true, ["Fake duck"] = true }
+brute.stat_group = function()
+    if brute.unlearned[current.state] then
+        return nil
+    end
+    return current.phase_group
+end
+
 -- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
 -- Hedefi ve takilma korumasindan onceki seviyeyi dondurur (body aim icin).
 local function apply_resolver()
@@ -2480,7 +2496,8 @@ local MOVETYPE_LADDER = 9
 -- seferinde kendini gosterdin. Her bos peek'te ne kadar yuruyebildigin konsola yazilir.
 -- R8'de bekleme daha uzun: horoz cekilir ve isabeti toparlanir.
 local ai_peek = { mode = nil, home = nil, target = nil, side = nil, until_time = -1000, scan_tick = -1000,
-    rest = -1000, fails = 0, blocked = nil, reached = 0, step = 0, enemy = nil,
+    rest = -1000, fails = 0, blocked = nil, reached = 0, step = 0, enemy = nil, name = nil, shots = {},
+    held_since = nil, reported = false, why = nil, quiet = 1.0,
     steps = { 18, 32, 46, 60 }, every = 4, hold = 0.5, hold_r8 = 0.75, after_shot = 0.8, back_time = 0.6 }
 local update_ai_peek
 do
@@ -2678,26 +2695,96 @@ do
 
     ai_peek.reset = function()
         ai_peek.mode, ai_peek.home, ai_peek.target, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
+        ai_peek.held_since, ai_peek.reported, ai_peek.why = nil, false, nil
+    end
+
+    -- Tus quiet sn basili ve hic peek yoksa nedeni bir kez yazilir (her basista bir kez).
+    local function report_idle(now)
+        if ai_peek.reported or ai_peek.held_since == nil or now - ai_peek.held_since < ai_peek.quiet
+            or ai_peek.why == nil then
+            return
+        end
+        ai_peek.reported = true
+        if menu.shot_log:get() then
+            print(("[%s] ai peek: peek yok, %s"):format(SCRIPT, ai_peek.why))
+        end
     end
 
     -- Atissiz biten peek: geri don ve ne kadar yuruyebildigini yaz (0'a yakinsa hareketini
     -- baska bir sey, ornegin Peek Assist'in geri cekmesi, eziyor demektir).
-    local function give_up(cmd, mine, now)
+    local function give_up(cmd, mine, now, reason)
         ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
         move_to(cmd, mine, ai_peek.home or mine)
+        aim_stats.ai_empty = aim_stats.ai_empty + 1
         if menu.shot_log:get() then
-            print(("[%s] ai peek: atis olmadi (%d/%d birim gidildi) -> geri"):format(SCRIPT,
+            print(("[%s] ai peek: atis olmadi, %s (%d/%d birim gidildi) -> geri"):format(SCRIPT, reason,
                 floor(ai_peek.reached + 0.5), ai_peek.step))
+        end
+    end
+
+    -- Peek oyuncunun elinden alindi (tus, hava, silah...): ne zaman ve neden yazilir.
+    local function cancelled(cmd, lp)
+        if ai_peek.mode ~= "go" and ai_peek.mode ~= "hold" then
+            return
+        end
+        if menu.shot_log:get() then
+            local why = user_moving(cmd) and "hareket tusu" or (not get("peek_assist") and "Peek Assist birakildi")
+                or "kosul degisti"
+            print(("[%s] ai peek: iptal, %s"):format(SCRIPT, why))
+        end
+    end
+
+    -- Aimbot peek sirasinda ates etti: sonucu aim_ack'te yazilir (bkz. ai_peek.result).
+    ai_peek.fired = function(id, target)
+        if (ai_peek.mode ~= "go" and ai_peek.mode ~= "hold") or id == nil then
+            return
+        end
+        aim_stats.ai_shots = aim_stats.ai_shots + 1
+        ai_peek.shots[id] = { name = player_name(target), reached = floor(ai_peek.reached + 0.5) }
+    end
+
+    ai_peek.result = function(e, target_name)
+        local shot = e.id ~= nil and ai_peek.shots[e.id] or nil
+        if shot == nil then
+            return
+        end
+        ai_peek.shots[e.id] = nil
+        local what
+        if e.state == nil then
+            aim_stats.ai_hits = aim_stats.ai_hits + 1
+            what = ("isabet %s -%d"):format(HITGROUPS[e.hitgroup] or "?", tonumber(e.damage) or 0)
+        else
+            what = ("iska (%s)"):format(tostring(e.state))
+        end
+        if menu.shot_log:get() then
+            print(("[%s] ai peek sonucu: %s -> %s (%d birim)"):format(SCRIPT, what, target_name or shot.name,
+                shot.reached))
+        end
+    end
+
+    -- Peek sirasinda (ya da donerken) vuruldun.
+    ai_peek.hurt = function(hitgroup, damage, attacker_name)
+        if ai_peek.mode == nil then
+            return
+        end
+        aim_stats.ai_hurt = aim_stats.ai_hurt + 1
+        if menu.shot_log:get() then
+            print(("[%s] ai peek: peek sirasinda vuruldun (%s -%d, %s)"):format(SCRIPT, HITGROUPS[hitgroup] or "?",
+                tonumber(damage) or 0, attacker_name))
         end
     end
 
     update_ai_peek = function(lp, cmd, class)
         local mine = origin_of(lp)
         if mine == nil or not allowed(lp, cmd, class) or user_moving(cmd) then
+            cancelled(cmd, lp)
             ai_peek.reset()
             return
         end
         local now, tick = globals.realtime, globals.tickcount
+        if ai_peek.held_since == nil then
+            ai_peek.held_since = now
+        end
         -- Aimbot ates etti: Neverlose geri cekiyor; after_shot sn karisilmaz (asagida).
         if ai_peek.mode ~= nil and own.last_shot >= ai_peek.started then
             ai_peek.mode, ai_peek.target, ai_peek.home, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
@@ -2727,7 +2814,7 @@ do
         local hold = class == "Revolver" and ai_peek.hold_r8 or ai_peek.hold
         if ai_peek.mode == "go" or ai_peek.mode == "hold" then
             if enemy == nil or now > ai_peek.until_time then
-                give_up(cmd, mine, now)
+                give_up(cmd, mine, now, enemy == nil and "hedef yok" or "sure doldu")
                 return
             end
             if due then
@@ -2739,7 +2826,7 @@ do
                         ai_peek.mode, ai_peek.until_time = "hold", now + hold
                     end
                 elseif result == nil then
-                    give_up(cmd, mine, now)
+                    give_up(cmd, mine, now, "aci kapandi")
                     return
                 elseif ai_peek.mode == "go" and result.side == ai_peek.side then
                     -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir. Diger
@@ -2765,6 +2852,12 @@ do
             ai_peek.home = mine
         end
         local ready = not effective("doubletap") or exploit_active()
+        if enemy == nil then
+            ai_peek.why = "hedef yok"
+        elseif not ready then
+            ai_peek.why = "DT sarj oluyor"
+        end
+        report_idle(now)
         if enemy == nil or not ready or now < ai_peek.rest or now - own.last_shot < ai_peek.after_shot or not due then
             return
         end
@@ -2775,14 +2868,18 @@ do
         ai_peek.scan_tick = tick
         local result = scan(lp, mine, enemy)
         if type(result) ~= "table" then
+            ai_peek.why = result == "here" and ("%s buradan vurulabiliyor, aimbot ates etmeli"):format(player_name(enemy))
+                or ("%s icin 60 birime kadar oldurecek atis yok"):format(player_name(enemy))
             return
         end
+        ai_peek.reported = true
         -- Baska bir dusmana gecildiyse bos peek sayisi o dusman icin bastan baslar.
         if index ~= ai_peek.enemy then
             ai_peek.fails = 0
         end
         ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
         ai_peek.enemy, ai_peek.reached, ai_peek.step = index, 0, result.step
+        aim_stats.ai_peeks = aim_stats.ai_peeks + 1
         ai_peek.until_time = now + 0.25 + result.step / 120
         move_to(cmd, mine, result.spot)
         if menu.shot_log:get() then
@@ -3094,7 +3191,7 @@ do
         entry.shot_stage = shot_stage
         -- O an gercekten uygulanan faz (AA'nin dondugu dusmaninki) ve hareket grubun; fazlarin
         -- istatistigi icin.
-        entry.shot_applied, entry.shot_group, entry.shot_sniper = current.brute, current.phase_group,
+        entry.shot_applied, entry.shot_group, entry.shot_sniper = current.brute, brute.stat_group(),
             sniper.mode(current.weapon)
 
         -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
@@ -3103,7 +3200,7 @@ do
             pending_misses[#pending_misses + 1] = {
                 userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
-                applied = current.brute, group = current.phase_group, sniper = sniper.mode(current.weapon),
+                applied = current.brute, group = brute.stat_group(), sniper = sniper.mode(current.weapon),
             }
         end
 
@@ -3140,6 +3237,7 @@ events.player_hurt:set(protect("player_hurt", function(e)
 
     local now = globals.realtime
     brute.hurt[e.attacker] = now
+    ai_peek.hurt(e.hitgroup, e.dmg_health, player_name(attacker))
     for i = #pending_misses, 1, -1 do
         if pending_misses[i].userid == e.attacker then
             table.remove(pending_misses, i)
@@ -3154,6 +3252,7 @@ events.player_hurt:set(protect("player_hurt", function(e)
         hit_stage, applied, group, shot_sniper = enemy.shot_stage, enemy.shot_applied, enemy.shot_group, enemy.shot_sniper
     else
         hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy, current.phase_group) or 0
+        group = brute.stat_group()
     end
     -- Bicak ve zeus yakin mesafe silahi; AA'nin saklayabilecegi bir sey degil. Log'a
     -- yazilir ama durum istatistigine ve anti-brute'a sayilmaz.
@@ -3166,7 +3265,7 @@ events.player_hurt:set(protect("player_hurt", function(e)
     end
     -- Fazin istatistigi de yazilir (kalici hafizayi da kirli isaretler).
     if e.hitgroup == 1 and not melee then
-        record_phase(group or current.phase_group, applied or current.brute, true)
+        record_phase(group, applied or current.brute, true)
         sniper.record(shot_sniper, true)
     end
 
@@ -3287,6 +3386,7 @@ pcall(function()
             end
         end
         local state = enemy_state(target)
+        ai_peek.fired(e.id, target)
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
                 body = effective("body_aim"), md = effective("min_damage"), health = prop(target, "m_iHealth"),
@@ -3351,6 +3451,7 @@ pcall(function()
         if menu.shot_log:get() then
             print(shot_line(e, shot, target))
         end
+        ai_peek.result(e, target ~= nil and player_name(target) or nil)
         if result == nil or target == nil or not menu.resolver:get() then
             return
         end
@@ -3720,6 +3821,14 @@ local function draw_stats(screen)
         y = y + 10
         render.text(FONT, vector(x, y), WHITE, nil, ("ALL   %d / %d / %d / %d / %d"):format(
             aim_stats.shots, aim_stats.hits, aim_stats.correction, aim_stats.spread, aim_stats.other))
+    end
+    -- AI peek: kac peek, kacinda atis, kac isabet, kac atissiz bitti, kacinda vuruldun.
+    if aim_stats.ai_peeks > 0 then
+        y = y + 16
+        render.text(FONT, vector(x, y), menu.accent:get(), nil, "AI PEEK   PEEK / ATIS / ISABET / BOS / VURULDUN")
+        y = y + 10
+        render.text(FONT, vector(x, y), WHITE, nil, ("AI PEEK   %d / %d / %d / %d / %d"):format(aim_stats.ai_peeks,
+            aim_stats.ai_shots, aim_stats.ai_hits, aim_stats.ai_empty, aim_stats.ai_hurt))
     end
     -- Anti-brute fazlari, hareket grubu basina: kafana gelen mermilerden kac tanesi kafadan
     -- isabet etti (isabet / mermi); * = verisi olmayan dusmanlara uygulanan, en az vurulan faz.
