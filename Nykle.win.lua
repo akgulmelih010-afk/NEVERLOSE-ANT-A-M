@@ -384,13 +384,18 @@ local DEFAULTS = {
 -- Hidden yaw "Random" (v5.6): "Sideways" desync tarafina gore +-90 veriyordu, "Switch" pitch'i
 -- de; defensive tick'lerinde acilari okuyan resolver kafanin hangi tarafta oldugunu oradan
 -- gorebiliyordu. Rastgele aci tarafi ele vermez.
+-- Dururken / egilip dururken hidden aci yok (V1.0): yerinde dururken LC kirmanin konumsal faydasi
+-- yok (kayitlar zaten ayni yerde), defensive tick'lerinde sahte pitch / yaw sadece kafayi siperin /
+-- freestanding'in arkasindan cikariyordu ("defans acinca kafami vuruyorlar"). Peek'te de yok: bilerek
+-- kendini gosterdigin an pitch Up kafayi yukseltir, rastgele yaw dondurur; defensive'in LC kirmasi
+-- kalir. Yururken ve havada kalir (havada spin).
 local EXPLOIT_DEFAULTS = {
-    ["Standing"]     = { "Double tap", "On peek",   "Up",     "Random" },
+    ["Standing"]     = { "Double tap", "On peek",   "Off",    "Off" },
     ["Moving"]       = { "Double tap", "Smart",     "Up",     "Random" },
     ["Slow walk"]    = { "Double tap", "Smart",     "Up",     "Random" },
-    ["Crouching"]    = { "Double tap", "On peek",   "Up",     "Random" },
+    ["Crouching"]    = { "Double tap", "On peek",   "Off",    "Off" },
     ["Crouch move"]  = { "Double tap", "Smart",     "Up",     "Random" },
-    ["Peek"]         = { "Double tap", "Smart",     "Up",     "Random" },
+    ["Peek"]         = { "Double tap", "Smart",     "Off",    "Off" },
     ["Air"]          = { "Double tap", "Smart",     "Up",     "Spin" },
     ["Air crouch"]   = { "Double tap", "Smart",     "Up",     "Random" },
     ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
@@ -1160,7 +1165,12 @@ do
         if effective("fakeduck") then
             return "Fake duck"
         end
-        if peek_key_held() then
+        -- Peek Assist tusu basili: sadece gercekten peek atarken (hareket ediyorsun ya da AI peek yuruyor /
+        -- noktada bekliyor) Peek. V1.0: "peek tusuna basili tuttugumda kafa direkt defans aciyor, safe head
+        -- bozuluyor": tusa basar basmaz yerinde dururken de Peek'e geciliyordu; duruşun otomatik
+        -- freestanding'i ve safe head'i kapaniyor, gorulunce defensive aciliyordu. Dururken tus basili
+        -- olsa da duruşun AA'si kalir.
+        if peek_key_held() and (motion.moving or exposure.peeking ~= nil) then
             return "Peek"
         end
         -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
@@ -1215,6 +1225,27 @@ end
 
 local function is_grenade(class)
     return class ~= nil and (class:find("Grenade", 1, true) ~= nil or class:find("Flashbang", 1, true) ~= nil)
+end
+
+-- Silah lead sn icinde ates edebilecek mi: scout / AWP surgu cekerken, R8 / sarjor degisirken ya
+-- da silah yeni alinmisken hayir. Okunamazsa evet (hicbir sey engellenmez). Eskiden atistan 0.8 sn sonra
+-- yeni peek baslayabiliyordu; scout'un surgusu 1.25 sn, AWP 1.46 sn: ates edemeden gorunuyordun.
+local function weapon_ready(lp, lead)
+    local ok, ready = pcall(function()
+        local now = globals.curtime
+        local weapon = lp:get_player_weapon()
+        if type(now) ~= "number" or weapon == nil then
+            return true
+        end
+        local clip = weapon.m_iClip1
+        if type(clip) == "number" and clip == 0 then
+            return false
+        end
+        local next_attack, player_next = weapon.m_flNextPrimaryAttack, lp.m_flNextAttack
+        local at = max(type(next_attack) == "number" and next_attack or 0, type(player_next) == "number" and player_next or 0)
+        return at - now <= lead
+    end)
+    return not ok or ready ~= false
 end
 
 local function origin_of(ent)
@@ -2141,13 +2172,40 @@ brute.stat_group = function()
     return current.phase_group
 end
 
--- Scout / AWP / R8 sadece oldurecek atis yaparken (Head unless body kills, Min. Damage can + 1) en
--- fazla "Prefer" (V1.0): tam canli dusmanda oldurecek tek nokta kafa ve desync'te kafa iki tarafta
--- ortusmez, "Force" kafada guvenli nokta birakmaz; atis hic gelmez, takilma korumasi da ancak 0.5 sn
--- goruldukten sonra "Prefer"e iniyordu (her temasta yarim saniye). DT'li silahlarda Force kalir:
--- orada govdenin guvenli noktalari var (Smart body aim seviye 2'de govde).
-resolver.cap = function(level)
-    if level > 1 and menu.head_only:get() and SNIPERS[current.weapon] then
+-- Hedefin govdesine (gogus ya da mide) gozumuzden mermi gecer mi. Iz ya da hitbox okunamazsa evet.
+resolver.body_open = function(target)
+    if trace_bullet == nil or target == nil then
+        return true
+    end
+    local lp = entity.get_local_player()
+    local ok_eye, eye = pcall(function() return lp:get_eye_position() end)
+    if not ok_eye or eye == nil then
+        return true
+    end
+    local readable = false
+    for _, hitbox in ipairs({ 5, 3 }) do
+        local ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
+        if ok_box and point ~= nil then
+            readable = true
+            local ok, damage = pcall(trace_bullet, lp, eye, point)
+            if ok and type(damage) == "number" and damage > 0 then
+                return true
+            end
+        end
+    end
+    return not readable
+end
+
+-- "Force" sadece govdenin guvenli noktalarina ates edilebiliyorsa (V1.0); yoksa en fazla "Prefer":
+--  - Scout / AWP / R8 sadece oldurecek atis yaparken (Head unless body kills, Min. Damage can + 1):
+--    tam canli dusmanda oldurecek tek nokta kafa ve desync'te kafa iki tarafta ortusmez, "Force"
+--    kafada guvenli nokta birakmaz; atis hic gelmez, takilma korumasi da ancak 0.5 sn goruldukten
+--    sonra "Prefer"e iniyordu (her temasta yarim saniye).
+--  - Hedefin govdesi gorunmuyor (sadece kafa: "biraz ustumde egiliyor, kafasini goruyorum, sikamiyorum"):
+--    her silahta ayni sebeple atis gelmezdi.
+-- Diger durumlarda DT'li silahlarda Force kalir (Smart body aim seviye 2'de govde).
+resolver.cap = function(level, target)
+    if level > 1 and ((menu.head_only:get() and SNIPERS[current.weapon]) or not resolver.body_open(target)) then
         return 1
     end
     return level
@@ -2164,7 +2222,7 @@ local function apply_resolver()
     if menu.resolver:get() then
         local key, entry
         raw, key, state, entry, prior = resolver_level(target)
-        level = stall_level(resolver.cap(raw), key, state, entry)
+        level = stall_level(resolver.cap(raw, target), key, state, entry)
     end
     current.resolver, current.res_state, current.res_prior = level, state, prior == true
     -- V1.0: kendi fake duck'inda zorla "Prefer" (v5.4) kaldirildi; seviye sadece dusmana gore.
@@ -2545,22 +2603,23 @@ do
     end
 
     -- "Defensive vs enemy peeks": "On peek" durumlarinda (durma, egilip bekleme) bir dusman
-    -- sana dogru peek atarken (exposure.peeked: gorunmeden once, hizindan tahmin) ya da kafani
-    -- gorurken peek atiyorken (exposure.enemy_peek: yeni gorundu ya da hizla hareket ediyor; V1.0)
-    -- DT defensive'i zorlanir ve ANTI_HOLD tick daha surer: mermisi geldiginde LC kirik ve acilar
-    -- gizli olur. Durup aci tutan dusmana karsi birakilir. Zorlanan defensive atisi engellemiyor
-    -- (loglarda "DEF" ile atilan atislar isabet etti).
+    -- sana dogru peek atarken (exposure.peeked: gorunmeden once, hizindan tahmin) DT defensive'i
+    -- zorlanir ve ANTI_HOLD tick daha surer: ilk mermisi geldiginde LC kirik olur. Kafani gorurken
+    -- peek atiyorsa (exposure.enemy_peek: yeni gorundu ya da hizla hareket ediyor; V1.0) sadece
+    -- silahin ates edemiyorken (surgu, sarjor): ates edebiliyorsan sira senin atisinda. Ilk denemede
+    -- gorunur dusmana karsi da hep zorlaniyordu; "uzerime gelen hareketli kisileri vurmakta
+    -- zorlaniyor": zorlanan defensive sirasinda atislarin sunucuda gecmeyebildigi loglarda goruldu.
     local ANTI_HOLD = 16
     local anti = { last = -1000 }
 
-    local function anti_window(now)
-        if exposure.peeked or exposure.enemy_peek then
+    local function anti_window(now, armed)
+        if exposure.peeked or (exposure.enemy_peek and not armed) then
             anti.last = now
         end
         return now >= anti.last and now - anti.last <= ANTI_HOLD
     end
 
-    apply_defensive = function(cmd, s, class, state, moving)
+    apply_defensive = function(cmd, s, class, state, moving, armed)
         local dt, hs = effective("doubletap"), effective("hideshots")
         local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
         -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
@@ -2578,7 +2637,7 @@ do
         local paused = resolver.paused
         local lc_ok = not paused("LC")
         local on_peek = mode == "On peek" or mode == "Smart"
-        if on_peek and hs and (state == "Peek" or moving or seen_by_enemy()) then
+        if on_peek and hs and (state == "Peek" or moving or seen_by_enemy() or exposure.peeking ~= nil) then
             hs_lc.until_tick = now + HS_LC_HOLD
         end
         local hs_peek = on_peek and hs and lc_ok and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
@@ -2586,7 +2645,7 @@ do
         -- defensive olmaz, o zaman zorlanmaz.
         local airborne = state == "Air" or state == "Air crouch"
         local window = mode == "Smart" and (smart_window(now) or (airborne and menu.air_lag:get()))
-        local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now)
+        local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now, armed ~= false)
         -- AI peek yururken / beklerken: defensive dusman seni gormeden baslar, ilk gordugu
         -- kayit eski ve acilar gizli olur (defensive peek).
         local peeking = on_peek and exposure.peeking ~= nil and menu.peek_defensive:get()
@@ -3127,27 +3186,6 @@ do
             return health + md - 100
         end
         return max(1, min(md, health))
-    end
-
-    -- Silah lead sn icinde ates edebilecek mi: scout / AWP surgu cekerken, R8 / sarjor degisirken ya
-    -- da silah yeni alinmisken hayir. Okunamazsa evet (peek engellenmez). Eskiden atistan 0.8 sn sonra
-    -- yeni peek baslayabiliyordu; scout'un surgusu 1.25 sn, AWP 1.46 sn: ates edemeden gorunuyordun.
-    local function weapon_ready(lp, lead)
-        local ok, ready = pcall(function()
-            local now = globals.curtime
-            local weapon = lp:get_player_weapon()
-            if type(now) ~= "number" or weapon == nil then
-                return true
-            end
-            local clip = weapon.m_iClip1
-            if type(clip) == "number" and clip == 0 then
-                return false
-            end
-            local next_attack, player_next = weapon.m_flNextPrimaryAttack, lp.m_flNextAttack
-            local at = max(type(next_attack) == "number" and next_attack or 0, type(player_next) == "number" and player_next or 0)
-            return at - now <= lead
-        end)
-        return not ok or ready ~= false
     end
 
     local function eye_height(lp, mine)
@@ -3778,7 +3816,7 @@ events.createmove:set(protect("createmove", function(cmd)
         avoid_overlap = s.avoid_overlap:get(), body_fs = body_fs, freestand = freestand,
     })
     apply_defensive(cmd, builder[state], class, state,
-        move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck")
+        move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck", weapon_ready(lp, 0.15))
     teleport.update(lp, move_state)
     update_recharge()
     sample_exploit(state)
