@@ -13,8 +13,8 @@
         Hareket ederken ve havadayken "Smart": Neverlose'un "On Peek"ine ek olarak
         tehdit kafani gormeye baslayinca (ya da 0.2 sn icinde gorecekse) defensive
         zorlanir. Scout / AWP / R8'de Hide shots, gorulurken Break LC.
-      - Safe recharge: DT atistan sonra sarj olurken yerinde donar; tehdit seni
-        goruyorken sarj bekletilir, siperin arkasinda dolar.
+      - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
+        donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
@@ -39,7 +39,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "3.0"
+local VERSION = "3.1"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -353,8 +353,8 @@ menu.auto_peek    = g_defensive:switch("Auto peek", true)
 -- Bolt-action tufekler ve R8 DT ile cift atis yapamaz; DT her atistan sonra bosalir ve
 -- uzun sure sarj olur. Hide shots atis anindaki acini gizler, defensive "Break LC" ile surer.
 menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots", "Same as state" })
--- DT atistan sonra yeniden sarj olurken oyuncu sunucuda yerinde donar. Tehdit kafani
--- goruyorken sarj bekletilir, siperin arkasina gecince dolar.
+-- DT / HS atistan ya da fake duck'tan sonra yeniden sarj olurken oyuncu sunucuda yerinde
+-- donar. Tehdit kafani goruyorken sarj bekletilir, siperin arkasina gecince dolar.
 menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
@@ -1292,9 +1292,15 @@ end
 -- yerinde donarsin. Oyun loglarinda peek'te ates ettikten 0.05-0.36 sn sonra "DT %0"
 -- iken kafadan vuruldun; tam bu donma. Tehdit kafani goruyorken (ya da birazdan
 -- gorecekken) sarj bekletilir; siperin arkasina gecince dolar. Hep goruluyorsan
--- atistan RECHARGE_HOLD_MAX sn sonra yine de sarj olur, DT'siz kalinmaz.
+-- RECHARGE_HOLD_MAX sn sonra yine de sarj olur, DT'siz kalinmaz.
+--
+-- Sarj iki yerde sifirdan baslar: kendi atisindan sonra ve fake duck'i biraktiginda
+-- (fake duck'ta exploit calismaz; fake duck peek'ten kalkinca hala gorus alanindasin).
+-- Hide shots da ayni sekilde bekletilir, ama sadece Neverlose'un sarj degerinin HS'de
+-- de dolup bosaldigi goruldukten sonra (hs_charges). Deger sadece DT'ye aitse HS'ye
+-- hic karisilmaz.
 local RECHARGE_HOLD_MAX = 1.2
-local recharge = { held = false }
+local recharge = { held = false, fakeduck = false, released = -1000, hs_charges = false }
 
 local function set_charge(allowed)
     if api.allow_charge == nil or recharge.held == not allowed then
@@ -1305,13 +1311,25 @@ local function set_charge(allowed)
 end
 
 local function update_recharge()
+    local fakeduck = get("fakeduck")
+    if recharge.fakeduck and not fakeduck then
+        recharge.released = globals.realtime
+    end
+    recharge.fakeduck = fakeduck
+
+    local dt, hs = effective("doubletap"), effective("hideshots")
     local hold = false
-    if menu.safe_recharge:get() and exposure.available and api.charge ~= nil
-        and effective("doubletap") and not get("fakeduck") then
+    if menu.safe_recharge:get() and exposure.available and api.charge ~= nil and (dt or hs) and not fakeduck then
         local charge = api.charge()
-        local since = globals.realtime - own.last_shot
-        hold = type(charge) == "number" and charge < 1 and since >= 0 and since <= RECHARGE_HOLD_MAX
-            and (exposure.now or exposure.soon)
+        if type(charge) == "number" then
+            -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa deger DT'nindir.
+            if hs and not dt and charge >= 1 then
+                recharge.hs_charges = true
+            end
+            local since = globals.realtime - max(own.last_shot, recharge.released)
+            hold = (dt or recharge.hs_charges) and charge < 1 and since >= 0 and since <= RECHARGE_HOLD_MAX
+                and (exposure.now or exposure.soon)
+        end
     end
     set_charge(not hold)
 end
@@ -1537,26 +1555,27 @@ end
 -- bekletiyor. atis = kendi son atisindan bu yana; mod = defensive modunu en son
 -- degistirdigimizden bu yana (sadece yakin zamanda degistiyse yazilir).
 local function exploit_status()
-    local exploit
+    local charge = api.charge ~= nil and api.charge() or nil
+    local charging = type(charge) == "number" and charge < 1
+    local kind, exploit
     if effective("doubletap") then
-        local charge = api.charge ~= nil and api.charge() or nil
-        if type(charge) ~= "number" or charge >= 1 then
-            exploit = "DT dolu"
-        else
-            exploit = ("DT %%%d"):format(round(max(0, charge) * 100))
-        end
+        kind = "DT"
+        exploit = charging and ("DT %%%d"):format(round(max(0, charge) * 100)) or "DT dolu"
     elseif effective("hideshots") then
-        exploit = "HS"
+        kind = "HS"
+        -- Sarj degeri HS'de de anlamliysa (bkz. Safe recharge) yuzde yazilir.
+        exploit = (charging and recharge.hs_charges) and ("HS %%%d"):format(round(max(0, charge) * 100)) or "HS"
     else
+        kind = "none"
         exploit = "DT yok"
     end
     -- Gorunen exploit'i script degil senin bind'in belirliyorsa (Auto exploit kapali,
     -- durumun exploit'i Binds, fake duck ya da Neverlose ayari reddetti). Neverlose'da
     -- DT, HS'den once gelir; DT'yi kapatamadiysak HS acik olsa da DT gorunur.
     local by_bind
-    if exploit == "HS" then
+    if kind == "HS" then
         by_bind = overridden.hideshots == nil
-    elseif exploit == "DT yok" then
+    elseif kind == "none" then
         by_bind = overridden.doubletap == nil and overridden.hideshots == nil
     else
         by_bind = overridden.doubletap == nil
@@ -1790,13 +1809,18 @@ local function draw_indicators(lp, cx, cy)
     render.text(FONT, vector(x, y), WHITE, "c", current.state:upper())
 
     y = y + 9
-    -- DT: beyaz = sarjli, turuncu = sarj oluyor (ya da Safe recharge bekletiyor).
+    -- DT / HS: beyaz = sarjli, turuncu = sarj oluyor (ya da Safe recharge bekletiyor).
     -- DEF: renkli = pencere su an acik, beyaz = defensive zorlaniyor / surekli acik,
     -- soluk = Neverlose'un peek tespitine birakildi.
     local dt_color = DIM
     if effective("doubletap") then
         local charge = api.charge ~= nil and api.charge() or nil
         dt_color = (type(charge) ~= "number" or charge >= 1) and WHITE or CHARGING
+    end
+    local hs_color = DIM
+    if effective("hideshots") then
+        local charge = api.charge ~= nil and api.charge() or nil
+        hs_color = (recharge.hs_charges and type(charge) == "number" and charge < 1) and CHARGING or WHITE
     end
     local def_color = DIM
     if defensive_active() then
@@ -1806,7 +1830,7 @@ local function draw_indicators(lp, cx, cy)
     end
     local items = {
         { "DT", dt_color },
-        { "HS", effective("hideshots") and WHITE or DIM },
+        { "HS", hs_color },
         { "FS", current.freestand and WHITE or DIM },
         { "DEF", def_color },
     }

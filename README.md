@@ -8,7 +8,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim ve exploit lua'sı. Sadece
 
 1. `antiaim.lua` dosyasını Neverlose'un script klasörüne at. Menüde **Scripts** sekmesinden klasörü açabilirsin, genelde `Counter-Strike Global Offensive/nl/scripts` olur.
 2. Oyunda Neverlose menüsü → **Scripts** → `antiaim` → **Load**.
-3. Konsolda `[ANT-A-M] v3.0 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
+3. Konsolda `[ANT-A-M] v3.1 yuklendi` gibi bir satır çıkar; güncelledikten sonra numaranın değiştiğini buradan kontrol et.
 4. Solda **ANT-A-M** sekmesi çıkar. İçinde **Anti-Aim** ve **Visuals** sekmeleri var. Ayarlar Neverlose config'inle birlikte kaydedilir.
 5. Şu üç şeyi tuşa bağla (öğeye sağ tık → bind): **Manual yaw** (sol/sağ), **Freestanding**, **Static inverter**.
 
@@ -73,7 +73,7 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 | Auto exploit | Açık | Her durumun exploit seçimini (DT / HS / Binds) uygular. Kapatırsan DT/HS'yi kendi bind'lerin yönetir. |
 | Auto peek | Açık | Hareket ederken düşmanın görüş alanına girince Peek durumuna geçer (yukarıya bak). |
 | Snipers (SSG08/AWP/R8) | Hide shots | Elinde scout, AWP ya da R8 varken DT yerine Hide shots kullanılır (durumun exploit'i `Binds` değilse). Bıçak, zeus, bomba ve C4'e geçince exploit değişmez, son tuttuğun silahınki korunur (scout → bıçak → scout geçişinde DT/HS kapanıp açılıp DT'yi boşaltmasın diye). Bolt-action tüfek ve R8 DT ile çift atış yapamaz; DT her atıştan sonra boşalıp uzun süre şarj olur ve o sırada ne defensive ne koruma vardır. Hide shots ateş ettiğin anki açını gizler, defensive "Break LC" ile devam eder. Oyun loglarında scout'la ateş ettikten 0.05-0.35 sn sonra, DT %0'dayken kafadan vurulma tekrar tekrar görüldü. `Same as state` ile kapatılır. |
-| Safe recharge | Açık | DT ateş ettikten sonra yeniden şarj olurken oyuncu sunucuda ~14 tick yerinde donar. Düşman kafanı görüyorken (ya da birazdan görecekken) script şarjı bekletir (`rage.exploit:allow_charge`); siperin arkasına geçince DT dolar. Hep görülüyorsan atıştan 1.2 sn sonra yine de şarj olur, DT'siz kalmazsın. Neden: oyun loglarında peek'te ateş ettikten 0.05-0.36 sn sonra, `DT %0` iken kafadan vurulma tekrar tekrar görüldü. Sadece DT'de çalışır; Hide shots'a ve fake duck'a karışmaz. Log satırında `sarj bekle` yazar. Bu Neverlose sürümünde `allow_charge` yoksa sessizce devre dışı kalır. |
+| Safe recharge | Açık | Exploit yeniden şarj olurken oyuncu sunucuda ~14 tick yerinde donar. Şarj iki durumda sıfırdan başlar: ateş ettikten sonra ve fake duck'ı bıraktığında (fake duck'ta exploit çalışmaz; fake duck peek'ten kalkınca hâlâ görüş alanındasın). Düşman kafanı görüyorken (ya da birazdan görecekken) script şarjı bekletir (`rage.exploit:allow_charge`); siperin arkasına geçince dolar. Hep görülüyorsan 1.2 sn sonra yine de şarj olur, exploit'siz kalmazsın. Neden: oyun loglarında peek'te ateş ettikten 0.05-0.36 sn sonra, `DT %0` iken kafadan vurulma tekrar tekrar görüldü. DT'de her zaman çalışır. Hide shots'ta sadece Neverlose'un şarj değerinin HS'de de dolup boşaldığı görüldükten sonra çalışır (değer sadece DT'ye aitse HS'ye hiç karışmaz); o zaman log'da `HS %40` gibi şarj yüzdesi de yazar. Fake duck basılıyken karışmaz. Log satırında `sarj bekle` yazar. Bu Neverlose sürümünde `allow_charge` yoksa sessizce devre dışı kalır. |
 | Hidden spin speed | 10 | Hidden yaw `Spin` hızı. |
 
 ### Builder
@@ -94,13 +94,13 @@ Her durumun bu ayarları **Builder**'da, durumu seçince altta **Exploit** başl
 ### Visuals
 Nişangahın altında: desync çubuğu, aktif durum, DT / HS / FS / DEF ve anti-brute fazı. Yanlarda manuel oklar ve desync tarafı. Renkler ayarlanabilir; dürbünle bakarken indikatör kenara kayar.
 
-- **DT**: beyaz = şarjlı, turuncu = şarj oluyor (ya da Safe recharge bekletiyor), soluk = kapalı.
+- **DT** / **HS**: beyaz = şarjlı, turuncu = şarj oluyor (ya da Safe recharge bekletiyor), soluk = kapalı. HS'de turuncu sadece şarj değeri HS'yi takip ediyorsa görünür.
 - **DEF**: renkli = defensive penceresi şu an gerçekten açık, beyaz = script defensive'i şu an zorluyor (Smart, HS'de Break LC) ya da bu durumda sürekli açık, soluk = Neverlose'un peek tespitine bırakıldı. Pencere tickbase'den iki yolla tespit edilir: tickbase gördüğümüz en yüksek değerin gerisine düştüyse ya da DT doluyken iki paket arasında geri gittiyse veya 1'den fazla ileri sıçradıysa.
 - **VIS**: renkli = düşman kafanı şu an görüyor, beyaz = birazdan görecek, soluk = görmüyor.
 
 | Ayar | Varsayılan | Ne işe yarar |
 |---|---|---|
-| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| sen r8 \| isim` → bölge, hasar, düşmanın silahı, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`; yanında `(bind)` yazıyorsa o exploit'i script değil senin kendi bind'in belirliyor), defensive penceresi o an açık mıydı (`(zorla)` = Smart o an defensive istiyordu; `DEF yok (zorla)` görürsen zorlama işe yaramamış demektir, bana at), Safe recharge şarjı bekletiyor muydu (`sarj bekle`), kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn), senin o an tuttuğun silah. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. Molotof, yangın ve el bombası hasarı yazılmaz ve istatistiğe girmez. |
+| Hit log (console) | Açık | Seni vurunca konsola yazar. Örnek: `vuruldun: head -293 ssg08 \| Peek \| faz 1 \| sag 58 \| DT %40, DEF yok, atis 0.12s, mod 0.05s \| sen r8 \| isim` → bölge, hasar, düşmanın silahı, durum, mermi atıldığı andaki anti-brute fazı, desync tarafı ve miktarı, DT durumu (`dolu` / şarj yüzdesi / `yok`, HS'de şarj biliniyorsa `HS %40`; yanında `(bind)` yazıyorsa o exploit'i script değil senin kendi bind'in belirliyor), defensive penceresi o an açık mıydı (`(zorla)` = Smart o an defensive istiyordu; `DEF yok (zorla)` görürsen zorlama işe yaramamış demektir, bana at), Safe recharge şarjı bekletiyor muydu (`sarj bekle`), kendi son atışından bu yana geçen süre (5 sn'den eskiyse `atis yok`) ve script defensive modunu az önce değiştirdiyse ne kadar önce (`mod`, sadece son 2 sn), senin o an tuttuğun silah. Kafanın yanından geçen ıskaları da aynı bilgilerle yazar. Molotof, yangın ve el bombası hasarı yazılmaz ve istatistiğe girmez. |
 | Stats panel | Kapalı | Ekranın solunda her durum için `isabet / kafa / ıska / DT / DEF`. Sen ateş etmezken (atıştan sonraki 1 sn ve Safe recharge'ın bilerek beklettiği süre hariç): **DT** = DT'nin yüzde kaç dolu olduğu (düşükse o durumun ayarları DT'yi boşaltıyor), **DEF** = exploit hazırken defensive penceresinin yüzde kaç açık olduğu ("Smart" ya da "Always on" bir durumda düşükse defensive gerçekten çalışmıyor). Ölünce de görünür. |
 | Reset stats | — | İstatistikleri sıfırlar. |
 
@@ -112,6 +112,7 @@ Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama
 - **Kafadan vuruluyorsan** o durumun yaw left/right değerlerini değiştir (ör. -23/51 yerine -35/40), `Jitter delay`'i 2-3 yap ya da biraz `Yaw randomize` ekle.
 - **Havada vuruluyorsan** Air durumunda hidden yaw'ı `Random` ya da `Sideways` dene.
 - **Duvar dibinde bekliyorsan** freestanding ya da manuel yaw kullan.
+- **Fake duck'ı eğilme tuşuna (CTRL) bağlama.** Fake duck basılıyken Neverlose DT ve HS'yi kapatır; scout'ta Hide shots ve bütün defensive'ler de gider. Log'da `FD, DT %0 (bind)` görüyorsan o an fake duck basılıydı. Eski loglardaki eğilirken / havada eğilirken gelen `DT %0, atis yok` isabetlerinin çoğu bu desene uyuyor. Fake duck'ı sadece bilerek fake duck peek atacağın ayrı bir tuşa al.
 - Geniş peek atma; quick peek (Peek Assist) kullanınca Peek durumu ve defensive kendiliğinden devreye girer.
 
 ## Notlar
