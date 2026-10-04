@@ -68,7 +68,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.7"
+local VERSION = "4.8"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -2475,11 +2475,13 @@ local MOVETYPE_LADDER = 9
 -- noktaya script yurur. Aimbot ates edince Neverlose'un Peek Assist'i seni geri ceker;
 -- ates edilmezse 0.4 sn sonra baslangic noktana donulur. Hareket tusuna basinca kontrol
 -- hemen sende. DT sarj olurken ve atistan hemen sonra peek atilmaz.
--- Iki peek ust uste atissiz biterse (aimbot ates etmedi) 1.5 sn beklenir; bos yere
--- acilip kapanarak kendini gosterme.
+-- Ayni dusmana iki peek ust uste atissiz biterse (aimbot ates etmedi) o dusmana tusa yeniden
+-- basana kadar peek atilmaz: v4.7 loglarinda ayni dusmana 7 kez bos peek atildi, her
+-- seferinde kendini gosterdin. Her bos peek'te ne kadar yuruyebildigin konsola yazilir.
+-- R8'de bekleme daha uzun: horoz cekilir ve isabeti toparlanir.
 local ai_peek = { mode = nil, home = nil, target = nil, side = nil, until_time = -1000, scan_tick = -1000,
-    rest = -1000, fails = 0, steps = { 18, 32, 46, 60 }, every = 4, hold = 0.4, after_shot = 0.8,
-    back_time = 0.6, pause = 1.5 }
+    rest = -1000, fails = 0, blocked = nil, reached = 0, step = 0, enemy = nil,
+    steps = { 18, 32, 46, 60 }, every = 4, hold = 0.5, hold_r8 = 0.75, after_shot = 0.8, back_time = 0.6 }
 local update_ai_peek
 do
     local MASK_PLAYERSOLID = 0x201400B
@@ -2629,9 +2631,12 @@ do
         end
         local angle = math.rad(math.deg(atan2(dy, dx)) - view)
         local speed = distance > 12 and 450 or distance * 30
+        local forward, side = math.cos(angle) * speed, -math.sin(angle) * speed
+        -- Tuslar da hareketle uyumlu basili gorunur (oyun ve Neverlose tuslara da bakar).
         pcall(function()
-            cmd.forwardmove = math.cos(angle) * speed
-            cmd.sidemove = -math.sin(angle) * speed
+            cmd.forwardmove, cmd.sidemove = forward, side
+            cmd.in_forward, cmd.in_back = forward > 1, forward < -1
+            cmd.in_moveright, cmd.in_moveleft = side > 1, side < -1
         end)
         return distance
     end
@@ -2639,6 +2644,7 @@ do
     local function stand(cmd)
         pcall(function()
             cmd.forwardmove, cmd.sidemove = 0, 0
+            cmd.in_forward, cmd.in_back, cmd.in_moveright, cmd.in_moveleft = false, false, false, false
         end)
     end
 
@@ -2671,7 +2677,18 @@ do
     end
 
     ai_peek.reset = function()
-        ai_peek.mode, ai_peek.home, ai_peek.target, ai_peek.fails = nil, nil, nil, 0
+        ai_peek.mode, ai_peek.home, ai_peek.target, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
+    end
+
+    -- Atissiz biten peek: geri don ve ne kadar yuruyebildigini yaz (0'a yakinsa hareketini
+    -- baska bir sey, ornegin Peek Assist'in geri cekmesi, eziyor demektir).
+    local function give_up(cmd, mine, now)
+        ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
+        move_to(cmd, mine, ai_peek.home or mine)
+        if menu.shot_log:get() then
+            print(("[%s] ai peek: atis olmadi (%d/%d birim gidildi) -> geri"):format(SCRIPT,
+                floor(ai_peek.reached + 0.5), ai_peek.step))
+        end
     end
 
     update_ai_peek = function(lp, cmd, class)
@@ -2683,24 +2700,34 @@ do
         local now, tick = globals.realtime, globals.tickcount
         -- Aimbot ates etti: Neverlose geri cekiyor; after_shot sn karisilmaz (asagida).
         if ai_peek.mode ~= nil and own.last_shot >= ai_peek.started then
-            ai_peek.mode, ai_peek.target, ai_peek.home, ai_peek.fails = nil, nil, nil, 0
+            ai_peek.mode, ai_peek.target, ai_peek.home, ai_peek.fails, ai_peek.blocked = nil, nil, nil, 0, nil
+        end
+        if (ai_peek.mode == "go" or ai_peek.mode == "hold") and ai_peek.home ~= nil then
+            local rx, ry = mine.x - ai_peek.home.x, mine.y - ai_peek.home.y
+            ai_peek.reached = max(ai_peek.reached, sqrt(rx * rx + ry * ry))
         end
 
         if ai_peek.mode == "back" then
             if ai_peek.home == nil or move_to(cmd, mine, ai_peek.home) < 6 or now > ai_peek.until_time then
                 stand(cmd)
                 ai_peek.fails = ai_peek.fails + 1
-                ai_peek.mode, ai_peek.rest = nil, now + (ai_peek.fails >= 2 and ai_peek.pause or 0.3)
+                ai_peek.mode, ai_peek.rest = nil, now + 0.3
+                if ai_peek.fails >= 2 then
+                    ai_peek.blocked = ai_peek.enemy
+                    if menu.shot_log:get() then
+                        print(("[%s] ai peek: 2 bos peek, bu dusmana Peek Assist tusuna yeniden basana kadar peek yok"):format(SCRIPT))
+                    end
+                end
             end
             return
         end
 
         local enemy = enemy_target()
         local due = tick < ai_peek.scan_tick or tick - ai_peek.scan_tick >= ai_peek.every
+        local hold = class == "Revolver" and ai_peek.hold_r8 or ai_peek.hold
         if ai_peek.mode == "go" or ai_peek.mode == "hold" then
             if enemy == nil or now > ai_peek.until_time then
-                ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
-                move_to(cmd, mine, ai_peek.home or mine)
+                give_up(cmd, mine, now)
                 return
             end
             if due then
@@ -2709,11 +2736,10 @@ do
                 if result == "here" then
                     -- Aci acildi: dur, aimbot ates etsin.
                     if ai_peek.mode == "go" then
-                        ai_peek.mode, ai_peek.until_time = "hold", now + ai_peek.hold
+                        ai_peek.mode, ai_peek.until_time = "hold", now + hold
                     end
                 elseif result == nil then
-                    ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
-                    move_to(cmd, mine, ai_peek.home or mine)
+                    give_up(cmd, mine, now)
                     return
                 elseif ai_peek.mode == "go" and result.side == ai_peek.side then
                     -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir. Diger
@@ -2725,7 +2751,7 @@ do
                 stand(cmd)
             elseif move_to(cmd, mine, ai_peek.target) < 4 then
                 stand(cmd)
-                ai_peek.mode, ai_peek.until_time = "hold", now + ai_peek.hold
+                ai_peek.mode, ai_peek.until_time = "hold", now + hold
             end
             return
         end
@@ -2742,12 +2768,21 @@ do
         if enemy == nil or not ready or now < ai_peek.rest or now - own.last_shot < ai_peek.after_shot or not due then
             return
         end
+        local index = index_of(enemy)
+        if ai_peek.blocked ~= nil and index == ai_peek.blocked then
+            return
+        end
         ai_peek.scan_tick = tick
         local result = scan(lp, mine, enemy)
         if type(result) ~= "table" then
             return
         end
+        -- Baska bir dusmana gecildiyse bos peek sayisi o dusman icin bastan baslar.
+        if index ~= ai_peek.enemy then
+            ai_peek.fails = 0
+        end
         ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
+        ai_peek.enemy, ai_peek.reached, ai_peek.step = index, 0, result.step
         ai_peek.until_time = now + 0.25 + result.step / 120
         move_to(cmd, mine, result.spot)
         if menu.shot_log:get() then
