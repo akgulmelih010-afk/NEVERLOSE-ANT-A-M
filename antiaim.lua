@@ -45,6 +45,8 @@
         gorunmeden yakalanir); ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
       - Dusman peek'ine karsi defensive (dururken de) ve havada gorulunce teleport (sarj
         dolunca tekrar, ziplama basina en fazla 3).
+      - Air lag: havada DT doluyken defensive her tick (surekli lag, hidden acilar); scout /
+        AWP / R8 havada DT'ye gecer ki lag ve teleport onlarda da calissin.
       - Akilli AA hedefi: az once kafana ates eden dusmana (1 sn), Neverlose'un tehdidi
         yoksa en yakin dusmana, tehdit gormuyor ama yandan biri goruyorsa ona gore
         donulur. Yerinde dururken otomatik freestanding.
@@ -72,7 +74,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.1"
+local VERSION = "5.2"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -456,6 +458,12 @@ menu.ai_peek      = g_defensive:switch("AI peek (hold Peek Assist)", true)
 menu.anti_peek    = g_defensive:switch("Defensive vs enemy peeks", true)
 -- Havadayken bir dusman kafani gorunce DT ile isinlanilir (ziplama basina bir kez).
 menu.air_teleport = g_defensive:switch("Teleport in air when seen", true)
+-- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
+-- hidden acilar (spin). "Havada lag olmuyor": Smart sadece biri seni gorunce zorluyordu.
+menu.air_lag      = g_defensive:switch("Air lag (defensive every tick)", true)
+-- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots): Neverlose'un lua'dan
+-- defensive zorlamasi ve teleport'u DT ister; HS ile havada lag olmuyordu.
+menu.sniper_air_dt = g_defensive:switch("Snipers use DT in the air", true)
 -- Scout / AWP / R8'de exploit. "Hide shots" (varsayilan): bolt-action'da DT her atistan
 -- sonra bosalir; v4.6'da ogrenme DT'ye gecince scout'la atistan 0.15-0.17 sn sonra "DT %0,
 -- sarj bekle" iken kafadan vurulma geri geldi. "Auto (learn)": kafana gelen mermilere gore
@@ -2188,7 +2196,12 @@ local function apply_exploit(s, class)
     if choice ~= "Binds" then
         local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
         local sniper_setting = menu.sniper_exploit:get()
-        if SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs")) then
+        local sniper_hs = SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs"))
+        -- Havada sniper DT (air lag ve teleport icin); inince yine Hide shots.
+        if sniper_hs and menu.sniper_air_dt:get() and (current.state == "Air" or current.state == "Air crouch") then
+            sniper_hs = false
+        end
+        if sniper_hs then
             choice = "Hide shots"
         elseif not holding_gun and exploit_memory.choice ~= nil then
             choice = exploit_memory.choice
@@ -2294,7 +2307,8 @@ do
         local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
         -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
         -- defensive olmaz, o zaman zorlanmaz.
-        local window = mode == "Smart" and smart_window(now)
+        local airborne = state == "Air" or state == "Air crouch"
+        local window = mode == "Smart" and (smart_window(now) or (airborne and menu.air_lag:get()))
         local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now)
         local forced = (window or guard) and dt and exploit_active()
         current.defensive = not on_peek or hs_peek or forced
