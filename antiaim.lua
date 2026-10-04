@@ -20,21 +20,28 @@
         yururken Neverlose'un Peek Assist'i kapatilir, atistan sonra script geri yurur.
         Nokta iki taramada teyit edilir, yururken tek kotu tarama geri dondurmez, aci kayarsa
         ayni tarafta takip edilir; yururken AA o dusmana doner ve DT defensive'i onceden baslar.
+        Baska bir dusmanin da kafani gorecegi noktaya gidilmez; dusman defensive'deyken aci
+        kaybi sayilmaz.
         Her peek'in sonucu konsola yazilir.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
         ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
         (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
-        Her aimbot atisi konsola tek satir yazilir. Dusmanlarin defensive / LC kirma ve
-        jitter'i izlenir: defensive'deki iskalar resolver'a sayilmaz, jitter'li AA'ya
-        ilk atistan safe point "Prefer".
+        Her aimbot atisi konsola tek satir yazilir. Dusmanlarin defensive / LC kirma, fake duck'i
+        ve jitter'i izlenir: jitter'li ve fake duck yapan dusmana ilk atistan safe point "Prefer";
+        hedef defensive'deyken (kaydi sahte) aimbot gercek kaydi bekler (en fazla ~0.2 sn); DT'li
+        silahta defensive / fake duck yapan hedefe govde. Resolver paneli: her dusman icin cozum
+        yuzdesi ve siradaki atisin isabet sansi; menu acikken fareyle tasinir ve buyutulur.
       - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
         AWP / R8'de biri kafani gorebiliyorken sadece oldurecek atis (Min. Damage 101 =
         can + 1, Body Aim Prefer; hedeften bagimsiz); resolver bir dusmanda iki kez
         yanildiysa (DT'li silahlarda) govde.
       - Bicak / zeus tutan dusman yaklasinca, havadayken ve hareket ederken (0.15 sn) fake duck
-        birakilir; fake duck'ta safe point en az "Prefer" (her atis degerli).
+        birakilir; fake duck'ta safe point en az "Prefer" (her atis degerli); fake duck AA'si her
+        pakette rastgele yaw, desync miktari ve taraf.
+      - Kendi lag'imiz (zorlanan defensive, HS Break LC) sirasinda atislar sunucuda gecmezse o lag
+        10 sn durur; atis satirinda o anki lag (DEF / LC / FD) yazar.
       - Onerilen ayarlar oyun sirasinda da korunur (eski config degerleri geri alinir).
       - Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile tutulur;
         harita degisince ve oyun yeniden acilinca da kalir (Neverlose db, en fazla
@@ -77,7 +84,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "5.4"
+local VERSION = "5.5"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -171,6 +178,7 @@ local refs = {
     peek_assist     = find("Aimbot", "Ragebot", "Main", "Peek Assist"),
     safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
     min_damage      = find("Aimbot", "Ragebot", "Selection", "Min. Damage"),
+    hitboxes        = find("Aimbot", "Ragebot", "Selection", "Hitboxes"),
     body_aim        = find("Aimbot", "Ragebot", "Safety", "Body Aim"),
 }
 
@@ -494,6 +502,8 @@ menu.head_only     = g_resolver:switch("Head unless body kills (snipers)", true)
 -- Fake duck'ta DT yok ve atis ancak ~0.2 sn'de bir gelir (egilip kalkma dongusu): her atis
 -- degerli. Safe point en az "Prefer" (resolver'in acisindan bagimsiz noktalar once).
 menu.fd_safe       = g_resolver:switch("Safe points while fake ducking", true)
+-- Hedef defensive'deyken (kaydi sahte) aimbot'un ates etmesi beklenir (bkz. resolver.wait).
+menu.def_wait      = g_resolver:switch("Wait out enemy defensive", true)
 -- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
 menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
@@ -538,7 +548,11 @@ for i, state in ipairs(STATES) do
     for n = 1, 5 do
         s["way" .. n] = g_builder:slider("Way " .. n, -180, 180, WAY_DEFAULTS[n], nil, DEG)
     end
-    s.yaw_random    = g_builder:slider("Yaw randomize", 0, 30, 0, nil, DEG)
+    -- Fake duck: paket ~14 tick bogulu, dusman her pakette tek kayit gorur. Her pakette rastgele
+    -- yaw (20) ve desync miktari (10) + rastgele taraf: v5.3-v5.4 loglarinda fake duck'ta kafadan
+    -- vurulmalar surdu; sabit yaw'da tek bilinmeyen desync tarafiydi.
+    local fd_state = state == "Fake duck"
+    s.yaw_random    = g_builder:slider("Yaw randomize", 0, 30, fd_state and 20 or 0, nil, DEG)
     s.modifier      = g_builder:combo("Yaw modifier", MODIFIERS)
     s.mod_random    = tracked(s.modifier:create()):slider("Randomize", 0, 60, 0, nil, DEG)
     s.mod_offset    = g_builder:slider("Modifier offset", -180, 180, 0, nil, DEG)
@@ -564,7 +578,7 @@ for i, state in ipairs(STATES) do
     -- 4 aci degisiminin 3'u yon degistiriyorsa "jitter" deyip tarafi esliyordu). Her
     -- donuste 0-1 paket rastgele bekleme bu kati sirayi bozar. Sadece DT/HS aktifken.
     s.delay_random  = body_gear:slider("Delay randomize", 0, 5, static_default and 0 or 1, nil, "t")
-    s.limit_random  = body_gear:slider("Limit randomize", 0, 30, 0, nil, DEG)
+    s.limit_random  = body_gear:slider("Limit randomize", 0, 30, fd_state and 10 or 0, nil, DEG)
     s.delay         = g_builder:slider("Jitter delay", 1, 10, d[3], nil, "t")
     s.left_limit    = g_builder:slider("Left limit", 0, 60, d[4], nil, DEG)
     s.right_limit   = g_builder:slider("Right limit", 0, 60, d[5], nil, DEG)
@@ -590,6 +604,16 @@ menu.arrows      = g_visuals:switch("Manual arrows", true)
 menu.arrow_color = menu.arrows:color_picker(color(150, 190, 255, 255))
 menu.hit_log     = g_visuals:switch("Hit log (console)", true)
 menu.stats_panel = g_visuals:switch("Stats panel", false)
+-- Resolver paneli: her dusman icin resolver'in onu ne kadar cozdugu (resolver'a bagli isabet /
+-- (isabet + correction iskasi)). Menu acikken fareyle tutup tasinir, sag alt kosesinden cekilerek
+-- buyutulur; yeri (ekranin binde biri) ve boyutu config'e kaydedilir.
+menu.res_panel   = g_visuals:switch("Resolver panel", true)
+do
+    local gear = menu.res_panel:create()
+    menu.panel_size = gear:slider("Size", 70, 200, 100, nil, "%")
+    menu.panel_x    = gear:slider("Position X", 0, 1000, 12)
+    menu.panel_y    = gear:slider("Position Y", 0, 1000, 330)
+end
 -- Dugme API'si yoksa script'i dusurmesin; sadece sifirlama dugmesi olmaz.
 pcall(function()
     menu.stats_reset = g_visuals:button("Reset stats", function()
@@ -904,6 +928,12 @@ do
         if head == nil then
             exposure.any, exposure.others = false, {}
             return
+        end
+        -- Fake duck'ta kafa egilip kalkar; dusman kafayi ayakta yuksekliginde de gorur (v5.4
+        -- loglarinda fake duck'ta "gormedi" iken kafadan vuruldun). Kafa ayakta yuksekligine alinir.
+        local ok_base, base = pcall(function() return effective("fakeduck") and lp:get_origin() or nil end)
+        if ok_base and base ~= nil and head.z < base.z + 64 then
+            head = vector(head.x, head.y, base.z + 64)
         end
 
         local threat = aa_threat()
@@ -1626,9 +1656,10 @@ local FORCE_STALL = 0.5
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {},
     body_stall = { key = nil, visible = 0, last = nil, relaxed = false },
-    -- Zorlanan defensive sirasinda atilip sunucuda kayda gecmeyen ("unregistered shot") atislarin
-    -- zamanlari; ikisi unreg_window sn icinde olursa zorlama unreg_pause sn durur (def_pause).
-    unreg = {}, unreg_window = 10, unreg_pause = 10, def_pause = -1000 }
+    -- Kendi lag'imiz sirasinda (DEF = zorlanan DT defensive'i, LC = Hide shots'in Break LC'si)
+    -- atilip sunucuda gecmeyen ("unregistered shot", "damage rejection") atislarin zamanlari;
+    -- ayni turden ikisi unreg_window sn icinde olursa o lag unreg_pause sn durur (pause).
+    unreg = { DEF = {}, LC = {} }, unreg_window = 10, unreg_pause = 10, pause = { DEF = -1000, LC = -1000 } }
 
 local function prop(ent, name)
     local ok, value = pcall(function() return ent[name] end)
@@ -1636,24 +1667,6 @@ local function prop(ent, name)
         return value
     end
     return nil
-end
-
--- Okunamayan alanlar "Standing" sayilir (en sik durum, en az varsayim).
-local function enemy_state(ent)
-    local flags = prop(ent, "m_fFlags")
-    if type(flags) == "number" and bit.band(flags, 1) == 0 then
-        return "Air"
-    end
-    local duck = prop(ent, "m_flDuckAmount")
-    if type(duck) == "number" and duck > 0.6 then
-        return "Crouch"
-    end
-    local velocity = prop(ent, "m_vecVelocity")
-    local ok, speed = pcall(function() return velocity:length2d() end)
-    if ok and type(speed) == "number" and speed > 6 then
-        return "Moving"
-    end
-    return "Standing"
 end
 
 -- Dusman takibi: her tick canli, dormant olmayan dusmanlarin simulasyon zamani, konumu ve
@@ -1668,7 +1681,12 @@ end
 -- jitter_prior: bu kadar jitter'li ve o durumda hic sonucu olmayan dusmana ilk atistan
 -- "Prefer" (iska beklenmez). Karar jitter_memory sn hatirlanir: loglarda ayni dusmanin
 -- ortalamasi 21 ile 48 arasinda gidip geliyordu ve on bilgi acilip kapaniyordu.
-local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_prior = 35, jitter_memory = 60 }
+--  fakeduck: yerde, egilme miktari yarim (fd_low..fd_high) ve paketler bogulu (en az fd_choke
+--            tick) iki guncelleme ust uste: fake duck (bizim de kullandigimiz numara). Kafa
+--            yuksekligi kayittan kayda degisir; resolver ayri durum olarak ogrenir, fd_hold tick.
+--  defensive_now: su anki kayit gordugumuz en yeni kayittan eski (defensive suruyor).
+local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_prior = 35, jitter_memory = 60,
+    fd_low = 0.05, fd_high = 0.95, fd_choke = 6, fd_hold = 32 }
 do
     local function eye_yaw(ent)
         local angles = prop(ent, "m_angEyeAngles")
@@ -1688,7 +1706,19 @@ do
 
     local function fresh(sim, enemy)
         return { sim = sim, max_sim = sim, origin = origin_of(enemy), yaw = eye_yaw(enemy), deltas = {},
-            def_tick = -1000, lc_tick = -1000 }
+            def_tick = -1000, lc_tick = -1000, fd_tick = -1000, fd_count = 0 }
+    end
+
+    local function tick_interval()
+        local ok, value = pcall(function() return globals.tickinterval end)
+        return ok and type(value) == "number" and value > 0 and value or 1 / 64
+    end
+
+    -- Bu guncelleme fake duck gibi mi: yerde, egilme yarim, paketler bogulu.
+    local function ducking_fake(enemy, choked)
+        local flags, duck = prop(enemy, "m_fFlags"), prop(enemy, "m_flDuckAmount")
+        return type(flags) == "number" and bit.band(flags, 1) ~= 0 and type(duck) == "number"
+            and duck > enemy_watch.fd_low and duck < enemy_watch.fd_high and choked >= enemy_watch.fd_choke
     end
 
     enemy_watch.update = function()
@@ -1711,6 +1741,14 @@ do
                             t.def_tick = now
                         else
                             t.max_sim = sim
+                        end
+                        if ducking_fake(enemy, (sim - t.sim) / tick_interval() - 0.5) then
+                            t.fd_count = t.fd_count + 1
+                            if t.fd_count >= 2 then
+                                t.fd_tick = now
+                            end
+                        else
+                            t.fd_count = 0
                         end
                         local origin = origin_of(enemy)
                         if origin ~= nil and t.origin ~= nil then
@@ -1756,10 +1794,36 @@ do
         end
         return {
             defensive = now >= t.def_tick and now - t.def_tick <= enemy_watch.hold,
+            defensive_now = t.sim < t.max_sim,
             lc = now >= t.lc_tick and now - t.lc_tick <= enemy_watch.hold,
+            fakeduck = now >= t.fd_tick and now - t.fd_tick <= enemy_watch.fd_hold,
             jitter = jitter,
         }
     end
+end
+
+-- Okunamayan alanlar "Standing" sayilir (en sik durum, en az varsayim). Fake duck yapan dusman
+-- ayri durum ("Fakeduck"): egilme miktari surekli degistigi icin Crouch / Standing arasinda
+-- gidip gelip iki durumun verisini de bozuyordu.
+local function enemy_state(ent)
+    local flags = prop(ent, "m_fFlags")
+    if type(flags) == "number" and bit.band(flags, 1) == 0 then
+        return "Air"
+    end
+    local profile = enemy_watch.profile(ent)
+    if profile ~= nil and profile.fakeduck then
+        return "Fakeduck"
+    end
+    local duck = prop(ent, "m_flDuckAmount")
+    if type(duck) == "number" and duck > 0.6 then
+        return "Crouch"
+    end
+    local velocity = prop(ent, "m_vecVelocity")
+    local ok, speed = pcall(function() return velocity:length2d() end)
+    if ok and type(speed) == "number" and speed > 6 then
+        return "Moving"
+    end
+    return "Standing"
 end
 
 -- Log icin saldiran: hareket durumu, AA'nin baktigi tehdit mi ve bizim izlerimize gore
@@ -1872,13 +1936,18 @@ local function resolver_level(target)
     end
     local seen = key ~= nil and resolver.jittery[key] or nil
     local jittery = seen ~= nil and now >= seen and now - seen <= enemy_watch.jitter_memory
-    if not data and level < 1 and jittery then
+    -- Fake duck yapan dusmanin kafa yuksekligi kayittan kayda degisir: o da ilk atistan "Prefer".
+    if not data and level < 1 and (jittery or state == "Fakeduck") then
         level, prior = 1, true
-        if not resolver.prior_logged[key] and menu.resolver_log:get() then
+        if key ~= nil and not resolver.prior_logged[key] and menu.resolver_log:get() then
             resolver.prior_logged[key] = true
-            local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
-            print(("[%s] resolver: %s jitter%s -> safe points Prefer (veri yok, on bilgi)"):format(
-                SCRIPT, player_name(target), amount))
+            local what = "fake duck"
+            if jittery then
+                local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
+                what = "jitter" .. amount
+            end
+            print(("[%s] resolver: %s %s -> safe points Prefer (veri yok, on bilgi)"):format(
+                SCRIPT, player_name(target), what))
         end
     end
     return level, key, state, entry, prior
@@ -1960,7 +2029,8 @@ end
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0, rand_side = false }
 
-local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
+local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false, lc = false,
+    waiting = false,
     brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
     head_only = false }
 
@@ -1999,6 +2069,42 @@ local function apply_resolver()
         override("safe_points", nil)
     end
     return target, raw
+end
+
+-- Dusman defensive'deyken (su anki kaydi gordugumuz en yenisinden eski: tickbase'ini kaydirmis,
+-- acilari gizli / spin) aimbot o kayda ates edince sunucu kabul etmez: loglarda bir dusmana
+-- giden butun iskalar "def" ile geldi (damage rejection, correction; safe point Force'ta bile,
+-- bir atista 26 tick backtrack), defensive'siz dusmanlara isabet. Bizim de kullandigimiz numara
+-- (havada her tick defensive + hidden spin). Hedef defensive'deyken aimbot'un hitbox listesi bos
+-- verilir, ates etmez; gercek kayit gelince (ya da en fazla max tick sonra) serbest. Ragebot ve
+-- DT'ye dokunulmaz. Ayni dusmanda sinira takildiysa cooldown sn beklenmez (surekli defensive
+-- kullanana da ates edilir).
+resolver.wait = { ticks = 0, max = 14, cooldown = 0.5, free_until = {}, logged = -1000, empty = {} }
+resolver.wait_defensive = function(target)
+    local w = resolver.wait
+    local now = globals.realtime
+    local index = target ~= nil and index_of(target) or nil
+    local profile = index ~= nil and enemy_watch.profile(target) or nil
+    local free = index ~= nil and w.free_until[index] or nil
+    local cooling = free ~= nil and now >= free - w.cooldown and now < free
+    local wait = menu.def_wait:get() and profile ~= nil and profile.defensive_now and not cooling
+    if wait then
+        w.ticks = w.ticks + 1
+        if w.ticks > w.max then
+            w.free_until[index], wait = now + w.cooldown, false
+        end
+    end
+    if not wait then
+        w.ticks, current.waiting = 0, false
+        override("hitboxes", nil)
+        return
+    end
+    current.waiting = true
+    override("hitboxes", w.empty)
+    if menu.resolver_log:get() and (now < w.logged or now - w.logged > 5) then
+        w.logged = now
+        print(("[%s] resolver: %s defensive'de (kaydi sahte), atis bekletiliyor"):format(SCRIPT, player_name(target)))
+    end
 end
 
 -- HvH silahlari: { hasar, zirh orani, menzil carpani, tek atis } (CS:GO silah dosyalari).
@@ -2124,6 +2230,15 @@ do
             end
             local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
             if wanted == nil and level >= 2 and gun and not (info ~= nil and info[4]) then
+                wanted = "Prefer"
+            end
+            -- Hedef defensive'de (acilari gizli / spin: spin kafayi govdenin etrafinda dondurur, govde
+            -- yerinde kalir; bekleme sinirina takilip yine de ates edilirse) ya da fake duck yapiyor
+            -- (kafa yuksekligi kayittan kayda degisir; "fake duck'taki adamlari vuramiyorum"): DT'li
+            -- silahta govde.
+            local profile = enemy_watch.profile(target)
+            if wanted == nil and gun and not (info ~= nil and info[4]) and profile ~= nil
+                and (profile.defensive_now or profile.fakeduck) then
                 wanted = "Prefer"
             end
         end
@@ -2369,11 +2484,18 @@ do
         -- beklenmez: LC kirmak eski kayitlarina backtrack'i bozar ve loglarda HS ile "DEF
         -- yok" iken izlerin gormedigi dusmanlardan kafadan vuruldun.
         local now = globals.tickcount
+        -- Atislarin sunucuda gecmedigi goruldukten sonra o lag bir sure durur (bkz. aim_ack).
+        local real = globals.realtime
+        local function paused(kind)
+            local stop = resolver.pause[kind]
+            return real >= stop - resolver.unreg_pause and real < stop
+        end
+        local lc_ok = not paused("LC")
         local on_peek = mode == "On peek" or mode == "Smart"
         if on_peek and hs and (state == "Peek" or moving or seen_by_enemy()) then
             hs_lc.until_tick = now + HS_LC_HOLD
         end
-        local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
+        local hs_peek = on_peek and hs and lc_ok and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
         -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
         -- defensive olmaz, o zaman zorlanmaz.
         local airborne = state == "Air" or state == "Air crouch"
@@ -2382,26 +2504,26 @@ do
         -- AI peek yururken / beklerken: defensive dusman seni gormeden baslar, ilk gordugu
         -- kayit eski ve acilar gizli olur (defensive peek).
         local peeking = on_peek and exposure.peeking ~= nil and menu.peek_defensive:get()
-        -- Atislarin kayda gecmedigi goruldukten sonra zorlama bir sure durur (bkz. aim_ack).
-        local real = globals.realtime
-        local paused = real >= resolver.def_pause - resolver.unreg_pause and real < resolver.def_pause
-        local forced = (window or guard or peeking) and dt and exploit_active() and not paused
+        local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF")
         current.defensive = not on_peek or hs_peek or forced
         current.forced = forced
 
+        -- Break LC sadece DT kapaliyken gecerli (Neverlose'da DT, HS'den once gelir).
+        local break_lc = on_peek and hs_peek or (not on_peek and hs and lc_ok)
+        current.lc = break_lc and not dt
         if on_peek then
             -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
             override("lag_options", "On Peek")
-            override("hs_options", hs_peek and "Break LC" or "Favor Fire Rate")
+            override("hs_options", break_lc and "Break LC" or "Favor Fire Rate")
             if forced then
                 pcall(function() cmd.force_defensive = true end)
             end
         elseif mode == "Always on" then
             override("lag_options", "Always On")
-            override("hs_options", hs and "Break LC" or "Favor Fire Rate")
+            override("hs_options", break_lc and "Break LC" or "Favor Fire Rate")
         else
             override("lag_options", "On Peek")
-            override("hs_options", hs and "Break LC" or "Favor Fire Rate")
+            override("hs_options", break_lc and "Break LC" or "Favor Fire Rate")
             local ticks = s.def_ticks:get()
             local number = cmd.command_number or globals.tickcount
             pcall(function() cmd.force_defensive = number % ticks == 0 end)
@@ -2927,8 +3049,31 @@ do
         return 64
     end
 
+    -- O noktada kafani (merkez ya da kenar) peek atilan dusman disinda goren canli dusman; yoksa
+    -- nil. v5.3 loglarinda peek sirasinda baska bir dusman (Tapper) kafadan vurdu: nokta sadece
+    -- hedefe gore seciliyordu.
+    local function seen_by_other(spot, height, enemy)
+        local index = index_of(enemy)
+        local ok, list = pcall(entity.get_players, true)
+        if not ok or type(list) ~= "table" then
+            return nil
+        end
+        local head = vector(spot.x, spot.y, spot.z + height)
+        for _, other in ipairs(list) do
+            local ok_alive, alive = pcall(function() return other:is_alive() end)
+            if index_of(other) ~= index and ok_alive and alive and not dormant(other) then
+                local ok_eye, eye = pcall(function() return other:get_eye_position() end)
+                if ok_eye and eye ~= nil and head_visible_to(other, eye, head, 0, 0, 0) then
+                    return other
+                end
+            end
+        end
+        return nil
+    end
+
     -- "here": buradan zaten vurulabiliyor (aimbot ates eder); nil: yan noktalarin hicbiri
-    -- olmuyor; yoksa en yakin nokta.
+    -- olmuyor (ikinci deger: oldurecek nokta vardi ama baska bir dusman da kafani gorurdu);
+    -- yoksa en yakin nokta.
     local function scan(lp, mine, enemy)
         local theirs = origin_of(enemy)
         if theirs == nil then
@@ -2947,7 +3092,7 @@ do
         if best_damage(lp, vector(mine.x, mine.y, mine.z + height), points) >= need then
             return "here"
         end
-        local found
+        local found, watcher
         for _, side in ipairs({ { -dy, dx, "sol" }, { dy, -dx, "sag" } }) do
             for _, step in ipairs(ai_peek.steps) do
                 if found ~= nil and step >= found.step then
@@ -2959,10 +3104,17 @@ do
                 end
                 local damage = best_damage(lp, vector(spot.x, spot.y, spot.z + height), points)
                 if damage >= need then
-                    found = { spot = spot, step = step, side = side[3], damage = damage }
-                    break
+                    local other = seen_by_other(spot, height, enemy)
+                    if other == nil then
+                        found = { spot = spot, step = step, side = side[3], damage = damage }
+                        break
+                    end
+                    watcher = watcher or other
                 end
             end
+        end
+        if found == nil then
+            return nil, watcher
         end
         return found
     end
@@ -3219,11 +3371,18 @@ do
                         why, result = ("aci %d birimden uzakta"):format(ai_peek.reach), nil
                     end
                 end
-                if result == nil then
+                -- Dusman defensive'deyken kaydi sahte (v5.4 loglarinda defensive kullanan dusmanlara
+                -- peek'ler "hasar 0/101" ile bitti): o taramalar sayilmaz, kayit gercege donunce bakilir.
+                local profile = enemy_watch.profile(enemy)
+                local faked = profile ~= nil and (profile.defensive_now or profile.defensive or profile.lc)
+                if result == nil and faked then
+                    ai_peek.faked = true
+                elseif result == nil then
                     -- Tek kotu tarama (dusmanin jitter'i) geri dondurmez; ust uste lost_max kez.
                     ai_peek.lost = ai_peek.lost + 1
                     if ai_peek.lost >= ai_peek.lost_max then
-                        give_up(cmd, mine, now, why or ("aci kapandi, hasar %d/%d"):format(floor(damage + 0.5), need))
+                        give_up(cmd, mine, now, (why or ("aci kapandi, hasar %d/%d"):format(floor(damage + 0.5), need))
+                            .. (ai_peek.faked and ", dusman defensive kullandi" or ""))
                         return
                     end
                 elseif result == "here" then
@@ -3274,11 +3433,16 @@ do
             return
         end
         ai_peek.scan_tick = tick
-        local result = scan(lp, mine, enemy)
+        local result, watcher = scan(lp, mine, enemy)
         if type(result) ~= "table" then
             ai_peek.candidate = nil
-            ai_peek.why = result == "here" and ("%s buradan vurulabiliyor, aimbot ates etmeli"):format(player_name(enemy))
-                or ("%s icin 60 birime kadar oldurecek atis yok"):format(player_name(enemy))
+            if result == "here" then
+                ai_peek.why = ("%s buradan vurulabiliyor, aimbot ates etmeli"):format(player_name(enemy))
+            elseif watcher ~= nil then
+                ai_peek.why = ("%s icin nokta var ama %s de kafani gorurdu"):format(player_name(enemy), player_name(watcher))
+            else
+                ai_peek.why = ("%s icin 60 birime kadar oldurecek atis yok"):format(player_name(enemy))
+            end
             return
         end
         -- Ilk taramada bulunan nokta teyit edilir: confirm_every tick sonra ayni dusmana ayni
@@ -3296,7 +3460,7 @@ do
             ai_peek.fails = 0
         end
         ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
-        ai_peek.enemy, ai_peek.reached, ai_peek.step, ai_peek.lost = index, 0, result.step, 0
+        ai_peek.enemy, ai_peek.reached, ai_peek.step, ai_peek.lost, ai_peek.faked = index, 0, result.step, 0, false
         aim_stats.ai_peeks = aim_stats.ai_peeks + 1
         ai_peek.until_time = now + 0.25 + result.step / 120
         move_to(cmd, mine, result.spot)
@@ -3308,7 +3472,7 @@ do
 end
 
 events.createmove:set(protect("createmove", function(cmd)
-    current.defensive, current.forced = false, false
+    current.defensive, current.forced, current.lc = false, false, false
     local rec, tick = recommended_state, globals.tickcount
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
@@ -3341,6 +3505,7 @@ events.createmove:set(protect("createmove", function(cmd)
     current.phase_group = brute.group_for(move_state)
     current.brute = menu.anti_brute:get() and threat_stage(current.phase_group) or 0
     local aim_target, resolver_raw = apply_resolver()
+    resolver.wait_defensive(aim_target)
     apply_body_aim(lp, class, aim_target, resolver_raw)
     update_ai_peek(lp, cmd, class)
 
@@ -3811,14 +3976,16 @@ pcall(function()
         end
         local state = enemy_state(target)
         ai_peek.fired(e.id, target)
+        -- Atis anindaki kendi lag'imiz: DEF = zorlanan DT defensive'i, LC = Hide shots Break LC,
+        -- FD = fake duck. Atis satirinda silahin yanina yazilir.
+        local lag = current.forced and "DEF" or (current.lc and "LC") or (effective("fakeduck") and "FD") or nil
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
                 body = effective("body_aim"), md = effective("min_damage"), health = prop(target, "m_iHealth"),
-                weapon = weapon_label() .. (effective("fakeduck") and " FD" or ""),
+                weapon = weapon_label() .. (lag ~= nil and " " .. lag or ""), lag = lag,
                 profile = enemy_watch.profile(target),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
-                hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack"),
-                forced = current.forced }
+                hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
         end
         local stall = resolver.stall
         if stall.key ~= nil and stall.key == player_id(target) then
@@ -3877,35 +4044,55 @@ pcall(function()
             print(shot_line(e, shot, target))
         end
         ai_peek.result(e, target ~= nil and player_name(target) or nil)
-        -- Kendi zorladigimiz defensive sirasinda atilan mermi sunucuda kayda gecmediyse (loglarda
-        -- "iska unregistered shot"), kisa surede ikincisinde zorlama unreg_pause sn durdurulur.
-        if state == "unregistered shot" and shot ~= nil and shot.forced then
+        -- Kendi lag'imiz sirasinda (zorlanan defensive / Break LC) atilan mermi sunucuda gecmediyse
+        -- ("iska unregistered shot", "iska damage rejection"), ayni turden ikincisinde o lag
+        -- unreg_pause sn durdurulur. Loglarda DEF / LC / FD anlarinda damage rejection'lar vardi.
+        local lag = shot ~= nil and shot.lag or nil
+        if (state == "unregistered shot" or state == "damage rejection") and resolver.unreg[lag] ~= nil then
             local now = globals.realtime
             local list = {}
-            for _, t in ipairs(resolver.unreg) do
+            for _, t in ipairs(resolver.unreg[lag]) do
                 if now >= t and now - t <= resolver.unreg_window then
                     list[#list + 1] = t
                 end
             end
             list[#list + 1] = now
-            resolver.unreg = list
+            resolver.unreg[lag] = list
             if #list >= 2 then
-                resolver.unreg, resolver.def_pause = {}, now + resolver.unreg_pause
+                resolver.unreg[lag], resolver.pause[lag] = {}, now + resolver.unreg_pause
                 if menu.shot_log:get() then
-                    print(("[%s] defensive %d sn durduruldu: zorlanan defensive sirasinda %d atis kayda gecmedi (unregistered shot)"):format(
-                        SCRIPT, resolver.unreg_pause, #list))
+                    print(("[%s] %s %d sn durduruldu: %s sirasinda %d atis sunucuda gecmedi (son: %s)"):format(SCRIPT,
+                        lag == "DEF" and "defensive" or "Break LC", resolver.unreg_pause,
+                        lag == "DEF" and "zorlanan defensive" or "Hide shots Break LC", #list, state))
                 end
             end
         end
-        if result == nil or target == nil or not menu.resolver:get() then
-            return
+        -- Panel icin dusman basina: aimbot'un hit chance'i, spread ve resolver disi iskalar (sunucu
+        -- reddi, tahmin hatasi, LC...). "death" / "player death" atisin sucu degil, sayilmaz.
+        local entry = target ~= nil and resolver_entry(target) or nil
+        if entry ~= nil and state ~= "death" and state ~= "player death" then
+            local hc = event_number(e, "hitchance") or (shot ~= nil and shot.hitchance) or nil
+            if hc ~= nil then
+                entry.hc_sum, entry.hc_n = (entry.hc_sum or 0) + hc, (entry.hc_n or 0) + 1
+            end
+            entry.shots = (entry.shots or 0) + 1
+            if state == "spread" then
+                entry.spread = (entry.spread or 0) + 1
+            elseif state ~= nil and result == nil then
+                entry.other = (entry.other or 0) + 1
+            end
         end
-        local entry = resolver_entry(target)
-        if entry == nil then
+        if result == nil or entry == nil or not menu.resolver:get() then
             return
         end
         local enemy = shot ~= nil and shot.state or enemy_state(target)
         local before = entry_level(entry, enemy)
+        -- Panel icin toplam: resolver'a bagli isabet / correction iskasi.
+        if result == "h" then
+            entry.hits = (entry.hits or 0) + 1
+        else
+            entry.misses = (entry.misses or 0) + 1
+        end
         window_push(entry.results, result)
         entry.states[enemy] = entry.states[enemy] or {}
         window_push(entry.states[enemy], result)
@@ -3977,7 +4164,8 @@ persist.save = function(force)
             for state, list in pairs(entry.states) do
                 states[state] = copy(list)
             end
-            data.resolver[key] = { name = entry.name, results = copy(entry.results), states = states }
+            data.resolver[key] = { name = entry.name, results = copy(entry.results), states = states,
+                hits = entry.hits, misses = entry.misses }
         end
     end
     persist.saved = now
@@ -4053,8 +4241,15 @@ persist.load = function()
         for key, e in pairs(data.resolver) do
             if (players[key] or count < MEMORY_LIMIT) and steam_key(key) and type(e) == "table" then
                 local entry = { results = stored_window(e.results), states = {}, name = tostring(e.name or "?"), seen = 0 }
+                -- Panel icin toplamlar (v5.5); gecersizse sayilmaz.
+                for _, field in ipairs({ "hits", "misses" }) do
+                    local n = e[field]
+                    if type(n) == "number" and n >= 0 and n <= 100000 then
+                        entry[field] = floor(n)
+                    end
+                end
                 if type(e.states) == "table" then
-                    for _, state in ipairs({ "Standing", "Moving", "Crouch", "Air" }) do
+                    for _, state in ipairs({ "Standing", "Moving", "Crouch", "Air", "Fakeduck" }) do
                         local list = stored_window(e.states[state])
                         if #list > 0 then
                             entry.states[state] = list
@@ -4130,9 +4325,10 @@ local CHARGING = color(255, 200, 80, 255)
 local SHADOW = color(0, 0, 0, 150)
 local FONT = 2
 
-local anim = { scope = 0 }
-local RES_STATE_LABEL = { Standing = "STAND", Moving = "MOVE", Crouch = "DUCK", Air = "AIR" }
-local render_failed = {}
+-- scope: durbun animasyonu; labels: resolver durumu kisaltmalari; failed: cizimi hata veren parcalar;
+-- panel: resolver paneli (bkz. menu.res_panel).
+local anim = { scope = 0, failed = {},
+    labels = { Standing = "STAND", Moving = "MOVE", Crouch = "DUCK", Air = "AIR", Fakeduck = "FD" } }
 
 local function text_width(text)
     local ok, size = pcall(render.measure_text, FONT, nil, text)
@@ -4218,7 +4414,8 @@ local function draw_indicators(lp, cx, cy)
     -- hangi durumunda yanildigi ya da JIT = jitter'li AA icin on bilgi.
     if current.resolver > 0 then
         y = y + 9
-        local why = current.res_prior and "JIT" or (RES_STATE_LABEL[current.res_state] or "")
+        local why = current.res_prior and (current.res_state == "Fakeduck" and "FD" or "JIT")
+            or (anim.labels[current.res_state] or "")
         render.text(FONT, vector(x, y), accent, "c", ("RES %d %s"):format(current.resolver, why))
     end
     -- BAIM: hedefin cani govde vurusuna yetiyor (Body Aim Prefer / Force). HEAD: sadece
@@ -4234,6 +4431,11 @@ local function draw_indicators(lp, cx, cy)
     if ai_peek.mode == "go" or ai_peek.mode == "hold" then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "AI PEEK")
+    end
+    -- WAIT DEF: hedef defensive'de (kaydi sahte), aimbot gercek kaydi bekliyor.
+    if current.waiting then
+        y = y + 9
+        render.text(FONT, vector(x, y), CHARGING, "c", "WAIT DEF")
     end
 end
 
@@ -4314,13 +4516,214 @@ local function draw_arrows(cx, cy)
 end
 
 -- Bir cizim fonksiyonu hata verirse her karede konsolu doldurmasin diye kapatilir.
+-- Resolver paneli (bkz. menu.res_panel). drag: { mode = "move" | "size", ... } fareyle tutulurken.
+anim.panel = { drag = nil, was_down = false, x = 0, y = 0, w = 0, h = 0, size = 100, rows_max = 6,
+    BG = color(12, 12, 16, 225), LINE = color(255, 255, 255, 18), BAR_BG = color(255, 255, 255, 22),
+    LOW = color(235, 80, 80, 255), MID = color(245, 200, 85, 255), HIGH = color(110, 225, 130, 255) }
+do
+    local res_panel = anim.panel
+
+    local function lerp_color(a, b, t)
+        return color(floor(a.r + (b.r - a.r) * t), floor(a.g + (b.g - a.g) * t), floor(a.b + (b.b - a.b) * t), 255)
+    end
+
+    -- Yuzdeye gore renk: kirmizi (0) -> sari (50) -> yesil (100).
+    res_panel.tint = function(pct)
+        local t = max(0, min(1, pct / 100))
+        if t < 0.5 then
+            return lerp_color(res_panel.LOW, res_panel.MID, t * 2)
+        end
+        return lerp_color(res_panel.MID, res_panel.HIGH, (t - 0.5) * 2)
+    end
+
+    local function percent(hits, misses)
+        local total = hits + misses
+        return total > 0 and floor(hits / total * 100 + 0.5) or nil
+    end
+
+    -- Siradaki atisin tahmini isabet sansi: aimbot'un bu dusmana ortalama hit chance'i (spread'le
+    -- iskalamama) x resolver'in onu cozme orani x resolver disi iskalarin (sunucu reddi, tahmin
+    -- hatasi) olmama orani. Cozum verisi yoksa nil.
+    res_panel.hit_chance = function(entry)
+        local hits, misses = entry.hits or 0, entry.misses or 0
+        if hits + misses == 0 then
+            return nil
+        end
+        local hc = (entry.hc_n or 0) > 0 and entry.hc_sum / entry.hc_n / 100 or 1
+        local shots = entry.shots or 0
+        local clean = shots > 0 and 1 - (entry.other or 0) / shots or 1
+        return floor(max(0, min(1, hc)) * hits / (hits + misses) * max(0, clean) * 100 + 0.5)
+    end
+
+    -- Canli dusmanlar: aimbot'un su anki hedefi once, sonra en cok atis yapilanlar.
+    res_panel.rows = function()
+        local rows = {}
+        local ok, list = pcall(entity.get_players, true)
+        if not ok or type(list) ~= "table" then
+            return rows
+        end
+        local target = resolver.aim_target ~= nil and index_of(resolver.aim_target) or nil
+        for _, enemy in ipairs(list) do
+            local ok_alive, alive = pcall(function() return enemy:is_alive() end)
+            if ok_alive and alive then
+                local key = player_id(enemy)
+                local entry = key ~= nil and resolver.players[key] or nil
+                local hits, misses = entry ~= nil and entry.hits or 0, entry ~= nil and entry.misses or 0
+                rows[#rows + 1] = { name = player_name(enemy), hits = hits, misses = misses, pct = percent(hits, misses),
+                    hit = entry ~= nil and res_panel.hit_chance(entry) or nil,
+                    target = target ~= nil and index_of(enemy) == target }
+            end
+        end
+        table.sort(rows, function(a, b)
+            if a.target ~= b.target then
+                return a.target
+            end
+            if a.hits + a.misses ~= b.hits + b.misses then
+                return a.hits + a.misses > b.hits + b.misses
+            end
+            return a.name < b.name
+        end)
+        while #rows > res_panel.rows_max do
+            table.remove(rows)
+        end
+        return rows
+    end
+
+    local function width_of(font, text)
+        local ok, size = pcall(render.measure_text, font, nil, text)
+        return ok and size ~= nil and size.x or #text * 6
+    end
+
+    local function rect(a, b, col, rounding)
+        if not pcall(render.rect, a, b, col, rounding) then
+            render.rect(a, b, col)
+        end
+    end
+
+    -- Fare: menu acikken panelin icine basip surukle (tasir), sag alt kosedeki tutamaci surukle
+    -- (boyut). Birakinca slider'lara yazilir. Menu acik mi dondurur.
+    res_panel.input = function(screen)
+        local ok_alpha, alpha = pcall(ui.get_alpha)
+        local open = ok_alpha and type(alpha) == "number" and alpha > 0
+        local ok_down, down = pcall(common.is_button_down, 0x01)
+        down = ok_down and down == true
+        local ok_mouse, mouse = pcall(ui.get_mouse_position)
+        if not open or not ok_mouse or mouse == nil then
+            if res_panel.drag ~= nil then
+                res_panel.save(screen)
+            end
+            res_panel.drag, res_panel.was_down = nil, down
+            return open
+        end
+        local x, y, w, h = res_panel.x, res_panel.y, res_panel.w, res_panel.h
+        local grip = 12 * res_panel.size / 100
+        if down and not res_panel.was_down then
+            if mouse.x >= x + w - grip and mouse.x <= x + w and mouse.y >= y + h - grip and mouse.y <= y + h then
+                res_panel.drag = { mode = "size", mx = mouse.x, size = res_panel.size, w = max(1, w) }
+            elseif mouse.x >= x and mouse.x <= x + w and mouse.y >= y and mouse.y <= y + h then
+                res_panel.drag = { mode = "move", dx = mouse.x - x, dy = mouse.y - y }
+            end
+        elseif not down and res_panel.drag ~= nil then
+            res_panel.save(screen)
+            res_panel.drag = nil
+        end
+        local d = res_panel.drag
+        if down and d ~= nil and d.mode == "move" then
+            res_panel.x = max(0, min(screen.x - w, mouse.x - d.dx))
+            res_panel.y = max(0, min(screen.y - h, mouse.y - d.dy))
+        elseif down and d ~= nil then
+            res_panel.size = max(70, min(200, round(d.size * (d.w + mouse.x - d.mx) / d.w)))
+        end
+        res_panel.was_down = down
+        return open
+    end
+
+    res_panel.save = function(screen)
+        pcall(function()
+            menu.panel_x:set(round(res_panel.x / max(1, screen.x) * 1000))
+            menu.panel_y:set(round(res_panel.y / max(1, screen.y) * 1000))
+            menu.panel_size:set(res_panel.size)
+        end)
+    end
+
+    res_panel.draw = function(screen)
+        -- Surukleme yokken yer ve boyut slider'lardan (menuden de ayarlanabilir).
+        if res_panel.drag == nil then
+            res_panel.size = menu.panel_size:get()
+            res_panel.x = floor(menu.panel_x:get() / 1000 * screen.x)
+            res_panel.y = floor(menu.panel_y:get() / 1000 * screen.y)
+        end
+        local k = res_panel.size / 100
+        local font = k >= 1.3 and 1 or FONT
+        local rows = res_panel.rows()
+        local pad, head, row_h = floor(8 * k), floor(22 * k), floor(20 * k)
+        local w = floor(220 * k)
+        local h = head + max(1, #rows) * row_h + pad
+        res_panel.w, res_panel.h = w, h
+        local open = res_panel.input(screen)
+        local x, y = res_panel.x, res_panel.y
+        local accent = menu.accent:get()
+
+        rect(vector(x, y), vector(x + w, y + h), res_panel.BG, floor(6 * k))
+        if not pcall(render.gradient, vector(x, y), vector(x + w, y + 2), accent,
+            color(accent.r, accent.g, accent.b, 0), accent, color(accent.r, accent.g, accent.b, 0)) then
+            render.rect(vector(x, y), vector(x + w, y + 2), accent)
+        end
+
+        -- Baslik ve sutunlar: COZUM = resolver'in o dusmani cozme orani, HIT = siradaki atisin
+        -- tahmini isabet sansi (bkz. hit_chance).
+        local col_hit = x + w - pad
+        local col_res = x + w - pad - floor(52 * k)
+        render.text(font, vector(x + pad, y + floor(6 * k)), WHITE, nil, "RESOLVER")
+        render.text(FONT, vector(col_res - width_of(FONT, "COZUM"), y + floor(8 * k)), DIM, nil, "COZUM")
+        render.text(FONT, vector(col_hit - width_of(FONT, "HIT"), y + floor(8 * k)), DIM, nil, "HIT")
+        render.rect(vector(x + pad, y + head - 2), vector(x + w - pad, y + head - 1), res_panel.LINE)
+
+        if #rows == 0 then
+            render.text(font, vector(x + pad, y + head + floor(3 * k)), DIM, nil, "dusman yok")
+        end
+        for i, row in ipairs(rows) do
+            local ry = y + head + (i - 1) * row_h
+            if row.target then
+                render.rect(vector(x + 2, ry + 1), vector(x + 4, ry + row_h - 2), accent)
+            end
+            local name = #row.name > 14 and row.name:sub(1, 13) .. "." or row.name
+            render.text(font, vector(x + pad, ry + floor(2 * k)), row.target and WHITE or DIM, nil, name)
+            local res_text = row.pct ~= nil and ("%d%%"):format(row.pct) or "--"
+            local hit_text = row.hit ~= nil and ("%d%%"):format(row.hit) or "--"
+            render.text(font, vector(col_res - width_of(font, res_text), ry + floor(2 * k)),
+                row.pct ~= nil and res_panel.tint(row.pct) or DIM, nil, res_text)
+            local hit_col = row.hit ~= nil and res_panel.tint(row.hit) or DIM
+            render.text(font, vector(col_hit - width_of(font, hit_text), ry + floor(2 * k)), hit_col, nil, hit_text)
+            -- Altinda ince cubuk: isabet sansi.
+            local bar_y = ry + row_h - floor(5 * k)
+            local bar_w = w - 2 * pad
+            local bar_h = max(2, floor(3 * k))
+            rect(vector(x + pad, bar_y), vector(x + pad + bar_w, bar_y + bar_h), res_panel.BAR_BG, 2)
+            if row.hit ~= nil and row.hit > 0 then
+                rect(vector(x + pad, bar_y), vector(x + pad + floor(bar_w * row.hit / 100), bar_y + bar_h), hit_col, 2)
+            end
+        end
+
+        -- Menu acikken: tasinabilir oldugu belli olsun, sag altta boyut tutamaci.
+        if open then
+            if not pcall(render.rect_outline, vector(x, y), vector(x + w, y + h), color(accent.r, accent.g, accent.b, 120), 1, floor(6 * k)) then
+                render.rect(vector(x, y + h - 1), vector(x + w, y + h), accent)
+            end
+            local g = floor(12 * k)
+            render.poly(color(accent.r, accent.g, accent.b, 160), vector(x + w - 2, y + h - g), vector(x + w - 2, y + h - 2),
+                vector(x + w - g, y + h - 2))
+        end
+    end
+end
+
 local function safe_draw(name, fn, ...)
-    if render_failed[name] then
+    if anim.failed[name] then
         return
     end
     local ok, err = pcall(fn, ...)
     if not ok then
-        render_failed[name] = true
+        anim.failed[name] = true
         print(("[%s] %s cizilemedi: %s"):format(SCRIPT, name, tostring(err)))
     end
 end
@@ -4334,6 +4737,9 @@ events.render:set(protect("render", function()
     -- Istatistikler olunce de gorunsun; olmek tam da bakmak istedigin an.
     if menu.stats_panel:get() then
         safe_draw("stats", draw_stats, screen)
+    end
+    if menu.res_panel:get() then
+        safe_draw("resolver panel", anim.panel.draw, screen)
     end
 
     local lp = entity.get_local_player()
@@ -4349,6 +4755,15 @@ events.render:set(protect("render", function()
         safe_draw("arrows", draw_arrows, cx, cy)
     end
 end))
+
+-- Panel surukleniyorken fare tiklamasi menuye / oyuna gecmesin.
+pcall(function()
+    events.mouse_input:set(function()
+        if anim.panel.drag ~= nil then
+            return false
+        end
+    end)
+end)
 
 events.shutdown:set(protect("shutdown", function()
     reset_overrides()
