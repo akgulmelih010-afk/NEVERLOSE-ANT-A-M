@@ -12,9 +12,12 @@
         (Off / On peek / Smart / Always on / Tick based) ve hidden pitch / yaw.
         Hareket ederken ve havadayken "Smart": Neverlose'un "On Peek"ine ek olarak
         tehdit kafani gormeye baslayinca (ya da 0.2 sn icinde gorecekse) defensive
-        zorlanir. Hide shots acikken hareket ettigin surece Break LC (anti-backtrack:
-        dusman eski kaydini vuramaz). Scout / AWP / R8'de "Auto (learn)": Hide shots
-        ile Double tap arasindan kafana daha az mermi yedigin secilir.
+        zorlanir (gorus surdukce). Hide shots acikken hareket ettigin surece Break LC
+        (anti-backtrack: dusman eski kaydini vuramaz). Scout / AWP / R8'de Hide shots;
+        istersen "Auto (learn)": HS ile DT arasindan kafana daha az mermi yedigin.
+      - AI peek: Peek Assist tusunu basili tutup hareket tuslarina basmazsan script
+        yanlari tarar ve oldurecek atisin oldugu en yakin noktaya kendisi yurur;
+        aimbot ates edince Peek Assist geri ceker.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
@@ -51,7 +54,7 @@
       - Vuruldum / iska kaydi (konsol) ve durum basina istatistik paneli: hangi
         durumda vuruldugunu gorup o durumu ayarlarsin.
       - Kendi kendine ogrenen AA: her anti-brute fazinda kafana gelen mermiler yerde /
-        hareket / havada ayri sayilir, verisi olmayan dusmanlar o grupta en az vurulan
+        hareket / peek / havada ayri sayilir, verisi olmayan dusmanlar o grupta en az vurulan
         fazla baslar (faz 4: yaw'dan bagimsiz rastgele desync tarafi).
       - Mermi izine gore, dusman basina anti-bruteforce, safe head (bicak/zeus, yuksek zemin),
         freestanding (hedef varsa) + devre disi kosullari, manuel yaw,
@@ -65,7 +68,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.6"
+local VERSION = "4.7"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -412,10 +415,14 @@ menu.auto_exploit = g_defensive:switch("Auto exploit", true)
 -- Hareket ederken tehdidin gorus alanina giriyorsan (ya da birazdan gireceksen)
 -- peek assist tusu olmadan da Peek durumuna gecilir.
 menu.auto_peek    = g_defensive:switch("Auto peek", true)
--- Scout / AWP / R8'de exploit. "Auto (learn)": Hide shots ile baslar, kafana gelen
--- mermilere gore Double tap daha az vurduruyorsa ona gecer (bkz. sniper). "Hide shots"
--- her zaman HS, "Same as state" durumun kendi exploit'i (varsayilan DT).
-menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Auto (learn)", "Hide shots", "Same as state" })
+-- Peek Assist tusu basiliyken (hareket tuslarina basmadan) script yanlari tarar, oradan
+-- dusmani vurabilecegin en yakin noktaya kendisi yurur (bkz. ai_peek).
+menu.ai_peek      = g_defensive:switch("AI peek (hold Peek Assist)", true)
+-- Scout / AWP / R8'de exploit. "Hide shots" (varsayilan): bolt-action'da DT her atistan
+-- sonra bosalir; v4.6'da ogrenme DT'ye gecince scout'la atistan 0.15-0.17 sn sonra "DT %0,
+-- sarj bekle" iken kafadan vurulma geri geldi. "Auto (learn)": kafana gelen mermilere gore
+-- HS / DT secer (bkz. sniper). "Same as state": durumun kendi exploit'i (varsayilan DT).
+menu.sniper_exploit = g_defensive:combo("Snipers (SSG08/AWP/R8)", { "Hide shots", "Auto (learn)", "Same as state" })
 -- DT / HS atistan ya da fake duck'tan sonra yeniden sarj olurken oyuncu sunucuda yerinde
 -- donar. Tehdit kafani goruyorken sarj bekletilir, siperin arkasina gecince dolar.
 menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
@@ -1240,13 +1247,16 @@ local MISS_WINDOW = 0.15
 -- phases[grup][faz] = { shots, hits }: butun dusmanlarin o faz uygulanirken kafana attigi
 -- mermiler (kafadan isabet + kafanin yanindan iska) ve kafadan isabetler. Verisi olmayan
 -- dusmanlar en az vurulan fazla baslar (bkz. brute_default). default[grup] = secilen faz.
--- Grup senin hareketin: yerde durma, hareket ve hava farkli AA ayarlariyla oynanir; birinde
--- en iyi faz digerinde en iyi olmayabilir.
+-- Grup senin hareketin: yerde durma, hareket, peek ve hava farkli AA ayarlariyla oynanir;
+-- birinde en iyi faz digerinde en iyi olmayabilir. Peek ayri: v4.6 loglarinda kafa
+-- isabetlerinin hepsi Peek'teydi, yurumeyle ayni istatistigi paylasmasin.
+-- migrate[grup] = eski kayitta o grup yoksa verisinin alinacagi grup (v4.6'da peek "move").
 local brute = { enemies = {}, recent = nil, hurt = {}, phases = {}, default = {},
-    groups = { "still", "move", "air" },
-    group_of = { Moving = "move", ["Slow walk"] = "move", ["Crouch move"] = "move", Peek = "move",
+    groups = { "still", "move", "peek", "air" },
+    group_of = { Moving = "move", ["Slow walk"] = "move", ["Crouch move"] = "move", Peek = "peek",
         Air = "air", ["Air crouch"] = "air" },
-    group_label = { still = "yerde", move = "hareket", air = "hava" } }
+    group_label = { still = "yerde", move = "hareket", peek = "peek", air = "hava" },
+    migrate = { peek = "move" } }
 
 brute.reset_phases = function()
     for _, group in ipairs(brute.groups) do
@@ -1360,7 +1370,10 @@ local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 -- Neverlose'un On Peek'i ve hidden acilar var (yeni loglarda HS ile peek'te ve havada
 -- kafadan vuruldun). Sniper elindeyken kafana gelen mermiler (kafadan isabet ya da kafanin
 -- yanindan iska) o an acik olan exploit'e yazilir; fazlarla ayni oran ve 0.1 esik. Once HS.
-local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "hs" }
+-- Secili exploit en az min_shots mermi gormeden degismez: loglarda iki HS isabetinden sonra
+-- DT'ye gecildi ve scout'la atistan 0.15 sn sonra "DT %0, sarj bekle" iken kafadan vuruldun
+-- (bolt-action'da DT her atistan sonra bosalir; eski loglardaki sorun).
+local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "hs", min_shots = 4 }
 
 -- Sniper elindeyken acik olan exploit: "hs", "dt" ya da nil (sniper yok, fake duck...).
 sniper.mode = function(class)
@@ -1377,6 +1390,9 @@ sniper.mode = function(class)
 end
 
 sniper.decide = function()
+    if sniper.stats[sniper.choice].shots < sniper.min_shots then
+        return sniper.choice
+    end
     local hs, dt = brute.rate(sniper.stats.hs), brute.rate(sniper.stats.dt)
     if sniper.choice == "hs" and dt < hs - 0.1 then
         return "dt"
@@ -2153,22 +2169,18 @@ do
     local HS_LC_HOLD = 32
     local hs_lc = { until_tick = -1000 }
 
-    -- "Smart" + DT: tehdit kafani gordugu (ya da 0.2 sn icinde gorecegi) surece ve gorus
-    -- kesildikten sonra SMART_HOLD tick daha defensive zorlanir. Ayni gorus SMART_MAX
-    -- tick'ten uzun surerse durulur: peek ani gecti, artik "Always on" gibi davranmaya
-    -- gerek yok. Gorus SMART_HOLD tick'ten uzun kesilince yeniden kurulur.
+    -- "Smart" + DT: biri kafani gordugu (ya da 0.2 sn icinde gorecegi) surece ve gorus
+    -- kesildikten sonra SMART_HOLD tick daha defensive zorlanir. Eskiden ayni gorus 1 sn'den
+    -- uzun surunce birakiliyordu; loglarda Peek'te 1.47 sn goruldukten sonra "DT dolu, DEF
+    -- yok" iken kafadan vuruldun. Neverlose'un modu "On Peek" kaldigi icin DT bosalmaz.
     local SMART_HOLD = 8
-    local SMART_MAX = 64
-    local smart = { start = -1000, last = -1000 }
+    local smart = { last = -1000 }
 
     local function smart_window(now)
         if seen_by_enemy() then
-            if now < smart.last or now - smart.last > SMART_HOLD then
-                smart.start = now
-            end
             smart.last = now
         end
-        return now >= smart.last and now - smart.last <= SMART_HOLD and now - smart.start < SMART_MAX
+        return now >= smart.last and now - smart.last <= SMART_HOLD
     end
 
     apply_defensive = function(cmd, s, class, state, moving)
@@ -2180,10 +2192,10 @@ do
             return
         end
         -- Hide shots'in Neverlose'da "On Peek" secenegi yok, sadece Break LC var. Peek
-        -- durumundayken, havadayken ya da tehdit kafani goruyor / birazdan gorecekken Break
-        -- LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu. Havada gorus
-        -- beklenmez: loglarda havada HS ile "DEF yok" iken kafadan vuruldun, birinde
-        -- saldirani izler gormemisti.
+        -- durumundayken, hareket ederken (havada dahil) ya da biri kafani goruyor / birazdan
+        -- gorecek / az once kafana ates ettiyse Break LC acilir. Hareket ederken gorus
+        -- beklenmez: LC kirmak eski kayitlarina backtrack'i bozar ve loglarda HS ile "DEF
+        -- yok" iken izlerin gormedigi dusmanlardan kafadan vuruldun.
         local now = globals.tickcount
         local on_peek = mode == "On peek" or mode == "Smart"
         if on_peek and hs and (state == "Peek" or moving or seen_by_enemy()) then
@@ -2452,6 +2464,299 @@ end
 
 local MOVETYPE_LADDER = 9
 
+-------------------------------------------------------------------------------
+-- AI peek
+-------------------------------------------------------------------------------
+
+-- Peek Assist tusunu basili tutup hareket tuslarina basmiyorsan script yanlari tarar:
+-- tehdide dik, sola ve saga 18 / 32 / 46 / 60 birim. Bir noktaya yurunebiliyorsa (yolda
+-- duvar yok, altinda zemin var) ve o noktadan dusmanin kafasina ya da gogsune ates etsen
+-- aimbot'un minimum hasari geciyorsa (scout'ta canini, yani oldurecek atis), en yakin boyle
+-- noktaya script yurur. Aimbot ates edince Neverlose'un Peek Assist'i seni geri ceker;
+-- ates edilmezse 0.4 sn sonra baslangic noktana donulur. Hareket tusuna basinca kontrol
+-- hemen sende. DT sarj olurken ve atistan hemen sonra peek atilmaz.
+-- Iki peek ust uste atissiz biterse (aimbot ates etmedi) 1.5 sn beklenir; bos yere
+-- acilip kapanarak kendini gosterme.
+local ai_peek = { mode = nil, home = nil, target = nil, side = nil, until_time = -1000, scan_tick = -1000,
+    rest = -1000, fails = 0, steps = { 18, 32, 46, 60 }, every = 4, hold = 0.4, after_shot = 0.8,
+    back_time = 0.6, pause = 1.5 }
+local update_ai_peek
+do
+    local MASK_PLAYERSOLID = 0x201400B
+    local trace_line, trace_hull
+    pcall(function()
+        trace_line = type(utils.trace_line) == "function" and utils.trace_line or nil
+        trace_hull = type(utils.trace_hull) == "function" and utils.trace_hull or nil
+    end)
+    ai_peek.available = trace_bullet ~= nil and trace_line ~= nil
+    local atan2 = math.atan2 or math.atan
+
+    local function fraction(result)
+        local ok, value = pcall(function() return result.fraction end)
+        return ok and type(value) == "number" and value or 0
+    end
+
+    -- Oraya yurunebilir misin: govde boyunca engel yok (hull; yoksa diz ve goz hizasinda iki
+    -- cizgi) ve noktanin altinda zemin var (ucurumdan dusmezsin). Iz atilamazsa hayir.
+    local function walkable(lp, from, to)
+        local ok, clear = pcall(function()
+            if trace_hull ~= nil then
+                return fraction(trace_hull(vector(from.x, from.y, from.z + 18), vector(to.x, to.y, to.z + 18),
+                    vector(-15, -15, 0), vector(15, 15, 54), lp, MASK_PLAYERSOLID)) >= 1
+            end
+            for _, height in ipairs({ 24, 60 }) do
+                if fraction(trace_line(vector(from.x, from.y, from.z + height), vector(to.x, to.y, to.z + height),
+                    lp, MASK_PLAYERSOLID)) < 1 then
+                    return false
+                end
+            end
+            return true
+        end)
+        if not ok or not clear then
+            return false
+        end
+        local ok_ground, ground = pcall(function()
+            return fraction(trace_line(vector(to.x, to.y, to.z + 18), vector(to.x, to.y, to.z - 40), lp,
+                MASK_PLAYERSOLID)) < 1
+        end)
+        return ok_ground and ground
+    end
+
+    -- Dusmanin kafasi ve gogsu (hitbox okunamazsa goz ve govde ortasi).
+    local function aim_points(enemy)
+        local points = {}
+        local ok_head, head = pcall(function() return enemy:get_hitbox_position(0) end)
+        if not ok_head or head == nil then
+            ok_head, head = pcall(function() return enemy:get_eye_position() end)
+        end
+        if ok_head and head ~= nil then
+            points[#points + 1] = head
+        end
+        local ok_chest, chest = pcall(function() return enemy:get_hitbox_position(5) end)
+        if not ok_chest or chest == nil then
+            local base = origin_of(enemy)
+            ok_chest, chest = base ~= nil, base ~= nil and vector(base.x, base.y, base.z + 50) or nil
+        end
+        if ok_chest and chest ~= nil then
+            points[#points + 1] = chest
+        end
+        return points
+    end
+
+    local function best_damage(lp, eye, points)
+        local best = 0
+        for _, point in ipairs(points) do
+            local ok, damage = pcall(trace_bullet, lp, eye, point)
+            if ok and type(damage) == "number" and damage > best then
+                best = damage
+            end
+        end
+        return best
+    end
+
+    -- Aimbot'un ates edecegi en dusuk hasar: Min. Damage (100 ustu = can + fazlasi), en fazla
+    -- dusmanin cani. Okunamazsa can (sadece oldurecek atis).
+    local function required_damage(enemy)
+        local health = prop(enemy, "m_iHealth")
+        if type(health) ~= "number" or health <= 0 then
+            health = 100
+        end
+        local md = effective("min_damage")
+        if type(md) ~= "number" then
+            return health
+        end
+        if md > 100 then
+            return health + md - 100
+        end
+        return max(1, min(md, health))
+    end
+
+    local function eye_height(lp, mine)
+        local ok, eye = pcall(function() return lp:get_eye_position() end)
+        if ok and eye ~= nil and eye.z > mine.z then
+            return eye.z - mine.z
+        end
+        return 64
+    end
+
+    -- "here": buradan zaten vurulabiliyor (aimbot ates eder); nil: yan noktalarin hicbiri
+    -- olmuyor; yoksa en yakin nokta.
+    local function scan(lp, mine, enemy)
+        local theirs = origin_of(enemy)
+        if theirs == nil then
+            return nil
+        end
+        local dx, dy = theirs.x - mine.x, theirs.y - mine.y
+        local length = sqrt(dx * dx + dy * dy)
+        if length < 1 then
+            return nil
+        end
+        dx, dy = dx / length, dy / length
+        local height, need, points = eye_height(lp, mine), required_damage(enemy), aim_points(enemy)
+        if #points == 0 then
+            return nil
+        end
+        if best_damage(lp, vector(mine.x, mine.y, mine.z + height), points) >= need then
+            return "here"
+        end
+        local found
+        for _, side in ipairs({ { -dy, dx, "sol" }, { dy, -dx, "sag" } }) do
+            for _, step in ipairs(ai_peek.steps) do
+                if found ~= nil and step >= found.step then
+                    break
+                end
+                local spot = vector(mine.x + side[1] * step, mine.y + side[2] * step, mine.z)
+                if not walkable(lp, mine, spot) then
+                    break
+                end
+                local damage = best_damage(lp, vector(spot.x, spot.y, spot.z + height), points)
+                if damage >= need then
+                    found = { spot = spot, step = step, side = side[3], damage = damage }
+                    break
+                end
+            end
+        end
+        return found
+    end
+
+    -- Hedefe dogru tam hizla (son 12 birimde yavaslayarak) yurur; uzakligi dondurur.
+    local function move_to(cmd, mine, dest)
+        local dx, dy = dest.x - mine.x, dest.y - mine.y
+        local distance = sqrt(dx * dx + dy * dy)
+        local ok, view = pcall(function() return cmd.view_angles.y end)
+        if not ok or type(view) ~= "number" or distance < 1 then
+            return distance
+        end
+        local angle = math.rad(math.deg(atan2(dy, dx)) - view)
+        local speed = distance > 12 and 450 or distance * 30
+        pcall(function()
+            cmd.forwardmove = math.cos(angle) * speed
+            cmd.sidemove = -math.sin(angle) * speed
+        end)
+        return distance
+    end
+
+    local function stand(cmd)
+        pcall(function()
+            cmd.forwardmove, cmd.sidemove = 0, 0
+        end)
+    end
+
+    local function user_moving(cmd)
+        local ok, moving = pcall(function()
+            return (tonumber(cmd.forwardmove) or 0) ~= 0 or (tonumber(cmd.sidemove) or 0) ~= 0
+                or cmd.in_forward == true or cmd.in_back == true or cmd.in_moveleft == true or cmd.in_moveright == true
+        end)
+        return not ok or moving
+    end
+
+    local function allowed(lp, cmd, class)
+        if not ai_peek.available or not menu.ai_peek:get() or not get("peek_assist") then
+            return false
+        end
+        if bit.band(lp.m_fFlags, 1) == 0 or cmd.in_jump == true or cmd.in_use == true
+            or lp.m_MoveType == MOVETYPE_LADDER or effective("fakeduck") then
+            return false
+        end
+        return class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+    end
+
+    local function enemy_target()
+        local enemy = aa_threat()
+        if enemy == nil or dormant(enemy) then
+            return nil
+        end
+        local ok, alive = pcall(function() return enemy:is_alive() end)
+        return ok and alive and enemy or nil
+    end
+
+    ai_peek.reset = function()
+        ai_peek.mode, ai_peek.home, ai_peek.target, ai_peek.fails = nil, nil, nil, 0
+    end
+
+    update_ai_peek = function(lp, cmd, class)
+        local mine = origin_of(lp)
+        if mine == nil or not allowed(lp, cmd, class) or user_moving(cmd) then
+            ai_peek.reset()
+            return
+        end
+        local now, tick = globals.realtime, globals.tickcount
+        -- Aimbot ates etti: Neverlose geri cekiyor; after_shot sn karisilmaz (asagida).
+        if ai_peek.mode ~= nil and own.last_shot >= ai_peek.started then
+            ai_peek.mode, ai_peek.target, ai_peek.home, ai_peek.fails = nil, nil, nil, 0
+        end
+
+        if ai_peek.mode == "back" then
+            if ai_peek.home == nil or move_to(cmd, mine, ai_peek.home) < 6 or now > ai_peek.until_time then
+                stand(cmd)
+                ai_peek.fails = ai_peek.fails + 1
+                ai_peek.mode, ai_peek.rest = nil, now + (ai_peek.fails >= 2 and ai_peek.pause or 0.3)
+            end
+            return
+        end
+
+        local enemy = enemy_target()
+        local due = tick < ai_peek.scan_tick or tick - ai_peek.scan_tick >= ai_peek.every
+        if ai_peek.mode == "go" or ai_peek.mode == "hold" then
+            if enemy == nil or now > ai_peek.until_time then
+                ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
+                move_to(cmd, mine, ai_peek.home or mine)
+                return
+            end
+            if due then
+                ai_peek.scan_tick = tick
+                local result = scan(lp, mine, enemy)
+                if result == "here" then
+                    -- Aci acildi: dur, aimbot ates etsin.
+                    if ai_peek.mode == "go" then
+                        ai_peek.mode, ai_peek.until_time = "hold", now + ai_peek.hold
+                    end
+                elseif result == nil then
+                    ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
+                    move_to(cmd, mine, ai_peek.home or mine)
+                    return
+                elseif ai_peek.mode == "go" and result.side == ai_peek.side then
+                    -- Tarama simdiki yerden yapilir; ayni taraftaki nokta kalan mesafedir. Diger
+                    -- taraf daha yakin cikarsa yon degistirilmez (gidip gelme olmasin).
+                    ai_peek.target = result.spot
+                end
+            end
+            if ai_peek.mode == "hold" then
+                stand(cmd)
+            elseif move_to(cmd, mine, ai_peek.target) < 4 then
+                stand(cmd)
+                ai_peek.mode, ai_peek.until_time = "hold", now + ai_peek.hold
+            end
+            return
+        end
+
+        -- Bekleme: baslangic noktasi tus basiliyken durdugun yer.
+        if ai_peek.home == nil then
+            ai_peek.home = mine
+        end
+        local hx, hy = mine.x - ai_peek.home.x, mine.y - ai_peek.home.y
+        if hx * hx + hy * hy > 64 then
+            ai_peek.home = mine
+        end
+        local ready = not effective("doubletap") or exploit_active()
+        if enemy == nil or not ready or now < ai_peek.rest or now - own.last_shot < ai_peek.after_shot or not due then
+            return
+        end
+        ai_peek.scan_tick = tick
+        local result = scan(lp, mine, enemy)
+        if type(result) ~= "table" then
+            return
+        end
+        ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
+        ai_peek.until_time = now + 0.25 + result.step / 120
+        move_to(cmd, mine, result.spot)
+        if menu.shot_log:get() then
+            print(("[%s] ai peek: %s %d birim -> %s (hasar %d)"):format(SCRIPT, result.side, result.step,
+                player_name(enemy), floor(result.damage + 0.5)))
+        end
+    end
+end
+
 events.createmove:set(protect("createmove", function(cmd)
     current.defensive, current.forced = false, false
     local rec, tick = recommended_state, globals.tickcount
@@ -2487,6 +2792,7 @@ events.createmove:set(protect("createmove", function(cmd)
     current.brute = menu.anti_brute:get() and threat_stage(current.phase_group) or 0
     local aim_target, resolver_raw = apply_resolver()
     apply_body_aim(lp, class, aim_target, resolver_raw)
+    update_ai_peek(lp, cmd, class)
 
     override("aa_enabled", true)
     override("yaw", "Backward")
@@ -3148,7 +3454,8 @@ persist.load = function()
     end
     -- v4.5 butun gruplar icin tek liste yaziyordu ("phases"); o liste her gruba uygulanir.
     for _, group in ipairs(brute.groups) do
-        local list = type(data.phase_groups) == "table" and data.phase_groups[group] or data.phases
+        local groups = type(data.phase_groups) == "table" and data.phase_groups or nil
+        local list = groups ~= nil and (groups[group] or groups[brute.migrate[group]]) or data.phases
         if type(list) == "table" then
             for phase = 0, #BRUTE_PHASES do
                 local e = list[phase + 1]
@@ -3199,6 +3506,7 @@ end
 events.round_start:set(protect("round_start", function()
     reset_brute()
     exposure.shot = nil
+    ai_peek.reset()
     pending_misses = {}
     set_charge(true)
     persist.save(false)
@@ -3214,6 +3522,7 @@ pcall(function()
         resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
         reset_stall(nil, nil)
         exposure.shot = nil
+        ai_peek.reset()
         enemy_watch.list = {}
         persist.save(true)
     end))
@@ -3224,6 +3533,7 @@ events.player_death:set(protect("player_death", function(e)
     if lp ~= nil and entity.get(e.userid, true) == lp then
         reset_brute()
         set_charge(true)
+        ai_peek.reset()
     end
 end))
 
@@ -3336,6 +3646,11 @@ local function draw_indicators(lp, cx, cy)
     elseif current.head_only then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "HEAD")
+    end
+    -- AI PEEK: script bir peek noktasina yuruyor ya da orada aimbot'u bekliyor.
+    if ai_peek.mode == "go" or ai_peek.mode == "hold" then
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", "AI PEEK")
     end
 end
 
