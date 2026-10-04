@@ -15,6 +15,8 @@
         zorlanir. Scout / AWP / R8'de Hide shots, gorulurken Break LC.
       - Safe recharge: exploit atistan ya da fake duck'tan sonra sarj olurken yerinde
         donarsin; tehdit seni goruyorken sarj bekletilir, siperin arkasinda dolar.
+      - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
+        ("correction" iskasi) sadece o dusmana karsi safe point'i yukseltir.
       - L/R yaw, rage.antiaim:inverter ile desync tarafina senkron jitter yapar.
         Taraf her paket dongusunde cevrilir; gecikme sadece DT/HS aktifken
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
@@ -39,7 +41,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "3.1"
+local VERSION = "3.2"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -117,6 +119,7 @@ local refs = {
     hideshots       = find("Aimbot", "Ragebot", "Main", "Hide Shots"),
     hs_options      = find("Aimbot", "Ragebot", "Main", "Hide Shots", "Options"),
     peek_assist     = find("Aimbot", "Ragebot", "Main", "Peek Assist"),
+    safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
 }
 
 -- Ezdigimiz ayarlar ve verdigimiz degerler. Kapatinca hepsini geri veririz.
@@ -210,6 +213,12 @@ end
 -- de kullandigi icin menuden once tanimli.
 local stats, pending_misses = {}, {}
 
+-- Senin aimbot atislarinin sonuclari (Neverlose'un aim_ack nedenleri).
+local function new_aim_stats()
+    return { shots = 0, hits = 0, correction = 0, spread = 0, other = 0 }
+end
+local aim_stats = new_aim_stats()
+
 -------------------------------------------------------------------------------
 -- Menu
 -------------------------------------------------------------------------------
@@ -246,6 +255,7 @@ local g_main        = tracked(g_main_raw)
 local g_defensive   = tracked(ui.create("Anti-Aim", "Exploits", 1))
 local g_builder_raw = ui.create("Anti-Aim", "Builder", 2)
 local g_builder     = tracked(g_builder_raw)
+local g_resolver    = tracked(ui.create("Resolver", "Resolver", 1))
 local g_visuals     = ui.create("Visuals", "Indicators", 1)
 
 local STATES = {
@@ -359,6 +369,13 @@ menu.safe_recharge  = g_defensive:switch("Safe recharge", true)
 menu.exploit_info = g_defensive:label("Per-state exploit settings are in the Builder.")
 menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 
+-- Neverlose'un kendi resolver'i acilari cozmeye devam eder. Bu katman, bir dusmana
+-- resolver yuzunden ("correction") iska gectikce sadece o dusmana karsi safe point'i
+-- yukseltir; isabetler geldikce geri indirir.
+menu.resolver      = g_resolver:switch("Adaptive resolver", true)
+menu.resolver_log  = g_resolver:switch("Console log", true)
+menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
+
 menu.state = g_builder_raw:combo("State", STATES)
 
 local AA_KEYS = {
@@ -429,7 +446,7 @@ menu.stats_panel = g_visuals:switch("Stats panel", false)
 -- Dugme API'si yoksa script'i dusurmesin; sadece sifirlama dugmesi olmaz.
 pcall(function()
     menu.stats_reset = g_visuals:button("Reset stats", function()
-        stats, pending_misses = {}, {}
+        stats, pending_misses, aim_stats = {}, {}, new_aim_stats()
     end, true)
 end)
 
@@ -966,6 +983,75 @@ local function threat_stage()
     return brute_entry_stage(entry)
 end
 
+-------------------------------------------------------------------------------
+-- Adaptive resolver
+-------------------------------------------------------------------------------
+
+-- Lua'dan dusmanin gercek acisini Neverlose'un yerine koymak guvenilir degil: Lua sadece
+-- govde donus parametresini (m_flPoseParameter[11]) yazabilir, modelin ayak yonu ise
+-- Neverlose'un kendi cozumunden gelir. Ikisi birbirini tutmayinca hitbox'lar yeni bir
+-- yanlis aciya kayar. Bu yuzden acilari Neverlose cozer; bu katman sonuclara bakar.
+--
+-- aim_ack her atisin sonucunu verir. "correction" = mermi isabet edecekti ama resolver
+-- acida yanildi. Bir dusmana karsi son RESOLVER_WINDOW sonuctaki correction iskasi
+-- sayisi o dusmanin seviyesidir:
+--   1 -> Safe points "Prefer": guvenli nokta varsa ona ates eder
+--   2 -> Safe points "Force": sadece desync hangi taraftaysa da isabet eden noktalara
+-- Isabetler pencereye girip eski iskalari itince seviye kendiliginden duser. Spread,
+-- tahmin hatasi gibi resolver disi iskalar sayilmaz. Seviye round'lar arasi kalir
+-- (Neverlose resolver'i da oyunculari hatirlar), harita degisince sifirlanir.
+local RESOLVER_WINDOW = 4
+local SAFE_POINT_LEVELS = { [0] = "Default", "Prefer", "Force" }
+local SAFE_POINT_RANK = { Default = 0, Prefer = 1, Force = 2 }
+-- Aimbot az once birine ates ettiyse siradaki atislar da buyuk ihtimalle ona; bu kadar
+-- saniye o hedefin seviyesi kullanilir, sonra AA'nin baktigi tehdide donulur.
+local AIM_TARGET_HOLD = 1.5
+
+-- players[key] = { name, results = { "c" | "h", ... }, level }
+local resolver = { players = {}, aim_target = nil, aim_time = -1000, user_safe = nil }
+
+local function resolver_entry(ent)
+    local key = entity_key(ent)
+    if key == nil then
+        return nil
+    end
+    local name = player_name(ent)
+    local entry = resolver.players[key]
+    if entry == nil or entry.name ~= name then
+        entry = { name = name, results = {}, level = 0 }
+        resolver.players[key] = entry
+    end
+    return entry
+end
+
+local function resolver_target()
+    local target = resolver.aim_target
+    local since = globals.realtime - resolver.aim_time
+    if target ~= nil and since >= 0 and since <= AIM_TARGET_HOLD then
+        local ok, alive = pcall(target.is_alive, target)
+        if ok and alive then
+            return target
+        end
+    end
+    local ok, threat = pcall(entity.get_threat)
+    if ok then
+        return threat
+    end
+    return nil
+end
+
+local function resolver_level(target)
+    if target == nil then
+        return 0
+    end
+    local key = entity_key(target)
+    local entry = key ~= nil and resolver.players[key] or nil
+    if entry == nil or entry.name ~= player_name(target) then
+        return 0
+    end
+    return entry.level
+end
+
 local NON_BULLET_DAMAGE = {
     inferno = true, molotov = true, incgrenade = true, hegrenade = true,
     decoy = true, flashbang = true, smokegrenade = true,
@@ -1009,7 +1095,21 @@ end
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
-    brute = 0, weapon = nil }
+    brute = 0, resolver = 0, weapon = nil }
+
+-- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
+local function apply_resolver()
+    if overridden.safe_points == nil then
+        resolver.user_safe = get("safe_points")
+    end
+    local level = menu.resolver:get() and resolver_level(resolver_target()) or 0
+    current.resolver = level
+    if level > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
+        override("safe_points", SAFE_POINT_LEVELS[level])
+    else
+        override("safe_points", nil)
+    end
+end
 
 local function update_flip(s, exploit, choked)
     -- Bir onceki paket gonderildiyse yeni bir choke dongusu basliyor demektir.
@@ -1397,6 +1497,7 @@ events.createmove:set(function(cmd)
     process_pending_misses()
     -- Anti-brute kapatilinca o anki faz da hemen birakilir.
     current.brute = menu.anti_brute:get() and threat_stage() or 0
+    apply_resolver()
 
     override("aa_enabled", true)
     override("yaw", "Backward")
@@ -1737,6 +1838,74 @@ pcall(function()
     end)
 end)
 
+-- aim_ack'teki hedef dokumanda entity index'i; bazi surumlerde entity'nin kendisi.
+local function aim_target_entity(target)
+    if type(target) == "number" then
+        local ok, ent = pcall(entity.get, target)
+        return ok and ent or nil
+    end
+    return target
+end
+
+pcall(function()
+    events.aim_fire:set(function(e)
+        local target = aim_target_entity(e.target)
+        if target ~= nil then
+            resolver.aim_target, resolver.aim_time = target, globals.realtime
+        end
+    end)
+end)
+
+pcall(function()
+    events.aim_ack:set(function(e)
+        if not menu.enabled:get() then
+            return
+        end
+        local state = e.state
+        local result
+        aim_stats.shots = aim_stats.shots + 1
+        if state == nil then
+            aim_stats.hits = aim_stats.hits + 1
+            result = "h"
+        elseif state == "correction" then
+            aim_stats.correction = aim_stats.correction + 1
+            result = "c"
+        elseif state == "spread" then
+            aim_stats.spread = aim_stats.spread + 1
+        else
+            aim_stats.other = aim_stats.other + 1
+        end
+
+        local target = aim_target_entity(e.target)
+        if result == nil or target == nil or not menu.resolver:get() then
+            return
+        end
+        local entry = resolver_entry(target)
+        if entry == nil then
+            return
+        end
+        local results = entry.results
+        results[#results + 1] = result
+        if #results > RESOLVER_WINDOW then
+            table.remove(results, 1)
+        end
+        local misses = 0
+        for _, r in ipairs(results) do
+            if r == "c" then
+                misses = misses + 1
+            end
+        end
+        local before = entry.level
+        entry.level = min(misses, #SAFE_POINT_LEVELS)
+        if menu.resolver_log:get() and (result == "c" or entry.level ~= before) then
+            local what = result == "c" and "iska (correction)"
+                or ("isabet %s -%d"):format(HITGROUPS[e.hitgroup] or "?", tonumber(e.damage) or 0)
+            print(("[%s] resolver: %s %s | seviye %d -> safe points %s"):format(
+                SCRIPT, entry.name, what, entry.level, SAFE_POINT_LEVELS[entry.level]))
+        end
+    end)
+end)
+
 -- Round / olum sonrasi aktif fazlar biter, ogrenilen kalici fazlar kalir.
 local function reset_brute()
     for _, entry in pairs(brute.enemies) do
@@ -1756,6 +1925,7 @@ pcall(function()
     events.level_init:set(function()
         brute.enemies, brute.recent, brute.hurt = {}, nil, {}
         pending_misses = {}
+        resolver.players, resolver.aim_target = {}, nil
     end)
 end)
 
@@ -1856,7 +2026,13 @@ local function draw_indicators(lp, cx, cy)
     end
 
     if current.brute > 0 then
-        render.text(FONT, vector(x, y + 9), accent, "c", ("BRUTE %d"):format(current.brute))
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", ("BRUTE %d"):format(current.brute))
+    end
+    -- Hedefe karsi resolver seviyesi (safe points Prefer / Force).
+    if current.resolver > 0 then
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", ("RES %d"):format(current.resolver))
     end
 end
 
@@ -1882,6 +2058,15 @@ local function draw_stats(screen)
             render.text(FONT, vector(x, y), WHITE, nil,
                 ("%s   %d / %d / %d / %s / %s"):format(state:upper(), entry.hits, entry.head, entry.misses, dt, def))
         end
+    end
+    -- Senin aimbot atislarin: CORR = resolver iskasi, SPREAD = isabet sansi / sekme,
+    -- OTHER = tahmin hatasi, backtrack, kayitsiz atis vb.
+    if aim_stats.shots > 0 then
+        y = y + 16
+        render.text(FONT, vector(x, y), menu.accent:get(), nil, "AIM   SHOT / HIT / CORR / SPREAD / OTHER")
+        y = y + 10
+        render.text(FONT, vector(x, y), WHITE, nil, ("ALL   %d / %d / %d / %d / %d"):format(
+            aim_stats.shots, aim_stats.hits, aim_stats.correction, aim_stats.spread, aim_stats.other))
     end
 end
 
