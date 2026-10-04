@@ -531,7 +531,8 @@ menu.peek_defensive = grp.peek:switch(style.title("shield-halved", "Defensive du
 -- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
 -- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
 menu.anti_peek      = style.tip(grp.defensive:switch(style.title("shield", "Defensive vs enemy peeks"), true),
-    "Aci tutarken sana peek atan dusman gorunmeden defensive baslar.")
+    "Aci tutarken sana peek atan dusmana karsi defensive: gorunmeden once (tahmin), gorundugu ilk 0.25 sn " ..
+    "ve seni gorurken hizla hareket ettikce.")
 -- Havadayken bir dusman kafani gorunce DT ile isinlanilir (sarj dolunca tekrar).
 menu.air_teleport   = grp.defensive:switch(style.title("person-running", "Teleport in air when seen"), true)
 -- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
@@ -834,8 +835,11 @@ local SIGHT = { gap = 24, keep = 64, recent = 32 }
 -- peeked = bir dusman hareket ederek kafani gorecegi yere geliyor (bkz. enemy_eye_ahead).
 -- edge: kafa merkezinin yanindaki iki noktaya da bakilir (bkz. head_visible_to).
 -- peeking: AI peek'in su an peek attigi dusman (yururken / beklerken), yoksa nil.
+-- enemy_peek: kafani goren bir dusman sana peek atiyor (yeni gorundu ya da hizla hareket ediyor, bkz.
+-- peeking_us); fresh: "yeni gorundu" suresi (tick), peek_speed: peek sayilan yatay hiz (birim/sn).
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
-    any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil, edge = 3.5, peeking = nil }
+    any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil, edge = 3.5, peeking = nil,
+    enemy_peek = false, fresh = 16, peek_speed = 120 }
 local peek = { until_tick = -1000 }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
@@ -956,6 +960,22 @@ do
         end
     end
 
+    -- Bize peek atan dusman (V1.0): kafani goruyor ve ya yeni gorundu (ilk gorusten bu yana `fresh`
+    -- tick) ya da hizla hareket ediyor (jiggle / genis peek). Durup aci tutan dusman sayilmaz. "Lua
+    -- karsidakinin peekledigini anlayip ben aciktayken tepki versin": eskiden tepki sadece dusman
+    -- gorunmeden onceydi (tahmin), gorundugu an bitiyordu.
+    local function peeking_us(enemy, index, now)
+        local s = exposure.sight[index]
+        if s ~= nil and now >= s.first and now - s.first <= exposure.fresh then
+            return true
+        end
+        local ok, speed = pcall(function()
+            local v = enemy.m_vecVelocity
+            return sqrt(v.x * v.x + v.y * v.y)
+        end)
+        return ok and type(speed) == "number" and speed >= exposure.peek_speed
+    end
+
     update_exposure = function(lp, cmd)
         if not exposure.available then
             return
@@ -965,7 +985,7 @@ do
             return
         end
         exposure.tick = now
-        exposure.now, exposure.soon, exposure.peeked = false, false, false
+        exposure.now, exposure.soon, exposure.peeked, exposure.enemy_peek = false, false, false, false
         local head = lp:get_hitbox_position(0)
         if head == nil then
             exposure.any, exposure.others = false, {}
@@ -987,6 +1007,7 @@ do
                 exposure.now = head_visible_to(threat, eye, head, 0, 0, 0)
                 if exposure.now and threat_index ~= nil then
                     mark_sight(threat_index, now)
+                    exposure.enemy_peek = peeking_us(threat, threat_index, now)
                 end
                 if not exposure.now then
                     local velocity = lp.m_vecVelocity
@@ -1023,6 +1044,7 @@ do
             if ok_eye and eye ~= nil and head_visible_to(pick.enemy, eye, head, 0, 0, 0) then
                 exposure.others[pick.index] = now
                 mark_sight(pick.index, now)
+                exposure.enemy_peek = exposure.enemy_peek or peeking_us(pick.enemy, pick.index, now)
             else
                 -- Birazdan gorecek (sana dogru peek atiyor): gorus sayilir, log'a "gordu" yazilmaz.
                 local ahead = ok_eye and eye ~= nil and enemy_eye_ahead(pick.enemy, eye) or nil
@@ -2119,6 +2141,18 @@ brute.stat_group = function()
     return current.phase_group
 end
 
+-- Scout / AWP / R8 sadece oldurecek atis yaparken (Head unless body kills, Min. Damage can + 1) en
+-- fazla "Prefer" (V1.0): tam canli dusmanda oldurecek tek nokta kafa ve desync'te kafa iki tarafta
+-- ortusmez, "Force" kafada guvenli nokta birakmaz; atis hic gelmez, takilma korumasi da ancak 0.5 sn
+-- goruldukten sonra "Prefer"e iniyordu (her temasta yarim saniye). DT'li silahlarda Force kalir:
+-- orada govdenin guvenli noktalari var (Smart body aim seviye 2'de govde).
+resolver.cap = function(level)
+    if level > 1 and menu.head_only:get() and SNIPERS[current.weapon] then
+        return 1
+    end
+    return level
+end
+
 -- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
 -- Hedefi ve takilma korumasindan onceki seviyeyi dondurur (body aim icin).
 local function apply_resolver()
@@ -2130,7 +2164,7 @@ local function apply_resolver()
     if menu.resolver:get() then
         local key, entry
         raw, key, state, entry, prior = resolver_level(target)
-        level = stall_level(raw, key, state, entry)
+        level = stall_level(resolver.cap(raw), key, state, entry)
     end
     current.resolver, current.res_state, current.res_prior = level, state, prior == true
     -- V1.0: kendi fake duck'inda zorla "Prefer" (v5.4) kaldirildi; seviye sadece dusmana gore.
@@ -2511,14 +2545,16 @@ do
     end
 
     -- "Defensive vs enemy peeks": "On peek" durumlarinda (durma, egilip bekleme) bir dusman
-    -- sana dogru peek atarken (exposure.peeked) DT defensive'i zorlanir ve ANTI_HOLD tick
-    -- daha surer: ilk mermisi geldiginde LC kirik ve acilar gizli olur. Dusman goruste
-    -- kalirsa birakilir; aci tutarken kendi atisini geciktirmesin.
+    -- sana dogru peek atarken (exposure.peeked: gorunmeden once, hizindan tahmin) ya da kafani
+    -- gorurken peek atiyorken (exposure.enemy_peek: yeni gorundu ya da hizla hareket ediyor; V1.0)
+    -- DT defensive'i zorlanir ve ANTI_HOLD tick daha surer: mermisi geldiginde LC kirik ve acilar
+    -- gizli olur. Durup aci tutan dusmana karsi birakilir. Zorlanan defensive atisi engellemiyor
+    -- (loglarda "DEF" ile atilan atislar isabet etti).
     local ANTI_HOLD = 16
     local anti = { last = -1000 }
 
     local function anti_window(now)
-        if exposure.peeked then
+        if exposure.peeked or exposure.enemy_peek then
             anti.last = now
         end
         return now >= anti.last and now - anti.last <= ANTI_HOLD
@@ -2557,6 +2593,7 @@ do
         local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF")
         current.defensive = not on_peek or hs_peek or forced
         current.forced = forced
+        current.anti = forced and guard
 
         -- Break LC sadece DT kapaliyken gecerli (Neverlose'da DT, HS'den once gelir).
         local break_lc = on_peek and hs_peek or (not on_peek and hs and lc_ok)
@@ -2991,7 +3028,8 @@ end
 local ai_peek = { mode = nil, home = nil, target = nil, side = nil, until_time = -1000, scan_tick = -1000,
     rest = -1000, fails = 0, blocked = nil, reached = 0, step = 0, enemy = nil, name = nil, shots = {},
     held_since = nil, reported = false, why = nil, quiet = 1.0, candidate = nil, lost = 0, started = -1000,
-    steps = { 18, 32, 46, 60 }, every = 4, confirm_every = 2, walk_every = 2, lost_max = 3, reach = 74,
+    steps = { 18, 32, 46, 60 }, every = 4, confirm_every = 2, walk_every = 2, lost_max = 3, reach = 74, high = 32,
+    lead = 0.15,
     hold = 0.5, hold_r8 = 0.75, after_shot = 0.8, back_time = 0.6 }
 local update_ai_peek
 do
@@ -3091,6 +3129,27 @@ do
         return max(1, min(md, health))
     end
 
+    -- Silah lead sn icinde ates edebilecek mi: scout / AWP surgu cekerken, R8 / sarjor degisirken ya
+    -- da silah yeni alinmisken hayir. Okunamazsa evet (peek engellenmez). Eskiden atistan 0.8 sn sonra
+    -- yeni peek baslayabiliyordu; scout'un surgusu 1.25 sn, AWP 1.46 sn: ates edemeden gorunuyordun.
+    local function weapon_ready(lp, lead)
+        local ok, ready = pcall(function()
+            local now = globals.curtime
+            local weapon = lp:get_player_weapon()
+            if type(now) ~= "number" or weapon == nil then
+                return true
+            end
+            local clip = weapon.m_iClip1
+            if type(clip) == "number" and clip == 0 then
+                return false
+            end
+            local next_attack, player_next = weapon.m_flNextPrimaryAttack, lp.m_flNextAttack
+            local at = max(type(next_attack) == "number" and next_attack or 0, type(player_next) == "number" and player_next or 0)
+            return at - now <= lead
+        end)
+        return not ok or ready ~= false
+    end
+
     local function eye_height(lp, mine)
         local ok, eye = pcall(function() return lp:get_eye_position() end)
         if ok and eye ~= nil and eye.z > mine.z then
@@ -3143,7 +3202,16 @@ do
             return "here"
         end
         local found, watcher
-        for _, side in ipairs({ { -dy, dx, "sol" }, { dy, -dx, "sag" } }) do
+        local dirs = { { -dy, dx, "sol" }, { dy, -dx, "sag" } }
+        -- Yukaridaki dusman (en az `high` birim ustte: kutu, balkon): yana adim cogu zaman acmaz,
+        -- kenar kafasini kapatir; geri-capraz adim aciyi duzlestirir ve acar. O zaman iki geri-capraz
+        -- yon de denenir (taraf etiketi ayni kalir); nokta yine en yakin olan.
+        if theirs.z - mine.z >= ai_peek.high then
+            local r = 0.7071
+            dirs[3] = { (-dy - dx) * r, (dx - dy) * r, "sol", true }
+            dirs[4] = { (dy - dx) * r, (-dx - dy) * r, "sag", true }
+        end
+        for _, side in ipairs(dirs) do
             for _, step in ipairs(ai_peek.steps) do
                 if found ~= nil and step >= found.step then
                     break
@@ -3156,7 +3224,7 @@ do
                 if damage >= need then
                     local other = seen_by_other(spot, height, enemy)
                     if other == nil then
-                        found = { spot = spot, step = step, side = side[3], damage = damage }
+                        found = { spot = spot, step = step, side = side[3], damage = damage, back = side[4] }
                         break
                     end
                     watcher = watcher or other
@@ -3468,14 +3536,24 @@ do
         if hx * hx + hy * hy > 64 then
             ai_peek.home = mine
         end
-        local ready = not effective("doubletap") or exploit_active()
+        -- Exploit sarjli olmadan peek yok: DT'de her zaman, Hide shots'ta sarj degeri HS'yi takip
+        -- ediyorsa (bkz. Safe recharge). Loglarda zipladiktan sonra "HS %14" iken peek'te kafadan vuruldun.
+        local charge = api.charge ~= nil and api.charge() or nil
+        local charging_dt = effective("doubletap") and type(charge) == "number" and charge < 1
+        local charging_hs = not effective("doubletap") and effective("hideshots") and recharge.hs_charges
+            and type(charge) == "number" and charge < 1
+        local armed = weapon_ready(lp, ai_peek.lead)
         if enemy == nil then
             ai_peek.why = "hedef yok"
-        elseif not ready then
+        elseif charging_dt then
             ai_peek.why = "DT sarj oluyor"
+        elseif charging_hs then
+            ai_peek.why = "HS sarj oluyor"
+        elseif not armed then
+            ai_peek.why = "silah hazir degil (surgu / sarjor)"
         end
         report_idle(now)
-        if enemy == nil or not ready or now < ai_peek.rest or now - own.last_shot < ai_peek.after_shot or not due then
+        if enemy == nil or charging_dt or charging_hs or not armed or now < ai_peek.rest or now - own.last_shot < ai_peek.after_shot or not due then
             return
         end
         local index = index_of(enemy)
@@ -3515,14 +3593,14 @@ do
         ai_peek.until_time = now + 0.25 + result.step / 120
         move_to(cmd, mine, result.spot)
         if menu.shot_log:get() then
-            print(("[%s] ai peek: %s %d birim -> %s (hasar %d)"):format(SCRIPT, result.side, result.step,
+            print(("[%s] ai peek: %s %d birim -> %s (hasar %d)"):format(SCRIPT, result.side .. (result.back and "-geri" or ""), result.step,
                 player_name(enemy), floor(result.damage + 0.5)))
         end
     end
 end
 
 events.createmove:set(protect("createmove", function(cmd)
-    current.defensive, current.forced, current.lc = false, false, false
+    current.defensive, current.forced, current.lc, current.anti = false, false, false, false
     local rec, tick = recommended_state, globals.tickcount
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
@@ -4543,6 +4621,11 @@ local function draw_indicators(lp, cx, cy)
     elseif current.head_only then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "HEAD")
+    end
+    -- ANTI-PEEK: bir dusman sana peek atiyor, defensive ona karsi zorlaniyor.
+    if current.anti then
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", "ANTI-PEEK")
     end
     -- AI PEEK: script bir peek noktasina yuruyor ya da orada aimbot'u bekliyor.
     if ai_peek.mode == "go" or ai_peek.mode == "hold" then
