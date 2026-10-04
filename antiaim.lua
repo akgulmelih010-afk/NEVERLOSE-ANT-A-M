@@ -46,6 +46,9 @@
       - Durum gecislerinde histerezis ve inis toleransi (titreme yok).
       - Vuruldum / iska kaydi (konsol) ve durum basina istatistik paneli: hangi
         durumda vuruldugunu gorup o durumu ayarlarsin.
+      - Kendi kendine ogrenen AA: her anti-brute fazinda kafana gelen mermiler sayilir,
+        verisi olmayan dusmanlar en az vurulan fazla baslar (yeni faz 4: yaw'dan
+        bagimsiz rastgele desync tarafi).
       - Mermi izine gore, dusman basina anti-bruteforce, safe head (bicak/zeus, yuksek zemin),
         freestanding (hedef varsa) + devre disi kosullari, manuel yaw,
         avoid backstab, use'a basinca legit AA, warmup / dusman yokken spin.
@@ -58,7 +61,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.4"
+local VERSION = "4.5"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1165,10 +1168,13 @@ local OPTIONS_OVERLAP, OPTIONS_NONE = { "Avoid Overlap" }, {}
 -- Desync dusurulmez: resolver'lar iskadan sonra karsi tarafi, sonra "dusuk desync"i
 -- dener. Eskiden faz 2 desync'i %60'a indiriyordu ve oyun loglarinda bu fazda
 -- kafa isabeti tekrar tekrar geldi.
+-- Faz 4: desync tarafi her flip'te rastgele, yaw'dan bagimsiz. Jitter'da yaw sirayla
+-- donmeye devam eder ama kafanin hangi tarafta oldugunu artik ele vermez.
 local BRUTE_PHASES = {
     { invert = true,  scale = 1.0,  shift = 0 },
     { invert = false, scale = 1.0,  shift = 15 },
     { invert = true,  scale = 0.85, shift = -15 },
+    { invert = false, scale = 1.0,  shift = 0, random = true },
 }
 local BRUTE_RADIUS = 40
 -- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
@@ -1192,7 +1198,13 @@ local MISS_WINDOW = 0.15
 -- Anahtar oyuncunun Steam ID'sidir (player_id). HvH sunucularinda oyuncular harita
 -- degisince kalir ama slot numaralari degisir; ogrenilen faz harita degisince de korunur.
 -- hurt[userid] = son hasar zamani
-local brute = { enemies = {}, recent = nil, hurt = {} }
+-- phases[faz] = { shots, hits }: butun dusmanlarin o faz uygulanirken kafana attigi
+-- mermiler (kafadan isabet + kafanin yanindan iska) ve kafadan isabetler. Verisi olmayan
+-- dusmanlar en az vurulan fazla baslar (bkz. brute_default). default = son secilen faz.
+local brute = { enemies = {}, recent = nil, hurt = {}, phases = {}, default = 0 }
+for phase = 0, #BRUTE_PHASES do
+    brute.phases[phase] = { shots = 0, hits = 0 }
+end
 -- Hatirlanan en fazla oyuncu; dolunca en uzun suredir gorulmeyen unutulur.
 local MEMORY_LIMIT = 64
 -- Ogrenilenler oyun kapaninca da kalsin diye Neverlose'un db deposuna yazilir (asagida
@@ -1215,15 +1227,68 @@ local function player_name(ent)
     return "?"
 end
 
+-- Kendi kendine ogrenen AA: kafana gelen mermilerde en az isabet alan faz. Oran
+-- (isabet + 2) / (mermi + 4): hic denenmemis faz 0.5 sayilir, yani cok vurulan bir faz
+-- denenmemis olana yer birakir. Tek bir isabet secimi degistirmesin diye yeni faz ancak
+-- simdiki varsayilandan 0.1 daha iyiyse secilir; esitlikte kucuk faz kazanir.
+local function phase_rate(phase)
+    local stat = brute.phases[phase]
+    return (stat.hits + 2) / (stat.shots + 4)
+end
+
+local function brute_default()
+    local best, best_rate = 0, huge
+    for phase = 0, #BRUTE_PHASES do
+        local rate = phase_rate(phase)
+        if rate < best_rate - 1e-9 then
+            best, best_rate = phase, rate
+        end
+    end
+    if best ~= brute.default and best_rate < phase_rate(brute.default) - 0.1 then
+        return best
+    end
+    return brute.default
+end
+
+-- Kafana gelen bir mermiyi, mermi geldiginde uygulanan faza yazar. Sayilar 40'i gecince
+-- yarilanir: eski oyunlar degil son karsilasmalar agir basar.
+local function record_phase(phase, hit)
+    local stat = brute.phases[phase]
+    if stat == nil then
+        return
+    end
+    stat.shots = stat.shots + 1
+    if hit then
+        stat.hits = stat.hits + 1
+    end
+    if stat.shots > 40 then
+        stat.shots, stat.hits = stat.shots / 2, stat.hits / 2
+    end
+    persist.dirty = true
+    local best = brute_default()
+    if best ~= brute.default then
+        brute.default = best
+        if menu.hit_log:get() then
+            local chosen = brute.phases[best]
+            print(("[%s] AA: en az vurulan faz %d (%d/%d kafa isabeti) -> verisi olmayan dusmanlara faz %d"):format(
+                SCRIPT, best, floor(chosen.hits + 0.5), floor(chosen.shots + 0.5), best))
+        end
+    end
+end
+
 local function brute_entry_stage(entry)
     if entry == nil then
-        return 0
+        return brute.default
     end
     local now = globals.realtime
     if entry.stage > 0 and now >= entry.time and now - entry.time <= menu.brute_reset:get() then
         return entry.stage
     end
-    return entry.base
+    -- Seni kafadan vurmus dusmanin kendi fazi var; yoksa en az vurulan faz.
+    if entry.learned then
+        return entry.base
+    end
+    return brute.default
 end
 
 -- Kalici oyuncu kimligi: Steam ID. Bot ya da okunamayan Steam ID'de isim, o da yoksa slot.
@@ -1264,7 +1329,7 @@ end
 local function brute_entry(ent, fallback_key)
     local key = player_id(ent) or fallback_key
     return key, memory_entry(brute.enemies, key, ent, function()
-        return { stage = 0, time = 0, base = 0, last = nil, shot_stage = nil }
+        return { stage = 0, time = 0, base = 0, learned = false, last = nil, shot_stage = nil }
     end)
 end
 
@@ -1332,7 +1397,8 @@ local FORCE_STALL = 0.5
 -- prior_logged[id] = jitter on bilgisi bu dusman icin konsola yazildi
 -- jittery[id] = dusmanin AA'sinin en son jitter'li goruldugu zaman (sn)
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
-    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {} }
+    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {},
+    body_stall = { key = nil, visible = 0, last = nil, relaxed = false } }
 
 local function prop(ent, name)
     local ok, value = pcall(function() return ent[name] end)
@@ -1649,6 +1715,7 @@ local function process_pending_misses()
             if now >= miss.time then
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
+                record_phase(miss.applied, false)
                 if menu.hit_log:get() then
                     print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s)"):format(
                         SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
@@ -1660,7 +1727,7 @@ end
 
 -- Rastgele degerler -1..1 (limit icin 0..1) olarak tutulur ve o anki durumun
 -- araligiyla carpilir; boylece randomize 0 ise etkisi de hemen 0 olur.
-local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
+local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0, rand_side = false }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
     brute = 0, resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false }
@@ -1725,8 +1792,30 @@ do
         return damage
     end
 
+    -- "Force" govde ates engelleyebilir (sadece kafa gorunuyorsa hic ates edilmez). Dusman
+    -- seni goruyorken FORCE_STALL sn boyunca o hedefe ates edilmediyse "Prefer"e inilir;
+    -- o hedefe bir atis gelince yeniden "Force" denenir.
+    local function body_stall(target)
+        local stall = resolver.body_stall
+        local key = player_id(target)
+        if stall.key ~= key then
+            stall.key, stall.visible, stall.last, stall.relaxed = key, 0, nil, false
+        end
+        local now = globals.realtime
+        if stall.last ~= nil and (exposure.now or exposure.any) and not stall.relaxed then
+            stall.visible = stall.visible + max(0, min(0.1, now - stall.last))
+            if stall.visible >= FORCE_STALL then
+                stall.relaxed = true
+            end
+        end
+        stall.last = now
+        return stall.relaxed and "Prefer" or "Force"
+    end
+
     -- Body Aim karari, aimbot'un hedefine gore:
-    --  1. Tek govde mermisi olduruyor -> "Prefer" (resolver'a bagli olmayan kesin oldurme).
+    --  1. Tek govde mermisi olduruyor -> "Force": dusmanin cani 31 iken "Prefer" ile
+    --     Neverlose yine kafaya nisan alip resolver yuzunden iskaladi (loglar). Oldurecek
+    --     bir govde atisi varken kafa daha kucuk ve resolver'a bagli.
     --  2. DT dolu ve iki govde mermisi olduruyor (oto, deagle) -> "Prefer".
     --  3. Tek atisli silah (scout / AWP / R8) ve govde oldurmuyor -> "Default": kafa acik
     --     kalir (oyun loglarinda 87-93 govde vuruslarindan sonra dusman hayatta kaldi).
@@ -1737,13 +1826,15 @@ do
         if overridden.body_aim == nil then
             resolver.user_body = get("body_aim")
         end
-        local wanted = nil
+        local wanted, lethal = nil, false
         if target ~= nil and menu.smart_baim:get() then
             local info = WEAPONS[class]
             local health = prop(target, "m_iHealth")
             if info ~= nil and type(health) == "number" and health > 0 then
                 local chest = chest_damage(lp, target, info)
-                if health <= chest or (not info[4] and dt_ready() and health <= 2 * chest) then
+                if health <= chest then
+                    wanted, lethal = body_stall(target), true
+                elseif not info[4] and dt_ready() and health <= 2 * chest then
                     wanted = "Prefer"
                 elseif info[4] then
                     wanted = "Default"
@@ -1754,7 +1845,11 @@ do
                 wanted = "Prefer"
             end
         end
-        current.lethal = wanted == "Prefer"
+        if not lethal then
+            local stall = resolver.body_stall
+            stall.key, stall.visible, stall.last, stall.relaxed = nil, 0, nil, false
+        end
+        current.lethal = wanted == "Prefer" or wanted == "Force"
         if wanted == nil or resolver.user_body == "Force" or resolver.user_body == wanted then
             override("body_aim", nil)
         else
@@ -1787,6 +1882,7 @@ local function update_flip(s, exploit, choked)
     flip.yaw_n = random() * 2 - 1
     flip.mod_n = random() * 2 - 1
     flip.limit_n = random()
+    flip.rand_side = random(0, 1) == 1
 end
 
 local function round(x)
@@ -2352,6 +2448,9 @@ events.createmove:set(protect("createmove", function(cmd)
                 yaw_side = side
             end
         end
+        if phase.random then
+            side = flip.rand_side
+        end
         left = round(left * phase.scale)
         right = round(right * phase.scale)
     end
@@ -2515,6 +2614,8 @@ do
         -- Hasar olayi mermiden sonra gelirse hangi fazda vuruldugumuzu buradan biliriz.
         local shot_stage = menu.anti_brute:get() and brute_entry_stage(entry) or 0
         entry.shot_stage = shot_stage
+        -- O an gercekten uygulanan faz (AA'nin dondugu dusmaninki); fazlarin istatistigi icin.
+        entry.shot_applied = current.brute
 
         -- Hasar bu mermiden once geldiyse zaten isabettir, iska adayi degildir.
         local hurt = brute.hurt[e.userid]
@@ -2522,6 +2623,7 @@ do
             pending_misses[#pending_misses + 1] = {
                 userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
+                applied = current.brute,
             }
         end
 
@@ -2567,9 +2669,9 @@ events.player_hurt:set(protect("player_hurt", function(e)
     -- Vuruldugumuz faz: mermi olayi az once geldiyse onun kaydettigi faz (mermi
     -- AA'yi zaten ilerletti), gelmediyse su an uygulanan faz.
     local _, enemy = brute_entry(attacker, "u" .. tostring(e.attacker))
-    local hit_stage
+    local hit_stage, applied
     if enemy.shot_stage ~= nil and enemy.last ~= nil and now >= enemy.last and now - enemy.last < MISS_WINDOW then
-        hit_stage = enemy.shot_stage
+        hit_stage, applied = enemy.shot_stage, enemy.shot_applied
     else
         hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy) or 0
     end
@@ -2580,8 +2682,11 @@ events.player_hurt:set(protect("player_hurt", function(e)
     -- Sadece kafa isabeti resolver'in aciyi cozdugunu gosterir; govde ve bacak
     -- isabetleri baim / safe point'tir, desync onlari saklayamaz.
     if e.hitgroup == 1 and not melee and menu.anti_brute:get() then
-        enemy.base = (hit_stage + 1) % (#BRUTE_PHASES + 1)
-        persist.dirty = true
+        enemy.base, enemy.learned = (hit_stage + 1) % (#BRUTE_PHASES + 1), true
+    end
+    -- Fazin istatistigi de yazilir (kalici hafizayi da kirli isaretler).
+    if e.hitgroup == 1 and not melee then
+        record_phase(applied or current.brute, true)
     end
 
     if not melee then
@@ -2705,6 +2810,10 @@ pcall(function()
         if stall.key ~= nil and stall.key == player_id(target) then
             stall.visible = 0
         end
+        local body = resolver.body_stall
+        if body.key ~= nil and body.key == player_id(target) then
+            body.visible, body.relaxed = 0, false
+        end
     end))
 end)
 
@@ -2802,11 +2911,16 @@ persist.save = function(force)
     if not persist.dirty or (not force and now >= persist.saved and now - persist.saved < persist.every) then
         return
     end
-    local data = { version = 1, brute = {}, resolver = {} }
+    local data = { version = 1, brute = {}, resolver = {}, phases = {} }
     for key, entry in pairs(brute.enemies) do
-        if steam_key(key) and entry.base > 0 then
+        if steam_key(key) and entry.learned then
             data.brute[key] = { base = entry.base, name = entry.name }
         end
+    end
+    -- Fazlarin istatistigi 1'den baslayan liste olarak (faz 0 -> 1. eleman).
+    for phase = 0, #BRUTE_PHASES do
+        local stat = brute.phases[phase]
+        data.phases[phase + 1] = { shots = stat.shots, hits = stat.hits }
     end
     -- Kopya yazilir: listeler sonradan degistiginde kayit da degismesin.
     local function copy(list)
@@ -2860,11 +2974,23 @@ persist.load = function()
     if type(data.brute) == "table" then
         for key, e in pairs(data.brute) do
             if count < MEMORY_LIMIT and steam_key(key) and type(e) == "table" and type(e.base) == "number"
-                and e.base >= 1 and e.base <= #BRUTE_PHASES and e.base == floor(e.base) then
-                brute.enemies[key] = { stage = 0, time = 0, base = e.base, name = tostring(e.name or "?"), seen = 0 }
+                and e.base >= 0 and e.base <= #BRUTE_PHASES and e.base == floor(e.base) then
+                brute.enemies[key] = { stage = 0, time = 0, base = e.base, learned = true, name = tostring(e.name or "?"),
+                    seen = 0 }
                 add(key)
             end
         end
+    end
+    if type(data.phases) == "table" then
+        for phase = 0, #BRUTE_PHASES do
+            local e = data.phases[phase + 1]
+            if type(e) == "table" and type(e.shots) == "number" and type(e.hits) == "number"
+                and e.hits >= 0 and e.hits <= e.shots and e.shots <= 1000 then
+                brute.phases[phase] = { shots = e.shots, hits = e.hits }
+            end
+        end
+        brute.default = 0
+        brute.default = brute_default()
     end
     if type(data.resolver) == "table" then
         for key, e in pairs(data.resolver) do
@@ -2889,7 +3015,10 @@ persist.load = function()
 end
 
 forget_enemies = function()
-    brute.enemies, brute.recent, brute.hurt = {}, nil, {}
+    brute.enemies, brute.recent, brute.hurt, brute.default = {}, nil, {}, 0
+    for phase = 0, #BRUTE_PHASES do
+        brute.phases[phase] = { shots = 0, hits = 0 }
+    end
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     resolver.jittery = {}
     reset_stall(nil, nil)
@@ -3067,6 +3196,18 @@ local function draw_stats(screen)
         render.text(FONT, vector(x, y), WHITE, nil, ("ALL   %d / %d / %d / %d / %d"):format(
             aim_stats.shots, aim_stats.hits, aim_stats.correction, aim_stats.spread, aim_stats.other))
     end
+    -- Anti-brute fazlari: kafana gelen mermilerden kac tanesi kafadan isabet etti (isabet /
+    -- mermi); * = verisi olmayan dusmanlara uygulanan, en az vurulan faz.
+    local parts = {}
+    for phase = 0, #BRUTE_PHASES do
+        local stat = brute.phases[phase]
+        parts[#parts + 1] = ("%d%s %d/%d"):format(phase, phase == brute.default and "*" or "",
+            floor(stat.hits + 0.5), floor(stat.shots + 0.5))
+    end
+    y = y + 16
+    render.text(FONT, vector(x, y), menu.accent:get(), nil, "AA FAZ   KAFA ISABETI / MERMI")
+    y = y + 10
+    render.text(FONT, vector(x, y), WHITE, nil, table.concat(parts, "   "))
 end
 
 local function draw_arrows(cx, cy)
