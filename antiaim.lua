@@ -40,7 +40,9 @@
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
         yerine 3-5 aci arasinda donen X-Way yaw.
       - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
-        simdi ve 0.2 sn sonra; ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
+        simdi ve 0.2 sn sonra (senin ve dusmanin hareketiyle: sana peek atan dusman
+        gorunmeden yakalanir); ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
+      - Dusman peek'ine karsi defensive (dururken de) ve havada gorulunce DT teleport.
       - Akilli AA hedefi: az once kafana ates eden dusmana (1 sn), Neverlose'un tehdidi
         yoksa en yakin dusmana, tehdit gormuyor ama yandan biri goruyorsa ona gore
         donulur. Yerinde dururken otomatik freestanding.
@@ -68,7 +70,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.9"
+local VERSION = "5.0"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -131,6 +133,7 @@ local api = {
     hidden_yaw   = rage_method("antiaim", "override_hidden_yaw_offset"),
     charge       = rage_method("exploit", "get"),
     allow_charge = rage_method("exploit", "allow_charge"),
+    teleport     = rage_method("exploit", "force_teleport"),
 }
 
 local refs = {
@@ -423,6 +426,11 @@ menu.auto_peek    = g_defensive:switch("Auto peek", true)
 -- Peek Assist tusu basiliyken (hareket tuslarina basmadan) script yanlari tarar, oradan
 -- dusmani vurabilecegin en yakin noktaya kendisi yurur (bkz. ai_peek).
 menu.ai_peek      = g_defensive:switch("AI peek (hold Peek Assist)", true)
+-- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
+-- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
+menu.anti_peek    = g_defensive:switch("Defensive vs enemy peeks", true)
+-- Havadayken bir dusman kafani gorunce DT ile isinlanilir (ziplama basina bir kez).
+menu.air_teleport = g_defensive:switch("Teleport in air when seen", true)
 -- Scout / AWP / R8'de exploit. "Hide shots" (varsayilan): bolt-action'da DT her atistan
 -- sonra bosalir; v4.6'da ogrenme DT'ye gecince scout'la atistan 0.15-0.17 sn sonra "DT %0,
 -- sarj bekle" iken kafadan vurulma geri geldi. "Auto (learn)": kafana gelen mermilere gore
@@ -716,8 +724,9 @@ local OTHER_HOLD = 12
 local SIGHT = { gap = 24, keep = 64, recent = 32 }
 
 -- others[index] = dusmanin kafani en son gordugu tick; any = kisa sure icinde biri gordu
+-- peeked = bir dusman hareket ederek kafani gorecegi yere geliyor (bkz. enemy_eye_ahead).
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
-    any = false, others = {}, turn = 0, sight = {}, facing = nil }
+    any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil }
 local peek = { until_tick = -1000 }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
@@ -798,6 +807,20 @@ local function vertical_lookahead(lp, cmd)
     return vz * t - 0.5 * GRAVITY * t * t
 end
 
+-- Dusmanin EXPOSE_LOOKAHEAD sn sonraki goz konumu (yatay hiziyla); durgunsa nil. Sana
+-- dogru peek atan dusman kafani gormeden once yakalanir: v4.8 loglarinda olumlerin
+-- cogunda dusman seni 0.00-0.03 sn'de vurdu, defensive ancak o gorunce aciliyordu.
+local function enemy_eye_ahead(enemy, eye)
+    local ok, vx, vy = pcall(function()
+        local v = enemy.m_vecVelocity
+        return v.x, v.y
+    end)
+    if not ok or type(vx) ~= "number" or type(vy) ~= "number" or vx * vx + vy * vy < 400 then
+        return nil
+    end
+    return vector(eye.x + vx * EXPOSE_LOOKAHEAD, eye.y + vy * EXPOSE_LOOKAHEAD, eye.z)
+end
+
 local update_exposure
 do
     local function mark_sight(index, now)
@@ -818,7 +841,7 @@ do
             return
         end
         exposure.tick = now
-        exposure.now, exposure.soon = false, false
+        exposure.now, exposure.soon, exposure.peeked = false, false, false
         local head = lp:get_hitbox_position(0)
         if head == nil then
             exposure.any, exposure.others = false, {}
@@ -839,6 +862,11 @@ do
                     local velocity = lp.m_vecVelocity
                     exposure.soon = head_visible_to(threat, eye, head, velocity.x * EXPOSE_LOOKAHEAD,
                         velocity.y * EXPOSE_LOOKAHEAD, vertical_lookahead(lp, cmd))
+                end
+                if not exposure.now and not exposure.soon then
+                    local ahead = enemy_eye_ahead(threat, eye)
+                    exposure.peeked = ahead ~= nil and head_visible_to(threat, ahead, head, 0, 0, 0)
+                    exposure.soon = exposure.peeked
                 end
             end
         end
@@ -866,7 +894,14 @@ do
                 exposure.others[pick.index] = now
                 mark_sight(pick.index, now)
             else
-                exposure.others[pick.index] = nil
+                -- Birazdan gorecek (sana dogru peek atiyor): gorus sayilir, log'a "gordu" yazilmaz.
+                local ahead = ok_eye and eye ~= nil and enemy_eye_ahead(pick.enemy, eye) or nil
+                if ahead ~= nil and head_visible_to(pick.enemy, ahead, head, 0, 0, 0) then
+                    exposure.others[pick.index] = now
+                    exposure.peeked = true
+                else
+                    exposure.others[pick.index] = nil
+                end
             end
         end
         exposure.any = false
@@ -2199,6 +2234,20 @@ do
         return now >= smart.last and now - smart.last <= SMART_HOLD
     end
 
+    -- "Defensive vs enemy peeks": "On peek" durumlarinda (durma, egilip bekleme) bir dusman
+    -- sana dogru peek atarken (exposure.peeked) DT defensive'i zorlanir ve ANTI_HOLD tick
+    -- daha surer: ilk mermisi geldiginde LC kirik ve acilar gizli olur. Dusman goruste
+    -- kalirsa birakilir; aci tutarken kendi atisini geciktirmesin.
+    local ANTI_HOLD = 16
+    local anti = { last = -1000 }
+
+    local function anti_window(now)
+        if exposure.peeked then
+            anti.last = now
+        end
+        return now >= anti.last and now - anti.last <= ANTI_HOLD
+    end
+
     apply_defensive = function(cmd, s, class, state, moving)
         local dt, hs = effective("doubletap"), effective("hideshots")
         local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
@@ -2221,7 +2270,8 @@ do
         -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
         -- defensive olmaz, o zaman zorlanmaz.
         local window = mode == "Smart" and smart_window(now)
-        local forced = window and dt and exploit_active()
+        local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now)
+        local forced = (window or guard) and dt and exploit_active()
         current.defensive = not on_peek or hs_peek or forced
         current.forced = forced
 
@@ -2479,6 +2529,38 @@ local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
 end
 
 local MOVETYPE_LADDER = 9
+
+-- Havada teleport: havadayken bir dusman kafani gorurken (ya da birazdan gorecekken) DT dolu
+-- ise Neverlose'un teleport'u tetiklenir; DT'nin biriktirdigi tick'ler bir anda oynanir ve
+-- ziplama yonunde ileri sicrarsin, dusmanin elindeki kayit gecersizlesir. Ziplama basina bir
+-- kez; yatay hiz en az min_speed (yavasken teleport bir yere goturmez). Hide shots'ta
+-- (scout / AWP / R8) yok: teleport DT ister. Sonrasinda DT sarj olur; Safe recharge gorulurken
+-- sarji bekletir (havada donmazsin).
+local teleport = { last = -1000, used = false, min_speed = 150 }
+teleport.update = function(lp, move_state)
+    if move_state ~= "Air" and move_state ~= "Air crouch" then
+        teleport.used = false
+        return
+    end
+    if teleport.used or not menu.air_teleport:get() or api.teleport == nil then
+        return
+    end
+    if not (exposure.now or exposure.soon or exposure.any) or not effective("doubletap") or not exploit_active() then
+        return
+    end
+    local ok, speed = pcall(function()
+        local v = lp.m_vecVelocity
+        return sqrt(v.x * v.x + v.y * v.y)
+    end)
+    if not ok or type(speed) ~= "number" or speed < teleport.min_speed then
+        return
+    end
+    api.teleport()
+    teleport.used, teleport.last = true, globals.realtime
+    if menu.hit_log:get() then
+        print(("[%s] teleport: havada goruldun, DT ile isinlanildi"):format(SCRIPT))
+    end
+end
 
 -------------------------------------------------------------------------------
 -- AI peek
@@ -3061,6 +3143,7 @@ events.createmove:set(protect("createmove", function(cmd)
     })
     apply_defensive(cmd, builder[state], class, state,
         move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck")
+    teleport.update(lp, move_state)
     update_recharge()
     sample_exploit(state)
 end))
@@ -3116,6 +3199,11 @@ local function exploit_status()
     local now = globals.realtime
     local shot = now - own.last_shot
     parts[#parts + 1] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
+    -- Havada teleport'tan bu yana (son 2 sn).
+    local since_tp = now - teleport.last
+    if since_tp >= 0 and since_tp < 2 then
+        parts[#parts + 1] = ("tp %.2fs"):format(since_tp)
+    end
     local mode = changed_at.lag_options ~= nil and now - changed_at.lag_options or nil
     if mode ~= nil and mode >= 0 and mode < 2 then
         parts[#parts + 1] = ("mod %.2fs"):format(mode)
