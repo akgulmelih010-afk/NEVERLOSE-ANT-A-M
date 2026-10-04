@@ -18,7 +18,9 @@
       - Adaptive resolver: Neverlose'un resolver'i bir dusmanda acida yanildikca
         ("correction" iskasi) sadece o dusmana ve o dusmanin hareket durumuna
         (yerde / yururken / egilirken / havada) karsi safe point'i yukseltir.
-        Her aimbot atisi konsola tek satir yazilir.
+        Her aimbot atisi konsola tek satir yazilir. Dusmanlarin defensive / LC kirma ve
+        jitter'i izlenir: defensive'deki iskalar resolver'a sayilmaz, jitter'li AA'ya
+        ilk atistan safe point "Prefer".
       - Smart body aim: govde olduruyorsa (tek mermi ya da DT ile iki) govde; scout /
         AWP / R8'de govde oldurmuyorsa kafa acik kalir; resolver bir dusmanda iki kez
         yanildiysa (DT'li silahlarda) govde.
@@ -32,7 +34,9 @@
         uygulanir (fakelag'da her paket zaten cok tick surer). Istersen L&R
         yerine 3-5 aci arasinda donen X-Way yaw.
       - Gorus tespiti (utils.trace_bullet): tehdit kafana mermi gecirebiliyor mu,
-        simdi ve 0.2 sn sonra; ayrica diger dusmanlar sirayla kontrol edilir.
+        simdi ve 0.2 sn sonra; ayrica diger dusmanlar sirayla (ikiser) kontrol edilir.
+      - Akilli AA hedefi: Neverlose'un tehdidi yoksa en yakin dusmana, tehdit gormuyor
+        ama yandan biri goruyorsa ona gore donulur.
         Hareket ederken gorus alanina girince otomatik
         Peek durumu; safe head sadece kafa gercekten gorunurken; freestanding
         kafayi saklayamadiysa normal jitter'a donus.
@@ -53,7 +57,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.2"
+local VERSION = "4.3"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -672,7 +676,7 @@ local SIGHT = { gap = 24, keep = 64, recent = 32 }
 
 -- others[index] = dusmanin kafani en son gordugu tick; any = kisa sure icinde biri gordu
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
-    any = false, others = {}, turn = 0, sight = {} }
+    any = false, others = {}, turn = 0, sight = {}, facing = nil }
 local peek = { until_tick = -1000 }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
@@ -698,6 +702,38 @@ end
 local function dormant(ent)
     local ok, value = pcall(function() return ent:is_dormant() end)
     return ok and value == true
+end
+
+-- Neverlose'un tehdidi yoksa en yakin canli, dormant olmayan dusman. Oyun loglarinda
+-- "tehdit yok" iken havada kafadan vuruldun: AA hicbir dusmana gore donmuyordu ve gorus
+-- kontrolu de tehdide bakamiyordu. Tick basina bir kez hesaplanir.
+local function aa_threat()
+    local threat = current_threat()
+    if threat ~= nil then
+        return threat
+    end
+    local tick = globals.tickcount
+    if threat_cache.near_tick ~= tick then
+        threat_cache.near_tick, threat_cache.near = tick, nil
+        local ok_lp, lp = pcall(entity.get_local_player)
+        local ok_mine, mine = pcall(function() return lp:get_origin() end)
+        local ok, list = pcall(entity.get_players, true)
+        if ok_lp and ok_mine and mine ~= nil and ok and type(list) == "table" then
+            local best = huge
+            for _, enemy in ipairs(list) do
+                local ok_alive, alive = pcall(function() return enemy:is_alive() end)
+                local ok_pos, pos = pcall(function() return enemy:get_origin() end)
+                if ok_alive and alive and not dormant(enemy) and ok_pos and pos ~= nil then
+                    local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
+                    local distance = dx * dx + dy * dy + dz * dz
+                    if distance < best then
+                        best, threat_cache.near = distance, enemy
+                    end
+                end
+            end
+        end
+    end
+    return threat_cache.near
 end
 
 local function head_visible_to(threat, eye, head, dx, dy, dz)
@@ -748,7 +784,7 @@ do
             return
         end
 
-        local threat = current_threat()
+        local threat = aa_threat()
         local threat_index = threat ~= nil and index_of(threat) or nil
         -- Dormant tehdidin konumu eski; ona gore karar verilmez.
         if threat ~= nil and not dormant(threat) then
@@ -766,8 +802,9 @@ do
             end
         end
 
-        -- Tehdit olmayan, canli, dormant olmayan dusmanlar; siradaki bir tanesine iz atilir.
-        -- Listede olmayan / olen / dormant olan dusmanin eski gorusu hemen silinir.
+        -- Tehdit olmayan, canli, dormant olmayan dusmanlar; siradaki ikisine iz atilir (yandan
+        -- cikip hemen vuran daha erken yakalansin). Listede olmayan / olen / dormant olan
+        -- dusmanin eski gorusu hemen silinir.
         local present, candidates = {}, {}
         local ok, list = pcall(entity.get_players, true)
         if ok and type(list) == "table" then
@@ -780,7 +817,7 @@ do
                 end
             end
         end
-        if #candidates > 0 then
+        for _ = 1, min(2, #candidates) do
             exposure.turn = exposure.turn % #candidates + 1
             local pick = candidates[exposure.turn]
             local ok_eye, eye = pcall(pick.enemy.get_eye_position, pick.enemy)
@@ -810,6 +847,25 @@ end
 -- Herhangi bir dusman kafani goruyor ya da tehdit birazdan gorecek.
 local function seen_by_enemy()
     return exposure.now or exposure.soon or exposure.any
+end
+
+-- Tehdit seni gormuyor (ve birazdan da gormeyecek) ama baska bir dusman goruyorsa, en son
+-- goren o dusman; yoksa nil.
+local function seeing_flanker()
+    if exposure.now or exposure.soon or not exposure.any then
+        return nil
+    end
+    local best, best_tick = nil, nil
+    for index, seen in pairs(exposure.others) do
+        if best_tick == nil or seen > best_tick then
+            best, best_tick = index, seen
+        end
+    end
+    local ok, ent = pcall(entity.get, best)
+    if ok then
+        return ent
+    end
+    return nil
 end
 
 local detect_movement
@@ -919,7 +975,7 @@ end
 local safe_head_active
 do
     local function on_high_ground(lp)
-        local threat = current_threat()
+        local threat = aa_threat()
         if threat == nil then
             return false
         end
@@ -1202,21 +1258,7 @@ end
 -- ama baska bir dusman goruyorsa desync'ini o cozmeye calisiyor, onun fazi uygulanir.
 -- Kimse gormuyorsa tehdidinki.
 local function brute_target()
-    local threat = current_threat()
-    if exposure.now or exposure.soon or not exposure.any then
-        return threat
-    end
-    local best, best_tick = nil, nil
-    for index, seen in pairs(exposure.others) do
-        if best_tick == nil or seen > best_tick then
-            best, best_tick = index, seen
-        end
-    end
-    local ok, ent = pcall(entity.get, best)
-    if ok and ent ~= nil then
-        return ent
-    end
-    return threat
+    return seeing_flanker() or current_threat()
 end
 
 local function threat_stage()
@@ -1267,14 +1309,15 @@ local SHOT_MEMORY = 5
 -- Force safe point'te guvenli nokta yoksa aimbot hic ates etmez ve seviye de hic
 -- dusmez (sonuc gelmez). Dusman seni goruyorken (karsilikli gorus) FORCE_STALL sn
 -- boyunca ona ates edilmediyse "Prefer"e inilir; o durumun bir sonraki atis sonucu
--- seviyeyi yeniden belirler.
-local FORCE_STALL = 1.0
+-- seviyeyi yeniden belirler. Karsilikli gorusteyken yarim saniye ates etmemek bile cok.
+local FORCE_STALL = 0.5
 
 -- players[id] = { name, seen, results = { "c" | "h", ... }, states = { [durum] = { ... } } }
 -- id = Steam ID (player_id); harita degisince de korunur.
 -- shots[id] = { state, time }: ates anindaki dusman durumu
+-- prior_logged[id] = jitter on bilgisi bu dusman icin konsola yazildi
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
-    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false } }
+    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {} }
 
 local function prop(ent, name)
     local ok, value = pcall(function() return ent[name] end)
@@ -1302,6 +1345,111 @@ local function enemy_state(ent)
     return "Standing"
 end
 
+-- Dusman takibi: her tick canli, dormant olmayan dusmanlarin simulasyon zamani, konumu ve
+-- sunucudan gelen bakis yonu izlenir:
+--  defensive: simulasyon zamani gordugumuz en yuksek degerin gerisine dustu (tickbase
+--             kaydirma: defensive / hidden AA). O anki kayit dusmanin gercek acisi degil.
+--  lc: iki guncelleme arasinda 64 birimden fazla yer degistirdi (lag compensation kirildi,
+--      eski kayitlara backtrack gecersiz).
+--  jitter: son `samples` guncelleme arasindaki ortalama yaw degisimi (derece); jitter ya
+--          da spin AA. En az 4 guncellemeden sonra hesaplanir.
+-- Bayraklar `hold` tick gecerli kalir: atis sonucu ~0.05-0.3 sn sonra gelir.
+-- jitter_prior: bu kadar jitter'li ve o durumda hic sonucu olmayan dusmana ilk atistan
+-- "Prefer" (iska beklenmez).
+local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_prior = 35 }
+do
+    local function eye_yaw(ent)
+        local angles = prop(ent, "m_angEyeAngles")
+        if angles == nil then
+            return nil
+        end
+        local ok, yaw = pcall(function() return angles.y end)
+        if ok and type(yaw) == "number" then
+            return yaw
+        end
+        ok, yaw = pcall(function() return angles[1] end)
+        if ok and type(yaw) == "number" then
+            return yaw
+        end
+        return nil
+    end
+
+    local function fresh(sim, enemy)
+        return { sim = sim, max_sim = sim, origin = origin_of(enemy), yaw = eye_yaw(enemy), deltas = {},
+            def_tick = -1000, lc_tick = -1000 }
+    end
+
+    enemy_watch.update = function()
+        local now = globals.tickcount
+        local present = {}
+        local ok, list = pcall(entity.get_players, true)
+        if ok and type(list) == "table" then
+            for _, enemy in ipairs(list) do
+                local index = index_of(enemy)
+                local ok_alive, alive = pcall(function() return enemy:is_alive() end)
+                local sim = prop(enemy, "m_flSimulationTime")
+                if index ~= nil and ok_alive and alive and not dormant(enemy) and type(sim) == "number" then
+                    present[index] = true
+                    local t = enemy_watch.list[index]
+                    -- Ilk gorus, dormant'tan donus ya da yeniden dogus: yeni kayit.
+                    if t == nil or abs(sim - t.max_sim) > 1 then
+                        enemy_watch.list[index] = fresh(sim, enemy)
+                    elseif sim ~= t.sim then
+                        if sim < t.max_sim then
+                            t.def_tick = now
+                        else
+                            t.max_sim = sim
+                        end
+                        local origin = origin_of(enemy)
+                        if origin ~= nil and t.origin ~= nil then
+                            local dx, dy, dz = origin.x - t.origin.x, origin.y - t.origin.y, origin.z - t.origin.z
+                            if dx * dx + dy * dy + dz * dz > 64 * 64 then
+                                t.lc_tick = now
+                            end
+                        end
+                        local yaw = eye_yaw(enemy)
+                        if yaw ~= nil and t.yaw ~= nil then
+                            t.deltas[#t.deltas + 1] = abs((yaw - t.yaw + 180) % 360 - 180)
+                            if #t.deltas > enemy_watch.samples then
+                                table.remove(t.deltas, 1)
+                            end
+                        end
+                        t.sim, t.origin, t.yaw = sim, origin, yaw
+                    end
+                end
+            end
+        end
+        for index in pairs(enemy_watch.list) do
+            if not present[index] then
+                enemy_watch.list[index] = nil
+            end
+        end
+    end
+
+    -- { defensive, lc, jitter } ya da hic veri yoksa nil.
+    enemy_watch.profile = function(ent)
+        local index = ent ~= nil and index_of(ent) or nil
+        local t = index ~= nil and enemy_watch.list[index] or nil
+        if t == nil then
+            return nil
+        end
+        local now = globals.tickcount
+        local jitter = nil
+        if #t.deltas >= 4 then
+            local sum = 0
+            for _, d in ipairs(t.deltas) do
+                sum = sum + d
+            end
+            jitter = sum / #t.deltas
+        end
+        return {
+            defensive = now >= t.def_tick and now - t.def_tick <= enemy_watch.hold,
+            lc = now >= t.lc_tick and now - t.lc_tick <= enemy_watch.hold,
+            jitter = jitter,
+        }
+    end
+end
+
 -- Log icin saldiran: hareket durumu, AA'nin baktigi tehdit mi ve bizim izlerimize gore
 -- kafani ne kadar suredir goruyordu. "gormedi" = izler gormedi (duvarin arkasindan, ya
 -- da diger dusmanlar sirayla kontrol edilirken sira ona gelmeden vurdu).
@@ -1317,11 +1465,11 @@ do
 
     attacker_info = function(ent)
         local parts = { enemy_state(ent) }
-        local threat = current_threat()
+        -- AA'nin o an dondugu dusman (face_target): Neverlose'un tehdidi ya da script'in sectigi.
         local index = index_of(ent)
-        if threat == nil then
-            parts[#parts + 1] = "tehdit yok"
-        elseif index ~= nil and index_of(threat) == index then
+        if exposure.facing == nil then
+            parts[#parts + 1] = "AA hedefi yok"
+        elseif index ~= nil and exposure.facing == index then
             parts[#parts + 1] = "AA hedefi"
         else
             parts[#parts + 1] = "AA hedefi degil"
@@ -1386,18 +1534,37 @@ local function resolver_target()
     return brute_target()
 end
 
+-- Seviye, anahtar, durum, kayit ve seviyenin jitter on bilgisinden gelip gelmedigi.
+-- Dusmanin o durumda hic sonucu yoksa ve AA'si jitter'liyse (ortalama yaw degisimi
+-- jitter_prior derece ve ustu) ilk atistan "Prefer": Neverlose'un resolver'i jitter'da en
+-- cok yanilir ve iska beklemek bir atis kaybettirir. O durumda ilk sonuc gelince veri gecer.
 local function resolver_level(target)
     if target == nil then
         return 0
     end
     local key = player_id(target)
     local entry = key ~= nil and resolver.players[key] or nil
-    if entry == nil then
-        return 0
-    end
-    entry.seen = globals.realtime
     local state = enemy_state(target)
-    return entry_level(entry, state), key, state, entry
+    local level, data = 0, false
+    if entry ~= nil then
+        entry.seen = globals.realtime
+        level = entry_level(entry, state)
+        local list = entry.states[state]
+        data = list ~= nil and #list > 0
+    end
+    local prior = false
+    if not data and level < 1 then
+        local profile = enemy_watch.profile(target)
+        if profile ~= nil and profile.jitter ~= nil and profile.jitter >= enemy_watch.jitter_prior then
+            level, prior = 1, true
+            if key ~= nil and not resolver.prior_logged[key] and menu.resolver_log:get() then
+                resolver.prior_logged[key] = true
+                print(("[%s] resolver: %s jitter %d%s -> safe points Prefer (veri yok, on bilgi)"):format(
+                    SCRIPT, player_name(target), floor(profile.jitter + 0.5), DEG))
+            end
+        end
+    end
+    return level, key, state, entry, prior
 end
 
 local function reset_stall(key, state)
@@ -1475,7 +1642,7 @@ end
 local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n = 0, limit_n = 0 }
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false,
-    brute = 0, resolver = 0, weapon = nil, lethal = false }
+    brute = 0, resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false }
 
 -- Senin kendi safe point ayarin hic dusurulmez: zaten "Force" ise dokunulmaz.
 -- Hedefi ve takilma korumasindan onceki seviyeyi dondurur (body aim icin).
@@ -1484,13 +1651,13 @@ local function apply_resolver()
         resolver.user_safe = get("safe_points")
     end
     local target = resolver_target()
-    local level, raw = 0, 0
+    local level, raw, state, prior = 0, 0, nil, false
     if menu.resolver:get() then
-        local key, state, entry
-        raw, key, state, entry = resolver_level(target)
+        local key, entry
+        raw, key, state, entry, prior = resolver_level(target)
         level = stall_level(raw, key, state, entry)
     end
-    current.resolver = level
+    current.resolver, current.res_state, current.res_prior = level, state, prior == true
     if level > (SAFE_POINT_RANK[resolver.user_safe] or 0) then
         override("safe_points", SAFE_POINT_LEVELS[level])
     else
@@ -1998,6 +2165,33 @@ do
     end
 end
 
+-- AA hedefi. Neverlose'un "At Target"i tehdide bakar. Tehdit yoksa en yakin dusmana, tehdit
+-- seni gormuyor ama yandan biri goruyorsa ona gore donulur: "Local View" + o dusmanin yonu,
+-- "At Target" + Backward ile ayni sonuc (sirtin ona doner, jitter ve desync ona gore).
+-- Desync kafayi yana kaydirir; bu ancak bakan dusmana gore dogru yondeyse kafayi saklar.
+-- Freestanding'de ve sen "Local View" sectiysen dokunulmaz.
+local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
+    local threat = current_threat()
+    exposure.facing = threat ~= nil and index_of(threat) or nil
+    if yaw_base ~= "At Target" or freestand then
+        return yaw_base, yaw_offset
+    end
+    local target
+    if threat == nil then
+        target = aa_threat()
+    else
+        target = seeing_flanker()
+    end
+    local mine, theirs = origin_of(lp), target ~= nil and origin_of(target) or nil
+    local ok, view = pcall(function() return cmd.view_angles.y end)
+    if mine == nil or theirs == nil or not ok or type(view) ~= "number" then
+        return yaw_base, yaw_offset
+    end
+    local yaw = math.deg((math.atan2 or math.atan)(theirs.y - mine.y, theirs.x - mine.x))
+    exposure.facing = index_of(target)
+    return "Local View", yaw_offset + yaw - view
+end
+
 local MOVETYPE_LADDER = 9
 
 events.createmove:set(protect("createmove", function(cmd)
@@ -2020,8 +2214,10 @@ events.createmove:set(protect("createmove", function(cmd)
     end
 
     local choked = cmd.choked_commands or globals.choked_commands or 0
+    exposure.facing = nil
     update_tickbase(lp, choked)
     update_fd_guard(lp)
+    enemy_watch.update()
     update_exposure(lp, cmd)
     local move_state = detect_movement(lp, cmd)
     local class = weapon_class(lp)
@@ -2153,6 +2349,8 @@ events.createmove:set(protect("createmove", function(cmd)
         yaw_base = "Local View"
         yaw_offset = yaw_offset + MANUAL_YAW[manual]
         freestand = false
+    else
+        yaw_base, yaw_offset = face_target(cmd, lp, yaw_base, yaw_offset, freestand)
     end
 
     apply({
@@ -2390,9 +2588,26 @@ local function event_number(e, name)
     return nil
 end
 
+-- Dusmanin ates anindaki AA'si: "AA jit 62" (ortalama yaw degisimi), "AA statik" ya da
+-- yeterli veri yoksa "AA ?"; defensive ve LC kirma varsa eklenir.
+local function profile_text(profile)
+    if profile == nil then
+        return "AA ?"
+    end
+    local parts = { profile.jitter == nil and "AA ?"
+        or (profile.jitter >= 15 and ("AA jit %d"):format(round(profile.jitter)) or "AA statik") }
+    if profile.defensive then
+        parts[#parts + 1] = "def"
+    end
+    if profile.lc then
+        parts[#parts + 1] = "LC"
+    end
+    return table.concat(parts, ", ")
+end
+
 -- Atis kaydi: dusman, ates anindaki durumu ve cani, aimbot'un hedefledigi bolge ve hasar,
--- sonuc, ates anindaki safe points ve body aim, backtrack, isabet sansi ve senin silahin.
--- ack'teki degerler varsa onlar, yoksa ates anindakiler kullanilir.
+-- sonuc, ates anindaki safe points ve body aim, backtrack, isabet sansi, senin silahin ve
+-- dusmanin AA'si. ack'teki degerler varsa onlar, yoksa ates anindakiler kullanilir.
 local function shot_line(e, shot, target)
     local name = target ~= nil and player_name(target) or "?"
     local state = shot ~= nil and shot.state or (target ~= nil and enemy_state(target)) or "?"
@@ -2412,13 +2627,19 @@ local function shot_line(e, shot, target)
     local body = shot ~= nil and shot.body or effective("body_aim")
     local backtrack = event_number(e, "backtrack") or (shot and shot.backtrack)
     local hitchance = event_number(e, "hitchance") or (shot and shot.hitchance)
-    return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | bt %s | hc %s | %s"):format(SCRIPT, name, state,
+    local profile
+    if shot ~= nil then
+        profile = shot.profile
+    else
+        profile = enemy_watch.profile(target)
+    end
+    return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | bt %s | hc %s | %s | %s"):format(SCRIPT, name, state,
         type(health) == "number" and tostring(round(health)) or "?", aimed, result,
         type(safe) == "string" and safe or "?",
         type(body) == "string" and body or "?",
         backtrack ~= nil and ("%dt"):format(round(backtrack)) or "?",
         hitchance ~= nil and ("%d%%"):format(round(hitchance)) or "?",
-        shot ~= nil and shot.weapon or weapon_label())
+        shot ~= nil and shot.weapon or weapon_label(), profile_text(profile))
 end
 
 -- aim_ack'teki hedef dokumanda entity index'i; bazi surumlerde entity'nin kendisi.
@@ -2448,6 +2669,7 @@ pcall(function()
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
                 body = effective("body_aim"), health = prop(target, "m_iHealth"), weapon = weapon_label(),
+                profile = enemy_watch.profile(target),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
                 hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
         end
@@ -2483,8 +2705,15 @@ pcall(function()
                 result = "h"
             end
         elseif state == "correction" then
-            aim_stats.correction = aim_stats.correction + 1
-            result = "c"
+            -- Dusman ates aninda defensive / LC kiriyorduysa kayit gercek acisi degildi: bu
+            -- iska resolver'in hatasi degil, safe point de duzeltmez. Ogrenilmez.
+            local profile = shot ~= nil and shot.profile or nil
+            if profile ~= nil and (profile.defensive or profile.lc) then
+                aim_stats.other = aim_stats.other + 1
+            else
+                aim_stats.correction = aim_stats.correction + 1
+                result = "c"
+            end
         elseif state == "spread" then
             aim_stats.spread = aim_stats.spread + 1
         else
@@ -2631,7 +2860,7 @@ end
 
 forget_enemies = function()
     brute.enemies, brute.recent, brute.hurt = {}, nil, {}
-    resolver.players, resolver.shots, resolver.aim_target = {}, {}, nil
+    resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     reset_stall(nil, nil)
     pending_misses = {}
     pcall(function() db[persist.key] = nil end)
@@ -2652,8 +2881,9 @@ pcall(function()
     events.level_init:set(protect("level_init", function()
         reset_brute()
         pending_misses = {}
-        resolver.shots, resolver.aim_target = {}, nil
+        resolver.shots, resolver.aim_target, resolver.prior_logged = {}, nil, {}
         reset_stall(nil, nil)
+        enemy_watch.list = {}
         persist.save(true)
     end))
 end)
@@ -2677,6 +2907,7 @@ local SHADOW = color(0, 0, 0, 150)
 local FONT = 2
 
 local anim = { scope = 0 }
+local RES_STATE_LABEL = { Standing = "STAND", Moving = "MOVE", Crouch = "DUCK", Air = "AIR" }
 local render_failed = {}
 
 local function text_width(text)
@@ -2759,10 +2990,12 @@ local function draw_indicators(lp, cx, cy)
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", ("BRUTE %d"):format(current.brute))
     end
-    -- Hedefe karsi resolver seviyesi (safe points Prefer / Force).
+    -- Hedefe karsi resolver seviyesi (1 = safe points Prefer, 2 = Force) ve neden: dusmanin
+    -- hangi durumunda yanildigi ya da JIT = jitter'li AA icin on bilgi.
     if current.resolver > 0 then
         y = y + 9
-        render.text(FONT, vector(x, y), accent, "c", ("RES %d"):format(current.resolver))
+        local why = current.res_prior and "JIT" or (RES_STATE_LABEL[current.res_state] or "")
+        render.text(FONT, vector(x, y), accent, "c", ("RES %d %s"):format(current.resolver, why))
     end
     -- Hedefin cani govde vurusuna yetiyor: Body Aim "Prefer".
     if current.lethal then
