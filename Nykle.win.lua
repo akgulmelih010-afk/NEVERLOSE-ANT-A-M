@@ -2171,7 +2171,21 @@ do
         return type(charge) ~= "number" or charge >= 1
     end
 
+    -- Once gercek hasar: gozumuzden hedefin gogsune mermi izi (duvar, mesafe, zirh dahil). V1.0
+    -- loglarinda canı 45 dusmana deagle'la "BA Force" ile 26-27'lik gogus vuruslari geldi: formul
+    -- yakinda ~58 diyordu ama atislar duvardan gidiyordu; zorlanan govde kafa atisini kaybettirdi.
+    -- Iz atilamazsa (hitbox / trace yok) silah degerleri ve mesafeyle hesaplanir.
     local function chest_damage(lp, target, info)
+        if trace_bullet ~= nil then
+            local ok_eye, eye = pcall(function() return lp:get_eye_position() end)
+            local ok_chest, chest = pcall(function() return target:get_hitbox_position(5) end)
+            if ok_eye and eye ~= nil and ok_chest and chest ~= nil then
+                local ok, traced = pcall(trace_bullet, lp, eye, chest)
+                if ok and type(traced) == "number" then
+                    return traced
+                end
+            end
+        end
         local damage = info[1]
         local mine, theirs = origin_of(lp), origin_of(target)
         if mine ~= nil and theirs ~= nil then
