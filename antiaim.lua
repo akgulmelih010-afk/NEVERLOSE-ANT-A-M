@@ -42,7 +42,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "3.3"
+local VERSION = "3.4"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -375,6 +375,8 @@ menu.hidden_spin  = g_defensive:slider("Hidden spin speed", 1, 30, 10)
 -- yukseltir; isabetler geldikce geri indirir.
 menu.resolver      = g_resolver:switch("Adaptive resolver", true)
 menu.resolver_log  = g_resolver:switch("Console log", true)
+-- Her aimbot atisinin sonucu tek satir: resolver'i verilerle ayarlamak icin.
+menu.shot_log      = g_resolver:switch("Shot log (console)", true)
 menu.resolver_info = g_resolver:label("Raises safe points per enemy after resolver misses.")
 
 menu.state = g_builder_raw:combo("State", STATES)
@@ -418,7 +420,10 @@ for i, state in ipairs(STATES) do
     s.avoid_overlap = body_gear:switch("Avoid overlap", false)
     s.body_fs       = body_gear:combo("Freestanding",
         state == "Fake duck" and { "Peek Fake", "Off", "Peek Real" } or { "Off", "Peek Fake", "Peek Real" })
-    s.delay_random  = body_gear:slider("Delay randomize", 0, 5, 0, nil, "t")
+    -- Jitter her pakette tam sirayla donerse resolver'lar bunu yakalar (ornek resolver son
+    -- 4 aci degisiminin 3'u yon degistiriyorsa "jitter" deyip tarafi esliyordu). Her
+    -- donuste 0-1 paket rastgele bekleme bu kati sirayi bozar. Sadece DT/HS aktifken.
+    s.delay_random  = body_gear:slider("Delay randomize", 0, 5, static_default and 0 or 1, nil, "t")
     s.limit_random  = body_gear:slider("Limit randomize", 0, 30, 0, nil, DEG)
     s.delay         = g_builder:slider("Jitter delay", 1, 10, d[3], nil, "t")
     s.left_limit    = g_builder:slider("Left limit", 0, 60, d[4], nil, DEG)
@@ -1942,6 +1947,40 @@ pcall(function()
     end)
 end)
 
+local function event_number(e, name)
+    local ok, value = pcall(function() return e[name] end)
+    if ok and type(value) == "number" and value == value and abs(value) < huge then
+        return value
+    end
+    return nil
+end
+
+-- Atis kaydi: dusman, ates anindaki durumu, aimbot'un hedefledigi bolge ve hasar, sonuc,
+-- ates anindaki safe points, backtrack ve isabet sansi. ack'teki degerler varsa onlar,
+-- yoksa ates anindakiler kullanilir.
+local function shot_line(e, shot, target)
+    local name = target ~= nil and player_name(target) or "?"
+    local state = shot ~= nil and shot.state or (target ~= nil and enemy_state(target)) or "?"
+    local wanted = event_number(e, "wanted_hitgroup") or (shot and shot.hitgroup)
+    local wanted_damage = event_number(e, "wanted_damage") or (shot and shot.damage) or 0
+    local aimed = wanted ~= nil and ("hedef %s %d"):format(HITGROUPS[wanted] or "?", round(wanted_damage)) or "hedef ?"
+    local result
+    local reason = e.state
+    if reason == nil then
+        result = ("isabet %s -%d"):format(HITGROUPS[event_number(e, "hitgroup") or -1] or "?",
+            round(event_number(e, "damage") or 0))
+    else
+        result = "iska " .. tostring(reason):sub(1, 32)
+    end
+    local safe = shot ~= nil and shot.safe or effective("safe_points")
+    local backtrack = event_number(e, "backtrack") or (shot and shot.backtrack)
+    local hitchance = event_number(e, "hitchance") or (shot and shot.hitchance)
+    return ("[%s] atis: %s | %s | %s | %s | SP %s | bt %s | hc %s"):format(SCRIPT, name, state, aimed, result,
+        type(safe) == "string" and safe or "?",
+        backtrack ~= nil and ("%dt"):format(round(backtrack)) or "?",
+        hitchance ~= nil and ("%d%%"):format(round(hitchance)) or "?")
+end
+
 -- aim_ack'teki hedef dokumanda entity index'i; bazi surumlerde entity'nin kendisi.
 local function aim_target_entity(target)
     if type(target) == "number" then
@@ -1967,7 +2006,9 @@ pcall(function()
         end
         local state = enemy_state(target)
         if e.id ~= nil then
-            resolver.shots[e.id] = { state = state, time = now }
+            resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
+                hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
+                hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
         end
         local stall = resolver.stall
         if stall.key ~= nil and stall.key == entity_key(target) then
@@ -2001,6 +2042,9 @@ pcall(function()
             resolver.shots[e.id] = nil
         end
         local target = aim_target_entity(e.target)
+        if menu.shot_log:get() then
+            print(shot_line(e, shot, target))
+        end
         if result == nil or target == nil or not menu.resolver:get() then
             return
         end
@@ -2018,7 +2062,7 @@ pcall(function()
         if stall.key == entity_key(target) and stall.state == enemy then
             reset_stall(stall.key, stall.state)
         end
-        if menu.resolver_log:get() and (result == "c" or level ~= before) then
+        if menu.resolver_log:get() and level ~= before then
             local what = result == "c" and "iska (correction)"
                 or ("isabet %s -%d"):format(HITGROUPS[e.hitgroup] or "?", tonumber(e.damage) or 0)
             print(("[%s] resolver: %s %s %s | seviye %d -> safe points %s"):format(
