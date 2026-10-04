@@ -537,9 +537,11 @@ menu.air_teleport   = grp.defensive:switch(style.title("person-running", "Telepo
 -- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
 -- hidden acilar (spin). "Havada lag olmuyor": Smart sadece biri seni gorunce zorluyordu.
 menu.air_lag        = grp.defensive:switch(style.title("cloud", "Air lag (defensive every tick)"), true)
--- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots): Neverlose'un lua'dan
--- defensive zorlamasi ve teleport'u DT ister; HS ile havada lag olmuyordu.
-menu.sniper_air_dt  = grp.defensive:switch(style.title("crosshairs", "Snipers use DT in the air"), true)
+-- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots). V1.0'da varsayilan kapali:
+-- inince DT -> HS gecisi sarji sifirdan baslatiyor; loglarda zipladiktan sonra peek'te "HS %14 LC"
+-- iken kafadan vuruldun (teleport'tan 0.38 sn sonra). Kapaliyken scout havada da HS + Break LC.
+menu.sniper_air_dt  = style.tip(grp.defensive:switch(style.title("crosshairs", "Snipers use DT in the air"), false),
+    "Acikken scout havada DT'ye gecer (air lag, teleport) ama inince HS sarji sifirdan baslar.")
 
 -- Ragebot. Neverlose'un kendi resolver'i acilari cozmeye devam eder. Bu katman, bir dusmana
 -- resolver yuzunden ("correction") iska gectikce sadece o dusmana karsi safe point'i
@@ -2859,17 +2861,17 @@ local MOVETYPE_LADDER = 9
 
 -- Havada teleport: havadayken bir dusman kafani gorurken (ya da birazdan gorecekken) exploit
 -- doluysa Neverlose'un teleport'u tetiklenir; biriken tick'ler bir anda oynanir, ziplama
--- yonunde ileri sicrarsin ve dusmanin elindeki kayit gecersizlesir. Sarj dolunca tekrar:
--- ziplama basina en fazla max_jump kez, en az gap sn arayla (teleport, sarj, teleport: havada
--- "ucma"). Yatay hiz en az min_speed. Fake duck'ta yok (exploit calismaz). Hide shots'ta
+-- yonunde ileri sicrarsin ve dusmanin elindeki kayit gecersizlesir. Ziplama basina en fazla
+-- max_jump kez. Yatay hiz en az min_speed. Fake duck'ta yok (exploit calismaz). Hide shots'ta
 -- (scout / AWP / R8) da denenir: sarj harcanmadiysa Neverlose HS ile teleport yapmiyor
 -- demektir, bir kez yazilir ve o haritada HS ile bir daha denenmez.
--- refilled: bu ziplamada teleport'tan sonra sarj havada yeniden doldu mu (inince ozet yazilir:
--- tek teleport ve dolmadiysa ikincisi sarj yuzunden gelmedi demektir).
--- v5.3 loglarinda her ziplamada 3 teleport (sinir) vardi ve sarj her seferinde doldu: sinir 5,
--- ara 0.15 sn; asil sinir sarjin dolmasi. Inise land_guard sn'den az kaldiysa teleport yok:
--- sarj (~0.22 sn) inene kadar dolmaz, yere DT'siz inip sarj olurken yerinde donardin.
-local teleport = { last = -1000, count = 0, min_speed = 150, gap = 0.15, max_jump = 5, land_guard = 0.2,
+-- refilled: bu ziplamada teleport'tan sonra sarj havada yeniden doldu mu (inince ozet yazilir).
+-- V1.0: teleport sarji harcar; dolana kadar (~0.26 sn: loglarda 0.21 sn sonra "DT %80") havada
+-- ne defensive ne air lag var. v5.4-v5.6'da ziplama basina 5 teleport vardi; loglarda ikinci
+-- teleport'tan 0.21 sn sonra "DT %80, DEF yok" iken kafadan vuruldun. Artik ziplama basina 1:
+-- sonra sarj dolar ve air lag (her tick defensive) devam eder. Inise land_guard sn'den az kaldiysa
+-- teleport yok: sarj inene kadar dolmaz, yere DT'siz inip sarj olurken yerinde donardin.
+local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_guard = 0.35,
     pending = nil, hs_ok = nil, refilled = false }
 
 -- Yere kac sn kaldi (dikey hiz ve yer cekimiyle); 400 birim icinde yer yoksa ya da iz
@@ -2914,8 +2916,7 @@ teleport.update = function(lp, move_state)
             teleport.refilled = true
         end
     end
-    if teleport.count >= teleport.max_jump or (now >= teleport.last and now - teleport.last < teleport.gap)
-        or not menu.air_teleport:get() or api.teleport == nil or resolver.paused("TP") then
+    if teleport.count >= teleport.max_jump or not menu.air_teleport:get() or api.teleport == nil or resolver.paused("TP") then
         return
     end
     -- Fake duck'ta exploit calismaz (bind'in "acik" gorunse de): v5.0 loglarinda FD'de teleport tetiklendi.
