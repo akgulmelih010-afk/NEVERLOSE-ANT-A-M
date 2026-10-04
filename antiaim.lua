@@ -41,7 +41,8 @@
         Peek durumu; safe head sadece kafa gercekten gorunurken; freestanding
         kafayi saklayamadiysa normal jitter'a donus.
       - Yaw / modifier / limit rastgeleligi; rastgele deger her flip'te bir kez
-        secilir, boylece bir paket icinde aci sabit kalir.
+        secilir, boylece bir paket icinde aci sabit kalir. Body yaw "Random": desync
+        tarafi her pakette rastgele (fake duck ve safe head'de varsayilan).
       - Durum gecislerinde histerezis ve inis toleransi (titreme yok).
       - Vuruldum / iska kaydi (konsol) ve durum basina istatistik paneli: hangi
         durumda vuruldugunu gorup o durumu ayarlarsin.
@@ -57,7 +58,7 @@
 
 local SCRIPT = "ANT-A-M"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "4.3"
+local VERSION = "4.4"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -319,9 +320,11 @@ local DEFAULTS = {
     ["Peek"]         = { -20, 45, 1, 58, 58 },
     ["Air"]          = { -13, 34, 1, 58, 58 },
     ["Air crouch"]   = { -15, 44, 1, 58, 58 },
-    -- Fake duck'ta exploit calismaz ve paketler ~14 tick bogulur; jitter ~0.2 sn'de
-    -- bir donup tahmin edilebilir olur. Static + body freestanding "Peek Fake":
-    -- Neverlose sahte kafayi peek yonune, gercek kafayi siperin arkasina koyar.
+    -- Fake duck'ta exploit calismaz ve paketler ~14 tick bogulur; sirayla donen jitter
+    -- ~0.2 sn'de bir donup tahmin edilebilir olur. Body yaw "Random": taraf her pakette
+    -- rastgele (bkz. builder). Eskiden static + "Peek Fake" freestanding'di: tarafi
+    -- Neverlose sectigi icin anti-brute tarafi degistiremiyordu (loglarda faz 1 ve 2'de
+    -- hep "sol 58" ile kafadan vuruldun).
     ["Fake duck"]    = { 0, 0, 1, 58, 58 },
     ["Manual"]       = { 0, 0, 1, 60, 60 },
     ["Freestanding"] = { 0, 0, 1, 60, 60 },
@@ -464,8 +467,19 @@ for i, state in ipairs(STATES) do
     s.mod_random    = tracked(s.modifier:create()):slider("Randomize", 0, 60, 0, nil, DEG)
     s.mod_offset    = g_builder:slider("Modifier offset", -180, 180, 0, nil, DEG)
     -- Combo varsayilani ilk eleman oldugu icin ozel durumlarda Static basta.
+    -- Random: desync tarafi her paket dongusunde (Jitter delay kadar) rastgele secilir; Jitter
+    -- gibi sirayla donmez, tahmin edilecek bir desen yoktur. Fake duck ve Safe head'de
+    -- varsayilan: ikisinde de eskiden sabit taraf vardi ve loglarda kafadan vuruldun.
     local static_default = special or state == "Fake duck"
-    s.body_yaw      = g_builder:combo("Body yaw", static_default and { "Static", "Jitter", "Off" } or { "Jitter", "Static", "Off" })
+    local body_items
+    if state == "Fake duck" or state == "Safe head" then
+        body_items = { "Random", "Static", "Jitter", "Off" }
+    elseif static_default then
+        body_items = { "Static", "Jitter", "Random", "Off" }
+    else
+        body_items = { "Jitter", "Static", "Random", "Off" }
+    end
+    s.body_yaw      = g_builder:combo("Body yaw", body_items)
     local body_gear = tracked(s.body_yaw:create())
     s.avoid_overlap = body_gear:switch("Avoid overlap", false)
     s.body_fs       = body_gear:combo("Freestanding",
@@ -543,8 +557,8 @@ local function update_visibility()
             local desync = body ~= "Off"
             s.mod_offset:visibility(modded)
             s.mod_random:visibility(modded)
-            s.delay:visibility(body == "Jitter")
-            s.delay_random:visibility(body == "Jitter")
+            s.delay:visibility(body == "Jitter" or body == "Random")
+            s.delay_random:visibility(body == "Jitter" or body == "Random")
             s.left_limit:visibility(desync)
             s.right_limit:visibility(desync)
             s.limit_random:visibility(desync)
@@ -1316,8 +1330,9 @@ local FORCE_STALL = 0.5
 -- id = Steam ID (player_id); harita degisince de korunur.
 -- shots[id] = { state, time }: ates anindaki dusman durumu
 -- prior_logged[id] = jitter on bilgisi bu dusman icin konsola yazildi
+-- jittery[id] = dusmanin AA'sinin en son jitter'li goruldugu zaman (sn)
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
-    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {} }
+    stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {} }
 
 local function prop(ent, name)
     local ok, value = pcall(function() return ent[name] end)
@@ -1355,8 +1370,9 @@ end
 --          da spin AA. En az 4 guncellemeden sonra hesaplanir.
 -- Bayraklar `hold` tick gecerli kalir: atis sonucu ~0.05-0.3 sn sonra gelir.
 -- jitter_prior: bu kadar jitter'li ve o durumda hic sonucu olmayan dusmana ilk atistan
--- "Prefer" (iska beklenmez).
-local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_prior = 35 }
+-- "Prefer" (iska beklenmez). Karar jitter_memory sn hatirlanir: loglarda ayni dusmanin
+-- ortalamasi 21 ile 48 arasinda gidip geliyordu ve on bilgi acilip kapaniyordu.
+local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_prior = 35, jitter_memory = 60 }
 do
     local function eye_yaw(ent)
         local angles = prop(ent, "m_angEyeAngles")
@@ -1553,15 +1569,20 @@ local function resolver_level(target)
         data = list ~= nil and #list > 0
     end
     local prior = false
-    if not data and level < 1 then
-        local profile = enemy_watch.profile(target)
-        if profile ~= nil and profile.jitter ~= nil and profile.jitter >= enemy_watch.jitter_prior then
-            level, prior = 1, true
-            if key ~= nil and not resolver.prior_logged[key] and menu.resolver_log:get() then
-                resolver.prior_logged[key] = true
-                print(("[%s] resolver: %s jitter %d%s -> safe points Prefer (veri yok, on bilgi)"):format(
-                    SCRIPT, player_name(target), floor(profile.jitter + 0.5), DEG))
-            end
+    local profile = enemy_watch.profile(target)
+    local now = globals.realtime
+    if key ~= nil and profile ~= nil and profile.jitter ~= nil and profile.jitter >= enemy_watch.jitter_prior then
+        resolver.jittery[key] = now
+    end
+    local seen = key ~= nil and resolver.jittery[key] or nil
+    local jittery = seen ~= nil and now >= seen and now - seen <= enemy_watch.jitter_memory
+    if not data and level < 1 and jittery then
+        level, prior = 1, true
+        if not resolver.prior_logged[key] and menu.resolver_log:get() then
+            resolver.prior_logged[key] = true
+            local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
+            print(("[%s] resolver: %s jitter%s -> safe points Prefer (veri yok, on bilgi)"):format(
+                SCRIPT, player_name(target), amount))
         end
     end
     return level, key, state, entry, prior
@@ -1754,7 +1775,11 @@ local function update_flip(s, exploit, choked)
     if flip.packets < target then
         return
     end
-    flip.side = not flip.side
+    if s.body_yaw:get() == "Random" then
+        flip.side = random(0, 1) == 1
+    else
+        flip.side = not flip.side
+    end
     flip.packets = 0
     flip.step = flip.step + 1
     local spread = s.delay_random:get()
@@ -1924,11 +1949,14 @@ do
             return
         end
         -- Hide shots'in Neverlose'da "On Peek" secenegi yok, sadece Break LC var. Peek
-        -- durumundayken ya da tehdit kafani goruyor / birazdan gorecekken (havadan peek
-        -- dahil) Break LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu.
+        -- durumundayken, havadayken ya da tehdit kafani goruyor / birazdan gorecekken Break
+        -- LC acilir; yoksa scout'la peek atarken hic defensive olmuyordu. Havada gorus
+        -- beklenmez: loglarda havada HS ile "DEF yok" iken kafadan vuruldun, birinde
+        -- saldirani izler gormemisti.
         local now = globals.tickcount
         local on_peek = mode == "On peek" or mode == "Smart"
-        if on_peek and hs and (state == "Peek" or seen_by_enemy()) then
+        local airborne = state == "Air" or state == "Air crouch"
+        if on_peek and hs and (state == "Peek" or airborne or seen_by_enemy()) then
             hs_lc.until_tick = now + HS_LC_HOLD
         end
         local hs_peek = on_peek and hs and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
@@ -2305,7 +2333,7 @@ events.createmove:set(protect("createmove", function(cmd)
     local body = s.body_yaw:get()
     -- yaw_side yaw left/right secimini, side desync tarafini belirler.
     local yaw_side
-    if body == "Jitter" then
+    if body == "Jitter" or body == "Random" then
         yaw_side = flip.side
     else
         yaw_side = menu.inverter:get()
@@ -2320,7 +2348,7 @@ events.createmove:set(protect("createmove", function(cmd)
             -- Static'te kafa desync ile birlikte doner. Jitter'da taraf zaten her
             -- pakette dondugu icin ikisini birden cevirmek hicbir sey degistirmez;
             -- sadece desync kayar, yaw eski sirasinda kalir ve cozulen desen bozulur.
-            if body ~= "Jitter" then
+            if body ~= "Jitter" and body ~= "Random" then
                 yaw_side = side
             end
         end
@@ -2705,10 +2733,12 @@ pcall(function()
                 result = "h"
             end
         elseif state == "correction" then
-            -- Dusman ates aninda defensive / LC kiriyorduysa kayit gercek acisi degildi: bu
-            -- iska resolver'in hatasi degil, safe point de duzeltmez. Ogrenilmez.
+            -- Dusman ates aninda LC kiriyorduysa (64+ birim sicrama) eski kayit gecersizdi: bu
+            -- iska resolver'in hatasi degil, safe point de duzeltmez. Ogrenilmez. Defensive
+            -- sayilmaz: oyun loglarinda neredeyse her atista dusman defensive'deydi ve
+            -- kafadan isabetler de geldi; sayilmasaydi resolver hic ogrenmezdi.
             local profile = shot ~= nil and shot.profile or nil
-            if profile ~= nil and (profile.defensive or profile.lc) then
+            if profile ~= nil and profile.lc then
                 aim_stats.other = aim_stats.other + 1
             else
                 aim_stats.correction = aim_stats.correction + 1
@@ -2861,6 +2891,7 @@ end
 forget_enemies = function()
     brute.enemies, brute.recent, brute.hurt = {}, nil, {}
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
+    resolver.jittery = {}
     reset_stall(nil, nil)
     pending_misses = {}
     pcall(function() db[persist.key] = nil end)
@@ -2881,7 +2912,7 @@ pcall(function()
     events.level_init:set(protect("level_init", function()
         reset_brute()
         pending_misses = {}
-        resolver.shots, resolver.aim_target, resolver.prior_logged = {}, nil, {}
+        resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
         reset_stall(nil, nil)
         enemy_watch.list = {}
         persist.save(true)
