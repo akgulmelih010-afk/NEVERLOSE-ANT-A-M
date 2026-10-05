@@ -956,6 +956,86 @@ do
     M.visible[2], M.can_hit[2] = nil, nil
 end
 
+-- 9h) V1.0.14 (oyun logundan): havada fake duck tusu DT'yi kapatmaz (GameSense'in fake duck'i sadece
+-- yerde), yere inince fake duck'ta DT kapali. Sniper mermisiyle fake duck birakilinca sarj beklenmez (DT
+-- hemen acik); tusu kendin birakinca (gorulurken) sarj yine beklenir. Bicakli dusman yakinken scout'ta
+-- Min. damage gecici 30 (101 kafa kurali ve senin 100'un yerine), uzaklasinca geri.
+do
+    local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
+    me.alive, me.weapon = true, 102
+    e1.alive, e1.dormant = true, false
+    M.visible[2], M.can_hit[2] = false, false
+    M.items[dt_cb].value = true
+    me.props.m_fFlags = 1
+    me.props.m_vecVelocity = { 0, 0, 0 }
+    step({}, 90)
+    me.props.m_fFlags = 0
+    me.props.m_vecVelocity = { 200, 0, 120 }
+    step({ in_jump = 1 }, 3)
+    M.items[fd_id].value.held = true
+    local dt_kept = true
+    for _ = 1, 20 do
+        step({ in_jump = 1 }, 1)
+        dt_kept = dt_kept and M.items[dt_cb].value == true
+    end
+    check(dt_kept, "9h: havada fake duck tusuna basinca DT kapatildi")
+    me.props.m_fFlags = 1
+    me.props.m_vecVelocity = { 0, 0, 0 }
+    step({}, 4)
+    check(M.items[dt_cb].value == false, "9h: yere inince fake duck'ta DT kapatilmadi")
+
+    -- Yerde fake duck, gorulurken sniper mermisi: fake duck birakilir, DT sarj beklemeden acilir.
+    M.visible[2] = true
+    step({}, 10)
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ssg08", dmg_health = 40, hitgroup = 3, health = 60 })
+    step({}, 6)
+    check(not ui.get(fd_id), "9h: sniper mermisiyle fake duck birakilmadi")
+    check(M.items[dt_cb].value == true, "9h: sniper mermisiyle fake duck birakilinca DT sarji bekletildi")
+    M.visible[2] = false
+    step({}, 120)
+    check(ui.get(fd_id), "9h: sniper gormeyince fake duck geri verilmedi")
+    -- Tusu kendin birakinca (gorulurken): Safe recharge yine bekletir.
+    M.visible[2] = true
+    step({}, 4)
+    M.items[fd_id].value.held = false
+    step({}, 4)
+    check(M.items[dt_cb].value == false, "9h: fake duck'i kendin birakinca (gorulurken) sarj beklenmedi")
+    M.visible[2] = false
+    step({}, 90)
+
+    -- Bicakli dusman yakin: scout'ta Min. damage gecici 30.
+    local md_id = ui.reference("RAGE", "Aimbot", "Minimum damage")
+    me.weapon = 101
+    ui.set(M.weapon_type_id, "SSG 08")
+    step({}, 4)
+    ui.set(md_id, 100)
+    me.weapon = 102
+    e2.alive, e2.dormant, e2.weapon = true, false, 103
+    e2.origin = { 0, 900, 0 }
+    M.visible[2] = true
+    step({}, 10)
+    check(ui.get(md_id) == 101, "9h: kurulum: sniper Min. damage 101 degil: " .. tostring(ui.get(md_id)))
+    local before = #M.logs
+    e2.origin = { 0, 150, 0 }
+    step({}, 6)
+    check(ui.get(md_id) == 30, "9h: bicakli dusman yakinken Min. damage 30 degil: " .. tostring(ui.get(md_id)))
+    local knife_line = false
+    for i = before + 1, #M.logs do
+        knife_line = knife_line or M.logs[i]:find("bicak/zeus ile yakinda: Min. damage gecici 30", 1, true) ~= nil
+    end
+    check(knife_line, "9h: bicakli dusman yakinken Min. damage logu yok")
+    e2.origin = { 0, 900, 0 }
+    step({}, 6)
+    check(ui.get(md_id) == 101, "9h: bicakli uzaklasinca Min. damage geri gelmedi: " .. tostring(ui.get(md_id)))
+    me.weapon = 101
+    step({}, 4)
+    check(ui.get(md_id) == 100, "9h: silah degisince senin Min. damage'in geri verilmedi: " .. tostring(ui.get(md_id)))
+    ui.set(md_id, 20)
+    ui.set(M.weapon_type_id, "Rifle")
+    M.visible[2], M.can_hit[2] = nil, nil
+    step({}, 10)
+end
+
 -- 10) Kapat / ac ve kapanis: hepsi geri.
 local enable = M.find_lua("Enable Nykle.win")
 ui.set(enable.id, false)

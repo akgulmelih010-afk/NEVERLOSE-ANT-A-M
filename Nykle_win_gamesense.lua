@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.13"
+local VERSION = "1.0.14"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -686,8 +686,11 @@ local function hs_on()
     return get("hideshots") == true and (refs.hideshots_key == nil or get("hideshots_key"))
 end
 
+-- Fake duck: tus basili ve yerdesin. GameSense'in fake duck'i sadece yerde calisir; havada tus basili olsa
+-- da DT / HS, air lag, defensive ve teleport kapatilmaz, inince fake duck her zamanki gibi (V1.0.14: logda
+-- ziplayip havada fake duck'a basilinca DT kapaniyordu, "Air crouch | FD, DT yok").
 local function fd_on()
-    return get("fakeduck") == true
+    return get("fakeduck") == true and on_ground(local_player())
 end
 
 local function slowwalk_on()
@@ -1216,6 +1219,9 @@ menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
 -- fake duck birakilir: hiz, DT ve defensive geri gelir; sniper'in ikinci mermisi en erken 1.25 sn sonra.
 menu.fd_hit         = grp.protect:switch("Release fake duck when hit by sniper", true)
+-- V1.0.14 oyun logu: zipla-bicakla gelen dusman 37-78 birimdeyken 1 sn vurulabilir goruldu ama ates yok
+-- ("hasar 87 < MD 100"), uc bicakla olum. Bicak / zeus tutan dusman yakinken Min. damage gecici dusurulur.
+menu.knife_md       = grp.protect:switch("Lower Min. damage vs close knife/zeus", true)
 -- V1.0'da varsayilan kapali: fake duck'i bilerek bunny hop + ani peek icin kullaniyorsun.
 menu.fd_still       = grp.protect:switch("Fake duck only when standing still", false)
 
@@ -3629,6 +3635,8 @@ do
 
     local PLIST_BODY_VALUE = { Prefer = "On", Force = "Force", Default = "Off" }
     local HP_PLUS_ONE = 101
+    -- Bicak / zeus tutan dusman bu kadar yakinken (V1.0.14): oldurmese de vurulur, Min. damage en fazla 30.
+    local KNIFE_MD = { dist = 320, value = 30, logged = -1000 }
 
     apply_body_aim = function(lp, class, target, level, present)
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
@@ -3647,9 +3655,20 @@ do
             f.index, f.ticks = target, 0
         end
         local fake_body = false
+        local mine = on(menu.knife_md) and origin_of(lp) or nil
+        local melee_near = nil
 
         for _, enemy in ipairs(enemy_list()) do
             present[enemy] = true
+            if mine ~= nil and melee_near == nil and MELEE[weapon_class(enemy)] then
+                local pos = origin_of(enemy)
+                if pos ~= nil then
+                    local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
+                    if dx * dx + dy * dy + dz * dz < KNIFE_MD.dist * KNIFE_MD.dist then
+                        melee_near = enemy
+                    end
+                end
+            end
             local wanted, lethal, stalled = nil, false, false
             if on(menu.smart_baim) then
                 -- Seviye 2 kurali her dusmanin kendi seviyesiyle (oyuncu basina karar).
@@ -3705,18 +3724,31 @@ do
 
         -- Kafa ya da oldurucu atis: tek atisli silahta Min. damage "HP + 1" (GameSense'te 101), aimbot sadece
         -- oldurecek yere ates eder. Senin daha yuksek minimum hasarin ve Minimum damage override tusun
-        -- dusurulmez. Sadece elindeki silahin grubu seciliyken yazilir.
+        -- dusurulmez (tek istisna asagida: yakindaki bicak / zeus). Sadece elindeki silahin grubu seciliyken
+        -- yazilir.
         local scope = rage_scope(class)
         local min_damage = nil
+        local user_md = user_value("min_damage")
+        local md_override = get("md_override") == true and get("md_override_key") == true
         if sniper_rule then
             min_damage = HP_PLUS_ONE
-            local user_md = user_value("min_damage")
-            local md_override = get("md_override") == true and get("md_override_key") == true
             if (finite(user_md) and user_md >= min_damage) or md_override then
                 min_damage = nil
             end
         end
-        current.head_only = min_damage ~= nil and scope ~= nil
+        -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
+        -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 87 hasarlik atis bile iyi.
+        local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+            and not md_override
+        if knife_md then
+            min_damage = (finite(user_md) and user_md > KNIFE_MD.value) and KNIFE_MD.value or nil
+            if min_damage ~= nil and on(menu.hit_log) and (now < KNIFE_MD.logged or now - KNIFE_MD.logged > 5) then
+                KNIFE_MD.logged = now
+                print(("[%s] %s bicak/zeus ile yakinda: Min. damage gecici %d (oldurmese de vur)"):format(
+                    SCRIPT, player_name(melee_near), KNIFE_MD.value))
+            end
+        end
+        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md
         override("min_damage", min_damage, scope)
     end
 end
@@ -3854,6 +3886,14 @@ local exploit_memory = { choice = nil }
 local own = { last_shot = -1000, round = nil }
 local recharge = { held = false, fakeduck = false, released = -1000 }
 
+-- Sniper mermisiyle fake duck birakildi (V1.0.14): o sniper'in ikinci mermisi en erken 1.25 sn sonra.
+-- Sarj beklemeden hemen dolarsa DT ve defensive o mermiden once geri gelir (V1.0.12 logu: birakildiktan
+-- 1 sn sonra DT %10 iken ikinci mermiyle olum).
+recharge.after_hit = function(now)
+    local h = own.fd_hit
+    return h ~= nil and on(menu.fd_hit) and now >= h.time and now - h.time <= 3
+end
+
 recharge.decide = function(wants_dt)
     local fakeduck = fd_on()
     if recharge.fakeduck and not fakeduck then
@@ -3861,7 +3901,8 @@ recharge.decide = function(wants_dt)
     end
     recharge.fakeduck = fakeduck
     local hold = false
-    if wants_dt and on(menu.safe_recharge) and exposure.available and not fakeduck then
+    if wants_dt and on(menu.safe_recharge) and exposure.available and not fakeduck
+        and not recharge.after_hit(realtime()) then
         local since = realtime() - max(own.last_shot, recharge.released)
         -- Tutulurken DT kapali, tahmini sarj 0: sinir yine 1.2 sn.
         hold = charge.value < 1 and since >= 0 and since <= K.RECHARGE_HOLD_MAX and seen_by_enemy()
