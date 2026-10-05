@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.12"
+local VERSION = "1.0.13"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -4461,8 +4461,45 @@ end
 -- Havada teleport (GameSense: cmd.discharge_pending): havadayken bir dusman kafani gorurken (ya da birazdan
 -- gorecekken) DT doluysa biriken tick'ler bir anda oynanir. Ziplama basina 1 kez (V1.0), inise 0.35 sn'den
 -- az kaldiysa yok, yatay hiz en az 150. GameSense'te sadece DT ile (HS sarji olculemiyor).
+-- V1.0.13: her teleportun sonucu tutulur (1.5 sn icinde mermi yedin mi). Bir haritada son 3 teleportun
+-- 2'si vurulmayla bittiyse o harita boyunca havada teleport kapanir: sarj havada air lag'e, inince DT'ye
+-- kalir (loglarda teleportlarin yarisi hemen vurulma ve %0 DT ile bitiyordu).
 local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_guard = 0.35, refilled = false,
-    pending = nil }
+    pending = nil, watch = nil, window = 1.5, results = {}, keep = 3, limit = 2, off = false }
+
+-- Teleportun sonucunu yazar; son 3'te 2 vurulma olunca bu harita icin kapatir.
+teleport.judge = function(hit)
+    teleport.watch = nil
+    local results = teleport.results
+    results[#results + 1] = hit
+    while #results > teleport.keep do
+        table.remove(results, 1)
+    end
+    local hits = 0
+    for _, value in ipairs(results) do
+        hits = hits + (value and 1 or 0)
+    end
+    if on(menu.hit_log) then
+        print(("[%s] teleport sonucu: %s (son %d: %d vurulma)"):format(SCRIPT,
+            hit and "1.5 sn icinde vuruldun" or "vurulmadin", #results, hits))
+    end
+    if hits >= teleport.limit and not teleport.off then
+        teleport.off = true
+        print(("[%s] teleport: son %d isinlanmanin %d'sinde hemen vuruldun, bu harita boyunca havada teleport kapali (sarj air lag / DT icin kalir)"):format(
+            SCRIPT, #results, hits))
+    end
+end
+
+-- player_hurt (dusman mermisi): teleporttan sonraki 1.5 sn icindeyse vurulma sayilir.
+teleport.hurt = function(now)
+    if teleport.watch ~= nil and now >= teleport.watch and now - teleport.watch <= teleport.window then
+        teleport.judge(true)
+    end
+end
+
+teleport.reset = function()
+    teleport.watch, teleport.results, teleport.off = nil, {}, false
+end
 
 teleport.land_time = function(lp)
     local origin = origin_of(lp)
@@ -4479,6 +4516,9 @@ end
 
 teleport.update = function(cmd, lp, move_state)
     local now = realtime()
+    if teleport.watch ~= nil and (now < teleport.watch or now - teleport.watch > teleport.window) then
+        teleport.judge(false)
+    end
     -- Bir onceki tick'te tetiklendiyse sarj harcandi mi (GameSense'te dogrulama icin).
     local pending = teleport.pending
     if pending ~= nil and tickcount() > pending.tick + 1 then
@@ -4499,7 +4539,8 @@ teleport.update = function(cmd, lp, move_state)
     if teleport.count > 0 and charge.value >= 1 then
         teleport.refilled = true
     end
-    if teleport.count >= teleport.max_jump or not on(menu.air_teleport) or resolver.paused("TP") or current.clean then
+    if teleport.count >= teleport.max_jump or teleport.off or not on(menu.air_teleport) or resolver.paused("TP")
+        or current.clean then
         return
     end
     if not (exposure.now or exposure.soon or exposure.any) or fd_on() then
@@ -4512,7 +4553,7 @@ teleport.update = function(cmd, lp, move_state)
         return
     end
     pcall(function() cmd.discharge_pending = true end)
-    teleport.count, teleport.last = teleport.count + 1, now
+    teleport.count, teleport.last, teleport.watch = teleport.count + 1, now, now
     teleport.pending = { tick = tickcount() }
     if on(menu.hit_log) then
         print(("[%s] teleport: havada goruldun, DT ile isinlanildi (%d. kez)"):format(SCRIPT, teleport.count))
@@ -5528,6 +5569,7 @@ listen("player_hurt", protect("player_hurt", function(e)
 
     local now = realtime()
     brute.hurt[e.attacker] = now
+    teleport.hurt(now)
     -- Fake duck'tayken sniper mermisi: fake duck korumasi bir sure birakir (bkz. update_fd_guard).
     if fd_on() and (e.weapon == "ssg08" or e.weapon == "awp") then
         own.fd_hit = { attacker = attacker, time = now, name = player_name(attacker) }
@@ -6169,6 +6211,7 @@ listen("level_init", protect("level_init", function()
     resolver.stalls, resolver.body_stalls, resolver.open_cache = {}, {}, {}
     exposure.shot, exposure.duel = nil, nil
     ai_peek.reset()
+    teleport.reset()
     enemy_watch.list = {}
     plist_reset(false)
     charge.base = nil
@@ -7137,8 +7180,9 @@ listen("round_start", protect("detailed log round_start", function()
         end
         local m = D.my
         if m ~= nil and m.ticks > 0 then
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d"):format(
-                SCRIPT, m.ticks, m.dt, m.forced, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit))
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s"):format(
+                SCRIPT, m.ticks, m.dt, m.forced, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
+                teleport.off and " (teleport bu harita kapali)" or ""))
         end
         print(D.header())
     end

@@ -907,6 +907,55 @@ do
     step({}, 90)
 end
 
+-- 9g) V1.0.13: teleport sonucu tutulur; bir haritada son 3 teleportun 2'si 1.5 sn icinde vurulmayla
+-- bittiyse o harita boyunca havada teleport kapanir. level_init'te tekrar acilir. Yeni haritada DT sarji
+-- sifirdan dolar (sarj olcumu orada sifirlanir).
+do
+    local function new_map()
+        M.fire("level_init", {})
+        M.shift = 0
+        step({}, 60)
+    end
+    new_map()
+    me.alive, me.weapon = true, 101
+    e1.alive, e1.dormant = true, false
+    M.visible[2], M.can_hit[2] = true, false
+    local function jump(hurt)
+        me.props.m_fFlags = 0
+        me.props.m_vecVelocity = { 250, 0, 280 }
+        local fired = false
+        for _ = 1, 30 do
+            advance_sim(1)
+            local cmd = M.step({ in_jump = 1 })
+            if cmd.discharge_pending == true and not fired then
+                fired, M.discharge = true, true
+                if hurt then
+                    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ak47", dmg_health = 20, hitgroup = 2,
+                        health = 80 })
+                end
+            end
+        end
+        me.props.m_fFlags = 1
+        me.props.m_vecVelocity = { 0, 0, 0 }
+        -- 1.5 sn'den fazla yerde: vurulmayan teleport "vurulmadin" diye yazilir, DT tekrar dolar.
+        step({}, 160)
+        return fired
+    end
+    M.items[dt_cb].value = true
+    step({}, 60)
+    check(jump(true), "9g: 1. teleport olmadi")
+    check(log_has("teleport sonucu: 1.5 sn icinde vuruldun (son 1: 1 vurulma)"), "9g: vurulan teleport sonucu yazilmadi")
+    check(jump(false), "9g: 2. teleport olmadi")
+    check(log_has("teleport sonucu: vurulmadin (son 2: 1 vurulma)"), "9g: vurulmayan teleport sonucu yazilmadi")
+    check(not log_has("bu harita boyunca havada teleport kapali"), "9g: 1/2 vurulmada teleport kapandi")
+    check(jump(true), "9g: 3. teleport olmadi")
+    check(log_has("bu harita boyunca havada teleport kapali"), "9g: son 3'te 2 vurulmada teleport kapanmadi")
+    check(not jump(false), "9g: kapandiktan sonra yine teleport yapildi")
+    new_map()
+    check(jump(false), "9g: yeni haritada teleport tekrar acilmadi")
+    M.visible[2], M.can_hit[2] = nil, nil
+end
+
 -- 10) Kapat / ac ve kapanis: hepsi geri.
 local enable = M.find_lua("Enable Nykle.win")
 ui.set(enable.id, false)
