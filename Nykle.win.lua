@@ -17,6 +17,8 @@
       - Temiz atis: silah ates edebiliyorken ve hedef vurulabilirken kendi lag'in (Break LC, zorlanan
         defensive, havada teleport) durur, mermi gidince geri gelir. Lag'li atislarin kayip ya da
         kaymis gitmesi resolver disi iskalarin kaynagiydi.
+      - AA ogrenmesi: denenmemis anti-brute fazi 0.3 sayilir (0.5 idi); peek'te yarisi kafadan vurulan
+        faz hic birakilmiyordu (16/33).
       - Fake duck her yerde senin: "Fake duck only when standing still" varsayilan kapali (bunny hop +
         FD ile ani peek'i havada / kosarken FD'yi birakarak bozuyordu).
 
@@ -1579,16 +1581,26 @@ brute.rate = function(stat)
     return (stat.hits + 2) / (stat.shots + 4)
 end
 
+-- Fazlar icin (V1.0): on bilgi 0.3, agirlik 8. (isabet + 2) / (mermi + 4) ile denenmemis faz 0.5
+-- sayiliyordu ve kafa isabeti %50'ye yakin bir faz hic birakilmiyordu: loglarda "AA (peek): en az vurulan
+-- faz 1 (16/33 kafa isabeti)", peek'te kafana gelen mermilerin yarisi isabet etti ve diger fazlar hic
+-- denenmedi. Simdi ~%40'in ustunde vurulan faz yerine denenmemis olan denenir (yarisinda vurulan faz 5-6 mermide
+-- birakilir); tek isabet yine secimi degistirmez, ayni fazda arka arkaya iki isabet degistirir (eskisi gibi).
+-- Fark tam 0.1 ise degismez (1e-9: kayan nokta yuvarlamasi karar vermesin).
+brute.phase_rate = function(stat)
+    return (stat.hits + 2.4) / (stat.shots + 8)
+end
+
 local function brute_default(group)
     local stats, current_default = brute.phases[group], brute.default[group]
     local best, best_rate = 0, huge
     for phase = 0, #BRUTE_PHASES do
-        local rate = brute.rate(stats[phase])
+        local rate = brute.phase_rate(stats[phase])
         if rate < best_rate - 1e-9 then
             best, best_rate = phase, rate
         end
     end
-    if best ~= current_default and best_rate < brute.rate(stats[current_default]) - 0.1 then
+    if best ~= current_default and best_rate < brute.phase_rate(stats[current_default]) - 0.1 - 1e-9 then
         return best
     end
     return current_default
