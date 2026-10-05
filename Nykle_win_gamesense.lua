@@ -27,13 +27,130 @@
     gibi okuyabiliyor (lua acilmaz), o yuzden ad alt cizgili.
 ]]
 
+-- Log kaydi (V1.0.10): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
+-- dugmeler hepsini panoya kopyalar ya da konsola yeniden yazar. Ayrica nykle_log.txt'ye (CS:GO klasoru)
+-- round basinda, harita degisince, her 5 dakikada ve kapanista yazilir; onceki oturumlarin loglari
+-- dosyada kalir ("Clear saved logs" ile silinir). Sadece bu lua'nin satirlari tutulur.
+local nlog = { raw = print, lines = {}, cap = 12000, trim = 1000, file = "nykle_log.txt", old = "",
+    old_cap = 2000000, dirty = false, saved = -1000, save_every = 300 }
+
+nlog.stamp = function()
+    local ok, h, m, s = pcall(client.system_time)
+    if ok and type(h) == "number" and type(m) == "number" and type(s) == "number" then
+        return ("%02d:%02d:%02d"):format(h, m, s)
+    end
+    local ok_rt, t = pcall(globals.realtime)
+    return (ok_rt and type(t) == "number") and ("%.1f"):format(t) or "--"
+end
+
+nlog.push = function(line)
+    local lines = nlog.lines
+    lines[#lines + 1] = nlog.stamp() .. " " .. line
+    if #lines > nlog.cap + nlog.trim then
+        local keep = {}
+        for i = #lines - nlog.cap + 1, #lines do
+            keep[#keep + 1] = lines[i]
+        end
+        nlog.lines = keep
+    end
+    nlog.dirty = true
+end
+
+-- all: onceki oturumlarin (dosyadaki) loglari da.
+nlog.text = function(all)
+    local body = table.concat(nlog.lines, "\n")
+    if all and nlog.old ~= "" then
+        return nlog.old .. "\n" .. body
+    end
+    return body
+end
+
+-- GameSense readfile / writefile (CS:GO klasorune gore yol). Yoksa ya da hata verirse dosya yazilmaz.
+nlog.load_old = function()
+    local _, read = pcall(function() return readfile end)
+    if type(read) ~= "function" then
+        return
+    end
+    local ok, text = pcall(read, nlog.file)
+    if not ok or type(text) ~= "string" or text == "" then
+        return
+    end
+    if #text > nlog.old_cap then
+        text = text:sub(#text - nlog.old_cap + 1)
+        text = text:gsub("^[^\n]*\n", "", 1)
+    end
+    nlog.old = text:gsub("\n+$", "")
+end
+
+nlog.save = function()
+    local _, write = pcall(function() return writefile end)
+    local ok_rt, now = pcall(globals.realtime)
+    if ok_rt and type(now) == "number" then
+        nlog.saved = now
+    end
+    if type(write) ~= "function" then
+        return false
+    end
+    local ok = pcall(write, nlog.file, nlog.text(true) .. "\n")
+    if ok then
+        nlog.dirty = false
+    end
+    return ok
+end
+
+-- Panoya kopyalama: CS:GO'nun VGUI_System010 arayuzu (SetClipboardText, sanal tablo 9; GameSense'in
+-- clipboard kutuphanesiyle ayni). FFI ya da arayuz yoksa false.
+nlog.clipboard = function(text)
+    local _, create = pcall(function() return client.create_interface end)
+    if type(create) ~= "function" then
+        return false
+    end
+    local ok_ffi, ffi = pcall(require, "ffi")
+    if not ok_ffi or type(ffi) ~= "table" then
+        return false
+    end
+    local ok, done = pcall(function()
+        local iface = create("vgui2.dll", "VGUI_System010")
+        if iface == nil then
+            return false
+        end
+        local vt = ffi.cast("void***", iface)
+        local set_text = ffi.cast("void(__thiscall*)(void*, const char*, int)", vt[0][9])
+        set_text(vt, text, #text)
+        return true
+    end)
+    return ok and done == true
+end
+
+-- Bu oturumun butun satirlari konsola (dogrudan; tekrar kayda girmez).
+nlog.dump = function()
+    local lines = nlog.lines
+    nlog.raw(("[Nykle.win] ===== tum loglar: %d satir (bu oturum) ====="):format(#lines))
+    for _, line in ipairs(lines) do
+        nlog.raw(line)
+    end
+    nlog.raw("[Nykle.win] ===== loglarin sonu =====")
+end
+
+nlog.load_old()
+
+-- Lua'nin butun print'leri buradan gecer: konsola yazilir ve kayda girer.
+local function print(...)
+    local parts = {}
+    for i = 1, select("#", ...) do
+        parts[i] = tostring((select(i, ...)))
+    end
+    pcall(nlog.push, table.concat(parts, " "))
+    return nlog.raw(...)
+end
+
 -- Butun script tek fonksiyonda calisir: yuklenirken hata olursa en alttaki xpcall hatayi satir numarasi
 -- ile konsola yazar (girinti yok; govde dosyanin sonuna kadar surer).
 local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.9"
+local VERSION = "1.0.10"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1040,6 +1157,29 @@ menu.resolver_log = grp.console:switch("Resolver log", true)
 menu.shot_log     = grp.console:switch("Shot log", true)
 menu.hit_log      = grp.console:switch("Hit log", true)
 menu.brute_log    = grp.console:switch("Anti-brute log", false)
+-- V1.0.10: oyun loglarindan gelistirmek icin detayli log (konum, mesafe, hiz, defensive, duello ozeti,
+-- "gordu ama sikmadi" sebebi). Varsayilan acik; satirlar "dbg" ile baslar.
+menu.debug_log    = grp.console:switch("Detailed log (for analysis)", true)
+menu.log_copy     = grp.console:button("Copy all logs", function()
+    local text = nlog.text(true)
+    local count = select(2, text:gsub("\n", "\n")) + (text ~= "" and 1 or 0)
+    local file = nlog.save() and ("; dosya: %s (CS:GO klasoru)"):format(nlog.file) or ""
+    if nlog.clipboard(text) then
+        print(("[%s] %d satir log panoya kopyalandi (Ctrl+V ile yapistir)%s"):format(SCRIPT, count, file))
+    else
+        print(("[%s] panoya kopyalanamadi (GameSense'te Allow unsafe scripts kapali olabilir): loglar asagida konsolda%s"):format(
+            SCRIPT, file))
+        nlog.dump()
+    end
+end)
+menu.log_print    = grp.console:button("Print all logs to console", function()
+    nlog.dump()
+end)
+menu.log_clear    = grp.console:button("Clear saved logs", function()
+    nlog.lines, nlog.old = {}, ""
+    nlog.save()
+    print(("[%s] kayitli loglar silindi (%s)"):format(SCRIPT, nlog.file))
+end)
 
 -- Anti-Aim
 menu.pitch          = grp.aa:combo("Pitch", { "Down", "Minimal", "Off" })
@@ -2469,6 +2609,8 @@ do
                 if t == nil or abs(sim - t.max_sim) > 1 then
                     enemy_watch.list[enemy] = fresh(sim, enemy)
                 elseif sim ~= t.sim then
+                    -- Log icin: iki guncelleme arasi tick (1 = bogma yok, 4 = 3 tick bogma, eksi = geri / defensive).
+                    t.step = floor((sim - t.sim) / tick_interval() + 0.5)
                     local fake = sim < t.max_sim
                     if fake then
                         t.def_tick = now
@@ -5501,6 +5643,9 @@ local function aim_result(e, reason)
     if shot ~= nil then
         resolver.shots[e.id] = nil
     end
+    -- V1.0.10: hedef asagidaki "baska oyuncuya isabet" karsilastirmasindan once okunur (V1.0.8-1.0.9'da
+    -- sonra tanimliydi; karsilastirma bos degere yapiliyordu ve hedefin kendi hasari da "baska oyuncu" sayiliyordu).
+    local target = finite(e.target) and e.target or nil
     if reason == "?" then
         reason = "correction"
         local lp = local_player()
@@ -5516,7 +5661,6 @@ local function aim_result(e, reason)
             end
         end
     end
-    local target = finite(e.target) and e.target or nil
     local result, excluded
     aim_stats.shots = aim_stats.shots + 1
     if reason == nil then
@@ -5550,6 +5694,11 @@ local function aim_result(e, reason)
     end
     if on(menu.shot_log) then
         print(shot_line(e, shot, target, reason) .. (excluded ~= nil and (" | resolver'a sayilmadi: " .. excluded) or ""))
+    end
+    -- Detayli log: ates anindaki konum / kayit / aimbot bayraklari (bkz. nlog.fire_info).
+    if shot ~= nil and shot.dbg ~= nil then
+        print(shot.dbg .. " | sonuc " .. (reason == nil and ("isabet %s"):format(HITGROUPS[event_number(e, "hitgroup") or -1] or "?")
+            or tostring(reason)))
     end
     ai_peek.result(e.id, reason, event_number(e, "hitgroup"), event_number(e, "damage"),
         target ~= nil and player_name(target) or nil)
@@ -6225,6 +6374,629 @@ listen("post_config_load", protect("post_config_load", function()
     recommended_state.pending, recommended_state.report_off = true, true
     pcall(update_visibility)
 end))
+
+-------------------------------------------------------------------------------
+-- Detayli log (V1.0.10; Home > Console > "Detailed log (for analysis)", varsayilan acik)
+-------------------------------------------------------------------------------
+-- Oyun loglarindan gelistirmek icin "dbg" satirlari. Konum: @YerAdi(x,y,z) (haritadaki bolge adi ve
+-- koordinat), mesafe birim (1 m ~ 52 birim), h = yukseklik farki (+ = dusman ustte), v = yatay hiz,
+-- bak = dusmanin yaw'inin sana gore acisi (0 = sana bakiyor, 180 = arkasi donuk), lby = LBY ile yaw farki,
+-- p = pitch. Kayit: DEF geri Nt = sahte (defensive) kayit, bogma N = paket bogma, AA deseni, resolver seviyesi.
+--  dbg atis-detay:    her atis sonucunun altinda: hedefin konumu, kaydi, plist, aimbot bayraklari, sen.
+--  dbg sikmadi:       dusmana mermi gecerken 0.4 sn ates yoksa bir kez: tahmini hasar, MD, silah, sebep.
+--  dbg duello:        bir dusmanla karsilasma bitince: kim once gordu, defensive suresi, hiz, atislar.
+--  dbg vurulma-detay / olum-detay / kill-detay: konumlar, mesafe, duvardan mi, son iki atisi arasi (DT).
+--  dbg def ozeti:     round sonunda dusman basina defensive sayisi ve suresi.
+--  dbg round / harita / ayarlar: baslik satirlari.
+do
+local D = { vis = {}, duel = {}, def = {}, round_def = {}, last_def = {}, shots = {}, scan_tick = -1000,
+    every = 4, see_after = 0.4, vis_gap = 16, duel_gap = 48, sight_hold = 12, refs = {} }
+
+D.on = function()
+    return on(menu.enabled) and on(menu.debug_log)
+end
+
+D.short = function(class)
+    if type(class) ~= "string" then
+        return "?"
+    end
+    if class == "Revolver" then
+        return "r8"
+    end
+    return (class:gsub("^CWeapon", ""):gsub("^C", ""):lower())
+end
+
+D.norm = function(yaw)
+    return (yaw + 180) % 360 - 180
+end
+
+-- GameSense menu ayari (yol bulunamazsa "?").
+D.setting = function(tab, box, name)
+    local key = tab .. ">" .. box .. ">" .. name
+    local ref = D.refs[key]
+    if ref == nil then
+        local ok, found = pcall(ui.reference, tab, box, name)
+        ref = (ok and found ~= nil) and found or false
+        D.refs[key] = ref
+    end
+    if ref == false then
+        return "?"
+    end
+    local ok, value = pcall(ui.get, ref)
+    if not ok or value == nil then
+        return "?"
+    end
+    return tostring(value)
+end
+
+D.ping = function(ent)
+    local res = try(entity.get_player_resource)
+    local ping = res ~= nil and prop(res, "m_iPing", ent) or nil
+    return finite(ping) and ping or nil
+end
+
+-- Konum, mesafe, hareket, bakis, can, silah, ping. lp verilmezse mesafe / bakis yazilmaz.
+D.where = function(ent, lp)
+    local o = origin_of(ent)
+    if o == nil then
+        return "@?"
+    end
+    local place = prop(ent, "m_szLastPlaceName")
+    local parts = { ("@%s(%d,%d,%d)"):format((type(place) == "string" and place ~= "") and place or "?",
+        round(o.x), round(o.y), round(o.z)) }
+    local mine = (lp ~= nil and lp ~= ent) and origin_of(lp) or nil
+    if mine ~= nil then
+        local dx, dy, dz = o.x - mine.x, o.y - mine.y, o.z - mine.z
+        parts[#parts + 1] = ("%du h%+d"):format(round(sqrt(dx * dx + dy * dy + dz * dz)), round(dz))
+    end
+    local v = velocity_of(ent)
+    parts[#parts + 1] = ("v%d"):format(round(sqrt(v.x * v.x + v.y * v.y)))
+    if not on_ground(ent) then
+        parts[#parts + 1] = ("havada vz%+d"):format(round(v.z))
+    end
+    local duck = prop(ent, "m_flDuckAmount")
+    if finite(duck) and duck > 0.05 then
+        parts[#parts + 1] = ("duck%d"):format(round(duck * 100))
+    end
+    if mine ~= nil then
+        local pitch, yaw = prop(ent, "m_angEyeAngles")
+        if finite(yaw) then
+            local to_me = math.deg(atan2(mine.y - o.y, mine.x - o.x))
+            parts[#parts + 1] = ("bak%+d"):format(round(D.norm(yaw - to_me)))
+            local lby = prop(ent, "m_flLowerBodyYawTarget")
+            if finite(lby) then
+                parts[#parts + 1] = ("lby%+d"):format(round(D.norm(lby - yaw)))
+            end
+        end
+        if finite(pitch) then
+            parts[#parts + 1] = ("p%d"):format(round(pitch))
+        end
+    end
+    local hp = prop(ent, "m_iHealth")
+    if finite(hp) then
+        parts[#parts + 1] = ("hp%d"):format(round(hp))
+    end
+    parts[#parts + 1] = D.short(weapon_class(ent))
+    local ping = D.ping(ent)
+    if ping ~= nil then
+        parts[#parts + 1] = ("ping%d"):format(round(ping))
+    end
+    return table.concat(parts, " ")
+end
+
+-- Dusmanin kaydi: sahte kayit (defensive), bogma, LC, fake duck, AA deseni, resolver seviyesi.
+D.rec = function(ent)
+    local t = enemy_watch.list[ent]
+    if t == nil then
+        return "kayit ?"
+    end
+    local parts = {}
+    if t.sim < t.max_sim then
+        parts[#parts + 1] = ("DEF geri %dt"):format(round((t.max_sim - t.sim) / tick_interval()))
+    else
+        local last, now = D.last_def[ent], tickcount()
+        if last ~= nil and now >= last and now - last <= 64 then
+            parts[#parts + 1] = ("def %dt once bitti"):format(now - last)
+        end
+    end
+    if finite(t.step) then
+        parts[#parts + 1] = t.step > 0 and ("bogma %d"):format(t.step - 1) or ("adim %d"):format(t.step)
+    end
+    local profile = enemy_watch.profile(ent)
+    if profile ~= nil then
+        if profile.lc then
+            parts[#parts + 1] = "LC"
+        end
+        if profile.fakeduck then
+            parts[#parts + 1] = "FD"
+        end
+        parts[#parts + 1] = ("AA %s%s"):format(profile.pattern or "?",
+            profile.jitter ~= nil and ("/%d"):format(round(profile.jitter)) or "")
+    end
+    local key = player_id(ent)
+    local entry = key ~= nil and resolver.players[key] or nil
+    if entry ~= nil then
+        parts[#parts + 1] = ("seviye %d"):format(entry_level(entry, enemy_state(ent)))
+    end
+    return #parts > 0 and table.concat(parts, " ") or "kayit normal"
+end
+
+D.plist = function(ent)
+    local parts = {}
+    local sp, ba = plist_get(ent, PL.SAFE), plist_get(ent, PL.BODY)
+    if sp ~= nil and sp ~= "-" then
+        parts[#parts + 1] = "SP " .. tostring(sp)
+    end
+    if ba ~= nil and ba ~= "-" then
+        parts[#parts + 1] = "BA " .. tostring(ba)
+    end
+    if plist_get(ent, PL.FORCE) == true then
+        parts[#parts + 1] = "BY " .. tostring(plist_get(ent, PL.VALUE))
+    end
+    if plist_get(ent, PL.WHITELIST) == true then
+        parts[#parts + 1] = "WHITELIST"
+    end
+    return #parts > 0 and ("plist " .. table.concat(parts, " ")) or "plist -"
+end
+
+-- Senin durumun: konum, AA durumu, manual / FS / peek tusu, exploit.
+D.me = function(lp)
+    local parts = { "ben " .. D.where(lp, nil), current.state }
+    if manual.dir ~= "Off" then
+        parts[#parts + 1] = "manual " .. manual.dir
+    end
+    if current.freestand then
+        parts[#parts + 1] = "FS"
+    end
+    if peek_key_held() then
+        parts[#parts + 1] = "peek tusu"
+    end
+    parts[#parts + 1] = exploit_status()
+    return table.concat(parts, " | ")
+end
+
+D.ready = function(lp)
+    local weapon = weapon_of(lp)
+    if weapon == nil then
+        return "silah ?"
+    end
+    local clip = prop(weapon, "m_iClip1")
+    if finite(clip) and clip == 0 then
+        return "sarjor bos"
+    end
+    local next_attack, player_next = prop(weapon, "m_flNextPrimaryAttack"), prop(lp, "m_flNextAttack")
+    local wait = max(finite(next_attack) and next_attack or 0, finite(player_next) and player_next or 0) - curtime()
+    if wait > 0.02 then
+        return ("silah %.2fs sonra hazir"):format(wait)
+    end
+    local scoped = prop(lp, "m_bIsScoped")
+    return "silah hazir" .. ((SNIPERS[current.weapon] and (scoped == 0 or scoped == false)) and " (durbun kapali)" or "")
+end
+
+-- Ates aninda (aim_fire): sonuc satirinin altina yazilir.
+D.fire_info = function(e, target)
+    local lp = local_player()
+    local function num(name)
+        local ok, v = pcall(function() return e[name] end)
+        return (ok and finite(v)) and v or nil
+    end
+    local flags = {}
+    local bt, hc, z = num("backtrack"), num("hit_chance"), num("z")
+    if bt ~= nil then
+        flags[#flags + 1] = ("bt %dt"):format(round(bt))
+    end
+    if hc ~= nil then
+        flags[#flags + 1] = ("hc %d%%"):format(round(hc))
+    end
+    for _, name in ipairs({ "teleported", "extrapolated", "interpolated", "high_priority" }) do
+        if e[name] == true then
+            flags[#flags + 1] = name
+        end
+    end
+    local o = origin_of(target)
+    if z ~= nil and o ~= nil then
+        flags[#flags + 1] = ("nisan z%+d"):format(round(z - o.z))
+    end
+    return ("[%s] dbg atis-detay: %s %s | %s | %s | aimbot %s | %s"):format(SCRIPT, player_name(target),
+        D.where(target, lp), D.rec(target), D.plist(target), #flags > 0 and table.concat(flags, " ") or "-",
+        lp ~= nil and D.me(lp) or "ben ?")
+end
+
+D.no_shot = function(enemy, v, lp, now)
+    local reasons = {}
+    local md = active_min_damage()
+    local best = max(v.dh or 0, v.db or 0)
+    if D.setting("RAGE", "Aimbot", "Enabled") == "false" then
+        reasons[#reasons + 1] = "rage kapali"
+    end
+    if current.head_only then
+        reasons[#reasons + 1] = "sniper kurali: sadece oldurecek atis"
+    end
+    if finite(md) and best < md then
+        reasons[#reasons + 1] = ("hasar %d < MD %d"):format(round(best), round(md))
+    end
+    if (v.dh or 0) <= 0 then
+        reasons[#reasons + 1] = "kafa kapali"
+    end
+    if v.other > 0 then
+        reasons[#reasons + 1] = ("aimbot baska hedefe %d ates"):format(v.other)
+    end
+    local t = enemy_watch.list[enemy]
+    if t ~= nil and t.sim < t.max_sim then
+        reasons[#reasons + 1] = "onun kaydi sahte (DEF)"
+    end
+    if not on_ground(lp) then
+        reasons[#reasons + 1] = "sen havadasin"
+    elseif fd_on() then
+        reasons[#reasons + 1] = "fake duck (sadece asagida ates)"
+    elseif speed2d(lp) > 100 then
+        reasons[#reasons + 1] = ("sen hareketlisin v%d (isabet sansi)"):format(round(speed2d(lp)))
+    end
+    if not weapon_ready(lp, 0) then
+        reasons[#reasons + 1] = "silah hazir degil"
+    end
+    return ("[%s] dbg sikmadi: %s %.2fs vurulabilir (kafa %d, govde %d hasar), ates yok | %s | MD %s hc %s | %s | %s | %s | %s | %s"):format(
+        SCRIPT, player_name(enemy), (now - v.first) * tick_interval(), round(v.dh or 0), round(v.db or 0),
+        #reasons > 0 and table.concat(reasons, ", ") or "sebep bilinmiyor", finite(md) and tostring(round(md)) or "?",
+        D.setting("RAGE", "Aimbot", "Minimum hit chance"), D.ready(lp), D.where(enemy, lp), D.rec(enemy),
+        D.plist(enemy), D.me(lp))
+end
+
+-- Gozunden dusmanin kafasina / govdesine mermi geciyor mu (her every tick'te bir).
+D.scan = function(lp, now)
+    local eye, class = eye_of(lp), current.weapon
+    if eye == nil or class == nil or MELEE[class] or class == "CC4" or is_grenade(class) then
+        return
+    end
+    for _, enemy in ipairs(enemy_list()) do
+        local head = hitbox_of(enemy, 0)
+        local dh = head ~= nil and bullet_damage(lp, eye, head, enemy) or nil
+        local db = nil
+        for _, hitbox in ipairs({ 5, 3 }) do
+            local point = hitbox_of(enemy, hitbox)
+            local d = point ~= nil and bullet_damage(lp, eye, point, enemy) or nil
+            if d ~= nil and (db == nil or d > db) then
+                db = d
+            end
+            if db ~= nil and db > 0 then
+                break
+            end
+        end
+        local v = D.vis[enemy]
+        if (dh or 0) > 0 or (db or 0) > 0 then
+            if v == nil or now < v.last or now - v.last > D.vis_gap then
+                v = { first = now, last = now, fired = 0, other = 0, logged = false }
+                D.vis[enemy] = v
+            end
+            v.last, v.dh, v.db = now, dh or 0, db or 0
+            if not v.logged and v.fired == 0 and (now - v.first) * tick_interval() >= D.see_after then
+                v.logged = true
+                print(D.no_shot(enemy, v, lp, now))
+            end
+        elseif v ~= nil and (now < v.last or now - v.last > D.vis_gap) then
+            D.vis[enemy] = nil
+        end
+    end
+end
+
+D.open = function(enemy, lp, now)
+    local E = D.duel[enemy]
+    if E == nil then
+        E = { start = now, last = now, ticks = 0, name = player_name(enemy), where = D.where(enemy, lp), def_ticks = 0,
+            def_n = 0, in_def = false, top = 0, air = false, his_shots = 0, his_hits = 0, his_dmg = 0, our_shots = 0,
+            our_hits = 0 }
+        D.duel[enemy] = E
+    end
+    return E
+end
+
+D.close = function(enemy, result)
+    local E = D.duel[enemy]
+    if E == nil then
+        return
+    end
+    D.duel[enemy] = nil
+    local ti = tick_interval()
+    local first
+    if E.he ~= nil and E.we ~= nil then
+        local diff = (E.we - E.he) * ti
+        first = abs(diff) < 0.02 and "ayni anda" or (diff > 0 and ("o %.2fs once"):format(diff) or ("sen %.2fs once"):format(-diff))
+    elseif E.he ~= nil then
+        first = "sadece o gordu"
+    elseif E.we ~= nil then
+        first = "sadece sen gordun"
+    else
+        first = "?"
+    end
+    print(("[%s] dbg duello: %s %s | %.2fs | ilk goren: %s | def %d kez %dt (%%%d) | hiz max %d%s | o: %d ates %d isabet -%d | sen: %d ates %d isabet | %s"):format(
+        SCRIPT, E.name, E.where, max(1, E.last - E.start) * ti, first, E.def_n, E.def_ticks,
+        round(100 * E.def_ticks / max(1, E.ticks)), round(E.top), E.air and ", havada" or "", E.his_shots, E.his_hits,
+        round(E.his_dmg), E.our_shots, E.our_hits, result))
+end
+
+D.close_all = function(result)
+    for enemy in pairs(D.duel) do
+        D.close(enemy, result)
+    end
+end
+
+-- Her tick: dusmanlarin defensive bolumleri ve duellolar.
+D.track = function(lp, now)
+    for _, enemy in ipairs(enemy_list()) do
+        local t = enemy_watch.list[enemy]
+        local in_def = t ~= nil and t.sim < t.max_sim
+        local ep = D.def[enemy]
+        if in_def and ep == nil then
+            D.def[enemy] = { start = now, speed = speed2d(enemy) }
+        elseif not in_def and ep ~= nil then
+            D.def[enemy], D.last_def[enemy] = nil, now
+            local name = player_name(enemy)
+            local r = D.round_def[name] or { n = 0, ticks = 0, longest = 0, moving = 0 }
+            D.round_def[name] = r
+            local length = max(1, now - ep.start)
+            r.n, r.ticks, r.longest = r.n + 1, r.ticks + length, max(r.longest, length)
+            if ep.speed >= 100 then
+                r.moving = r.moving + 1
+            end
+        end
+        local s = exposure.sight[enemy]
+        local sees = s ~= nil and now >= s.last and now - s.last <= D.sight_hold
+        local v = D.vis[enemy]
+        local we = v ~= nil and now >= v.last and now - v.last <= D.every * 2
+        local E = D.duel[enemy]
+        if E == nil and (sees or we) then
+            E = D.open(enemy, lp, now)
+        end
+        if E ~= nil then
+            E.ticks = E.ticks + 1
+            if sees or we then
+                E.last = now
+            end
+            if sees and E.he == nil then
+                E.he = now
+            end
+            if we and E.we == nil then
+                E.we = now
+            end
+            if in_def then
+                E.def_ticks = E.def_ticks + 1
+                if not E.in_def then
+                    E.def_n = E.def_n + 1
+                end
+            end
+            E.in_def = in_def
+            E.top = max(E.top, speed2d(enemy))
+            E.air = E.air or not on_ground(enemy)
+        end
+    end
+    for enemy, E in pairs(D.duel) do
+        if now < E.last or now - E.last > D.duel_gap then
+            D.close(enemy, "ayrildi")
+        end
+    end
+end
+
+D.header = function()
+    local rules = try(entity.get_game_rules)
+    local played = rules ~= nil and prop(rules, "m_totalRoundsPlayed") or nil
+    local lp = local_player()
+    local team = lp ~= nil and prop(lp, "m_iTeamNum") or nil
+    local latency = try(client.latency)
+    return ("[%s] dbg ===== round %s | %s | sen %s | ping %s ====="):format(SCRIPT,
+        finite(played) and tostring(round(played) + 1) or "?", tostring(try(globals.mapname) or "?"),
+        team == 2 and "T" or (team == 3 and "CT" or "?"), finite(latency) and ("%dms"):format(round(latency * 1000)) or "?")
+end
+
+D.settings = function()
+    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s"):format(
+        SCRIPT, round(1 / tick_interval()), D.setting("RAGE", "Aimbot", "Enabled"),
+        D.setting("RAGE", "Aimbot", "Minimum hit chance"), tostring(get("min_damage")), tostring(get("weapon_type")),
+        tostring(get("doubletap")), tostring(get("hideshots")), tostring(get("dt_fakelag")),
+        D.setting("AA", "Fake lag", "Amount"), D.setting("AA", "Fake lag", "Limit"), tostring(get("maxshift")),
+        tostring(on(menu.recommended)), tostring(menu.sniper_exploit ~= nil and menu.sniper_exploit:get() or "?"),
+        tostring(on(menu.auto_exploit)), tostring(on(menu.wait_real)))
+end
+
+D.reset = function()
+    D.vis, D.duel, D.def, D.round_def, D.last_def, D.shots = {}, {}, {}, {}, {}, {}
+end
+
+listen("setup_command", protect("detailed log", function()
+    if not D.on() then
+        return
+    end
+    local lp = local_player()
+    if lp == nil or not alive(lp) then
+        return
+    end
+    local now = tickcount()
+    if now < D.scan_tick or now - D.scan_tick >= D.every then
+        D.scan_tick = now
+        D.scan(lp, now)
+    end
+    D.track(lp, now)
+end))
+
+listen("aim_fire", protect("detailed log aim_fire", function(e)
+    if not D.on() then
+        return
+    end
+    local target = finite(e.target) and e.target or nil
+    if target == nil then
+        return
+    end
+    for enemy, v in pairs(D.vis) do
+        if enemy == target then
+            v.fired = v.fired + 1
+        else
+            v.other = v.other + 1
+        end
+    end
+    local lp = local_player()
+    if lp ~= nil then
+        local now = tickcount()
+        local E = D.open(target, lp, now)
+        E.our_shots, E.last, E.we = E.our_shots + 1, now, E.we or now
+    end
+    local shot = e.id ~= nil and resolver.shots[e.id] or nil
+    if shot ~= nil then
+        shot.dbg = D.fire_info(e, target)
+    end
+end))
+
+listen("aim_hit", protect("detailed log aim_hit", function(e)
+    local E = finite(e.target) and D.duel[e.target] or nil
+    if E ~= nil then
+        E.our_hits = E.our_hits + 1
+    end
+end))
+
+listen("weapon_fire", protect("detailed log weapon_fire", function(e)
+    if not D.on() then
+        return
+    end
+    local shooter = userid_index(e.userid)
+    if shooter == nil or shooter == local_player() or not is_enemy(shooter) then
+        return
+    end
+    local last = D.shots[shooter]
+    D.shots[shooter] = { prev = last ~= nil and last.last or nil, last = realtime() }
+    local E = D.duel[shooter]
+    if E ~= nil then
+        E.his_shots = E.his_shots + 1
+    end
+end))
+
+listen("player_hurt", protect("detailed log player_hurt", function(e)
+    if not D.on() then
+        return
+    end
+    local lp = local_player()
+    if lp == nil or userid_index(e.userid) ~= lp then
+        return
+    end
+    local attacker = userid_index(e.attacker)
+    if attacker == nil or attacker == lp or not is_enemy(attacker) then
+        return
+    end
+    local damage = tonumber(e.dmg_health) or 0
+    local E = D.duel[attacker]
+    if E ~= nil then
+        E.his_hits, E.his_dmg = E.his_hits + 1, E.his_dmg + damage
+    end
+    local gap = ""
+    local shots = D.shots[attacker]
+    if shots ~= nil and shots.prev ~= nil and shots.last >= shots.prev and shots.last - shots.prev < 1 then
+        local d = shots.last - shots.prev
+        gap = (" | son iki atisi arasi %.2fs%s"):format(d, d < 0.2 and " (DT)" or "")
+    end
+    local v, now = D.vis[attacker], tickcount()
+    local mine = "sen onu vuramiyordun"
+    if v ~= nil and now >= v.last and now - v.last <= D.vis_gap then
+        mine = ("sen onu %.2fs vurulabilir gordun, %d ates"):format((v.last - v.first) * tick_interval(), v.fired)
+    end
+    print(("[%s] dbg vurulma-detay: %s %s -%d %s | %s | %s%s | %s | %s"):format(SCRIPT, player_name(attacker),
+        HITGROUPS[e.hitgroup] or "?", round(damage), tostring(e.weapon or "?"), D.where(attacker, lp), D.rec(attacker), gap,
+        mine, D.me(lp)))
+end))
+
+listen("player_death", protect("detailed log player_death", function(e)
+    if not D.on() then
+        return
+    end
+    local lp = local_player()
+    if lp == nil then
+        return
+    end
+    local victim, attacker = userid_index(e.userid), userid_index(e.attacker)
+    local function yes(v)
+        return v == true or v == 1
+    end
+    local tags = {}
+    if yes(e.headshot) then
+        tags[#tags + 1] = "headshot"
+    end
+    if finite(e.penetrated) and e.penetrated > 0 then
+        tags[#tags + 1] = ("duvardan (%d)"):format(e.penetrated)
+    end
+    if yes(e.noscope) then
+        tags[#tags + 1] = "noscope"
+    end
+    if yes(e.thrusmoke) then
+        tags[#tags + 1] = "smoke icinden"
+    end
+    if yes(e.attackerblind) then
+        tags[#tags + 1] = "kor"
+    end
+    local tag = #tags > 0 and (" " .. table.concat(tags, ", ")) or ""
+    if victim == lp then
+        if attacker ~= nil and attacker ~= lp then
+            print(("[%s] dbg olum-detay: %s %s%s | %s | %s | %s"):format(SCRIPT, player_name(attacker),
+                tostring(e.weapon or "?"), tag, D.where(attacker, lp), D.rec(attacker), D.me(lp)))
+            D.close(attacker, "oldun")
+        end
+        D.close_all("sen oldun")
+        D.vis = {}
+    elseif attacker == lp and victim ~= nil then
+        print(("[%s] dbg kill-detay: %s %s%s | %s"):format(SCRIPT, player_name(victim), tostring(e.weapon or "?"), tag,
+            D.where(victim, lp)))
+        D.close(victim, "oldurdun")
+    elseif victim ~= nil then
+        D.close(victim, "baskasi oldurdu")
+    end
+end))
+
+listen("round_end", protect("detailed log round_end", function(e)
+    if not D.on() then
+        return
+    end
+    local lp = local_player()
+    local team = lp ~= nil and prop(lp, "m_iTeamNum") or nil
+    local winner = tonumber(e.winner)
+    print(("[%s] dbg round sonu: %s kazandi%s"):format(SCRIPT, winner == 2 and "T" or (winner == 3 and "CT" or "?"),
+        (finite(team) and winner == team) and " (senin takimin)" or ""))
+end))
+
+listen("round_start", protect("detailed log round_start", function()
+    if D.on() then
+        D.close_all("round bitti")
+        for name, r in pairs(D.round_def) do
+            print(("[%s] dbg def ozeti: %s %d kez, toplam %dt, ort %.1ft, en uzun %dt, %d tanesi hareketliyken"):format(
+                SCRIPT, name, r.n, r.ticks, r.ticks / r.n, r.longest, r.moving))
+        end
+        print(D.header())
+    end
+    D.reset()
+    nlog.save()
+end))
+
+listen("level_init", protect("detailed log level_init", function()
+    D.reset()
+    if D.on() then
+        print(("[%s] dbg ===== harita %s ====="):format(SCRIPT, tostring(try(globals.mapname) or "?")))
+        print(D.settings())
+    end
+    nlog.save()
+end))
+
+-- Dosya: degisiklik varsa en gec save_every sn'de bir (menu kapaliyken de), kapanista hemen.
+listen("paint_ui", protect("log save", function()
+    local now = realtime()
+    if nlog.dirty and (now < nlog.saved or now - nlog.saved >= nlog.save_every) then
+        nlog.save()
+    end
+end))
+
+listen("shutdown", protect("log save", function()
+    nlog.save()
+end))
+
+if D.on() then
+    print(("[%s] detayli log acik: hepsini almak icin Home > Console > Copy all logs (panoya) ya da Print all logs (konsola); dosya: %s (CS:GO klasoru)"):format(
+        SCRIPT, nlog.file))
+    print(D.settings())
+end
+end
 
 -------------------------------------------------------------------------------
 -- Indikatorler (GameSense renderer)

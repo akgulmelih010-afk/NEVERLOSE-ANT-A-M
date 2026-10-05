@@ -1,4 +1,4 @@
-# Nykle.win lua V1.0.9 — GameSense edition
+# Nykle.win lua V1.0.10 — GameSense edition
 
 `Nykle.win.lua` (Neverlose V1.0) sürümünün bütün özelliklerinin **GameSense (CS:GO)** Lua API'sine taşınmış hali: `Nykle_win_gamesense.lua`. Sadece HvH sunucuları için.
 
@@ -10,11 +10,11 @@ Neverlose sürümünün mantığı (durumlar, varsayılan açılar, exploit seç
 
 1. `Nykle_win_gamesense.lua` dosyasını GameSense'in lua klasörüne at (CS:GO klasörü, `csgo.exe`'nin yanı; diğer lua'ların durduğu yer). **Dosya adını değiştirme**: adda fazladan nokta olursa (eski `Nykle.win.gamesense.lua` gibi) GameSense lua'yı açamayabilir.
 2. GameSense'in script listesinden `Nykle_win_gamesense` → **Load script**.
-3. Konsolda `[Nykle.win] V1.0.9 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
+3. Konsolda `[Nykle.win] V1.0.10 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
 4. Menü, NYKLE Yaw'daki gibi **AA sekmesi → Anti-aimbot angles** kutusunda: en üstte **Enable Nykle.win** ve **Nykle.win tab** (Home, Anti-Aim, Exploits, Builder, Ragebot, Visuals, Misc), altında seçilen sekmenin ayarları. Lua açıkken GameSense'in kendi AA ayarları (Pitch, Yaw, Body yaw, Freestanding ...) bu kutuda **gizlenir** (lua onları kendisi yazıyor); Enable kapatınca ya da unload edince geri görünür. Fake lag ve Other kutuları (Slow motion, On shot anti-aim tuşları) olduğu gibi kalır.
 5. Tuşları bağla (Anti-Aim sekmesi): **Manual left / right / forward**, **Freestanding**, **Static inverter**. AI peek için GameSense'in kendi **Quick peek assist** tuşu (RAGE → Other) kullanılır.
 
-- Hiçbir kütüphane (`gamesense/...`), FFI ya da internet gerekmez; "Allow unsafe scripts" açmana gerek yok.
+- Hiçbir kütüphane (`gamesense/...`) ya da internet gerekmez; "Allow unsafe scripts" açmana gerek yok. Sadece **Copy all logs** panoya kopyalamak için FFI kullanır; FFI yoksa loglar konsola yazılır (dosyada da durur).
 - **Başka AA / resolver lua'larını kapat** (NYKLE AntiAim, NYKLE Yaw, NYKLE Resolver 2.5, angelwings, luasense, hysteria, metaset dahil): hepsi aynı GameSense ayarlarına ve oyuncu listesine yazar, hangisinin işe yaradığı anlaşılmaz.
 - GameSense'in kendi resolver'ı (**Anti-aim correction**) açık kalmalı: bu lua onu değiştirmez, üstünde katman olarak çalışır.
 - Kapatınca (Enable kapalı, script unload) ve **config kaydederken** GameSense ayarlarının hepsi senin değerlerine geri döner; config'ine lua'nın geçici değerleri kaydedilmez.
@@ -73,6 +73,30 @@ Açıları yine GameSense'in kendi resolver'ı çözer. Bu katman her aimbot at�
 - Slot başka bir oyuncuya geçerse (aynı index) eski değerimiz yeni oyuncuya kalmaz; listeden çıkan / ölen / dormant olan düşmandaki ezmeler hemen geri verilir; harita değişince de geri verilir.
 - Göstergede `RES 1 JIT`, `RES 2 AIR`, hipotezde `RES 3 BY 58`; atış satırında `| BY 58°`; resolver panelinde `BY 58°`.
 - Hipotezler oturumluk (oyun kapanınca unutulur); seviyeler ve anti-brute fazları Steam ID ile kalıcı hafızada.
+
+### V1.0.10: detaylı log (oyun loglarından geliştirmek için)
+
+Bu sürümü bir süre oynayıp logları toplu göndermek için. Davranış (AA, exploit, resolver) V1.0.9 ile aynı; sadece daha çok şey loglanıyor ve loglar tek seferde alınabiliyor.
+
+**Logları almak (Home → Console):**
+- **Copy all logs:** bütün loglar (önceki oturumlar dahil) panoya; Ctrl+V ile yapıştır. Pano kullanılamazsa (GameSense'te FFI kapalı) loglar konsola basılır.
+- **Print all logs to console:** bu oturumun bütün satırları saatleriyle konsola.
+- **Dosya:** loglar ayrıca CS:GO klasöründe (`csgo.exe`'nin yanı) **`nykle_log.txt`**'ye yazılır: round başında, harita değişince, en geç 5 dakikada bir ve kapanışta. Önceki oturumların logları dosyada kalır (en fazla ~2 MB eski + bu oturumun 12000 satırı). Dosyayı olduğu gibi gönderebilirsin.
+- **Clear saved logs:** hafızadaki ve dosyadaki logları siler (yeni bir test turuna temiz başlamak için).
+- Her satırın başında saat (`21:34:05`) var.
+
+**Detailed log (for analysis)** (varsayılan açık) şu `dbg` satırlarını ekler:
+- **Konum biçimi:** `@BombsiteA(-512,1024,64) 812u h+64 v134 havada vz+120 duck50 bak+178 lby-35 p89 hp100 ssg08 ping45`. Haritadaki bölge adı ve koordinat, mesafe (birim; 1 m ≈ 52), `h` = yükseklik farkı (+ = düşman üstte), `v` = yatay hız, `bak` = düşmanın yaw'ının sana göre açısı (0 = sana bakıyor, ±180 = arkası dönük; AA'sı hakkında bilgi), `lby` = LBY ile yaw farkı, `p` = pitch, can, silah, ping.
+- **Kayıt biçimi:** `DEF geri 6t` = şu an sahte (defensive) kayıtta, 6 tick geride; `def 12t once bitti`; `bogma 3` = paket boğma; `LC`, `FD`; `AA jitter/45`; `seviye 2` = resolver seviyesi.
+- `dbg atis-detay:` her atış sonucunun altında: hedefin konumu ve kaydı, oyuncu listesi (`SP` / `BA` / `BY` / `WHITELIST`), aimbot bayrakları (`bt 4t`, `hc 72%`, `teleported`, `extrapolated`, `interpolated`, `high_priority`, `nisan z+62` = ayağının kaç birim üstüne nişan alındı), senin konumun / durumun / exploit'in, sonuç.
+- `dbg sikmadi:` düşmanın kafasına ya da gövdesine mermi geçerken 0.4 sn ateş yoksa (görüş başına bir kez): tahmini kafa / gövde hasarı, olası sebepler (`sniper kurali: sadece oldurecek atis`, `hasar 34 < MD 101`, `kafa kapali`, `onun kaydi sahte (DEF)`, `sen havadasin`, `sen hareketlisin v210`, `fake duck`, `silah hazir degil`, `aimbot baska hedefe ates`, `rage kapali`), MD / hit chance, silah durumu (dürbün dahil), onun konumu ve kaydı, sen.
+- `dbg duello:` bir düşmanla karşılaşma bitince tek satır: süre, **ilk gören** (`o 0.20s once` / `sen ...` / `sadece o gordu`), onun defensive'i (`def 6 kez 41t (%48)`), en yüksek hızı, havada mı, onun ve senin atış / isabet sayıları, sonuç (`oldun` / `oldurdun` / `ayrildi` / `round bitti`).
+- `dbg vurulma-detay:` vurulunca: saldıranın konumu ve kaydı, **son iki atışı arası** (`0.06s (DT)`), senin onu görüp görmediğin ve kaç kez sıktığın, senin durumun.
+- `dbg olum-detay:` / `dbg kill-detay:` ölüm / öldürme: silah, `headshot`, `duvardan (1)`, `noscope`, `smoke icinden`, `kor`, konumlar.
+- `dbg def ozeti:` round sonunda düşman başına defensive sayısı, toplam / ortalama / en uzun süre, kaçı hareket ederken.
+- Başlıklar: `dbg ===== round 7 | de_mirage | sen CT | ping 45ms =====`, `dbg round sonu`, harita değişince `dbg ===== harita ... =====` ve `dbg ayarlar:` (tick, rage hit chance / min damage, DT / HS, fake lag, lua'nın önemli ayarları).
+
+Ayrıca düzeltme: `aim_result`'ta hedef, `baska oyuncuya isabet` karşılaştırmasından **sonra** tanımlanıyordu (V1.0.8 – 1.0.9); karşılaştırma boş değere yapıldığı için hedefin kendi hasarı da "başka oyuncu" sayılabiliyordu. Artık önce okunuyor.
 
 ### V1.0.9: defensive + shift ile gelenlere karşı
 
@@ -185,6 +209,8 @@ Yeri: **AA → Anti-aimbot angles**. Sekme `Nykle.win tab` ile seçilir. Varsay�
 | Reset stats (Memory) | — | İstatistikleri sıfırlar. |
 | Resolver / Shot / Hit log (Console) | Açık | Neverlose sürümündeki loglar. |
 | Anti-brute log (Console) | Kapalı | |
+| Detailed log (for analysis) (Console) | Açık | V1.0.10: konum, kayıt, düello, "sıkmadı" sebebi (`dbg` satırları, bkz. V1.0.10). |
+| Copy all logs / Print all logs to console / Clear saved logs (Console) | — | Bütün loglar panoya / konsola; dosya `nykle_log.txt` (CS:GO klasörü). |
 
 ### Anti-Aim
 | Ayar | Varsayılan | Not |
@@ -265,6 +291,7 @@ Neverlose sürümündeki bütün loglar aynı biçimde (atış satırı, vuruldu
 - Iska nedenleri GameSense'in: `correction` (GameSense `?`), `damage rejection`, `spread`, `prediction error`, `unregistered shot`, `death`.
 - `vuruldun` satırında `DT %0, ... sarj bekle` = Safe recharge DT'yi o an tutuyordu.
 - Hipotez: `resolver: isim Standing 3 resolver iskasi -> body yaw 58° denenecek`, `... body yaw 58° iskaladi -> body yaw -58° denenecek`, `... GameSense resolver'ina donuldu (hepsi denendi)`.
+- V1.0.10: bütün satırlar saatiyle hafızada ve `nykle_log.txt`'de; `dbg` satırları için bkz. V1.0.10.
 
 ## Testler
 
@@ -275,7 +302,7 @@ luajit tests/gamesense/run_tests.lua Nykle_win_gamesense.lua
 luajit tests/gamesense/run_memory_tests.lua Nykle_win_gamesense.lua
 ```
 
-Test edilenler: yükleme; V1.0.9 (scout'ta Auto (learn)'ün DT ile başlaması, DT'de kafa yiyince Hide shots'a geçiş, hafızadaki istatistikle keşif, hedef sahte kayıttayken kendi defensive'in zorlanması); V1.0.8 (bekleme varsayılan kapalı ve kapalıyken whitelist yok, başka oyuncuya giden isabetin damage rejection sanılmaması, HS ile 2 reddin öğrenilip sniper'ın HS'den çıkması ve tek reddin yetmemesi, kafa beklerken ölümün öğrenilip o düşmana karşı Min. damage'ın gevşemesi ve yeni haritada geri gelmesi, zeus'ta 400 birimde fake duck bırakma); V1.0.7 (beklerken freestanding'in değişmemesi, düşman kafanı görürken ve Quick peek tuşu basılıyken beklememe, sürekli defensive'de 14 tick bekleyip 32 tick serbest); V1.0.6 (fake duck boyunca DT / HS kapalı — senin DT bind'in açık olsa da —, bırakınca DT'nin dönmesi); V1.0.5 (`run_memory_tests.lua`: hafızadaki iki düşmanın tanınması, doğru alışkanlığın doğrulanması, yanlışın düzeltilip hafızada yarıya inmesi, canlı desen yokken hafızadaki jitter alışkanlığının kullanılması, hafızadaki açıyla hemen başlama, duvar L / R aynalama, hafızadaki açının doğrulanması ve tutmaması, LBY tarafı, kapanışta açı sonuçlarının yazılması; `run_tests.lua`: x-way / random / yavaş spin desenleri, profil ve açıların hafızaya yazılması); V1.0.4 (sahte kayıtta whitelist ile bekleme, gerçek kayıt gelince bırakma, sürekli defensive'de 14 tick sınırı ve 16 tick serbest, kendi whitelist'ine dokunmama, beklerken AA'nın beklenen düşmana dönmesi, aimbot ateş edince 14 tick zorlanan defensive olmaması, kapanışta whitelist'in geri verilmesi); resolver V1.0.3 (teleport / extrapolation ıskasının sayılmaması, jitter'lı düşmanda hipotez olmaması ve Force safe point, yeni haritada eski ıskalarla Force açılmaması ve bu haritadaki ıskayla açılması, statik düşmanda hipotez başlaması, Correction kapalıyken adayın öğrenmemesi, desen değişince hipotezlerin sıfırlanması, spin'in jitter sayılmaması, Slow walk / Moving ayrımı); menünün AA → Anti-aimbot angles kutusunda olması ve GameSense AA ayarlarının lua açıkken gizlenip kapalıyken / kapanışta geri görünmesi; clan tag animasyonu (sıra ve süreler), GameSense spammer'ının kapatılıp geri verilmesi, kapatınca etiketin geri yazılması; trash talk ve clan tag'in varsayılan açık olması; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.
+Test edilenler: yükleme; V1.0.10 (görüp sıkmadı satırı, atış detayında konum / aimbot bayrakları / sonuç, vurulmada son iki atış arası (DT) ve görüş, kill detayı, düello özeti (ateş / isabet / hasar / sonuç), round başlığı, log dosyasında eski oturumun korunması ve saat, Print all logs, pano yokken Copy all logs'un konsola yazması, Detailed log kapalıyken `dbg` satırı olmaması, Clear saved logs); V1.0.9 (scout'ta Auto (learn)'ün DT ile başlaması, DT'de kafa yiyince Hide shots'a geçiş, hafızadaki istatistikle keşif, hedef sahte kayıttayken kendi defensive'in zorlanması); V1.0.8 (bekleme varsayılan kapalı ve kapalıyken whitelist yok, başka oyuncuya giden isabetin damage rejection sanılmaması, HS ile 2 reddin öğrenilip sniper'ın HS'den çıkması ve tek reddin yetmemesi, kafa beklerken ölümün öğrenilip o düşmana karşı Min. damage'ın gevşemesi ve yeni haritada geri gelmesi, zeus'ta 400 birimde fake duck bırakma); V1.0.7 (beklerken freestanding'in değişmemesi, düşman kafanı görürken ve Quick peek tuşu basılıyken beklememe, sürekli defensive'de 14 tick bekleyip 32 tick serbest); V1.0.6 (fake duck boyunca DT / HS kapalı — senin DT bind'in açık olsa da —, bırakınca DT'nin dönmesi); V1.0.5 (`run_memory_tests.lua`: hafızadaki iki düşmanın tanınması, doğru alışkanlığın doğrulanması, yanlışın düzeltilip hafızada yarıya inmesi, canlı desen yokken hafızadaki jitter alışkanlığının kullanılması, hafızadaki açıyla hemen başlama, duvar L / R aynalama, hafızadaki açının doğrulanması ve tutmaması, LBY tarafı, kapanışta açı sonuçlarının yazılması; `run_tests.lua`: x-way / random / yavaş spin desenleri, profil ve açıların hafızaya yazılması); V1.0.4 (sahte kayıtta whitelist ile bekleme, gerçek kayıt gelince bırakma, sürekli defensive'de 14 tick sınırı ve 16 tick serbest, kendi whitelist'ine dokunmama, beklerken AA'nın beklenen düşmana dönmesi, aimbot ateş edince 14 tick zorlanan defensive olmaması, kapanışta whitelist'in geri verilmesi); resolver V1.0.3 (teleport / extrapolation ıskasının sayılmaması, jitter'lı düşmanda hipotez olmaması ve Force safe point, yeni haritada eski ıskalarla Force açılmaması ve bu haritadaki ıskayla açılması, statik düşmanda hipotez başlaması, Correction kapalıyken adayın öğrenmemesi, desen değişince hipotezlerin sıfırlanması, spin'in jitter sayılmaması, Slow walk / Moving ayrımı); menünün AA → Anti-aimbot angles kutusunda olması ve GameSense AA ayarlarının lua açıkken gizlenip kapalıyken / kapanışta geri görünmesi; clan tag animasyonu (sıra ve süreler), GameSense spammer'ının kapatılıp geri verilmesi, kapatınca etiketin geri yazılması; trash talk ve clan tag'in varsayılan açık olması; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.
 
 **Oyunda test edilmedi.** Sahte ortam GameSense'in davranışını tahmin eder; aşağıdakiler gerçek oyunda doğrulanmalı.
 
@@ -288,3 +315,4 @@ Test edilenler: yükleme; V1.0.9 (scout'ta Auto (learn)'ün DT ile başlaması, 
 - **Safe recharge** DT'yi kısa süre kapattığı için o sırada GameSense'in normal fake lag'i devrede olabilir.
 - **Teleport** GameSense sürümünde `discharge_pending` çalışmıyorsa konsola bir kez `teleport: sarj harcanmadi` yazar.
 - Neverlose ile GameSense arasında hafıza taşınmaz (ayrı anahtar).
+- **Log dosyası / pano (V1.0.10):** `nykle_log.txt` GameSense'in `writefile`'ıyla yazılır; GameSense sürümünde yoksa dosya oluşmaz, **Copy all logs** / **Print all logs to console** yine çalışır. Pano, CS:GO'nun `VGUI_System010` arayüzüyle (GameSense'in clipboard kütüphanesiyle aynı yol). `dbg` satırları konsolu kalabalıklaştırırsa **Detailed log**'u kapatabilirsin (normal loglar kalır).

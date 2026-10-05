@@ -49,6 +49,11 @@ for id, item in ipairs(M.items) do
     end
 end
 
+-- GameSense readfile / writefile: log dosyasi (V1.0.10). Onceki oturumdan kalan satir korunmali.
+M.files = { ["nykle_log.txt"] = "12:00:00 [Nykle.win] eski oturum satiri\n" }
+function readfile(name) return M.files[name] end
+function writefile(name, data) M.files[name] = data end
+
 -- Yukle
 local chunk = assert(loadfile(SCRIPT_PATH))
 local ok, err = pcall(chunk)
@@ -698,6 +703,80 @@ step({}, 4)
 check(M.clantag == "" and spammer.value == true, "clan tag kapatinca etiket / spammer geri verilmedi")
 ui.set(ct.id, true)
 step({}, 8)
+
+-- 9d) Detayli log (V1.0.10): "gordu ama sikmadi", atis detayi (konum, aimbot bayraklari), vurulma (son iki
+-- atis arasi), duello ozeti, kill; round basinda log dosyasi; dugmeler; kapaliyken dbg satiri yok.
+do
+    me.alive, me.weapon = true, 101
+    e1.alive, e1.dormant = true, false
+    e1.props.m_iHealth = 100
+    me.props.m_vecVelocity = { 0, 0, 0 }
+    me.props.m_fFlags = 1
+    M.visible[2], M.can_hit[2] = true, true
+    M.fire("round_start", {})
+    local before = #M.logs
+    local function new_line(pattern)
+        for i = before + 1, #M.logs do
+            if M.logs[i]:find(pattern, 1, true) then
+                return M.logs[i]
+            end
+        end
+        return nil
+    end
+    step({}, 40)
+    local no_shot = new_line("dbg sikmadi: enemy one")
+    check(no_shot ~= nil and no_shot:find("vurulabilir", 1, true) ~= nil and no_shot:find("@", 1, true) ~= nil
+        and no_shot:find("ben @", 1, true) ~= nil, "gorup sikmadi satiri yok: " .. tostring(no_shot))
+    M.fire("aim_fire", { id = 950, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 2,
+        extrapolated = true, x = 500, y = 0, z = 64 })
+    M.fire("aim_miss", { id = 950, target = 2, reason = "spread" })
+    local detail = new_line("dbg atis-detay: enemy one")
+    check(detail ~= nil and detail:find("bt 2t", 1, true) ~= nil and detail:find("extrapolated", 1, true) ~= nil
+        and detail:find("sonuc spread", 1, true) ~= nil and detail:find("u h+", 1, true) ~= nil,
+        "atis detayi (konum / bayrak / sonuc) yok: " .. tostring(detail))
+    M.fire("weapon_fire", { userid = 12, weapon = "ak47" })
+    step({}, 4)
+    M.fire("weapon_fire", { userid = 12, weapon = "ak47" })
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ak47", dmg_health = 27, hitgroup = 2, health = 73 })
+    local hurt = new_line("dbg vurulma-detay: enemy one")
+    check(hurt ~= nil and hurt:find("(DT)", 1, true) ~= nil and hurt:find("sen onu", 1, true) ~= nil,
+        "vurulma detayi (DT / gorus) yok: " .. tostring(hurt))
+    M.fire("player_death", { userid = 12, attacker = 11, headshot = true, penetrated = 1, weapon = "ak47" })
+    check(new_line("dbg kill-detay: enemy one ak47 headshot, duvardan (1)") ~= nil, "kill detayi yok")
+    local duel = new_line("dbg duello: enemy one")
+    check(duel ~= nil and duel:find("oldurdun", 1, true) ~= nil and duel:find("sen: 1 ates", 1, true) ~= nil
+        and duel:find("o: 2 ates 1 isabet -27", 1, true) ~= nil, "duello ozeti yok / yanlis: " .. tostring(duel))
+    M.fire("round_start", {})
+    check(new_line("dbg ===== round") ~= nil, "round basligi yok")
+    local file = M.files["nykle_log.txt"] or ""
+    check(file:find("eski oturum satiri", 1, true) ~= nil and file:find("yuklendi", 1, true) ~= nil
+        and file:find("dbg atis-detay", 1, true) ~= nil, "log dosyasi eski + yeni satirlari tutmuyor")
+    check(file:find("\n%d%d:%d%d:%d%d %[Nykle%.win%] ") ~= nil or file:find("\n[%d%.]+ %[Nykle%.win%] ") ~= nil,
+        "log dosyasinda saat yok")
+
+    before = #M.logs
+    M.press(M.find_lua("Print all logs to console").id)
+    check(new_line("===== tum loglar:") ~= nil and new_line("===== loglarin sonu") ~= nil, "Print all logs calismadi")
+    before = #M.logs
+    M.press(M.find_lua("Copy all logs").id)
+    check(new_line("panoya kopyalanamadi") ~= nil and new_line("===== tum loglar:") ~= nil,
+        "pano yokken Copy all logs konsola yazmadi")
+
+    local dbg_item = M.find_lua("Detailed log (for analysis)")
+    check(dbg_item.value == true, "detayli log varsayilan acik degil")
+    ui.set(dbg_item.id, false)
+    e1.alive = true
+    before = #M.logs
+    M.fire("aim_fire", { id = 951, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+    M.fire("aim_miss", { id = 951, target = 2, reason = "spread" })
+    step({}, 40)
+    check(new_line("dbg ") == nil, "detayli log kapaliyken dbg satiri yazildi")
+    ui.set(dbg_item.id, true)
+    M.press(M.find_lua("Clear saved logs").id)
+    check((M.files["nykle_log.txt"] or ""):find("eski oturum satiri", 1, true) == nil, "Clear saved logs silmedi")
+    M.visible[2], M.can_hit[2] = nil, nil
+    step({}, 8)
+end
 
 -- 10) Kapat / ac ve kapanis: hepsi geri.
 local enable = M.find_lua("Enable Nykle.win")
