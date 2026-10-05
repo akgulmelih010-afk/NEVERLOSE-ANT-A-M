@@ -20,6 +20,8 @@
       - AA ogrenmesi: denenmemis anti-brute fazi 0.3 sayilir (0.5 idi); peek'te yarisi kafadan vurulan
         faz hic birakilmiyordu (16/33).
       - Anti-brute fazi AA'nin baktigi dusmandan; ogrenilen faz AA'nin gosterdigi fazdan hesaplanir.
+      - AI peek govde noktasini sadece olduruyorsa sayar; noktada sahte kayitta 0.2 sn fazla bekler.
+      - Stats panelinde durum basina KD, konsolda round sonu atis ozeti.
       - Fake duck her yerde senin: "Fake duck only when standing still" varsayilan kapali (bunny hop +
         FD ile ani peek'i havada / kosarken FD'yi birakarak bozuyordu).
 
@@ -266,7 +268,10 @@ local function new_aim_stats()
         -- V1.0: kendi lag'in (DEF / LC / FD / TP) acikken ve temiz giden atislar (atis, isabet).
         lag_shots = 0, lag_hits = 0, clean_shots = 0, clean_hits = 0,
         -- Panelin isabet tahmini icin tum dusmanlar: sayilan atis, spread, resolver disi iska.
-        rated = 0, rated_spread = 0, rated_other = 0 }
+        rated = 0, rated_spread = 0, rated_other = 0,
+        -- V1.0: senin durumuna gore oldurdugun / oldugun (kd[durum] = { kills, deaths }). FD, Peek, hava
+        -- gibi durumlarin gercekten ise yarayip yaramadigini rakamla gormek icin.
+        kd = {} }
 end
 local aim_stats = new_aim_stats()
 
@@ -3272,7 +3277,7 @@ local ai_peek = { mode = nil, home = nil, target = nil, side = nil, until_time =
     rest = -1000, fails = 0, blocked = nil, reached = 0, step = 0, enemy = nil, name = nil, shots = {},
     held_since = nil, reported = false, why = nil, quiet = 1.0, candidate = nil, lost = 0, started = -1000,
     steps = { 18, 32, 46, 60 }, every = 4, confirm_every = 2, walk_every = 2, lost_max = 3, reach = 74, high = 32,
-    lead = 0.15,
+    lead = 0.15, def_wait = 0.2, extended = false,
     hold = 0.5, hold_r8 = 0.75, after_shot = 0.8, back_time = 0.6 }
 local update_ai_peek
 do
@@ -3316,15 +3321,17 @@ do
         return ok_ground and ground
     end
 
-    -- Dusmanin kafasi, gogsu ve midesi (hitbox okunamazsa goz, govde ortasi ve bel).
+    -- Dusmanin kafasi, gogsu ve midesi (hitbox okunamazsa goz, govde ortasi ve bel). points.health:
+    -- dusmanin cani (okunamazsa 100), govde noktalarinin oldurup oldurmedigi icin.
     local function aim_points(enemy)
-        local points = {}
+        local health = prop(enemy, "m_iHealth")
+        local points = { health = type(health) == "number" and health > 0 and health or 100 }
         local ok_head, head = pcall(function() return enemy:get_hitbox_position(0) end)
         if not ok_head or head == nil then
             ok_head, head = pcall(function() return enemy:get_eye_position() end)
         end
         if ok_head and head ~= nil then
-            points[#points + 1] = head
+            points[#points + 1] = { pos = head, head = true }
         end
         for _, body in ipairs({ { 5, 50 }, { 3, 40 } }) do
             local ok_body, point = pcall(function() return enemy:get_hitbox_position(body[1]) end)
@@ -3333,18 +3340,27 @@ do
                 ok_body, point = base ~= nil, base ~= nil and vector(base.x, base.y, base.z + body[2]) or nil
             end
             if ok_body and point ~= nil then
-                points[#points + 1] = point
+                points[#points + 1] = { pos = point, head = false }
             end
         end
         return points
     end
 
+    -- Bu goz noktasindan sayilan en iyi hasar. Govde noktasi sadece olduruyorsa sayilir (DT'li silahta
+    -- iki mermiyle): V1.0, "ai peek body atabiliyor": auto / deagle'da Min. Damage dusukken script
+    -- oldurmeyen bir govde acisina yuruyordu. Kafa her zaman sayilir; scout'ta gereken zaten can + 1.
     local function best_damage(lp, eye, points)
+        local shots = (effective("doubletap") and not SNIPERS[current.weapon]) and 2 or 1
         local best = 0
         for _, point in ipairs(points) do
-            local ok, damage = pcall(trace_bullet, lp, eye, point)
-            if ok and type(damage) == "number" and damage > best then
-                best = damage
+            local ok, damage = pcall(trace_bullet, lp, eye, point.pos)
+            if ok and type(damage) == "number" then
+                if not point.head and damage * shots < points.health then
+                    damage = 0
+                end
+                if damage > best then
+                    best = damage
+                end
             end
         end
         return best
@@ -3677,6 +3693,15 @@ do
         local hold = class == "Revolver" and ai_peek.hold_r8 or ai_peek.hold
         if walking then
             local enemy = peek_enemy()
+            -- Noktada beklerken dusmanin kaydi sahteyse (defensive) bekleme bir kez def_wait sn uzar
+            -- (V1.0): aimbot sahte kayda kafa atmaz (sniper'da en fazla 12 tick gercek kaydi bekler);
+            -- 0.5 sn dolup atissiz geri donmek yerine gercek kayit yakalanir.
+            if enemy ~= nil and ai_peek.mode == "hold" and not ai_peek.extended then
+                local profile = enemy_watch.profile(enemy)
+                if profile ~= nil and profile.defensive_now then
+                    ai_peek.until_time, ai_peek.extended = ai_peek.until_time + ai_peek.def_wait, true
+                end
+            end
             if enemy == nil or now > ai_peek.until_time then
                 give_up(cmd, mine, now, enemy == nil and "hedef yok" or "sure doldu")
                 return
@@ -3810,6 +3835,7 @@ do
             ai_peek.fails = 0
         end
         ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
+        ai_peek.extended = false
         ai_peek.enemy, ai_peek.reached, ai_peek.step, ai_peek.lost, ai_peek.faked = index, 0, result.step, 0, false
         aim_stats.ai_peeks = aim_stats.ai_peeks + 1
         ai_peek.until_time = now + 0.25 + result.step / 120
@@ -4218,6 +4244,33 @@ own.summary = function()
         table.concat(states, ", "), #phases > 0 and table.concat(phases, " ") or "-", table.concat(exploits, ", "), r.unseen))
 end
 
+-- Round sonu senin atislarin (V1.0): mermi, isabet, temiz / lag'li atislarin isabeti ve iska sebepleri
+-- (en cok olan once). "Missliyor" dediginde sebep bu tek satirda: correction = resolver, spread = isabet
+-- sansi, prediction error / unregistered shot = tahmin / kendi lag'in, death = hedef zaten oldu.
+own.shot_summary = function()
+    local r = own.shots_round
+    own.shots_round = nil
+    if r == nil or not menu.shot_log:get() then
+        return
+    end
+    local reasons = {}
+    for reason, n in pairs(r.misses) do
+        reasons[#reasons + 1] = { reason = tostring(reason), n = n }
+    end
+    table.sort(reasons, function(a, b)
+        if a.n ~= b.n then
+            return a.n > b.n
+        end
+        return a.reason < b.reason
+    end)
+    local parts = {}
+    for _, item in ipairs(reasons) do
+        parts[#parts + 1] = ("%s %d"):format(item.reason, item.n)
+    end
+    print(("[%s] atis ozeti: %d mermi, %d isabet | temiz %d/%d, lag %d/%d | iska: %s"):format(SCRIPT, r.shots, r.hits,
+        r.clean_hits, r.clean, r.lag_hits, r.lag, #parts > 0 and table.concat(parts, ", ") or "yok"))
+end
+
 events.player_hurt:set(protect("player_hurt", function(e)
     if not menu.enabled:get() then
         return
@@ -4507,6 +4560,26 @@ pcall(function()
                 aim_stats.clean_shots, aim_stats.clean_hits = aim_stats.clean_shots + 1, aim_stats.clean_hits + hit
             end
         end
+        -- Round sonu atis ozeti (V1.0, bkz. own.shot_summary).
+        if counted then
+            local r = own.shots_round or { shots = 0, hits = 0, clean = 0, clean_hits = 0, lag = 0, lag_hits = 0,
+                misses = {} }
+            own.shots_round = r
+            r.shots = r.shots + 1
+            if state == nil then
+                r.hits = r.hits + 1
+            else
+                r.misses[state] = (r.misses[state] or 0) + 1
+            end
+            if shot ~= nil then
+                local hit = state == nil and 1 or 0
+                if lag ~= nil then
+                    r.lag, r.lag_hits = r.lag + 1, r.lag_hits + hit
+                else
+                    r.clean, r.clean_hits = r.clean + 1, r.clean_hits + hit
+                end
+            end
+        end
         -- Panel icin dusman basina ve toplam: spread ve resolver disi iskalar (sunucu reddi, tahmin
         -- hatasi, sahte kayit, LC...).
         if counted then
@@ -4725,6 +4798,7 @@ end
 
 events.round_start:set(protect("round_start", function()
     own.summary()
+    own.shot_summary()
     reset_brute()
     exposure.shot = nil
     ai_peek.reset()
@@ -4751,12 +4825,36 @@ pcall(function()
     end))
 end)
 
+-- Durum basina oldurdugun / oldugun (bkz. aim_stats.kd): olum aninda senin durumun (current.state).
+-- Olum sadece dusman oldurduyse (dusme, intihar, takim arkadasi sayilmaz).
+local function count_kd(field)
+    local entry = aim_stats.kd[current.state]
+    if entry == nil then
+        entry = { kills = 0, deaths = 0 }
+        aim_stats.kd[current.state] = entry
+    end
+    entry[field] = entry[field] + 1
+end
+
 events.player_death:set(protect("player_death", function(e)
     local lp = entity.get_local_player()
-    if lp ~= nil and entity.get(e.userid, true) == lp then
+    if lp == nil then
+        return
+    end
+    local victim, attacker = entity.get(e.userid, true), entity.get(e.attacker, true)
+    local ok_enemy, enemy_attacker = pcall(function() return attacker ~= nil and attacker ~= lp and attacker:is_enemy() end)
+    if victim == lp then
+        if menu.enabled:get() and ok_enemy and enemy_attacker then
+            count_kd("deaths")
+        end
         reset_brute()
         set_charge(true)
         ai_peek.reset()
+    elseif attacker == lp and victim ~= nil and menu.enabled:get() then
+        local ok_victim, enemy_victim = pcall(function() return victim:is_enemy() end)
+        if ok_victim and enemy_victim then
+            count_kd("kills")
+        end
     end
 end))
 
@@ -4928,6 +5026,23 @@ local function draw_stats(screen)
         y = y + 10
         render.text(FONT, vector(x, y), WHITE, nil, ("LAG   %d / %d   TEMIZ   %d / %d"):format(
             aim_stats.lag_hits, aim_stats.lag_shots, aim_stats.clean_hits, aim_stats.clean_shots))
+    end
+    -- V1.0: senin durumuna gore oldurdugun / oldugun.
+    local any_kd = false
+    for _ in pairs(aim_stats.kd) do
+        any_kd = true
+        break
+    end
+    if any_kd then
+        y = y + 16
+        render.text(FONT, vector(x, y), menu.accent:get(), nil, "KD   OLDURDUN / OLDUN")
+        for _, state in ipairs(STAT_ORDER) do
+            local entry = aim_stats.kd[state]
+            if entry ~= nil then
+                y = y + 10
+                render.text(FONT, vector(x, y), WHITE, nil, ("%s   %d / %d"):format(state:upper(), entry.kills, entry.deaths))
+            end
+        end
     end
     -- AI peek: kac peek, kacinda atis, kac isabet, kac atissiz bitti, kacinda vuruldun.
     if aim_stats.ai_peeks > 0 then
