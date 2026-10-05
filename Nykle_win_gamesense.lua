@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.7"
+local VERSION = "1.0.8"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1104,9 +1104,10 @@ menu.hyp_chance     = grp.resolver:slider("  » Hypothesis min hit chance", 50, 
 menu.smart_baim     = grp.resolver:switch("Smart body aim", true)
 menu.head_only      = grp.resolver:switch("Head unless body kills (snipers)", true)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
--- Dusman defensive'deyken (sahte kayit) o kayda giden mermi sunucuda gecmez: aimbot gercek kayit gelene
--- kadar (en fazla 14 tick) o dusmana ates etmez, DT bosa gitmez.
-menu.wait_real      = grp.resolver:switch("Wait for real record (enemy defensive)", true)
+-- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
+-- etmez. V1.0.8'den beri varsayilan KAPALI: oyun loglarinda surekli defensive acan dusmanlara karsi
+-- "sikamiyor" sikayeti; faydasi oyunda kanitlanmadi. Acarsan duelloda / peek'te yine beklemez.
+menu.wait_real      = grp.resolver:switch("Wait for real record (enemy defensive)", false)
 menu.resolver_info  = grp.resolver:label(DIM_HEX .. "Per-enemy safe point / body aim from the player list.")
 
 -- Builder
@@ -2173,6 +2174,38 @@ sniper.decide = function()
         return "hs"
     end
     return sniper.choice
+end
+
+-- Sunucu exploit'li atisi reddediyor mu (V1.0.8, oyun logu: Hide shots acikken arka arkaya "damage
+-- rejection"): lua'nin kendi lag'i yokken ayni exploit'le (HS / DT) 60 sn icinde 2 damage rejection /
+-- unregistered shot -> sniper'larda (Auto) o exploit 5 dk kullanilmaz, oteki secilir. Tek olay kanit sayilmaz.
+sniper.rejects, sniper.avoid = { hs = {}, dt = {} }, { hs = -1000, dt = -1000 }
+
+sniper.avoided = function(mode)
+    local until_time, now = sniper.avoid[mode], realtime()
+    return until_time ~= nil and now < until_time and now >= until_time - 300
+end
+
+sniper.reject = function(mode, reason)
+    local list = sniper.rejects[mode]
+    if list == nil then
+        return
+    end
+    local now, kept = realtime(), {}
+    for _, t in ipairs(list) do
+        if now >= t and now - t <= 60 then
+            kept[#kept + 1] = t
+        end
+    end
+    kept[#kept + 1] = now
+    sniper.rejects[mode] = kept
+    if #kept >= 2 and not sniper.avoided(mode) then
+        sniper.avoid[mode], sniper.rejects[mode] = now + 300, {}
+        if on(menu.shot_log) then
+            print(("[%s] sunucu %s ile atilan atislari reddediyor (60 sn'de 2 kez, son: %s) -> sniper'da 5 dk %s"):format(
+                SCRIPT, mode == "hs" and "Hide shots" or "Double tap", reason, mode == "hs" and "Double tap" or "Hide shots"))
+        end
+    end
 end
 
 sniper.record = function(mode, hit)
@@ -3300,6 +3333,35 @@ resolver.wait_apply = function(class, present)
     end
 end
 
+-- Sadece kafa kurali ogrenmesi (V1.0.8, oyun logu: scout gövdeyi 72 ile gorup kafa beklerken ates etmeden
+-- olum): dusman seni gorurken scout "HP + 1" ile sadece oldurecek yere ates eder. Bir dusman seni sen bu
+-- kuralla ates etmeden beklerken oldurduyse bu haritada ona karsi kural gevser (aimbot senin Min. damage'inle
+-- govdeye de sikar); haritada 2 boyle olumde herkese karsi gevser. Yeni haritada sifirlanir.
+resolver.held = { total = 0, enemies = {} }
+
+resolver.head_relaxed = function(target)
+    local held = resolver.held
+    if held.total >= 2 then
+        return true
+    end
+    local key = target ~= nil and player_id(target) or nil
+    return key ~= nil and held.enemies[key] ~= nil
+end
+
+resolver.held_death = function(attacker)
+    local key = player_id(attacker)
+    if key == nil then
+        return
+    end
+    local held = resolver.held
+    held.enemies[key] = (held.enemies[key] or 0) + 1
+    held.total = held.total + 1
+    if on(menu.resolver_log) then
+        print(("[%s] ogrenildi: %s seni sen kafa beklerken (sniper, ates etmeden) oldurdu -> bu haritada %s govde de atilacak"):format(
+            SCRIPT, player_name(attacker), held.total >= 2 and "herkese karsi" or "ona karsi"))
+    end
+end
+
 -- HvH silahlari: { hasar, zirh orani, menzil carpani, tek atis } (CS:GO silah dosyalari).
 local apply_body_aim
 do
@@ -3411,6 +3473,7 @@ do
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
         local info = WEAPONS[class]
         local sniper_rule = on(menu.head_only) and info ~= nil and info[4] and exposed
+            and not resolver.head_relaxed(target)
         -- Senin baim tusun (Force body aim) basiliyken oyuncu ayarlarina dokunulmaz.
         local user_force = get("force_body") == true
         local target_lethal, target_wanted = false, nil
@@ -3669,6 +3732,14 @@ local function apply_exploit(s, class)
         local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
         local sniper_setting = menu.sniper_exploit:get()
         local sniper_hs = SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs"))
+        -- Auto: sunucunun reddettigi exploit birakilir (bkz. sniper.reject).
+        if SNIPERS[class] and sniper_setting == "Auto (learn)" then
+            if sniper.avoided("hs") and not sniper.avoided("dt") then
+                sniper_hs = false
+            elseif sniper.avoided("dt") and not sniper.avoided("hs") then
+                sniper_hs = true
+            end
+        end
         if sniper_hs and on(menu.sniper_air_dt) and (current.state == "Air" or current.state == "Air crouch") then
             sniper_hs = false
         end
@@ -3976,6 +4047,9 @@ end
 local update_fd_guard
 do
     local KNIFE_NEAR, KNIFE_FAR = 260, 360
+    -- Zeus ~180 birimden oldurur ve tutan kosarak gelir: daha erken (V1.0.8, oyun logu: 178 birimde
+    -- birakildi, hemen zeus'landin).
+    local ZEUS_NEAR, ZEUS_FAR = 420, 520
     local FD_MOVE, FD_STOP, FD_GRACE = 40, 10, 10
     local fd = { why = nil, logged = -1000, moving = 0 }
 
@@ -3999,20 +4073,22 @@ do
         if mine == nil then
             return nil
         end
-        local best, best_dist = nil, radius
+        local best, best_dist = nil, huge
         for _, enemy in ipairs(enemy_list()) do
-            if MELEE[weapon_class(enemy)] then
+            local class = weapon_class(enemy)
+            if MELEE[class] then
                 local pos = origin_of(enemy)
                 if pos ~= nil then
                     local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
                     local dist = sqrt(dx * dx + dy * dy + dz * dz)
-                    if dist < best_dist then
+                    local limit = class == "CWeaponTaser" and (radius == KNIFE_NEAR and ZEUS_NEAR or ZEUS_FAR) or radius
+                    if dist < limit and dist < best_dist then
                         best, best_dist = enemy, dist
                     end
                 end
             end
         end
-        return best, best_dist
+        return best, best ~= nil and best_dist or nil
     end
 
     update_fd_guard = function(lp)
@@ -5189,7 +5265,12 @@ listen("player_hurt", protect("player_hurt", function(e)
         return
     end
     local lp = local_player()
-    if lp == nil or userid_index(e.userid) ~= lp then
+    local hurt_index = userid_index(e.userid)
+    -- Senin verdigin hasar: "?" iskasinda sunucudaki isabet sayaci arttiysa hasar baska oyuncuya mi gitti.
+    if lp ~= nil and hurt_index ~= nil and hurt_index ~= lp and userid_index(e.attacker) == lp then
+        own.dealt = { time = realtime(), victim = hurt_index }
+    end
+    if lp == nil or hurt_index ~= lp then
         return
     end
     local attacker = userid_index(e.attacker)
@@ -5377,6 +5458,7 @@ listen("aim_fire", protect("aim_fire", function(e)
             extrapolated = e.extrapolated == true, interpolated = e.interpolated == true,
             high_priority = e.high_priority == true,
             total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil,
+            exploit = not fd_on() and ((dt_on() and "dt") or (hs_on() and "hs")) or nil,
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw,
             hyp_slot = h ~= nil and h.seeded or nil }
     end
@@ -5405,7 +5487,14 @@ local function aim_result(e, reason)
         local lp = local_player()
         local total = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil
         if shot ~= nil and finite(shot.total_hits) and finite(total) and total ~= shot.total_hits then
-            reason = "damage rejection"
+            -- Sayac artti: mermi sunucuda birine isabet etti. O sirada baska bir oyuncu senden hasar aldiysa
+            -- isabet ona gitti; almadiysa sunucu hasari reddetti.
+            local dealt = own.dealt
+            if dealt ~= nil and dealt.time >= shot.time and dealt.victim ~= target then
+                reason = "baska oyuncuya isabet"
+            else
+                reason = "damage rejection"
+            end
         end
     end
     local target = finite(e.target) and e.target or nil
@@ -5449,6 +5538,11 @@ local function aim_result(e, reason)
     hypothesis.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
     local lag = shot ~= nil and shot.lag or nil
+    -- Lag yokken exploit'li (HS / DT) atis reddedildiyse exploit'e yazilir (bkz. sniper.reject).
+    if (reason == "damage rejection" or reason == "unregistered shot") and lag == nil and shot ~= nil
+        and shot.exploit ~= nil then
+        sniper.reject(shot.exploit, reason)
+    end
     if (reason == "unregistered shot" or reason == "damage rejection" or reason == "prediction error")
         and lag ~= nil and resolver.unreg[lag] ~= nil then
         local now = realtime()
@@ -5806,6 +5900,7 @@ listen("level_init", protect("level_init", function()
     for _, entry in pairs(resolver.players) do
         entry.fresh, entry.announced, entry.verified = nil, nil, nil
     end
+    resolver.held = { total = 0, enemies = {} }
     hypothesis.wall.cache = {}
     resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
     resolver.stalls, resolver.body_stalls, resolver.open_cache = {}, {}, {}
@@ -5835,6 +5930,11 @@ listen("player_death", protect("player_death", function(e)
     if victim == lp then
         if on(menu.enabled) and attacker ~= nil and attacker ~= lp and is_enemy(attacker) then
             count_kd("deaths")
+            -- Sniper "sadece kafa" kuraliyla ates etmeden beklerken olduysen ogrenilir (bkz. resolver.held).
+            local since_shot = realtime() - own.last_shot
+            if current.head_only and (since_shot < 0 or since_shot > 1.5) then
+                resolver.held_death(attacker)
+            end
         end
         reset_brute()
         recharge.held = false

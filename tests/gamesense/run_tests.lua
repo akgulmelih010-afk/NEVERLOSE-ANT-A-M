@@ -311,6 +311,13 @@ me.props.m_totalHitsOnServer = 2
 M.fire("aim_miss", { id = id, target = 2, hit_chance = 85, hitgroup = 1, reason = "?" })
 id = id + 1
 check(log_has("iska damage rejection"), "damage rejection ayrilmadi")
+-- Sayac artti ama hasar baska oyuncuya gitti: "baska oyuncuya isabet" (damage rejection degil).
+M.fire("aim_fire", { id = id, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+me.props.m_totalHitsOnServer = 3
+M.fire("player_hurt", { userid = 13, attacker = 11, weapon = "ak47", dmg_health = 30, hitgroup = 2, health = 70 })
+M.fire("aim_miss", { id = id, target = 2, hit_chance = 85, hitgroup = 1, reason = "?" })
+id = id + 1
+check(log_has("iska baska oyuncuya isabet"), "baska oyuncuya giden isabet damage rejection sanildi")
 shoot(2, nil, 1)
 shoot(2, nil, 2)
 
@@ -324,6 +331,17 @@ M.visible[2] = false
 me.props.m_vecVelocity = { 0, 0, 0 }
 step({}, 8)
 check(not whitelisted(2), "gercek kayitta whitelist yapildi")
+-- V1.0.8: varsayilan kapali; kapaliyken sahte kayitta da beklenmez (aimbot normal sikar).
+local wait_item = M.find_lua("Wait for real record (enemy defensive)")
+check(wait_item.value == false, "sahte kayit beklemesi varsayilan kapali degil")
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+step({}, 3)
+check(not whitelisted(2), "bekleme kapaliyken whitelist yapildi")
+step({}, 14)
+local recommended_item = M.find_lua("Always use recommended settings")
+ui.set(recommended_item.id, false)
+ui.set(wait_item.id, true)
+step({}, 2)
 local fs_item = M.items[select(1, ui.reference("AA", "Anti-aimbot angles", "Freestanding"))]
 local fs_before = fs_item.value
 e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
@@ -392,7 +410,9 @@ step({}, 16)
 check(M.plist[2]["Add to whitelist"] == true, "kendi whitelist'in degistirildi")
 M.plist[2]["Add to whitelist"] = false
 M.visible[2], me.props.m_vecVelocity = visible_before, velocity_before
+ui.set(recommended_item.id, true)
 step({}, 4)
+check(wait_item.value == false, "onerilen ayarlar beklemeyi kapatmadi")
 
 -- 4) Dusman mermisi kafanin yanindan (anti-brute) ve vurulma.
 M.fire("bullet_impact", { userid = 12, x = 0, y = 2, z = 64 })
@@ -417,6 +437,42 @@ check(ui.get(md_id) == 20, "SSG 08 Min. damage geri verilmedi: " .. tostring(ui.
 ui.set(M.weapon_type_id, "Rifle")
 step({}, 5)
 
+-- 5b) Sunucu Hide shots atisini reddediyor: lua'nin lag'i yokken HS ile 60 sn'de 2 damage rejection ->
+-- sniper'da (Auto) Hide shots birakilir. Tek olay yetmez.
+me.weapon = 102
+ui.set(M.weapon_type_id, "SSG 08")
+step({}, 10)
+local hs_ref = ui.reference("AA", "Other", "On shot anti-aim")
+check(M.items[hs_ref].value == true, "scout'ta Auto (learn) Hide shots degil")
+local function rejected_shot()
+    local hits = me.props.m_totalHitsOnServer
+    M.fire("aim_fire", { id = id, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+    me.props.m_totalHitsOnServer = hits + 1
+    M.fire("aim_miss", { id = id, target = 2, hit_chance = 85, hitgroup = 1, reason = "?" })
+    id = id + 1
+    step({}, 2)
+end
+rejected_shot()
+check(not log_has("ile atilan atislari reddediyor"), "tek damage rejection'da exploit degisti")
+rejected_shot()
+check(log_has("sunucu Hide shots ile atilan atislari reddediyor"), "HS reddi ogrenilmedi")
+step({}, 4)
+check(M.items[hs_ref].value == false, "HS reddedilince sniper Hide shots'tan cikmadi")
+
+-- 5c) Scout "sadece kafa" (HP + 1) ile ates etmeden beklerken oldun -> bu haritada ona karsi govde de atilir.
+step({}, 100)
+check(ui.get(md_id) == 101, "ogrenmeden once sniper Min. damage 101 degil: " .. tostring(ui.get(md_id)))
+M.fire("player_death", { userid = 11, attacker = 12, headshot = true })
+check(log_has("ogrenildi: enemy one seni sen kafa beklerken"), "kafa beklerken olum ogrenilmedi")
+step({}, 4)
+check(ui.get(md_id) == 20, "ogrendikten sonra enemy one'a karsi kafa kurali gevsemedi: " .. tostring(ui.get(md_id)))
+M.fire("level_init", {})
+step({}, 6)
+check(ui.get(md_id) == 101, "yeni haritada kafa kurali geri gelmedi: " .. tostring(ui.get(md_id)))
+me.weapon = 101
+ui.set(M.weapon_type_id, "Rifle")
+step({}, 5)
+
 -- 6) Fake duck + bicakli dusman yakin: fake duck birakilir.
 local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
 -- Fake duck boyunca DT ve HS kapali (fake duck'la calismazlar; senin bind'in acik olsa da); birakinca doner.
@@ -433,6 +489,17 @@ check(log_has("fake duck birakildi"), "fake duck logu yok")
 e2.origin = { 0, 900, 0 }
 step({}, 5)
 check(ui.get(fd_id), "bicakli uzaklasinca fake duck geri verilmedi")
+-- Zeus 420 birimde de birakir (bicakta 260).
+M.weapons[106] = { class = "CWeaponTaser", m_iClip1 = 1, m_flNextPrimaryAttack = 0 }
+local e2_weapon = e2.weapon
+e2.weapon = 106
+e2.origin = { 0, 400, 0 }
+step({}, 6)
+check(not ui.get(fd_id), "zeus'lu dusman 400 birimdeyken fake duck birakilmadi")
+e2.origin = { 0, 900, 0 }
+e2.weapon = e2_weapon
+step({}, 6)
+check(ui.get(fd_id), "zeus'lu uzaklasinca fake duck geri verilmedi")
 M.items[fd_id].value.held = false
 -- Birakinca DT doner (gorulurken Safe recharge en fazla 1.2 sn bekletir).
 step({}, 90)
