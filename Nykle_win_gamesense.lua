@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.3"
+local VERSION = "1.0.4"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -595,12 +595,12 @@ end
 -- + "Force body yaw value" (NYKLE Resolver 2.5). Senin kendi oyuncu ayarin hic dusurulmez; slot baska
 -- bir oyuncuya gecince (ayni index) eski degerimiz yeni oyuncuya kalmaz.
 local PL = { SAFE = "Override safe point", BODY = "Override prefer body aim", FORCE = "Force body yaw",
-    VALUE = "Force body yaw value", CORRECTION = "Correction active" }
+    VALUE = "Force body yaw value", CORRECTION = "Correction active", WHITELIST = "Add to whitelist" }
 
 local player_id
 local plist_get, plist_available, plist_override, plist_user, plist_reset, plist_release_missing
 do
-    local DEFAULT = { [PL.SAFE] = "-", [PL.BODY] = "-", [PL.FORCE] = false, [PL.VALUE] = 0 }
+    local DEFAULT = { [PL.SAFE] = "-", [PL.BODY] = "-", [PL.FORCE] = false, [PL.VALUE] = 0, [PL.WHITELIST] = false }
     local recs, bad = {}, {}
 
     plist_get = function(ent, field)
@@ -1104,6 +1104,9 @@ menu.hyp_chance     = grp.resolver:slider("  » Hypothesis min hit chance", 50, 
 menu.smart_baim     = grp.resolver:switch("Smart body aim", true)
 menu.head_only      = grp.resolver:switch("Head unless body kills (snipers)", true)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
+-- Dusman defensive'deyken (sahte kayit) o kayda giden mermi sunucuda gecmez: aimbot gercek kayit gelene
+-- kadar (en fazla 14 tick) o dusmana ates etmez, DT bosa gitmez.
+menu.wait_real      = grp.resolver:switch("Wait for real record (enemy defensive)", true)
 menu.resolver_info  = grp.resolver:label(DIM_HEX .. "Per-enemy safe point / body aim from the player list.")
 
 -- Builder
@@ -2926,6 +2929,62 @@ local function apply_resolver(class, present)
     return target, target_raw
 end
 
+-- Sahte kayit beklemesi: dusman defensive acinca simulasyon zamani geri gider (gordugumuz en yuksegin
+-- gerisine); sunucu o zamani dusmanin ESKI konumuyla eslestirir, o kayda giden mermi (DT'nin iki mermisi
+-- dahil) bosa gider. Kayit sahteyken o dusman oyuncu listesinde kisa sure "Add to whitelist" yapilir:
+-- aimbot gercek kayit gelene kadar ona ates etmez, DT sarji gercek kayda kalir. Bir pencerede en fazla
+-- max tick (GameSense'in defensive kaymasi kadar), sonra cooldown tick beklenmez: surekli defensive acan
+-- dusmana da ates edilir. Senin kendi whitelist'in hic degistirilmez.
+resolver.wait = { max = 14, cooldown = 16, enemies = {}, log_every = 5 }
+
+resolver.wait_apply = function(class, present)
+    local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+    local enabled = on(menu.resolver) and on(menu.wait_real) and gun and plist_available(PL.WHITELIST)
+    local wait, now = resolver.wait, tickcount()
+    current.waiting = nil
+    for _, enemy in ipairs(enemy_list()) do
+        present[enemy] = true
+        local w = wait.enemies[enemy]
+        if w == nil then
+            w = { ticks = 0, free_until = -1000, logged = {} }
+            wait.enemies[enemy] = w
+        end
+        local profile = enabled and enemy_watch.profile(enemy) or nil
+        local cooling = now >= w.free_until - wait.cooldown and now < w.free_until
+        local hold = profile ~= nil and profile.defensive_now and not cooling
+            and plist_user(enemy, PL.WHITELIST) ~= true
+        if hold then
+            w.ticks = w.ticks + 1
+            if w.ticks > wait.max then
+                w.free_until, hold = now + wait.cooldown, false
+            end
+        end
+        if hold and plist_override(enemy, PL.WHITELIST, true) then
+            current.waiting = current.waiting or enemy
+        else
+            if w.ticks > 0 and on(menu.resolver_log) then
+                -- Iki tur ayri hiz sinirli (surekli defensive'de konsol dolmasin).
+                local capped, real = w.ticks > wait.max, realtime()
+                local kind = capped and "cap" or "real"
+                local last = w.logged[kind] or -1000
+                if real < last or real - last >= wait.log_every then
+                    w.logged[kind] = real
+                    print(("[%s] resolver: %s sahte kayitta (defensive): %d tick gercek kayit beklendi, %s"):format(
+                        SCRIPT, player_name(enemy), min(w.ticks, wait.max),
+                        capped and "sinir doldu, ates serbest" or "gercek kayit geldi"))
+                end
+            end
+            w.ticks = 0
+            plist_override(enemy, PL.WHITELIST, nil)
+        end
+    end
+    for index in pairs(wait.enemies) do
+        if not present[index] then
+            wait.enemies[index] = nil
+        end
+    end
+end
+
 -- HvH silahlari: { hasar, zirh orani, menzil carpani, tek atis } (CS:GO silah dosyalari).
 local apply_body_aim
 do
@@ -3317,10 +3376,14 @@ local function apply_exploit(s, class)
     end
 end
 
--- Temiz atis (V1.0): silah ates edebiliyorken ve hedefin kafasina, gogsune ya da midesine gozumuzden
--- Min. damage'i gecen mermi gidiyorsa kendi lag'imiz durur (Break LC, zorlanan defensive, hidden acilar,
--- havada teleport). Iz 2 tick'te bir atilir; acilinca 6 tick acik kalir.
-local clean_shot = { every = 2, hold = 6, checked = -1000, index = nil, until_tick = -1000, boxes = { 0, 5, 3 } }
+-- Temiz atis (V1.0): silah ates edebiliyorken ve hedefe gozumuzden Min. damage'i gecen mermi gidiyorsa
+-- kendi lag'imiz durur (Break LC, zorlanan defensive, hidden acilar, havada teleport). Acilinca 6 tick acik
+-- kalir; aimbot ates edince 14 tick (DT'nin ikinci mermisi ve hemen arkasindaki atis lag'e denk gelmesin).
+-- Ani peek icin: biri seni goruyorken (ya da birazdan gorecekken) iz her tick atilir (yoksa 2 tick'te bir),
+-- kafa / gogus / mide / ust gogus / kalca / uyluklara bakilir ve hareket ediyorsan 0.1 sn sonraki gozden de
+-- (kafa, gogus, mide): defensive atistan once kesilir, atis anina denk gelmez.
+local clean_shot = { every = 2, hold = 6, fire_hold = 14, checked = -1000, index = nil, until_tick = -1000,
+    from_tick = -1000, boxes = { 0, 5, 3, 6, 2, 7, 8 }, ahead = 0.1, ahead_boxes = 3, ahead_speed = 50 }
 
 -- Aimbot'un su an kullandigi Min. damage (override tusu basiliysa override degeri).
 local function active_min_damage()
@@ -3353,24 +3416,38 @@ clean_shot.shootable = function(lp, target)
         return false
     end
     local need = clean_shot.need(target)
-    for _, hitbox in ipairs(clean_shot.boxes) do
-        local point = hitbox_of(target, hitbox)
-        if point ~= nil then
-            local points = { point }
-            if hitbox == 0 then
-                for _, side in ipairs(side_points(point, eye, exposure.edge)) do
-                    points[#points + 1] = side
+    local eyes = { eye }
+    local vel = velocity_of(lp)
+    if vel.x * vel.x + vel.y * vel.y > clean_shot.ahead_speed * clean_shot.ahead_speed then
+        eyes[2] = vector(eye.x + vel.x * clean_shot.ahead, eye.y + vel.y * clean_shot.ahead, eye.z)
+    end
+    for n, from in ipairs(eyes) do
+        for b, hitbox in ipairs(clean_shot.boxes) do
+            local point = (n == 1 or b <= clean_shot.ahead_boxes) and hitbox_of(target, hitbox) or nil
+            if point ~= nil then
+                local points = { point }
+                if hitbox == 0 then
+                    for _, side in ipairs(side_points(point, from, exposure.edge)) do
+                        points[#points + 1] = side
+                    end
                 end
-            end
-            for _, p in ipairs(points) do
-                local damage = bullet_damage(lp, eye, p, target)
-                if damage ~= nil and damage >= need then
-                    return true
+                for _, p in ipairs(points) do
+                    local damage = bullet_damage(lp, from, p, target)
+                    if damage ~= nil and damage >= need then
+                        return true
+                    end
                 end
             end
         end
     end
     return false
+end
+
+-- Aimbot ates etti (aim_fire): o hedefe fire_hold tick temiz atis.
+clean_shot.fired = function(target)
+    local tick = tickcount()
+    clean_shot.index, clean_shot.checked = target, tick
+    clean_shot.from_tick, clean_shot.until_tick = tick, max(clean_shot.until_tick, tick + clean_shot.fire_hold)
 end
 
 clean_shot.update = function(lp, target, armed)
@@ -3380,16 +3457,20 @@ clean_shot.update = function(lp, target, armed)
         return false
     end
     local index = target
-    if index ~= clean_shot.index or tick < clean_shot.checked or tick - clean_shot.checked >= clean_shot.every then
+    local every = (exposure.now or exposure.soon or exposure.any) and 1 or clean_shot.every
+    if index ~= clean_shot.index or tick < clean_shot.checked or tick - clean_shot.checked >= every then
         if index ~= clean_shot.index then
             clean_shot.until_tick = -1000
         end
         clean_shot.index, clean_shot.checked = index, tick
         if clean_shot.shootable(lp, target) then
-            clean_shot.until_tick = tick + clean_shot.hold
+            if not (tick <= clean_shot.until_tick and tick >= clean_shot.from_tick) then
+                clean_shot.from_tick = tick
+            end
+            clean_shot.until_tick = max(clean_shot.until_tick, tick + clean_shot.hold)
         end
     end
-    return tick <= clean_shot.until_tick and tick >= clean_shot.until_tick - clean_shot.hold
+    return tick <= clean_shot.until_tick and tick >= clean_shot.from_tick
 end
 
 local tickbase = { max = 0, left = 0, sent = nil, since_sent = 0, jump = false }
@@ -3672,6 +3753,16 @@ end
 local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
     local threat = current_threat()
     exposure.facing = threat
+    -- Sahte kayit beklemesi o dusmani oyuncu listesinde whitelist'e alir; GameSense'in "At targets"i onu
+    -- atlayabilir. Beklerken AA o dusmana (genelde peek atan) bizim acimizla doner.
+    local waiting = current.waiting
+    if waiting ~= nil and yaw_base == "At Target" and alive(waiting) then
+        local mine, theirs, view = origin_of(lp), origin_of(waiting), view_yaw(cmd)
+        if mine ~= nil and theirs ~= nil and view ~= nil then
+            exposure.facing = waiting
+            return "Local View", yaw_offset + yaw_to(mine, theirs) - view
+        end
+    end
     if yaw_base ~= "At Target" or freestand then
         return yaw_base, yaw_offset
     end
@@ -4373,6 +4464,9 @@ local function tick_prepare(cmd)
     if lp == nil or not alive(lp) then
         override("fakeduck", nil)
         recharge.held = false
+        -- Olunce oyuncu listesi ezmeleri (safe point, body aim, hipotez, sahte kayit bekleme whitelist'i)
+        -- geri verilir; dogunca yeniden kurulur.
+        plist_reset(false)
         return nil
     end
     local choked = finite(cmd.chokedcommands) and cmd.chokedcommands or 0
@@ -4393,6 +4487,7 @@ local function tick_prepare(cmd)
     local present = {}
     local aim_target, resolver_raw = apply_resolver(class, present)
     apply_body_aim(lp, class, aim_target, resolver_raw, present)
+    resolver.wait_apply(class, present)
     plist_release_missing(present)
     update_ai_peek(lp, cmd, class)
     return lp, choked, move_state, class, aim_target
@@ -4485,7 +4580,9 @@ end
 
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     local manual_dir = manual.dir
-    local freestand = freestanding_allowed(move_state)
+    -- Sahte kayit beklenirken (dusman whitelist'te) GameSense'in freestanding'i o dusmani atlayabilir: o
+    -- birkac tick freestanding yok, AA beklenen dusmana doner (bkz. face_target).
+    local freestand = freestanding_allowed(move_state) and current.waiting == nil
     local state
     if manual_dir ~= "Off" then
         state = "Manual"
@@ -4938,6 +5035,7 @@ listen("aim_fire", protect("aim_fire", function(e)
     end
     local state = enemy_state(target)
     ai_peek.fired(e.id, target)
+    clean_shot.fired(target)
     -- Atis anindaki kendi lag'imiz: TP / DEF / LC / FD.
     local since_tp = now - teleport.last
     local lag = (since_tp >= 0 and since_tp <= resolver.tp_window and "TP") or (current.forced and "DEF")
@@ -5750,6 +5848,9 @@ local function draw_indicators(lp, cx, cy)
     end
     if current.clean then
         line("CLEAN SHOT")
+    end
+    if current.waiting ~= nil then
+        line("WAIT REAL", COLOR.CHARGING)
     end
     if current.anti then
         line("ANTI-PEEK")

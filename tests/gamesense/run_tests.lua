@@ -142,6 +142,18 @@ for _ = 1, 60 do
     end
 end
 check(forced > 0, "Smart defensive hic zorlanmadi (gorulurken)")
+-- Aimbot ates edince 14 tick temiz atis: DT'nin ikinci mermisi / arkasindaki atis lag'e denk gelmez.
+M.fire("aim_fire", { id = 900, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+local forced_after = 0
+for _ = 1, 10 do
+    advance_sim(1)
+    local cmd = M.step({})
+    if cmd.force_defensive then
+        forced_after = forced_after + 1
+    end
+end
+check(forced_after == 0, "aimbot ates ettikten sonra defensive zorlandi: " .. forced_after)
+M.fire("aim_miss", { id = 900, target = 2, hit_chance = 85, hitgroup = 1, reason = "spread" })
 me.props.m_fFlags = 0
 me.props.m_vecVelocity = { 250, 0, 280 }
 local teleported = false
@@ -284,6 +296,63 @@ id = id + 1
 check(log_has("iska damage rejection"), "damage rejection ayrilmadi")
 shoot(2, nil, 1)
 shoot(2, nil, 2)
+
+-- 3h) Sahte kayit (dusman defensive): aimbot gercek kayit gelene kadar o dusmana ates etmez.
+local function whitelisted(index)
+    return M.plist[index] ~= nil and M.plist[index]["Add to whitelist"] == true
+end
+step({}, 4)
+check(not whitelisted(2), "gercek kayitta whitelist yapildi")
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+step({}, 2)
+check(whitelisted(2), "sahte kayitta (defensive) bekleme yok")
+check(M.items[select(1, ui.reference("AA", "Anti-aimbot angles", "Yaw base"))].value == "Local view",
+    "beklerken AA beklenen dusmana kendi acimizla donmedi")
+step({}, 12)
+check(not whitelisted(2), "gercek kayit gelince whitelist birakilmadi")
+check(log_has("gercek kayit beklendi, gercek kayit geldi"), "bekleme logu yok")
+-- Surekli defensive: bir pencerede en fazla 14 tick beklenir, sonra 16 tick ates serbest.
+local runs, last = {}, nil
+for _ = 1, 44 do
+    e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 2 / 64
+    step({}, 1)
+    local now = whitelisted(2)
+    if now ~= last then
+        runs[#runs + 1] = { held = now, n = 0 }
+        last = now
+    end
+    runs[#runs].n = runs[#runs].n + 1
+end
+local first_hold, first_free
+for _, r in ipairs(runs) do
+    if r.held and first_hold == nil then
+        first_hold = r.n
+    elseif not r.held and first_hold ~= nil and first_free == nil then
+        first_free = r.n
+    end
+end
+check(first_hold ~= nil and first_hold <= 14, "surekli defensive'de bekleme siniri yok: " .. tostring(first_hold))
+check(first_free ~= nil and first_free >= 15, "sinirdan sonra ates serbest kalmadi: " .. tostring(first_free))
+check(log_has("sinir doldu, ates serbest"), "bekleme siniri logu yok")
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime + 2
+step({}, 20)
+check(not whitelisted(2), "defensive bitince whitelist kaldi")
+-- Olunce bekleme whitelist'i geri verilir.
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+step({}, 2)
+check(whitelisted(2), "olum testi icin bekleme baslamadi")
+me.alive = false
+step({}, 2)
+check(not whitelisted(2), "olunce whitelist geri verilmedi")
+me.alive = true
+step({}, 14)
+-- Senin kendi whitelist'ine dokunulmaz.
+M.plist[2]["Add to whitelist"] = true
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+step({}, 16)
+check(M.plist[2]["Add to whitelist"] == true, "kendi whitelist'in degistirildi")
+M.plist[2]["Add to whitelist"] = false
+step({}, 4)
 
 -- 4) Dusman mermisi kafanin yanindan (anti-brute) ve vurulma.
 M.fire("bullet_impact", { userid = 12, x = 0, y = 2, z = 64 })
@@ -527,6 +596,7 @@ check(M.clantag == "", "kapanista clan tag geri verilmedi")
 for idx, fields in pairs(M.plist) do
     check(fields["Override safe point"] == nil or fields["Override safe point"] == "-", "kapanista plist safe point kaldi " .. idx)
     check(fields["Force body yaw"] == nil or fields["Force body yaw"] == false, "kapanista force body yaw kaldi " .. idx)
+    check(fields["Add to whitelist"] == nil or fields["Add to whitelist"] == false, "kapanista whitelist kaldi " .. idx)
 end
 check(M.db["nykle_win_gs_memory"] ~= nil, "hafiza yazilmadi")
 for sid, per_type in pairs(M.scoped) do

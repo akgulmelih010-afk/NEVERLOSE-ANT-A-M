@@ -545,7 +545,7 @@ function renderer.line(...) M.draws = M.draws + 1 end
 
 M.plist = {}
 local PLIST_DEFAULTS = { ["Override safe point"] = "-", ["Override prefer body aim"] = "-", ["Force body yaw"] = false,
-    ["Force body yaw value"] = 0, ["Correction active"] = true }
+    ["Force body yaw value"] = 0, ["Correction active"] = true, ["Add to whitelist"] = false }
 plist = {}
 function plist.get(i, field)
     if PLIST_DEFAULTS[field] == nil then
