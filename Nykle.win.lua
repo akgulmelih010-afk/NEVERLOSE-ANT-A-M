@@ -14,6 +14,9 @@
         olculur (hidden spin / random yaw jitter on bilgisini bozmaz).
       - Menu bastan duzenlendi: Home / Anti-Aim / Exploits / Builder / Ragebot / Visuals sekmeleri,
         ikonlar, aciklamalar; butun konsol loglari tek yerde.
+      - Temiz atis: silah ates edebiliyorken ve hedef vurulabilirken kendi lag'in (Break LC, zorlanan
+        defensive, havada teleport) durur, mermi gidince geri gelir. Lag'li atislarin kayip ya da
+        kaymis gitmesi resolver disi iskalarin kaynagiydi.
 
     Neler var
       - 13 durumlu builder (Global, Standing, Moving, Slow walk, Crouching, Crouch move, Peek, Air,
@@ -254,7 +257,11 @@ local forget_enemies
 -- ai_*: AI peek sayaclari (peek, atis, isabet, atissiz biten, peek sirasinda vurulma).
 local function new_aim_stats()
     return { shots = 0, hits = 0, correction = 0, spread = 0, other = 0,
-        ai_peeks = 0, ai_shots = 0, ai_hits = 0, ai_empty = 0, ai_hurt = 0 }
+        ai_peeks = 0, ai_shots = 0, ai_hits = 0, ai_empty = 0, ai_hurt = 0,
+        -- V1.0: kendi lag'in (DEF / LC / FD / TP) acikken ve temiz giden atislar (atis, isabet).
+        lag_shots = 0, lag_hits = 0, clean_shots = 0, clean_hits = 0,
+        -- Panelin isabet tahmini icin tum dusmanlar: sayilan atis, spread, resolver disi iska.
+        rated = 0, rated_spread = 0, rated_other = 0 }
 end
 local aim_stats = new_aim_stats()
 
@@ -544,6 +551,13 @@ menu.air_teleport   = grp.defensive:switch(style.title("person-running", "Telepo
 -- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
 -- hidden acilar (spin). "Havada lag olmuyor": Smart sadece biri seni gorunce zorluyordu.
 menu.air_lag        = grp.defensive:switch(style.title("cloud", "Air lag (defensive every tick)"), true)
+-- Temiz atis (V1.0): silahin ates edebiliyorken ve hedef su an vurulabilirken kendi lag'in durur
+-- (Hide shots Break LC, zorlanan DT defensive'i, havada teleport); mermi gidince (surgu, sarjor) geri
+-- gelir. V1.0 loglarinda atislarin hepsi "LC" / "FD" iken gitti: kafaya nisan alinip gogse / mideye
+-- inenler, "prediction error" ve "unregistered shot" bunlardi (bkz. clean_shot).
+menu.clean_shot     = style.tip(grp.defensive:switch(style.title("gun", "Clean shot (no lag while shooting)"), true),
+    "Silah ates edebiliyorken ve hedef vurulabilirken Break LC / zorlanan defensive / teleport durur; " ..
+    "atistan sonra (surgu, sarjor) geri gelir.")
 -- Scout / AWP / R8 havadayken DT kullanir (inince yine Hide shots). V1.0'da varsayilan kapali:
 -- inince DT -> HS gecisi sarji sifirdan baslatiyor; loglarda zipladiktan sonra peek'te "HS %14 LC"
 -- iken kafadan vuruldun (teleport'tan 0.38 sn sonra). Kapaliyken scout havada da HS + Break LC.
@@ -2189,7 +2203,7 @@ local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n 
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false, lc = false,
     brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
-    head_only = false }
+    head_only = false, clean = false }
 
 -- Istatistigin yazilacagi grup; AA'si hareket durumundan farkli olan ozel durumlarda nil
 -- (yazilmaz). v4.8 loglarinda Safe head'deki (yaw 0, desync 30) kafa isabetleri "yerde"
@@ -2627,6 +2641,65 @@ local function apply_exploit(s, class)
     end
 end
 
+-- Temiz atis (V1.0, bkz. menu.clean_shot): silah ates edebiliyorken ve hedefin kafasina, gogsune ya da
+-- midesine gozumuzden Min. Damage'i gecen mermi gidiyorsa (aimbot simdi ates eder) kendi lag'imiz durur.
+-- Lag sirasinda (tickbase kayarken) sunucu silahin hazir oldugunu farkli tick'te gorur: mermi gecmez
+-- ("unregistered shot") ya da bir tick sonra baska bir goz noktasindan gider (kafaya nisan, gogse
+-- isabet). Iz every tick'te bir atilir; acilinca hold tick acik kalir, Break LC titremesin. Iz
+-- atilamazsa hic acilmaz (eski davranis).
+local clean_shot = { every = 2, hold = 6, checked = -1000, index = nil, until_tick = -1000, boxes = { 0, 5, 3 } }
+
+-- Aimbot'un ates etmesi icin gereken hasar: Min. Damage; 100 ustu can + fark (101 = can + 1).
+clean_shot.need = function(target)
+    local md = effective("min_damage")
+    md = type(md) == "number" and md or 0
+    if md > 100 then
+        local hp = prop(target, "m_iHealth")
+        return (type(hp) == "number" and hp or 100) + md - 100
+    end
+    return max(1, md)
+end
+
+clean_shot.shootable = function(lp, target)
+    if trace_bullet == nil or dormant(target) then
+        return false
+    end
+    local ok_eye, eye = pcall(function() return lp:get_eye_position() end)
+    if not ok_eye or eye == nil then
+        return false
+    end
+    local need = clean_shot.need(target)
+    for _, hitbox in ipairs(clean_shot.boxes) do
+        local ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
+        if ok_box and point ~= nil then
+            local ok, damage = pcall(trace_bullet, lp, eye, point)
+            if ok and type(damage) == "number" and damage >= need then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+clean_shot.update = function(lp, target, armed)
+    local tick = globals.tickcount
+    if not menu.clean_shot:get() or not armed or target == nil then
+        clean_shot.until_tick = -1000
+        return false
+    end
+    local index = index_of(target)
+    if index ~= clean_shot.index or tick < clean_shot.checked or tick - clean_shot.checked >= clean_shot.every then
+        if index ~= clean_shot.index then
+            clean_shot.until_tick = -1000
+        end
+        clean_shot.index, clean_shot.checked = index, tick
+        if clean_shot.shootable(lp, target) then
+            clean_shot.until_tick = tick + clean_shot.hold
+        end
+    end
+    return tick <= clean_shot.until_tick and tick >= clean_shot.until_tick - clean_shot.hold
+end
+
 -- Defensive'i zorlamayi birakir. Kullanicinin kendi ayari "Always On" olsa bile
 -- en sakin moda ceker; Neverlose'da "On Peek"ten daha kapali bir secenek yok.
 local function defensive_off()
@@ -2694,7 +2767,7 @@ do
         return now >= anti.last and now - anti.last <= ANTI_HOLD
     end
 
-    apply_defensive = function(cmd, s, class, state, moving, armed)
+    apply_defensive = function(cmd, s, class, state, moving, armed, clean)
         local dt, hs = effective("doubletap"), effective("hideshots")
         local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
         -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
@@ -2715,7 +2788,9 @@ do
         if on_peek and hs and (state == "Peek" or moving or seen_by_enemy() or exposure.peeking ~= nil) then
             hs_lc.until_tick = now + HS_LC_HOLD
         end
-        local hs_peek = on_peek and hs and lc_ok and now <= hs_lc.until_tick and now >= hs_lc.until_tick - HS_LC_HOLD
+        -- Temiz atis: ates edebiliyorken ve hedef vurulabilirken hicbir lag yok (bkz. clean_shot).
+        local hs_peek = on_peek and hs and lc_ok and not clean and now <= hs_lc.until_tick
+            and now >= hs_lc.until_tick - HS_LC_HOLD
         -- Neverlose'da DT, HS'den once gelir; ikisi de aciksa DT gecerlidir. Sarj yokken
         -- defensive olmaz, o zaman zorlanmaz.
         local airborne = state == "Air" or state == "Air crouch"
@@ -2724,13 +2799,13 @@ do
         -- AI peek yururken / beklerken: defensive dusman seni gormeden baslar, ilk gordugu
         -- kayit eski ve acilar gizli olur (defensive peek).
         local peeking = on_peek and exposure.peeking ~= nil and menu.peek_defensive:get()
-        local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF")
-        current.defensive = not on_peek or hs_peek or forced
+        local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF") and not clean
+        current.defensive = (not on_peek and not clean) or hs_peek or forced
         current.forced = forced
         current.anti = forced and guard
 
         -- Break LC sadece DT kapaliyken gecerli (Neverlose'da DT, HS'den once gelir).
-        local break_lc = on_peek and hs_peek or (not on_peek and hs and lc_ok)
+        local break_lc = on_peek and hs_peek or (not on_peek and hs and lc_ok and not clean)
         current.lc = break_lc and not dt
         if on_peek then
             -- Neverlose peek attigini kendisi algilar ve o an defensive'e gecer.
@@ -2740,18 +2815,18 @@ do
                 pcall(function() cmd.force_defensive = true end)
             end
         elseif mode == "Always on" then
-            override("lag_options", "Always On")
+            override("lag_options", clean and "On Peek" or "Always On")
             override("hs_options", break_lc and "Break LC" or "Favor Fire Rate")
         else
             override("lag_options", "On Peek")
             override("hs_options", break_lc and "Break LC" or "Favor Fire Rate")
             local ticks = s.def_ticks:get()
             local number = cmd.command_number or globals.tickcount
-            pcall(function() cmd.force_defensive = number % ticks == 0 end)
+            pcall(function() cmd.force_defensive = not clean and number % ticks == 0 end)
         end
 
         local pitch, yaw = hidden_pitch_value(s), hidden_yaw_value(s)
-        if pitch == nil and yaw == nil then
+        if clean or (pitch == nil and yaw == nil) then
             override("hidden", false)
             return
         end
@@ -3108,7 +3183,10 @@ teleport.update = function(lp, move_state)
             teleport.refilled = true
         end
     end
-    if teleport.count >= teleport.max_jump or not menu.air_teleport:get() or api.teleport == nil or resolver.paused("TP") then
+    -- Temiz atista (ates edebiliyorsun, hedef vurulabilir) isinlanilmaz: teleport sarji harcar ve hemen
+    -- sonraki mermi sunucuda gecmeyebilir (loglarda "tp 0.21s" atislari).
+    if teleport.count >= teleport.max_jump or not menu.air_teleport:get() or api.teleport == nil or resolver.paused("TP")
+        or current.clean then
         return
     end
     -- Fake duck'ta exploit calismaz (bind'in "acik" gorunse de): v5.0 loglarinda FD'de teleport tetiklendi.
@@ -3720,7 +3798,7 @@ do
 end
 
 events.createmove:set(protect("createmove", function(cmd)
-    current.defensive, current.forced, current.lc, current.anti = false, false, false, false
+    current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     local rec, tick = recommended_state, globals.tickcount
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
@@ -3897,8 +3975,10 @@ events.createmove:set(protect("createmove", function(cmd)
         body = body, side = side, left = left, right = right,
         avoid_overlap = s.avoid_overlap:get(), body_fs = body_fs, freestand = freestand,
     })
+    local armed = weapon_ready(lp, 0.15)
+    current.clean = clean_shot.update(lp, aim_target, armed and class ~= nil and not NON_GUNS[class] and not is_grenade(class))
     apply_defensive(cmd, builder[state], class, state,
-        move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck", weapon_ready(lp, 0.15))
+        move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck", armed, current.clean)
     teleport.update(lp, move_state)
     update_recharge()
     sample_exploit(state)
@@ -4296,7 +4376,7 @@ pcall(function()
         if e.id ~= nil then
             resolver.shots[e.id] = { state = state, time = now, safe = effective("safe_points"),
                 body = effective("body_aim"), md = effective("min_damage"), health = prop(target, "m_iHealth"),
-                weapon = weapon_label() .. (lag ~= nil and " " .. lag or ""), lag = lag,
+                weapon = weapon_label() .. (lag ~= nil and " " .. lag or (current.clean and " temiz" or "")), lag = lag,
                 profile = enemy_watch.profile(target),
                 hitgroup = event_number(e, "hitgroup"), damage = event_number(e, "damage"),
                 hitchance = event_number(e, "hitchance"), backtrack = event_number(e, "backtrack") }
@@ -4361,10 +4441,12 @@ pcall(function()
         end
         ai_peek.result(e, target ~= nil and player_name(target) or nil)
         -- Kendi lag'imiz sirasinda (zorlanan defensive / Break LC / teleport sonrasi) atilan mermi
-        -- sunucuda gecmediyse ("iska unregistered shot", "iska damage rejection"), ayni turden ikincisinde
-        -- o lag unreg_pause sn durdurulur. Loglarda DEF / LC / FD / TP anlarinda boyle iskalar vardi.
+        -- sunucuda gecmediyse ("iska unregistered shot", "iska damage rejection") ya da kaydiysa ("iska
+        -- prediction error", V1.0: lag'li atista goz noktasi sunucuda farkli), ayni turden ikincisinde o lag
+        -- unreg_pause sn durdurulur. Loglarda DEF / LC / FD / TP anlarinda boyle iskalar vardi.
         local lag = shot ~= nil and shot.lag or nil
-        if (state == "unregistered shot" or state == "damage rejection") and resolver.unreg[lag] ~= nil then
+        if (state == "unregistered shot" or state == "damage rejection" or state == "prediction error")
+            and resolver.unreg[lag] ~= nil then
             local now = globals.realtime
             local list = {}
             for _, t in ipairs(resolver.unreg[lag]) do
@@ -4378,19 +4460,34 @@ pcall(function()
                 resolver.unreg[lag], resolver.pause[lag] = {}, now + resolver.unreg_pause
                 if menu.shot_log:get() then
                     local names = resolver.lag_names[lag]
-                    print(("[%s] %s %d sn durduruldu: %s sirasinda %d atis sunucuda gecmedi (son: %s)"):format(SCRIPT,
+                    print(("[%s] %s %d sn durduruldu: %s sirasinda %d atis bozuk gitti (son: %s)"):format(SCRIPT,
                         names[1], resolver.unreg_pause, names[2], #list, state))
                 end
             end
         end
-        -- Panel icin dusman basina: aimbot'un hit chance'i, spread ve resolver disi iskalar (sunucu
-        -- reddi, tahmin hatasi, LC...). "death" / "player death" atisin sucu degil, sayilmaz.
-        local entry = target ~= nil and resolver_entry(target) or nil
-        if entry ~= nil and state ~= "death" and state ~= "player death" then
-            local hc = event_number(e, "hitchance") or (shot ~= nil and shot.hitchance) or nil
-            if hc ~= nil then
-                entry.hc_sum, entry.hc_n = (entry.hc_sum or 0) + hc, (entry.hc_n or 0) + 1
+        -- "death" / "player death" atisin sucu degil, hicbir oranda sayilmaz.
+        local counted = state ~= "death" and state ~= "player death"
+        -- Lag'li / temiz atislarin isabeti (Stats paneli; temiz atisin ise yarayip yaramadigi buradan).
+        if counted and shot ~= nil then
+            local hit = state == nil and 1 or 0
+            if lag ~= nil then
+                aim_stats.lag_shots, aim_stats.lag_hits = aim_stats.lag_shots + 1, aim_stats.lag_hits + hit
+            else
+                aim_stats.clean_shots, aim_stats.clean_hits = aim_stats.clean_shots + 1, aim_stats.clean_hits + hit
             end
+        end
+        -- Panel icin dusman basina ve toplam: spread ve resolver disi iskalar (sunucu reddi, tahmin
+        -- hatasi, sahte kayit, LC...).
+        if counted then
+            aim_stats.rated = aim_stats.rated + 1
+            if state == "spread" then
+                aim_stats.rated_spread = aim_stats.rated_spread + 1
+            elseif state ~= nil and result == nil then
+                aim_stats.rated_other = aim_stats.rated_other + 1
+            end
+        end
+        local entry = target ~= nil and resolver_entry(target) or nil
+        if entry ~= nil and counted then
             entry.shots = (entry.shots or 0) + 1
             if state == "spread" then
                 entry.spread = (entry.spread or 0) + 1
@@ -4748,6 +4845,11 @@ local function draw_indicators(lp, cx, cy)
         y = y + 9
         render.text(FONT, vector(x, y), CHARGING, "c", "DEF BODY")
     end
+    -- CLEAN SHOT: ates edebiliyorsun ve hedef vurulabilir, kendi lag'in durdu (bkz. clean_shot).
+    if current.clean then
+        y = y + 9
+        render.text(FONT, vector(x, y), accent, "c", "CLEAN SHOT")
+    end
     -- ANTI-PEEK: bir dusman sana peek atiyor, defensive ona karsi zorlaniyor.
     if current.anti then
         y = y + 9
@@ -4791,6 +4893,10 @@ local function draw_stats(screen)
         y = y + 10
         render.text(FONT, vector(x, y), WHITE, nil, ("ALL   %d / %d / %d / %d / %d"):format(
             aim_stats.shots, aim_stats.hits, aim_stats.correction, aim_stats.spread, aim_stats.other))
+        -- V1.0: kendi lag'in (DEF / LC / FD / TP) acikken ve temiz giden atislarin isabeti (isabet / atis).
+        y = y + 10
+        render.text(FONT, vector(x, y), WHITE, nil, ("LAG   %d / %d   TEMIZ   %d / %d"):format(
+            aim_stats.lag_hits, aim_stats.lag_shots, aim_stats.clean_hits, aim_stats.clean_shots))
     end
     -- AI peek: kac peek, kacinda atis, kac isabet, kac atissiz bitti, kacinda vuruldun.
     if aim_stats.ai_peeks > 0 then
@@ -4856,14 +4962,19 @@ do
         return color(floor(a.r + (b.r - a.r) * t), floor(a.g + (b.g - a.g) * t), floor(a.b + (b.b - a.b) * t), 255)
     end
 
-    -- Siradaki atisin tahmini isabet sansi (%): aimbot'un bu dusmana ortalama hit chance'i
-    -- (spread'le iskalamama; veri yoksa 1) x cozum (0-1) x resolver disi iskalarin (sunucu reddi,
-    -- tahmin hatasi) olmama orani.
+    -- Siradaki atisin tahmini isabet sansi (%): cozum (0-1) x spread'le iskalamama x resolver disi
+    -- iskalarin (sunucu reddi, tahmin hatasi, sahte kayit) olmama orani. V1.0: oranlar gercek sonuclardan;
+    -- dusmanin az atisi tum dusmanlarin oranina dogru cekilir (on bilgi: spread %2, diger %8). Eskiden
+    -- Neverlose'un hit chance'i (loglarda %82-100, ama 51 atista 0 spread iskasi) ve dusmanin ham orani
+    -- carpiliyordu: 2 atista 1 tahmin hatasi HIT'i yariya indiriyordu ("cozum %80-90, hit dusuk").
     res_panel.hit_chance = function(entry, resolve)
-        local hc = entry ~= nil and (entry.hc_n or 0) > 0 and entry.hc_sum / entry.hc_n / 100 or 1
+        local g = aim_stats
+        local spread_all = (g.rated_spread + 0.5) / (g.rated + 25)
+        local other_all = (g.rated_other + 1) / (g.rated + 12)
         local shots = entry ~= nil and entry.shots or 0
-        local clean = shots > 0 and 1 - (entry.other or 0) / shots or 1
-        return floor(max(0, min(1, hc)) * resolve * max(0, clean) * 100 + 0.5)
+        local spread = ((entry ~= nil and entry.spread or 0) + spread_all * 10) / (shots + 10)
+        local other = ((entry ~= nil and entry.other or 0) + other_all * 6) / (shots + 6)
+        return floor(resolve * (1 - spread) * (1 - other) * 100 + 0.5)
     end
 
     -- Canli cozum tahmini (%): bu dusmana gecmis resolver sonuclari (veri yoksa 0.6 on bilgi,
