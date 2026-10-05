@@ -396,7 +396,13 @@ step({}, 5)
 
 -- 6) Fake duck + bicakli dusman yakin: fake duck birakilir.
 local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
+-- Fake duck boyunca DT ve HS kapali (fake duck'la calismazlar; senin bind'in acik olsa da); birakinca doner.
+local hs_cb = ui.reference("AA", "Other", "On shot anti-aim")
+M.items[dt_cb].value = true
 M.items[fd_id].value.held = true
+step({}, 3)
+check(M.items[dt_cb].value == false and M.items[hs_cb].value == false, "fake duck sirasinda DT / HS kapatilmadi")
+check(not log_has("FD, DT %"), "fake duck logunda DT acik gorunuyor")
 e2.origin = { 0, 150, 0 }
 step({}, 10)
 check(not ui.get(fd_id), "bicakli dusman yakinken fake duck birakilmadi")
@@ -405,7 +411,9 @@ e2.origin = { 0, 900, 0 }
 step({}, 5)
 check(ui.get(fd_id), "bicakli uzaklasinca fake duck geri verilmedi")
 M.items[fd_id].value.held = false
-step({}, 5)
+-- Birakinca DT doner (gorulurken Safe recharge en fazla 1.2 sn bekletir).
+step({}, 90)
+check(M.items[dt_cb].value == true, "fake duck birakilinca DT geri gelmedi")
 
 -- 7) Manuel yaw tusu ve Legit AA.
 local manual_left = M.find_lua("Manual left")

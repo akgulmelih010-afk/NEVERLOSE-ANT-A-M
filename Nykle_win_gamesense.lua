@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3637,10 +3637,23 @@ recharge.decide = function(wants_dt)
     return hold
 end
 
--- Durumun exploit secimi; fake duck ile DT/HS birlikte calismaz, o zaman karisilmaz.
+-- Durumun exploit secimi.
+-- Fake duck: DT ve HS fake duck'la birlikte calismaz. DT acikken GameSense fake lag'i "Double tap fake lag
+-- limit"e ceker, fake duck'in 14 tick choke'u bozulur; DT fake duck sirasinda sarj olmaya calisir ve atis
+-- sunucuyla farkli egilme / isabet hesabiyla gider ("spread" iskasi, kafa acikta). Auto exploit acikken
+-- fake duck boyunca ikisi de kapatilir (eskiden senin bind'lerine birakiliyordu); birakinca durumun
+-- exploit'i doner.
 local function apply_exploit(s, class)
+    if fd_on() and on(menu.auto_exploit) then
+        recharge.decide(false)
+        override("doubletap", false)
+        override("doubletap_key", nil)
+        override("hideshots", false)
+        override("hideshots_key", nil)
+        return
+    end
     local choice = s ~= nil and s.exploit ~= nil and s.exploit:get() or "Binds"
-    if not on(menu.auto_exploit) or fd_on() then
+    if not on(menu.auto_exploit) then
         choice = "Binds"
     end
     if choice ~= "Binds" then
