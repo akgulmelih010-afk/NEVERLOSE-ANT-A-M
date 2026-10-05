@@ -836,9 +836,75 @@ do
     local longest = def_line ~= nil and tonumber(def_line:match("en uzun (%d+)t")) or nil
     check(longest ~= nil and longest <= 12, "dormant'ta gecen sure defensive sayildi: " .. tostring(def_line))
     local mine = new_line(before, "dbg sen ozeti:")
-    check(mine ~= nil and mine:find("defensive zorlanan", 1, true) ~= nil and mine:find("run_command", 1, true) ~= nil,
+    check(mine ~= nil and mine:find("defensive zorlanan", 1, true) ~= nil and mine:find("predict", 1, true) ~= nil,
         "sen ozeti yok: " .. tostring(mine))
     me.weapon = 101
+end
+
+-- 9f) V1.0.12: defensive predict_command'da (luasense / hysteria'nin yontemi) gorulur: setup_command'daki
+-- tickbase normalken predict sirasinda tickbase 8 geride -> "DEF acik", havada (air lag zorlarken) hidden
+-- pitch (Up) yazilir. Defensive yokken hidden aci yok; fake duck'ta "DEF acik" yok.
+do
+    local function new_line(from, pattern)
+        for i = from + 1, #M.logs do
+            if M.logs[i]:find(pattern, 1, true) then
+                return M.logs[i]
+            end
+        end
+        return nil
+    end
+    local pitch_id, pitch_value_id = ui.reference("AA", "Anti-aimbot angles", "Pitch")
+    local function hidden_up()
+        return M.items[pitch_id].value == "Custom" and M.items[pitch_value_id].value == -89
+    end
+    me.alive, me.weapon = true, 101
+    e1.alive, e1.dormant = true, false
+    me.props.m_vecVelocity = { 200, 0, 0 }
+    me.props.m_fFlags = 1
+    M.visible[2], M.can_hit[2] = false, false
+    M.items[dt_cb].value = true
+    -- 7. bolumdeki manuel yaw (sol) hala acik: ayni tusa tekrar basinca kapanir (Manual'da hidden aci yok).
+    local manual_key = M.find_lua("Manual left")
+    manual_key.value.held = true
+    step({}, 2)
+    manual_key.value.held = false
+    step({}, 90)
+    local early = false
+    for _ = 1, 20 do
+        step({}, 1)
+        early = early or hidden_up()
+    end
+    check(not early, "defensive yokken hidden pitch yazildi")
+    me.props.m_fFlags = 0
+    me.props.m_vecVelocity = { 200, 0, 120 }
+    step({}, 2)
+    M.predict_tickbase = function(tb) return tb - 8 end
+    local hidden = false
+    for _ = 1, 3 do
+        step({}, 1)
+        hidden = hidden or hidden_up()
+    end
+    local before = #M.logs
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ak47", dmg_health = 5, hitgroup = 2, health = 95 })
+    check(hidden, "predict_command defensive gorunce havada hidden pitch (Up) yazilmadi")
+    me.props.m_fFlags = 1
+    me.props.m_vecVelocity = { 0, 0, 0 }
+    check(new_line(before, "DEF acik") ~= nil, "predict_command defensive'i logda DEF acik degil")
+    M.predict_tickbase = nil
+    step({}, 20)
+    local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
+    M.items[fd_id].value.held = true
+    step({}, 3)
+    M.predict_tickbase = function(tb) return tb - 8 end
+    step({}, 2)
+    before = #M.logs
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ak47", dmg_health = 5, hitgroup = 2, health = 90 })
+    check(new_line(before, "DEF acik") == nil, "fake duck'ta DEF acik yazildi")
+    M.predict_tickbase = nil
+    M.items[fd_id].value.held = false
+    me.props.m_vecVelocity = { 0, 0, 0 }
+    M.visible[2], M.can_hit[2] = nil, nil
+    step({}, 90)
 end
 
 -- 10) Kapat / ac ve kapanis: hepsi geri.

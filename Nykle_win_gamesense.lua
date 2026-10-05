@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.11"
+local VERSION = "1.0.12"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -4042,7 +4042,9 @@ clean_shot.update = function(lp, target, armed)
     return tick <= clean_shot.until_tick and tick >= clean_shot.from_tick
 end
 
-local tickbase = { max = 0, left = 0, sent = nil, since_sent = 0, jump = false }
+-- cmd / pmax / pdiff / ptick: predict_command olcumu (asagida).
+local tickbase = { max = 0, left = 0, sent = nil, since_sent = 0, jump = false, cmd = nil, pmax = 0, pdiff = 0,
+    ptick = -1000 }
 
 -- Defensive penceresi iki yoldan anlasilir: tickbase gordugumuz en yuksek degerin gerisine kaydirildiysa;
 -- ya da DT doluyken iki paket arasinda tickbase geri gittiyse veya aradaki komut sayisindan fazla ileri
@@ -4076,8 +4078,42 @@ local function update_tickbase(lp, choked)
     end
 end
 
+-- V1.0.12: GameSense'te defensive'i gosteren olcum (luasense ve hysteria'nin yontemi): run_command'in komutu
+-- tahmin edilince (predict_command; eski komutlarin yeniden tahmini sayilmaz) tickbase gordugumuz en yuksek
+-- degerin 3-14 tick gerisindeyse defensive acik. setup_command'daki olcum gercek oyunda defensive'i hic
+-- gormedi (V1.0.10-1.0.11 loglarinda hic "DEF acik" yok); hidden pitch / yaw o yuzden hic uygulanmiyordu.
+listen("run_command", protect("tickbase", function(cmd)
+    tickbase.cmd = cmd.command_number
+end))
+
+listen("predict_command", protect("tickbase", function(cmd)
+    if cmd.command_number == nil or cmd.command_number ~= tickbase.cmd then
+        return
+    end
+    local tb = prop(local_player(), "m_nTickBase")
+    if not finite(tb) then
+        return
+    end
+    if abs(tb - tickbase.pmax) > 64 then
+        tickbase.pmax = tb
+    end
+    tickbase.pdiff = tickbase.pmax - tb
+    tickbase.pmax = max(tickbase.pmax, tb)
+    tickbase.ptick = tickcount()
+end))
+
+-- predict_command son 2 tick icinde defensive gorduyse.
+tickbase.predicted = function()
+    local tick = tickcount()
+    return tick >= tickbase.ptick and tick - tickbase.ptick <= 2 and tickbase.pdiff >= 3 and tickbase.pdiff <= 14
+end
+
+-- Fake duck'ta DT / HS kapali: defensive olamaz (V1.0.10 logunda fake duck'ta bir kez yanlis "DEF acik").
 local function defensive_active()
-    return tickbase.left > 0 or tickbase.jump
+    if fd_on() then
+        return false
+    end
+    return tickbase.left > 0 or tickbase.jump or tickbase.predicted()
 end
 
 local apply_defensive
@@ -6446,14 +6482,15 @@ end))
 --  dbg duello:        bir dusmanla karsilasma bitince: kim once gordu, defensive suresi, hiz, atislar.
 --  dbg vurulma-detay / olum-detay / kill-detay: konumlar, mesafe, duvardan mi, son iki atisi arasi (DT).
 --  dbg def ozeti:     round sonunda dusman basina defensive sayisi ve suresi.
---  dbg sen ozeti:     round sonunda senin tarafin: zorlanan defensive tick'i ve onu goren uc ayri olcum
---                     (setup_command / run_command / net_update tickbase), teleportlar ve sonrasi vurulma.
+--  dbg sen ozeti:     round sonunda senin tarafin: zorlanan defensive tick'i, defensive'i goren olcumler
+--                     (setup_command / predict_command / net_update tickbase; zorlanip gorulen), teleportlar
+--                     ve sonrasi vurulma.
 --  dbg round / harita / ayarlar: baslik satirlari.
 do
 -- min_damage: bundan az hasar (cok duvar arkasi, 1-4 hasar) "vurulabilir" sayilmaz.
 local D = { vis = {}, duel = {}, def = {}, round_def = {}, last_def = {}, shots = {}, scan_tick = -1000,
     every = 4, see_after = 0.4, vis_gap = 16, duel_gap = 48, sight_hold = 12, refs = {}, min_damage = 10,
-    my = nil, tb = { rc_max = 0, net_max = 0, rc = false, net = false } }
+    my = nil, tb = { net_max = 0, net = false } }
 
 D.on = function()
     return on(menu.enabled) and on(menu.debug_log)
@@ -6806,7 +6843,8 @@ end
 D.mine = function()
     local m = D.my
     if m == nil then
-        m = { ticks = 0, forced = 0, setup = 0, rc = 0, net = 0, dt = 0, tp = 0, tp_hit = 0, tp_last = teleport.last }
+        m = { ticks = 0, forced = 0, setup = 0, pred = 0, both = 0, net = 0, dt = 0, tp = 0, tp_hit = 0,
+            tp_last = teleport.last }
         D.my = m
     end
     return m
@@ -6816,8 +6854,10 @@ D.track = function(lp, now)
     local m = D.mine()
     m.ticks = m.ticks + 1
     m.forced = m.forced + (current.forced and 1 or 0)
-    m.setup = m.setup + (defensive_active() and 1 or 0)
-    m.rc = m.rc + (D.tb.rc and 1 or 0)
+    local pred = tickbase.predicted()
+    m.setup = m.setup + ((tickbase.left > 0 or tickbase.jump) and 1 or 0)
+    m.pred = m.pred + (pred and 1 or 0)
+    m.both = m.both + ((pred and current.forced) and 1 or 0)
     m.net = m.net + (D.tb.net and 1 or 0)
     m.dt = m.dt + (dt_on() and 1 or 0)
     if teleport.last ~= m.tp_last then
@@ -6878,8 +6918,7 @@ D.track = function(lp, now)
     end
 end
 
--- Tickbase en yuksek degerinin 2+ tick gerisinde mi (defensive). Iki ayri yerden olculur: hangisinin
--- gercek oyunda defensive'i gordugu "dbg sen ozeti"nden anlasilacak.
+-- net_update_end'de tickbase en yuksek degerinin 2+ tick gerisinde mi (NYKLE Yaw'in yeri; karsilastirma icin).
 D.tb_check = function(field)
     local lp = local_player()
     local tb = lp ~= nil and prop(lp, "m_nTickBase") or nil
@@ -6933,12 +6972,6 @@ listen("setup_command", protect("detailed log", function()
         D.scan(lp, now)
     end
     D.track(lp, now)
-end))
-
-listen("run_command", protect("detailed log run_command", function()
-    if D.on() then
-        D.tb_check("rc")
-    end
 end))
 
 listen("net_update_end", protect("detailed log net_update_end", function()
@@ -7104,8 +7137,8 @@ listen("round_start", protect("detailed log round_start", function()
         end
         local m = D.my
         if m ~= nil and m.ticks > 0 then
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick, gorulen: setup %d / run_command %d / net_update %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d"):format(
-                SCRIPT, m.ticks, m.dt, m.forced, m.setup, m.rc, m.net, m.tp, m.tp_hit))
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d"):format(
+                SCRIPT, m.ticks, m.dt, m.forced, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit))
         end
         print(D.header())
     end

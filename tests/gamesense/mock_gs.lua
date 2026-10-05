@@ -602,6 +602,17 @@ function M.step(fields)
     M.realtime = M.realtime + 1 / 64
     local cmd = M.cmd(fields)
     M.fire("setup_command", cmd)
+    -- GameSense sirasi: komut olusur (setup_command), calistirilir (run_command), tahmin edilir
+    -- (predict_command). M.predict_tickbase verilirse tahmin sirasinda tickbase o deger olur (defensive).
+    M.fire("run_command", cmd)
+    local tb = M.players[M.me] and M.players[M.me].props.m_nTickBase
+    if M.predict_tickbase ~= nil and tb ~= nil then
+        M.players[M.me].props.m_nTickBase = M.predict_tickbase(tb)
+    end
+    M.fire("predict_command", cmd)
+    if tb ~= nil then
+        M.players[M.me].props.m_nTickBase = tb
+    end
     M.fire("paint", {})
     M.fire("paint_ui", {})
     for i = #M.delayed, 1, -1 do
