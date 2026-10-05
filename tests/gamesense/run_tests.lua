@@ -55,6 +55,28 @@ local ok, err = pcall(chunk)
 check(ok, "script yuklenemedi: " .. tostring(err))
 check(log_has("yuklendi"), "yukleme satiri yok")
 
+-- Menu NYKLE Yaw gibi AA > Anti-aimbot angles'da; lua acikken GameSense'in kendi AA ayarlari gizli.
+local native_aa = {}
+for _, item in ipairs(M.items) do
+    if item.lua then
+        check(item.tab == "AA" and item.container == "Anti-aimbot angles", "menu ogesi AA kutusunda degil: " .. item.name)
+    elseif item.tab == "AA" and item.container == "Anti-aimbot angles" then
+        native_aa[#native_aa + 1] = item
+    end
+end
+check(#native_aa >= 10, "native AA ogeleri bulunamadi")
+local function natives_visible(expected)
+    for _, item in ipairs(native_aa) do
+        if item.visible ~= expected then
+            return false
+        end
+    end
+    return true
+end
+check(natives_visible(false), "lua acikken GameSense AA ayarlari gizlenmedi")
+check(M.find_lua("Trash talk").value == true, "trash talk varsayilan acik degil")
+check(M.find_lua("Clan tag: Nykle.win (animated)").value == true, "clan tag varsayilan acik degil")
+
 local function advance_sim(ticks)
     for _ = 1, ticks or 1 do
         for i = 2, 3 do
@@ -330,11 +352,12 @@ M.fire("post_config_save", {})
 step({}, 5)
 
 -- 9b) Trash talk: kapaliyken yazmaz; acikken oldurunce / olunce, takim chati, sadece headshot.
+local tt = M.find_lua("Trash talk")
+ui.set(tt.id, false)
 M.execs = {}
 M.fire("player_death", { userid = 12, attacker = 11, headshot = false })
 step({}, 400)
 check(#M.execs == 0, "trash talk kapaliyken yazdi")
-local tt = M.find_lua("Trash talk")
 ui.set(tt.id, true)
 M.fire("player_death", { userid = 12, attacker = 11, headshot = false })
 step({}, 500)
@@ -361,12 +384,44 @@ step({}, 500)
 check(#M.execs == mates, "takim arkadasini oldurunce yazdi")
 ui.set(tt.id, false)
 
+-- 9c) Clan tag (NYKLE Yaw): once tam ad, sonra harf harf; GameSense spammer'i kapali; kapatinca geri.
+local spammer
+for _, item in ipairs(M.items) do
+    if item.name == "Clan tag spammer" then
+        spammer = item
+    end
+end
+local ct = M.find_lua("Clan tag: Nykle.win (animated)")
+ui.set(ct.id, false)
+step({}, 4)
+check(M.clantag == "" and spammer.value == true, "clan tag kapaliyken geri verilmedi")
+M.clantags = {}
+ui.set(ct.id, true)
+step({}, 64 * 7)
+local expected = { "Nykle.win", "N", "Ny", "Nyk", "Nykl", "Nykle", "Nykle.", "Nykle.w", "Nykle.wi", "Nykle.win", "N" }
+local sequence_ok = #M.clantags >= #expected
+for i = 1, #expected do
+    if M.clantags[i] ~= expected[i] then
+        sequence_ok = false
+    end
+end
+check(sequence_ok, "clan tag animasyonu yanlis: " .. table.concat(M.clantags, ",", 1, math.min(#M.clantags, 12)))
+check(spammer.value == false, "clan tag acikken GameSense spammer'i kapatilmadi")
+ui.set(ct.id, false)
+step({}, 4)
+check(M.clantag == "" and spammer.value == true, "clan tag kapatinca etiket / spammer geri verilmedi")
+ui.set(ct.id, true)
+step({}, 8)
+
 -- 10) Kapat / ac ve kapanis: hepsi geri.
 local enable = M.find_lua("Enable Nykle.win")
 ui.set(enable.id, false)
 step({}, 2)
+check(natives_visible(true), "lua kapaliyken GameSense AA ayarlari gorunmuyor")
+check(M.clantag == "", "lua kapaliyken clan tag kaldi")
 ui.set(enable.id, true)
 step({}, 2)
+check(natives_visible(false), "lua acilinca GameSense AA ayarlari gizlenmedi")
 M.fire("pre_config_load", {})
 M.fire("post_config_load", {})
 step({}, 70)
@@ -386,6 +441,8 @@ for nid, value in pairs(snapshot) do
     end
 end
 check(all_back, "kapanista native ayarlar geri verilmedi")
+check(natives_visible(true), "kapanista GameSense AA ayarlari gorunur yapilmadi")
+check(M.clantag == "", "kapanista clan tag geri verilmedi")
 for idx, fields in pairs(M.plist) do
     check(fields["Override safe point"] == nil or fields["Override safe point"] == "-", "kapanista plist safe point kaldi " .. idx)
     check(fields["Force body yaw"] == nil or fields["Force body yaw"] == false, "kapanista force body yaw kaldi " .. idx)

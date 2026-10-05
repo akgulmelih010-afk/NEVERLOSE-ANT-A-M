@@ -3,7 +3,7 @@
 
     Neverlose surumunun (Nykle.win.lua V1.0) butun ozelliklerinin GameSense API'sine tasinmis hali.
     Kurar kurmaz calisir: butun varsayilanlar ayarlanmis halde gelir ("Always use recommended
-    settings" acik kaldikca en iyi bilinen degerler korunur). Menu: LUA sekmesi (A ve B sutunlari).
+    settings" acik kaldikca en iyi bilinen degerler korunur). Menu: AA sekmesi > Anti-aimbot angles.
 
     Neverlose surumunden farklar (GameSense API'sinin izin verdigi kadar, bkz. README_GAMESENSE.md):
       - GameSense'te AA'nin "hidden" (defensive) acilari icin API yok: defensive penceresi tickbase'den
@@ -18,8 +18,9 @@
       - Rage ayarlari GameSense'te silah grubuna gore ayri ("Weapon type"): sniper'da Min. damage
         sadece o silahin grubu seciliyken degistirilir, silah degisince eski grubun degeri geri yazilir.
       - Kapatinca / config kaydederken GameSense ayarlarinin hepsi senin degerlerine geri doner.
-      - Ek: Misc sekmesinde trash talk (NYKLE Yaw'daki cumlelerin Ingilizcesi; oldurunce / olunce /
-        sadece headshot, olasilik, tum chat / takim chati, gecikme ayarlanir). Varsayilan kapali.
+      - Ek: Misc sekmesinde NYKLE Yaw'daki animasyonlu "Nykle.win" clan tag'i ve trash talk (NYKLE Yaw'daki
+        cumlelerin Ingilizcesi; oldurunce / olunce / sadece headshot, olasilik, tum chat / takim chati,
+        gecikme ayarlanir). Ikisi de varsayilan acik.
 
     Kurulum, ayarlar ve degisiklikler icin README_GAMESENSE.md'ye bak.
     Dosya adi Nykle_win_gamesense.lua kalmali: GameSense script adindaki fazladan noktalari dosya yolu
@@ -32,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -317,6 +318,8 @@ do
     refs.md_override, refs.md_override_key, refs.md_override_value = find({ { "RAGE", "Aimbot", "Minimum damage override" } }, true)
     refs.weapon_type = find({ { "RAGE", "Weapon type", "Weapon type" } }, true)
     refs.maxshift = find({ { "MISC", "Settings", "sv_maxusrcmdprocessticks2" } }, true)
+    refs.roll = find({ { "AA", "Anti-aimbot angles", "Roll" } }, true)
+    refs.clantag_spammer = find({ { "MISC", "Miscellaneous", "Clan tag spammer" } }, true)
 end
 
 -- Hotkey referanslari: ui.get -> aktif mi, mod (0-3), tus. Ezerken { mode, key } verilir.
@@ -703,15 +706,6 @@ do
     end
 end
 
-local function default_first(items, first)
-    local list = { first }
-    for _, item in ipairs(items) do
-        if item ~= first then
-            list[#list + 1] = item
-        end
-    end
-    return list
-end
 
 -- Hangi durumda vuruldugunu gormek icin istatistikler. Menudeki sifirlama dugmesi de kullandigi icin
 -- menuden once tanimli.
@@ -731,15 +725,27 @@ end
 local aim_stats = new_aim_stats()
 
 -------------------------------------------------------------------------------
--- Menu (LUA sekmesi: A = sol sutun, B = sag sutun)
+-- Menu (AA sekmesi > Anti-aimbot angles, NYKLE Yaw gibi)
 -------------------------------------------------------------------------------
 
 -- Menu ogeleri ve gorunurluk (LuaJIT'in 200 yerel degisken siniri icin menu kurulumu tek blokta).
 local menu, builder = {}, {}
 local STATES
-local on, update_visibility, apply_recommended, recommended_state
+local on, update_visibility, apply_recommended, recommended_state, set_native_visible
 do
-local MENU_TAB = "LUA"
+-- NYKLE Yaw, luasense ve angelwings gibi menu AA sekmesinde, GameSense'in AA ayarlarinin yerinde
+-- (lua acikken GameSense'in kendi AA ayarlari gizlenir; lua bunlari zaten kendisi yaziyor).
+local MENU_TAB, MENU_CONTAINER = "AA", "Anti-aimbot angles"
+
+local function default_first(items, first)
+    local list = { first }
+    for _, item in ipairs(items) do
+        if item ~= first then
+            list[#list + 1] = item
+        end
+    end
+    return list
+end
 local ACCENT_HEX = "\a96BEFFFF"
 local DIM_HEX = "\aB4B4B4FF"
 
@@ -787,45 +793,48 @@ function Element:set_callback(fn)
     pcall(ui.set_callback, self.ref, fn)
 end
 
--- GameSense ayni sutunda ayni adi iki kez kabul etmez (config anahtari) ve LUA sekmesi butun script'lerce
--- paylasilir: her ada gorunmeyen bir ek ("\n" sonrasi gorunmez) eklenir ki baska bir lua'nin "Pitch"i ile
--- carpismasin; ayni ad tekrar gelirse sayi eklenir.
-local used_names = { A = {}, B = {} }
-local function unique(column, name)
+-- GameSense ayni kutuda ayni adi iki kez kabul etmez (config anahtari) ve AA kutusu GameSense'in kendi
+-- ayarlari ve baska lua'larla paylasilir: her ada gorunmeyen bir ek ("\n" sonrasi gorunmez) eklenir ki
+-- GameSense'in "Pitch"i ya da baska bir lua'nin ayari ile carpismasin; ayni ad tekrar gelirse sayi eklenir.
+local used_names = {}
+local function unique(name)
     local base = name:find("\n", 1, true) and (name .. "_nw") or (name .. "\nnw")
     local out, n = base, 1
-    while used_names[column][out] do
+    while used_names[out] do
         n = n + 1
         out = base .. n
     end
-    used_names[column][out] = true
+    used_names[out] = true
     return out
 end
 
 local all_elements = {}
 local menu_failures = 0
 
+-- column ("A" / "B") Neverlose'daki iki sutunun izi: GameSense'te hepsi tek kutuda, olusturulma sirasiyla
+-- alt alta.
 local function create(column, kind, name, ...)
-    local label = unique(column, name)
+    local label = unique(name)
+    local tab, box = MENU_TAB, MENU_CONTAINER
     local ok, ref
     if kind == "checkbox" then
-        ok, ref = pcall(ui.new_checkbox, MENU_TAB, column, label)
+        ok, ref = pcall(ui.new_checkbox, tab, box, label)
     elseif kind == "slider" then
         local low, high, def, unit, tooltips, scale = ...
-        ok, ref = pcall(ui.new_slider, MENU_TAB, column, label, low, high, def, true, unit, scale or 1, tooltips)
+        ok, ref = pcall(ui.new_slider, tab, box, label, low, high, def, true, unit, scale or 1, tooltips)
     elseif kind == "combo" then
         local items = ...
-        ok, ref = pcall(ui.new_combobox, MENU_TAB, column, label, items)
+        ok, ref = pcall(ui.new_combobox, tab, box, label, items)
     elseif kind == "hotkey" then
-        ok, ref = pcall(ui.new_hotkey, MENU_TAB, column, label, false)
+        ok, ref = pcall(ui.new_hotkey, tab, box, label, false)
     elseif kind == "button" then
         local fn = ...
-        ok, ref = pcall(ui.new_button, MENU_TAB, column, label, fn)
+        ok, ref = pcall(ui.new_button, tab, box, label, fn)
     elseif kind == "color" then
         local c = ...
-        ok, ref = pcall(ui.new_color_picker, MENU_TAB, column, label, c.r, c.g, c.b, c.a)
+        ok, ref = pcall(ui.new_color_picker, tab, box, label, c.r, c.g, c.b, c.a)
     else
-        ok, ref = pcall(ui.new_label, MENU_TAB, column, label)
+        ok, ref = pcall(ui.new_label, tab, box, label)
     end
     if not ok or ref == nil then
         -- Konsol dolmasin: ilk uc hata nedeniyle yazilir, toplam menu kurulunca.
@@ -934,18 +943,21 @@ grp.data      = group("Home", "B", "Memory", false)
 grp.console   = group("Home", "B", "Console", false)
 grp.aa        = group("Anti-Aim", "A", "Main", true)
 grp.aa_raw    = group("Anti-Aim", "A", nil, false)
-grp.protect   = group("Anti-Aim", "B", "Protection", true)
-grp.protect_raw = group("Anti-Aim", "B", nil, false)
+-- Baslik tek kutuda Freestanding tusunun ustunde kalsin diye protect_raw'da (ilk o olusturuluyor).
+grp.protect_raw = group("Anti-Aim", "B", "Protection", false)
+grp.protect   = group("Anti-Aim", "B", nil, true)
 grp.exploits  = group("Exploits", "A", "Exploits", true)
 grp.peek      = group("Exploits", "A", "Peek", true)
 grp.defensive = group("Exploits", "B", "Defensive", true)
 grp.angles_raw = group("Builder", "A", "Angles", false)
 grp.angles    = group("Builder", "A", nil, true)
-grp.bexploit_raw = group("Builder", "B", "State exploit", false)
+-- Exploit basligi durum basina (asagida "<durum> exploit"): tek kutuda ortak baslik yanlis yerde kalirdi.
+grp.bexploit_raw = group("Builder", "B", nil, false)
 grp.bexploit  = group("Builder", "B", nil, true)
 grp.resolver  = group("Ragebot", "A", "Resolver", true)
 grp.indicators = group("Visuals", "A", "Indicators", false)
 grp.panel     = group("Visuals", "B", "Resolver panel", false)
+grp.clantag   = group("Misc", "A", "Clan tag", false)
 grp.trash     = group("Misc", "A", "Trash talk", false)
 
 STATES = {
@@ -1154,7 +1166,7 @@ for i, state in ipairs(STATES) do
 
     local e = EXPLOIT_DEFAULTS[state]
     if e ~= nil then
-        s.exploit_label      = grp.bexploit_raw:label(style.title(state) .. id, hidden_vis)
+        s.exploit_label      = grp.bexploit_raw:label(style.title(state .. " exploit") .. id, hidden_vis)
         s.exploit            = grp.bexploit:combo("Exploit" .. id, default_first(EXPLOITS, e[1]), hidden_vis)
         s.def_mode           = grp.bexploit:combo("Defensive" .. id, default_first(DEF_MODES, e[2]), hidden_vis)
         s.def_ticks          = grp.bexploit:slider("Defensive every" .. id, 2, 22, 14, "t", hidden_vis)
@@ -1181,9 +1193,11 @@ menu.panel_size  = grp.panel:slider("  » Panel size", 70, 200, 100, "%", functi
 menu.panel_x     = grp.panel:slider("  » Panel position X", 0, 1000, 12, nil, function() return on(menu.res_panel) end)
 menu.panel_y     = grp.panel:slider("  » Panel position Y", 0, 1000, 330, nil, function() return on(menu.res_panel) end)
 
--- Misc: trash talk (NYKLE Yaw'daki cumlelerin Ingilizcesi). Tercih; onerilen ayarlara girmez, varsayilan kapali.
+-- Misc: clan tag (NYKLE Yaw'daki animasyonlu "Nykle.win") ve trash talk (NYKLE Yaw'daki cumlelerin
+-- Ingilizcesi). Tercih: onerilen ayarlara girmez (kapatirsan kapali kalir); ikisi de varsayilan acik.
+menu.clantag     = grp.clantag:switch("Clan tag: Nykle.win (animated)", true)
 local function tt_on() return on(menu.trash_talk) end
-menu.trash_talk  = grp.trash:switch("Trash talk", false)
+menu.trash_talk  = grp.trash:switch("Trash talk", true)
 menu.tt_kill     = grp.trash:switch("  » On kill", true, tt_on)
 menu.tt_headshot = grp.trash:switch("  » Kills: headshots only", false, function() return tt_on() and on(menu.tt_kill) end)
 menu.tt_death    = grp.trash:switch("  » On death", true, tt_on)
@@ -1193,8 +1207,28 @@ menu.tt_chat     = grp.trash:combo("  » Chat", { "All chat", "Team chat" }, tt_
 menu.tt_delay    = grp.trash:slider("  » Message delay", 5, 50, 23, "s", tt_on, nil, 0.1)
 menu.tt_info     = grp.trash:label(DIM_HEX .. "English lines; one message set at a time.", tt_on)
 
+-- GameSense'in kendi AA ayarlari: lua acikken gizli (lua bunlari kendisi yaziyor, menusu de ayni kutuda),
+-- kapaliyken ve unload'da geri gorunur (angelwings'in yontemi).
+local NATIVE_AA = {
+    "aa_enabled", "pitch", "pitch_value", "yaw_base", "yaw", "yaw_offset", "yaw_jitter", "jitter_offset",
+    "body_yaw", "body_value", "body_fs", "edge_yaw", "freestanding", "freestanding_key", "roll",
+}
+local native_shown = nil
+set_native_visible = function(visible)
+    if native_shown == visible then
+        return
+    end
+    native_shown = visible
+    for _, name in ipairs(NATIVE_AA) do
+        if refs[name] ~= nil then
+            pcall(ui.set_visible, refs[name], visible)
+        end
+    end
+end
+
 update_visibility = function()
     local enabled = on(menu.enabled)
+    set_native_visible(not enabled)
     local tab = menu.tab ~= nil and menu.tab:get() or "Home"
     if menu.tab ~= nil then
         menu.tab:visibility(enabled)
@@ -5368,6 +5402,106 @@ do
     end))
 end
 
+-- Clan tag (NYKLE Yaw'dan): "Nykle.win" harf harf yazilir (N, Ny, ... Nykle.win), her kare 0.45 sn, tam ad
+-- 1.2 sn tutulur. Acikken GameSense'in kendi "Clan tag spammer"i kapatilir; kapatinca / unload'da eski
+-- etiket geri yazilir (Steam grubunun etiketi gamesense/steamworks varsa okunur, yoksa etiket bosaltilir).
+do
+    local clantag = {}
+    local TEXT, FRAME_TIME, HOLD_TIME = "Nykle.win", 0.45, 1.2
+    local FRAMES = {}
+    for i = 1, #TEXT do
+        FRAMES[i] = TEXT:sub(1, i)
+    end
+    local state = { active = false, frame = #FRAMES, next_at = 0, shown = nil, original = "" }
+
+    local function original_tag()
+        local ok, steamworks = pcall(require, "gamesense/steamworks")
+        local friends = ok and type(steamworks) == "table" and steamworks.ISteamFriends or nil
+        local clan_id = try(function()
+            return cvar.cl_clanid:get_int()
+        end)
+        if friends == nil or not finite(clan_id) or clan_id == 0 then
+            return ""
+        end
+        local count = try(friends.GetClanCount)
+        for i = 0, (finite(count) and count or 0) - 1 do
+            local group_id = try(friends.GetClanByIndex, i)
+            if group_id ~= nil and group_id == clan_id then
+                local tag = try(friends.GetClanTag, group_id)
+                return type(tag) == "string" and tag or ""
+            end
+        end
+        return ""
+    end
+
+    local function set_tag(text)
+        if text == state.shown then
+            return true
+        end
+        if not pcall(client.set_clan_tag, text) then
+            return false
+        end
+        state.shown = text
+        return true
+    end
+
+    clantag.restore = function()
+        if state.active then
+            state.active = false
+            pcall(client.set_clan_tag, state.original or "")
+            state.shown = nil
+        end
+        override("clantag_spammer", nil)
+    end
+
+    clantag.step = function()
+        if not on(menu.enabled) or not on(menu.clantag) then
+            clantag.restore()
+            return
+        end
+        override("clantag_spammer", false)
+        if not state.active then
+            state.active = true
+            state.original = original_tag()
+            state.frame, state.next_at, state.shown = #FRAMES, 0, nil
+        end
+        local now = realtime()
+        -- Once tam ad gosterilir ve harflerden daha uzun tutulur; realtime geri giderse (harita) hemen yazilir.
+        if now >= state.next_at or state.next_at - now > HOLD_TIME + 1 then
+            if not set_tag(FRAMES[state.frame]) then
+                return
+            end
+            state.next_at = now + (state.frame == #FRAMES and HOLD_TIME or FRAME_TIME)
+            state.frame = state.frame % #FRAMES + 1
+        end
+    end
+
+    -- Sunucuya baglaninca animasyon bastan (tam ad) baslar.
+    clantag.reset = function()
+        state.shown, state.next_at, state.frame = nil, 0, #FRAMES
+    end
+
+    -- NYKLE Yaw gibi: paket gonderilen tick'te (chokedcommands 0) ve iki tick'te bir paint'te.
+    listen("run_command", protect("clan tag", function(e)
+        if local_player() ~= nil and e ~= nil and e.chokedcommands == 0 then
+            clantag.step()
+        end
+    end))
+    listen("paint", protect("clan tag", function()
+        if local_player() ~= nil and tickcount() % 2 == 0 then
+            clantag.step()
+        elseif state.active and not (on(menu.enabled) and on(menu.clantag)) then
+            clantag.restore()
+        end
+    end))
+    listen("player_connect_full", protect("clan tag", function(e)
+        if e ~= nil and userid_index(e.userid) == local_player() then
+            clantag.reset()
+        end
+    end))
+    listen("shutdown", protect("clan tag", clantag.restore))
+end
+
 -- Config kaydedilirken GameSense ayarlarinin senin degerleri kaydedilir (ezmeler geri verilir, sonraki tick
 -- yeniden uygulanir). Config yuklenince ezmeler unutulur ve onerilen ayarlar yeniden kontrol edilir.
 listen("pre_config_save", protect("pre_config_save", function()
@@ -5387,10 +5521,13 @@ end))
 -------------------------------------------------------------------------------
 
 do
-local WHITE = { r = 255, g = 255, b = 255, a = 255 }
-local DIM = { r = 255, g = 255, b = 255, a = 90 }
-local CHARGING = { r = 255, g = 200, b = 80, a = 255 }
-local SHADOW = { r = 0, g = 0, b = 0, a = 150 }
+-- Renkler tek tabloda (LuaJIT'in 200 yerel degisken siniri).
+local COLOR = {
+    WHITE = { r = 255, g = 255, b = 255, a = 255 },
+    DIM = { r = 255, g = 255, b = 255, a = 90 },
+    CHARGING = { r = 255, g = 200, b = 80, a = 255 },
+    SHADOW = { r = 0, g = 0, b = 0, a = 150 },
+}
 -- "-": GameSense'in kucuk piksel fontu (buyuk harf), indikatorlerin klasik gorunumu.
 local FONT = "-"
 
@@ -5422,7 +5559,7 @@ local function color_of(element, fallback)
 end
 
 local function draw_indicators(lp, cx, cy)
-    local accent = color_of(menu.accent, WHITE)
+    local accent = color_of(menu.accent, COLOR.WHITE)
     local scoped = prop(lp, "m_bIsScoped")
     local target = (scoped == 1 or scoped == true) and 1 or 0
     anim.scope = anim.scope + (target - anim.scope) * min(1, frametime() * 12)
@@ -5435,40 +5572,40 @@ local function draw_indicators(lp, cx, cy)
     y = y + 9
     local width = 36
     local fill = round(width * current.limit / 60)
-    rect(x - width / 2 - 1, y - 1, width + 2, 4, SHADOW)
+    rect(x - width / 2 - 1, y - 1, width + 2, 4, COLOR.SHADOW)
     if fill > 0 then
         rect(x - width / 2, y, fill, 2, accent)
     end
 
     y = y + 7
-    text(x, y, WHITE, flags, current.state:upper())
+    text(x, y, COLOR.WHITE, flags, current.state:upper())
 
     y = y + 9
-    local dt_color = DIM
+    local dt_color = COLOR.DIM
     if dt_on() then
-        dt_color = charge.value >= 1 and WHITE or CHARGING
+        dt_color = charge.value >= 1 and COLOR.WHITE or COLOR.CHARGING
     elseif recharge.held then
-        dt_color = CHARGING
+        dt_color = COLOR.CHARGING
     end
-    local hs_color = hs_on() and WHITE or DIM
-    local def_color = DIM
+    local hs_color = hs_on() and COLOR.WHITE or COLOR.DIM
+    local def_color = COLOR.DIM
     if defensive_active() then
         def_color = accent
     elseif current.defensive then
-        def_color = WHITE
+        def_color = COLOR.WHITE
     end
     local items = {
         { "DT", dt_color },
         { "HS", hs_color },
-        { "FS", current.freestand and WHITE or DIM },
+        { "FS", current.freestand and COLOR.WHITE or COLOR.DIM },
         { "DEF", def_color },
     }
     if exposure.available then
-        local vis_color = DIM
+        local vis_color = COLOR.DIM
         if exposure.now or exposure.any then
             vis_color = accent
         elseif exposure.soon then
-            vis_color = WHITE
+            vis_color = COLOR.WHITE
         end
         items[#items + 1] = { "VIS", vis_color }
     end
@@ -5504,7 +5641,7 @@ local function draw_indicators(lp, cx, cy)
         line("HEAD")
     end
     if current.fake_body then
-        line("DEF BODY", CHARGING)
+        line("DEF BODY", COLOR.CHARGING)
     end
     if current.clean then
         line("CLEAN SHOT")
@@ -5526,7 +5663,7 @@ for _, state in ipairs({ "Legit", "Spin", "Ladder" }) do
 end
 
 local function draw_stats(sw, sh)
-    local accent = color_of(menu.accent, WHITE)
+    local accent = color_of(menu.accent, COLOR.WHITE)
     local x, y = 12, floor(sh * 0.45)
     text(x, y, accent, FONT, "AA STATS   HIT / HEAD / MISS / DT / DEF")
     for _, state in ipairs(STAT_ORDER) do
@@ -5535,7 +5672,7 @@ local function draw_stats(sw, sh)
             y = y + 10
             local dt = entry.dt_ticks > 0 and ("%d%%"):format(floor(100 * entry.dt_full / entry.dt_ticks)) or "-"
             local def = entry.def_ticks > 0 and ("%d%%"):format(floor(100 * entry.def_on / entry.def_ticks)) or "-"
-            text(x, y, WHITE, FONT, ("%s   %d / %d / %d / %s / %s"):format(state:upper(), entry.hits, entry.head,
+            text(x, y, COLOR.WHITE, FONT, ("%s   %d / %d / %d / %s / %s"):format(state:upper(), entry.hits, entry.head,
                 entry.misses, dt, def))
         end
     end
@@ -5543,10 +5680,10 @@ local function draw_stats(sw, sh)
         y = y + 16
         text(x, y, accent, FONT, "AIM   SHOT / HIT / CORR / SPREAD / OTHER")
         y = y + 10
-        text(x, y, WHITE, FONT, ("ALL   %d / %d / %d / %d / %d"):format(
+        text(x, y, COLOR.WHITE, FONT, ("ALL   %d / %d / %d / %d / %d"):format(
             aim_stats.shots, aim_stats.hits, aim_stats.correction, aim_stats.spread, aim_stats.other))
         y = y + 10
-        text(x, y, WHITE, FONT, ("LAG   %d / %d   TEMIZ   %d / %d"):format(
+        text(x, y, COLOR.WHITE, FONT, ("LAG   %d / %d   TEMIZ   %d / %d"):format(
             aim_stats.lag_hits, aim_stats.lag_shots, aim_stats.clean_hits, aim_stats.clean_shots))
     end
     local any_kd = next(aim_stats.kd) ~= nil
@@ -5557,7 +5694,7 @@ local function draw_stats(sw, sh)
             local entry = aim_stats.kd[state]
             if entry ~= nil then
                 y = y + 10
-                text(x, y, WHITE, FONT, ("%s   %d / %d"):format(state:upper(), entry.kills, entry.deaths))
+                text(x, y, COLOR.WHITE, FONT, ("%s   %d / %d"):format(state:upper(), entry.kills, entry.deaths))
             end
         end
     end
@@ -5565,7 +5702,7 @@ local function draw_stats(sw, sh)
         y = y + 16
         text(x, y, accent, FONT, "AI PEEK   PEEK / ATIS / ISABET / BOS / VURULDUN")
         y = y + 10
-        text(x, y, WHITE, FONT, ("AI PEEK   %d / %d / %d / %d / %d"):format(aim_stats.ai_peeks,
+        text(x, y, COLOR.WHITE, FONT, ("AI PEEK   %d / %d / %d / %d / %d"):format(aim_stats.ai_peeks,
             aim_stats.ai_shots, aim_stats.ai_hits, aim_stats.ai_empty, aim_stats.ai_hurt))
     end
     y = y + 16
@@ -5578,17 +5715,17 @@ local function draw_stats(sw, sh)
                 floor(stat.hits + 0.5), floor(stat.shots + 0.5))
         end
         y = y + 10
-        text(x, y, WHITE, FONT, table.concat(parts, "   "))
+        text(x, y, COLOR.WHITE, FONT, table.concat(parts, "   "))
     end
     local hs, dt = sniper.stats.hs, sniper.stats.dt
     y = y + 10
-    text(x, y, WHITE, FONT, ("SNIPER   HS%s %d/%d   DT%s %d/%d"):format(
+    text(x, y, COLOR.WHITE, FONT, ("SNIPER   HS%s %d/%d   DT%s %d/%d"):format(
         sniper.choice == "hs" and "*" or "", floor(hs.hits + 0.5), floor(hs.shots + 0.5),
         sniper.choice == "dt" and "*" or "", floor(dt.hits + 0.5), floor(dt.shots + 0.5)))
 end
 
 local function draw_arrows(cx, cy)
-    local col = color_of(menu.arrow_color, WHITE)
+    local col = color_of(menu.arrow_color, COLOR.WHITE)
     local off = { r = col.r, g = col.g, b = col.b, a = 60 }
     local dir = manual.dir
     local function tri(c, x0, y0, x1, y1, x2, y2)
@@ -5760,7 +5897,7 @@ do
             end
         else
             res_panel.shown_index = nil
-            main, name, info, col = "--", "", "COZUM   hedef yok", DIM
+            main, name, info, col = "--", "", "COZUM   hedef yok", COLOR.DIM
         end
 
         local big_w = text_width(big, main)
@@ -5775,12 +5912,12 @@ do
 
         res_panel.shadow_text(big, x, y, col, main)
         if name ~= "" then
-            res_panel.shadow_text(big, x + big_w + gap, y, WHITE, name)
+            res_panel.shadow_text(big, x + big_w + gap, y, COLOR.WHITE, name)
         end
         res_panel.shadow_text(small, x, y + big_h, res_panel.INFO, info)
 
         if open then
-            local accent = color_of(menu.accent, WHITE)
+            local accent = color_of(menu.accent, COLOR.WHITE)
             local frame = { r = accent.r, g = accent.g, b = accent.b, a = 90 }
             rect(x - 4, y - 3, w + 8, 1, frame)
             rect(x - 4, y + h + 2, w + 8, 1, frame)
@@ -5845,6 +5982,7 @@ listen("paint_ui", protect("paint_ui", function()
 end))
 
 listen("shutdown", protect("shutdown", function()
+    set_native_visible(true)
     reset_overrides()
     plist_reset(false)
     persist.save(true)

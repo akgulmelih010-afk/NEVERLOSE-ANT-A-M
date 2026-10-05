@@ -1,17 +1,17 @@
-# Nykle.win lua V1.0.1 — GameSense edition
+# Nykle.win lua V1.0.2 — GameSense edition
 
 `Nykle.win.lua` (Neverlose V1.0) sürümünün bütün özelliklerinin **GameSense (CS:GO)** Lua API'sine taşınmış hali: `Nykle_win_gamesense.lua`. Sadece HvH sunucuları için.
 
 Neverlose sürümünün mantığı (durumlar, varsayılan açılar, exploit seçimi, Smart defensive, anti-brute fazları ve öğrenmesi, AI peek, resolver seviyeleri, temiz atış, loglar, istatistikler, panel) **aynen** korundu; açıklamaları ve "neden"leri için ana [README.md](README.md)'ye bak. Bu dosya GameSense'e özel olanları, farkları ve devir teslim notlarını anlatır.
 
-**Kurar kurmaz çalışır.** Bütün ayarlar hazır gelir; **Always use recommended settings** açık kaldıkça önerilen değerler korunur.
+**Kurar kurmaz çalışır.** Bütün ayarlar en iyi bilinen değerleriyle gelir (Neverlose V1.0'ın loglarla doğrulanmış varsayılanları); **Always use recommended settings** açık kaldıkça AA, exploit, builder ve resolver ayarları bu değerlerde tutulur, değiştirsen de geri döner. Clan tag ve trash talk da varsayılan açık.
 
 ## Kurulum
 
 1. `Nykle_win_gamesense.lua` dosyasını GameSense'in lua klasörüne at (CS:GO klasörü, `csgo.exe`'nin yanı; diğer lua'ların durduğu yer). **Dosya adını değiştirme**: adda fazladan nokta olursa (eski `Nykle.win.gamesense.lua` gibi) GameSense lua'yı açamayabilir.
 2. GameSense'in script listesinden `Nykle_win_gamesense` → **Load script**.
-3. Konsolda `[Nykle.win] V1.0.1 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
-4. Menü **LUA** sekmesinde: **Enable Nykle.win** ve **Nykle.win tab** (Home, Anti-Aim, Exploits, Builder, Ragebot, Visuals, Misc) sol sütunda; seçilen sekmenin ikinci sütunu sağda.
+3. Konsolda `[Nykle.win] V1.0.2 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
+4. Menü, NYKLE Yaw'daki gibi **AA sekmesi → Anti-aimbot angles** kutusunda: en üstte **Enable Nykle.win** ve **Nykle.win tab** (Home, Anti-Aim, Exploits, Builder, Ragebot, Visuals, Misc), altında seçilen sekmenin ayarları. Lua açıkken GameSense'in kendi AA ayarları (Pitch, Yaw, Body yaw, Freestanding ...) bu kutuda **gizlenir** (lua onları kendisi yazıyor); Enable kapatınca ya da unload edince geri görünür. Fake lag ve Other kutuları (Slow motion, On shot anti-aim tuşları) olduğu gibi kalır.
 5. Tuşları bağla (Anti-Aim sekmesi): **Manual left / right / forward**, **Freestanding**, **Static inverter**. AI peek için GameSense'in kendi **Quick peek assist** tuşu (RAGE → Other) kullanılır.
 
 - Hiçbir kütüphane (`gamesense/...`), FFI ya da internet gerekmez; "Allow unsafe scripts" açmana gerek yok.
@@ -56,7 +56,7 @@ GameSense'in API'si Neverlose'unkinden farklı; bazı şeyler başka yoldan yap�
 | Resolver ıskası | `aim_ack` → `correction` | `aim_miss` → `?`. Sunucudaki isabet sayısı (`m_totalHitsOnServer`) atıştan sonra değiştiyse `damage rejection` (angelwings'in yöntemi), yoksa `correction`. |
 | Kalıcı hafıza | Neverlose `db` (`ant_a_m_memory`) | GameSense `database` (`nykle_win_gs_memory`); biçim aynı, Neverlose hafızası taşınmaz. |
 | Resolver paneli | Verdana, serbest boyut, tık menüye geçmez | GameSense fontları sabit: **Size** üç kademede font seçer (<85, 85-139, 140+). GameSense'te tıklamayı menüden saklayan olay yok: paneli menünün üstüne taşıma. |
-| Menü | Neverlose sekmeleri, ikonlar, tooltip'ler | LUA sekmesi, `Nykle.win tab` seçicisi; ikon / tooltip API'si yok (açıklamalar bu dosyada ve README.md'de). Bütün öğe adlarında görünmez bir ek var (başka lua'larla çakışmasın). |
+| Menü | Neverlose sekmeleri, ikonlar, tooltip'ler | AA sekmesi → Anti-aimbot angles (NYKLE Yaw, luasense, angelwings gibi; Neverlose'daki iki sütun tek kutuda alt alta), `Nykle.win tab` seçicisi; ikon / tooltip API'si yok (açıklamalar bu dosyada ve README.md'de). Bütün öğe adlarında görünmez bir ek var (başka lua'larla çakışmasın). |
 
 ## GameSense'e özel: resolver katmanı
 
@@ -91,7 +91,7 @@ Açıları yine GameSense'in kendi resolver'ı çözer. Bu katman her aimbot at�
 
 ## Menü
 
-Sekme `Nykle.win tab` ile seçilir. Varsayılanlar Neverlose V1.0 ile aynı; ayrıntılı açıklamalar README.md'deki aynı adlı ayarlarda.
+Yeri: **AA → Anti-aimbot angles**. Sekme `Nykle.win tab` ile seçilir. Varsayılanlar Neverlose V1.0 ile aynı (en iyi bilinen değerler, ayarlamana gerek yok); ayrıntılı açıklamalar README.md'deki aynı adlı ayarlarda. Builder'da durum seçilince altında o durumun açıları, onun altında **<durum> exploit** başlığıyla exploit ayarları görünür.
 
 ### Home
 | Ayar | Varsayılan | Not |
@@ -152,12 +152,19 @@ Neverlose sürümüyle aynı 13 durum ve aynı varsayılanlar (`State` listesi s
 ### Visuals
 Crosshair indicators (+ renk), Manual arrows (+ renk), Stats panel (kapalı), Resolver panel (açık; Size 100, Position X 12, Y 330 — menü açıkken sürükle / sağ alttan büyüt). Göstergeler GameSense'in küçük piksel fontuyla (`-`).
 
+### Misc: Clan tag
+NYKLE Yaw'daki animasyonlu clan tag: **Clan tag: Nykle.win (animated)**, varsayılan **açık**. Önce `Nykle.win` 1.2 sn görünür, sonra harf harf yazılır (`N`, `Ny`, `Nyk` ... `Nykle.win`, her kare 0.45 sn) ve döner. NYKLE Yaw gibi paket gönderilen tick'te (`run_command`, chokedcommands 0) ve iki tick'te bir `paint`'te güncellenir.
+
+- Açıkken GameSense'in kendi **Clan tag spammer**'ı (MISC → Miscellaneous) kapatılır; clan tag'i kapatınca, Enable kapatınca, config kaydederken ve unload'da senin değerine geri döner.
+- Kapatınca eski etiket geri yazılır: `gamesense/steamworks` kütüphanesi yüklüyse (NYKLE Yaw'ın kullandığı) Steam grubunun etiketi okunur, yoksa etiket boşaltılır. Kütüphane şart değil.
+- Önerilen ayarlara girmez: kapatırsan kapalı kalır.
+
 ### Misc: Trash talk
-NYKLE Yaw'daki öldürme / ölme cümlelerinin **birebir İngilizce** çevirisi (küfürler dahil; 38 öldürme, 44 ölme seti). Varsayılan **kapalı**, önerilen ayarlara girmez.
+NYKLE Yaw'daki öldürme / ölme cümlelerinin **birebir İngilizce** çevirisi (küfürler dahil; 38 öldürme, 44 ölme seti). Varsayılan **açık**, önerilen ayarlara girmez (kapatırsan kapalı kalır).
 
 | Ayar | Varsayılan | Not |
 |---|---|---|
-| Trash talk | Kapalı | Ana anahtar. |
+| Trash talk | Açık | Ana anahtar. |
 | On kill | Açık | Bir düşmanı öldürünce (takım arkadaşı sayılmaz). |
 | Kills: headshots only | Kapalı | Sadece kafadan öldürünce. |
 | On death | Açık | Bir oyuncu seni öldürünce (düşme / intihar sayılmaz). |
@@ -183,7 +190,7 @@ Neverlose sürümündeki bütün loglar aynı biçimde (atış satırı, vuruldu
 luajit tests/gamesense/run_tests.lua Nykle_win_gamesense.lua
 ```
 
-Test edilenler: yükleme; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.
+Test edilenler: yükleme; menünün AA → Anti-aimbot angles kutusunda olması ve GameSense AA ayarlarının lua açıkken gizlenip kapalıyken / kapanışta geri görünmesi; clan tag animasyonu (sıra ve süreler), GameSense spammer'ının kapatılıp geri verilmesi, kapatınca etiketin geri yazılması; trash talk ve clan tag'in varsayılan açık olması; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.
 
 **Oyunda test edilmedi.** Sahte ortam GameSense'in davranışını tahmin eder; aşağıdakiler gerçek oyunda doğrulanmalı.
 

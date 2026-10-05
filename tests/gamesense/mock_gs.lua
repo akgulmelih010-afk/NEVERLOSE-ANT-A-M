@@ -93,6 +93,8 @@ ref("RAGE", "Aimbot", "Minimum damage override",
 local weapon_type_id = new_item("combobox", "RAGE", "Weapon type", "Weapon type", "Global", { options = WEAPON_TYPES })
 ref("RAGE", "Weapon type", "Weapon type", weapon_type_id)
 ref("MISC", "Settings", "sv_maxusrcmdprocessticks2", new_item("slider", "MISC", "Settings", "maxshift", 16, { min = 1, max = 18 }))
+ref("AA", "Anti-aimbot angles", "Roll", new_item("slider", "AA", "Anti-aimbot angles", "Roll", 0, { min = -50, max = 50 }))
+ref("MISC", "Miscellaneous", "Clan tag spammer", new_item("checkbox", "MISC", "Miscellaneous", "Clan tag spammer", true))
 M.weapon_type_id = weapon_type_id
 
 local function fire_callbacks(id)
@@ -508,6 +510,12 @@ function client.exec(cmd)
 end
 
 function client.log(...) M.print(...) end
+M.clantags = {}
+function client.set_clan_tag(tag)
+    M.clantags[#M.clantags + 1] = tag
+    M.clantag = tag
+end
+cvar = { cl_clanid = { get_int = function() return 0 end } }
 
 globals = {}
 function globals.tickcount() return M.tick end
