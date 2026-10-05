@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.14"
+local VERSION = "1.0.15"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -689,8 +689,13 @@ end
 -- Fake duck: tus basili ve yerdesin. GameSense'in fake duck'i sadece yerde calisir; havada tus basili olsa
 -- da DT / HS, air lag, defensive ve teleport kapatilmaz, inince fake duck her zamanki gibi (V1.0.14: logda
 -- ziplayip havada fake duck'a basilinca DT kapaniyordu, "Air crouch | FD, DT yok").
+-- Oluyken / oyuncu yokken tus durumu (V1.0.15: oldugunde etiket "DEF acik" gosteriyordu).
 local function fd_on()
-    return get("fakeduck") == true and on_ground(local_player())
+    if get("fakeduck") ~= true then
+        return false
+    end
+    local lp = local_player()
+    return not alive(lp) or on_ground(lp)
 end
 
 local function slowwalk_on()
@@ -3635,8 +3640,9 @@ do
 
     local PLIST_BODY_VALUE = { Prefer = "On", Force = "Force", Default = "Off" }
     local HP_PLUS_ONE = 101
-    -- Bicak / zeus tutan dusman bu kadar yakinken (V1.0.14): oldurmese de vurulur, Min. damage en fazla 30.
-    local KNIFE_MD = { dist = 320, value = 30, logged = -1000 }
+    -- Bicak / zeus tutan dusman bu kadar yakinken (V1.0.14): oldurmese de vurulur, Min. damage en fazla 60.
+    -- V1.0.15: 30 iken bacaga -37 atildi; 60 bacak / kolu eler, govde (75-95) yine atilir.
+    local KNIFE_MD = { dist = 320, value = 60, logged = -1000 }
 
     apply_body_aim = function(lp, class, target, level, present)
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
@@ -3736,7 +3742,7 @@ do
                 min_damage = nil
             end
         end
-        -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
+        -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 60'a iner (override
         -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 87 hasarlik atis bile iyi.
         local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
             and not md_override

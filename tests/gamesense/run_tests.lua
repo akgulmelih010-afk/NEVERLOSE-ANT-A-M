@@ -956,10 +956,11 @@ do
     M.visible[2], M.can_hit[2] = nil, nil
 end
 
--- 9h) V1.0.14 (oyun logundan): havada fake duck tusu DT'yi kapatmaz (GameSense'in fake duck'i sadece
+-- 9h) V1.0.14 / V1.0.15 (oyun logundan): havada fake duck tusu DT'yi kapatmaz (GameSense'in fake duck'i sadece
 -- yerde), yere inince fake duck'ta DT kapali. Sniper mermisiyle fake duck birakilinca sarj beklenmez (DT
 -- hemen acik); tusu kendin birakinca (gorulurken) sarj yine beklenir. Bicakli dusman yakinken scout'ta
--- Min. damage gecici 30 (101 kafa kurali ve senin 100'un yerine), uzaklasinca geri.
+-- Min. damage gecici 60 (101 kafa kurali ve senin 100'un yerine; V1.0.15'te 30'dan 60'a), uzaklasinca
+-- geri. Oluyken fake duck tusu basiliysa log "FD | DEF yok" der (V1.0.15).
 do
     local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
     me.alive, me.weapon = true, 102
@@ -1003,7 +1004,7 @@ do
     M.visible[2] = false
     step({}, 90)
 
-    -- Bicakli dusman yakin: scout'ta Min. damage gecici 30.
+    -- Bicakli dusman yakin: scout'ta Min. damage gecici 60.
     local md_id = ui.reference("RAGE", "Aimbot", "Minimum damage")
     me.weapon = 101
     ui.set(M.weapon_type_id, "SSG 08")
@@ -1018,10 +1019,10 @@ do
     local before = #M.logs
     e2.origin = { 0, 150, 0 }
     step({}, 6)
-    check(ui.get(md_id) == 30, "9h: bicakli dusman yakinken Min. damage 30 degil: " .. tostring(ui.get(md_id)))
+    check(ui.get(md_id) == 60, "9h: bicakli dusman yakinken Min. damage 60 degil: " .. tostring(ui.get(md_id)))
     local knife_line = false
     for i = before + 1, #M.logs do
-        knife_line = knife_line or M.logs[i]:find("bicak/zeus ile yakinda: Min. damage gecici 30", 1, true) ~= nil
+        knife_line = knife_line or M.logs[i]:find("bicak/zeus ile yakinda: Min. damage gecici 60", 1, true) ~= nil
     end
     check(knife_line, "9h: bicakli dusman yakinken Min. damage logu yok")
     e2.origin = { 0, 900, 0 }
@@ -1033,6 +1034,22 @@ do
     ui.set(md_id, 20)
     ui.set(M.weapon_type_id, "Rifle")
     M.visible[2], M.can_hit[2] = nil, nil
+    step({}, 10)
+
+    -- Fake duck tusu basiliyken oldun (yerde degilsin): log FD der, "DEF acik" demez.
+    M.items[fd_id].value.held = true
+    step({}, 4)
+    before = #M.logs
+    me.alive, me.props.m_fFlags = false, 0
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ak47", dmg_health = 100, hitgroup = 1, health = 0 })
+    local dead_line
+    for i = before + 1, #M.logs do
+        dead_line = dead_line or (M.logs[i]:find("vuruldun:", 1, true) and M.logs[i])
+    end
+    check(dead_line ~= nil and dead_line:find("| FD, ", 1, true) ~= nil and dead_line:find("DEF yok", 1, true) ~= nil,
+        "9h: oluyken fake duck tusu basili ama log FD / DEF yok demedi: " .. tostring(dead_line))
+    M.items[fd_id].value.held = false
+    me.alive, me.props.m_fFlags = true, 1
     step({}, 10)
 end
 
