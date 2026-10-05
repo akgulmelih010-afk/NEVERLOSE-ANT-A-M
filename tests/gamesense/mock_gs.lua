@@ -465,6 +465,13 @@ function client.trace_bullet(from, x1, y1, z1, x2, y2, z2)
 end
 
 function client.trace_line(skip, x1, y1, z1, x2, y2, z2)
+    -- Testler duvar koyabilir: M.block_fn(x1..z2) bir fraction dondururse o kullanilir.
+    if M.block_fn ~= nil then
+        local fraction = M.block_fn(x1, y1, z1, x2, y2, z2)
+        if fraction ~= nil then
+            return fraction, -1
+        end
+    end
     if z2 < z1 - 10 then
         return M.ground_fraction or 0.1, -1
     end

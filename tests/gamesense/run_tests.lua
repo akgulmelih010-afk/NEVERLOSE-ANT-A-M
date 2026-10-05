@@ -90,6 +90,12 @@ local function advance_sim(ticks)
                     yaw[2] = 140
                 elseif mode == "spin" then
                     yaw[2] = (yaw[2] + 40 + 180) % 360 - 180
+                elseif mode == "slowspin" then
+                    yaw[2] = (yaw[2] + 15 + 180) % 360 - 180
+                elseif mode == "xway" then
+                    yaw[2] = ({ 140, 170, -160 })[M.tick % 3 + 1]
+                elseif mode == "random" then
+                    yaw[2] = ({ 0, 70, 125, 30, -45, 60, 150, 40 })[M.tick % 8 + 1]
                 else
                     yaw[2] = (M.tick % 2 == 0) and 140 or -140
                 end
@@ -276,6 +282,17 @@ M.yaw_mode = { [3] = "spin" }
 step({}, 12)
 shoot(3, "spread")
 check(log_has("AA spin"), "spin deseni tanimadi")
+-- Diger AA desenleri: 3-way (x-way), skitter / random jitter, yavas spin.
+local function pattern_seen(mode, label)
+    local before = count_log(label)
+    M.yaw_mode = { [3] = mode }
+    step({}, 14)
+    shoot(3, "spread")
+    return count_log(label) > before
+end
+check(pattern_seen("xway", "AA x-way"), "3-way deseni x-way degil")
+check(pattern_seen("random", "AA random"), "random jitter deseni random degil")
+check(pattern_seen("slowspin", "AA spin"), "yavas spin deseni spin degil")
 M.yaw_mode = nil
 e1.props.m_vecVelocity = { 80, 0, 0 }
 step({}, 2)
@@ -599,6 +616,10 @@ for idx, fields in pairs(M.plist) do
     check(fields["Add to whitelist"] == nil or fields["Add to whitelist"] == false, "kapanista whitelist kaldi " .. idx)
 end
 check(M.db["nykle_win_gs_memory"] ~= nil, "hafiza yazilmadi")
+local saved = M.db["nykle_win_gs_memory"] and M.db["nykle_win_gs_memory"].resolver or {}
+local one = saved["s:76561198000000002"]
+check(one ~= nil and one.profile ~= nil and one.profile.n >= 10, "kisi profili hafizaya yazilmadi")
+check(one ~= nil and one.angles ~= nil and next(one.angles) ~= nil, "aci sonuclari hafizaya yazilmadi")
 for sid, per_type in pairs(M.scoped) do
     local default = 20
     if M.items[sid].kind == "checkbox" then

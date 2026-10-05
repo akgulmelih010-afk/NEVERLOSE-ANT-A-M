@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2292,12 +2292,15 @@ end
 --  jitter: son gercek guncellemeler arasindaki ortalama yaw degisimi (sadece gercek kayitlardan).
 --  pattern: yaw degisimlerinin YONUNE gore AA deseni (NYKLE Resolver 2.5'teki gibi isaretli farklar):
 --    "jitter" 25+ derecelik degisimler sirayla saga-sola (gecikmeli jitter'daki aradaki kucuk farklar
---    sayilmaz), "spin" hep ayni yone, "static" hic buyuk degisim yok; ayni sonuc iki guncelleme ust uste
---    cikinca desen degisir. Eskiden ortalama buyukluge bakiliyordu: spin / hizli donen dusman da jitter
---    sayiliyordu.
+--    sayilmaz), "spin" hep ayni yone (yavas spin: toplam 60+), "xway" son 8 acida 3-5 ayri aci kumesi
+--    (3-way / 5-way, 30+ derece aralik), "random" buyuk degisimler duzensiz (skitter / random jitter),
+--    "static" hic buyuk degisim yok; ayni sonuc iki guncelleme ust uste cikinca desen degisir. Jitter, xway
+--    ve random cok tarafli desenlerdir (MULTI): sabit bir body yaw onlarin ancak bir kismini tutar.
 --  fakeduck: yerde, egilme yarim ve paketler bogulu iki guncelleme ust uste.
 local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_memory = 60, pattern_big = 25,
-    fd_low = 0.05, fd_high = 0.95, fd_choke = 6, fd_hold = 32 }
+    yaw_samples = 8, group_gap = 12, fd_low = 0.05, fd_high = 0.95, fd_choke = 6, fd_hold = 32,
+    multi = { jitter = true, xway = true, random = true },
+    patterns = { "jitter", "static", "spin", "xway", "random" } }
 do
     local function eye_yaw(ent)
         local _, yaw = prop(ent, "m_angEyeAngles")
@@ -2311,18 +2314,49 @@ do
         return nil
     end
 
+    -- Hafizada fake duck yaptigi bilinen dusman tek guncellemede isaretlenir (digerleri iki guncelleme ust uste).
     local function fresh(sim, enemy)
+        local key = player_id(enemy)
+        local habit = key ~= nil and resolver.habit(resolver.players[key]) or nil
         return { sim = sim, max_sim = sim, origin = origin_of(enemy), yaw = eye_yaw(enemy), deltas = {},
             def_tick = -1000, lc_tick = -1000, fd_tick = -1000, fd_count = 0,
-            pattern = nil, proposal = nil, proposal_n = 0 }
+            fd_need = (habit ~= nil and habit.fd >= 0.15) and 1 or 2,
+            yaws = {}, pattern = nil, proposal = nil, proposal_n = 0 }
     end
 
-    local function classify(deltas)
+    -- Son acilarin kac ayri kumede toplandigi (aralarinda group_gap'ten buyuk bosluk) ve araligi.
+    local function yaw_groups(yaws)
+        if #yaws < 6 then
+            return nil
+        end
+        local base, rel = yaws[#yaws], {}
+        for i, y in ipairs(yaws) do
+            rel[i] = (y - base + 180) % 360 - 180
+        end
+        table.sort(rel)
+        local groups, last = 0, nil
+        for _, v in ipairs(rel) do
+            if last == nil or v - last > enemy_watch.group_gap then
+                groups = groups + 1
+            end
+            last = v
+        end
+        return groups, rel[#rel] - rel[1]
+    end
+
+    local function classify(t)
+        local deltas = t.deltas
         if #deltas < 4 then
             return nil
         end
-        local big, flips, same, prev = 0, 0, 0, nil
+        local big, flips, same, prev, pos, neg, total = 0, 0, 0, nil, 0, 0, 0
         for _, d in ipairs(deltas) do
+            total = total + abs(d)
+            if d > 0 then
+                pos = pos + 1
+            elseif d < 0 then
+                neg = neg + 1
+            end
             if abs(d) >= enemy_watch.pattern_big then
                 big = big + 1
                 local sign = d > 0
@@ -2342,6 +2376,16 @@ do
         if big >= 3 and same >= big - 1 then
             return "spin"
         end
+        if (pos == #deltas or neg == #deltas) and total >= 60 then
+            return "spin"
+        end
+        local groups, span = yaw_groups(t.yaws)
+        if groups ~= nil and groups >= 3 and groups <= 5 and span >= 30 then
+            return "xway"
+        end
+        if big >= 3 then
+            return "random"
+        end
         if big == 0 then
             return "static"
         end
@@ -2350,7 +2394,7 @@ do
 
     -- Karar verilemeyen guncelleme (tek bir donus gibi) deseni degistirmez.
     local function observe(t)
-        local proposal = classify(t.deltas)
+        local proposal = classify(t)
         if proposal == nil then
             return
         end
@@ -2389,7 +2433,7 @@ do
                     end
                     if ducking_fake(enemy, (sim - t.sim) / tick_interval() - 0.5) then
                         t.fd_count = t.fd_count + 1
-                        if t.fd_count >= 2 then
+                        if t.fd_count >= t.fd_need then
                             t.fd_tick = now
                         end
                     else
@@ -2408,6 +2452,10 @@ do
                             t.deltas[#t.deltas + 1] = (yaw - t.yaw + 180) % 360 - 180
                             if #t.deltas > enemy_watch.samples then
                                 table.remove(t.deltas, 1)
+                            end
+                            t.yaws[#t.yaws + 1] = yaw
+                            if #t.yaws > enemy_watch.yaw_samples then
+                                table.remove(t.yaws, 1)
                             end
                             observe(t)
                         end
@@ -2515,6 +2563,29 @@ local function resolver_entry(ent)
     return memory_entry(resolver.players, key, ent, function() return { results = {}, states = {} } end)
 end
 
+-- Kisi profili (kalici, Steam ID ile): dusman gorundukce saniyede bir ornek: AA deseni (jitter / statik /
+-- spin / xway / random), son 1 sn'de defensive, fake duck. 240 ornekte hepsi yariya iner (eski aliskanlik
+-- silinir). Aliskanlik: 10+ ornek; desen 8+ bilinen ornegin %60'i ayniysa. Aliskanlik sadece canli desen
+-- henuz olculmemisken kullanilir; canli desen gelince dogrulanir ya da duzeltilir (bkz. resolver.observe).
+resolver.habit = function(entry)
+    local p = entry ~= nil and entry.profile or nil
+    if p == nil or p.n < 10 then
+        return nil
+    end
+    local pattern, best, known = nil, 0, 0
+    for _, name in ipairs(enemy_watch.patterns) do
+        local count = p[name] or 0
+        known = known + count
+        if count > best then
+            pattern, best = name, count
+        end
+    end
+    if known < 8 or best < known * 0.6 then
+        pattern = nil
+    end
+    return { pattern = pattern, def = p.def / p.n, fd = p.fd / p.n }
+end
+
 local function window_push(list, result)
     list[#list + 1] = result
     if #list > K.RESOLVER_WINDOW then
@@ -2583,18 +2654,23 @@ local function resolver_level(target)
     local prior = false
     local profile = enemy_watch.profile(target)
     local now = realtime()
-    if key ~= nil and profile ~= nil and profile.pattern == "jitter" then
+    if key ~= nil and profile ~= nil and enemy_watch.multi[profile.pattern] then
         resolver.jittery[key] = now
     end
     local seen = key ~= nil and resolver.jittery[key] or nil
     local jittery = seen ~= nil and now >= seen and now - seen <= enemy_watch.jitter_memory
-    if not data and level < 1 and jittery then
+    -- Canli desen henuz yoksa hafizadaki aliskanlik: bilinen jitter'ciye ilk atistan Prefer.
+    local habit = resolver.habit(entry)
+    local remembered = not jittery and (profile == nil or profile.pattern == nil)
+        and habit ~= nil and enemy_watch.multi[habit.pattern] == true
+    if not data and level < 1 and (jittery or remembered) then
         level, prior = 1, true
         if key ~= nil and not resolver.prior_logged[key] and on(menu.resolver_log) then
             resolver.prior_logged[key] = true
             local amount = (profile ~= nil and profile.jitter ~= nil) and (" %d%s"):format(floor(profile.jitter + 0.5), DEG) or ""
-            print(("[%s] resolver: %s jitter%s -> safe points Prefer (veri yok, on bilgi)"):format(
-                SCRIPT, player_name(target), amount))
+            local name = remembered and habit.pattern or (profile ~= nil and profile.pattern) or "jitter"
+            print(("[%s] resolver: %s %s%s -> safe points Prefer (veri yok, %s)"):format(
+                SCRIPT, player_name(target), name, amount, remembered and "hafizadan, dogrulanacak" or "on bilgi"))
         end
     end
     return level, key, state, entry, prior, misses
@@ -2762,6 +2838,96 @@ hypothesis.get = function(key, state, make)
     return h
 end
 
+-- Taraf bilgisi (dusman basina 4 tick onbellek), donus: taraf ("L" / "R" / "open") ve tur:
+--  "side": duvar (anti-freestand): bizim gozumuzden dusmanin kafasinin iki yanina (gorus cizgisine dik
+--          24 birim) iz; tek taraf kapaliysa freestanding AA gercek kafayi o tarafa saklar.
+--  "lby":  acik alanda duran dusmanda goz yaw ile LBY (alt govde yaw'i, sunucudan gelir) arasindaki fark
+--          35+ ise tarafi o belirler (statik desync / LBY breaker).
+--  "open": bilgi yok.
+-- Adaylar "kanonik" tutulur: kapali taraf L sayilir, R'de aday aynalanir (+aci <-> -aci). Boylece duvarin
+-- bir tarafinda kafadan vuran aci, dusman siperin obur tarafina gecince aynalanmis haliyle kullanilir.
+hypothesis.wall = { cache = {}, radius = 24, every = 4, mirror = { 2, 1, 3, 5, 4 } }
+
+hypothesis.wall_side = function(enemy)
+    local wall, tick = hypothesis.wall, tickcount()
+    local cached = wall.cache[enemy]
+    if cached ~= nil and tick >= cached.tick and tick - cached.tick < wall.every then
+        return cached.side, cached.kind
+    end
+    local side, kind = "open", "open"
+    local lp = local_player()
+    local eye, head = eye_of(lp), hitbox_of(enemy, 0)
+    if eye ~= nil and head ~= nil then
+        local dx, dy = head.x - eye.x, head.y - eye.y
+        local len = sqrt(dx * dx + dy * dy)
+        if len > 1 then
+            local px, py = -dy / len * wall.radius, dx / len * wall.radius
+            local lf, lhit = trace_line(lp, eye, vector(head.x + px, head.y + py, head.z))
+            local rf, rhit = trace_line(lp, eye, vector(head.x - px, head.y - py, head.z))
+            local left = lf ~= nil and lf < 0.97 and lhit ~= enemy
+            local right = rf ~= nil and rf < 0.97 and rhit ~= enemy
+            if left and not right then
+                side, kind = "L", "side"
+            elseif right and not left then
+                side, kind = "R", "side"
+            end
+        end
+    end
+    if kind == "open" and on_ground(enemy) and speed2d(enemy) < 5 then
+        local _, eye_yaw = prop(enemy, "m_angEyeAngles")
+        local lby = prop(enemy, "m_flLowerBodyYawTarget")
+        if finite(eye_yaw) and finite(lby) then
+            local delta = (eye_yaw - lby + 180) % 360 - 180
+            if abs(delta) >= 35 then
+                side, kind = delta > 0 and "L" or "R", "lby"
+            end
+        end
+    end
+    wall.cache[enemy] = { tick = tick, side = side, kind = kind }
+    return side, kind
+end
+
+-- Kanonik aday -> o anki duvar tarafindaki gercek aday.
+hypothesis.actual = function(candidate, side)
+    if side == "R" and candidate > 0 then
+        return hypothesis.wall.mirror[candidate]
+    end
+    return candidate
+end
+
+-- Kalici aci sonuclari: entry.angles["Durum|desen|taraf turu"] = { {kafa, iska} x 5 } (kanonik aday
+-- sirasiyla; tur "side" / "lby" / "open"). Hipotez o durum, desen ve taraf turu icin bunlarla baslar: daha
+-- once kafadan vuran aci once denenir.
+hypothesis.slot = function(state, key)
+    return tostring(state) .. "|" .. (key or "unknown|open")
+end
+
+hypothesis.seed = function(h, entry, state, slot_key)
+    local stored = entry ~= nil and entry.angles ~= nil and entry.angles[hypothesis.slot(state, slot_key)] or nil
+    h.outcomes = {}
+    if stored ~= nil then
+        for c = 1, hypothesis.candidates do
+            local o = stored[c]
+            if o ~= nil and (o[1] > 0 or o[2] > 0) then
+                h.outcomes[c] = { heads = o[1], misses = o[2] }
+            end
+        end
+    end
+    h.seeded = slot_key or "unknown|open"
+end
+
+-- Bilinen iyi aci: en az 2 kafa isabeti ve skoru artida olan en iyi aday.
+hypothesis.known_good = function(outcomes)
+    local best, best_score = nil, 0
+    for c, o in pairs(outcomes) do
+        local score = o.heads * 3 - o.misses
+        if o.heads >= 2 and score > best_score then
+            best, best_score = c, score
+        end
+    end
+    return best
+end
+
 -- Denenmemis adaylardan en iyi skorlu (kafa * 3 - iska); yoksa nil.
 hypothesis.choose = function(h)
     local best, best_score = nil, nil
@@ -2788,7 +2954,8 @@ hypothesis.advance = function(h, why, name, state)
     h.feedback = now
     if on(menu.resolver_log) then
         local what = h.candidate == 0 and "GameSense resolver'ina donuldu (hepsi denendi)"
-            or ("body yaw %d%s denenecek"):format(hypothesis.yaw(h.candidate), DEG)
+            or ("body yaw %d%s denenecek%s"):format(hypothesis.yaw(hypothesis.actual(h.candidate, h.side)), DEG,
+                (h.kind == "side" and " (duvar " .. h.side .. ")") or (h.kind == "lby" and " (lby " .. h.side .. ")") or "")
         print(("[%s] resolver: %s %s %s -> %s"):format(SCRIPT, name or "?", state or "?", why, what))
     end
 end
@@ -2818,19 +2985,33 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
                 print(("[%s] resolver: %s %s AA deseni degisti (%s -> %s): hipotezler sifirlandi"):format(SCRIPT,
                     entry ~= nil and entry.name or player_name(enemy), state, h.pattern, pattern))
             end
-            h.candidate, h.visited, h.outcomes, h.attempts = 0, {}, {}, 0
-        elseif pattern == "jitter" and h.candidate > 0 then
+            h.candidate, h.visited, h.outcomes, h.attempts, h.seeded = 0, {}, {}, 0, nil
+        elseif enemy_watch.multi[pattern] and h.candidate > 0 then
             h.candidate, h.visited, h.attempts = 0, {}, 0
         end
         h.pattern = pattern
     end
-    -- Baslama: Force'ta da 3+ resolver iskasi ya da Force ates engelliyor (jitter'li dusmanda degil).
-    if h.candidate == 0 and raw >= 2 and (misses >= 3 or stalled) and now >= h.cooldown and pattern ~= "jitter" then
-        hypothesis.advance(h, stalled and "Force ates engelliyor" or ("%d resolver iskasi"):format(misses),
-            entry ~= nil and entry.name or player_name(enemy), state)
+    -- Canli desen yoksa hafizadaki aliskanlik; o desen ve duvar durumunun kalici aci sonuclari yuklenir.
+    local habit = resolver.habit(entry)
+    local guess = pattern or (habit ~= nil and habit.pattern) or nil
+    h.side, h.kind = hypothesis.wall_side(enemy)
+    local slot_key = (guess or "unknown") .. "|" .. h.kind
+    if h.candidate == 0 and h.seeded ~= slot_key then
+        hypothesis.seed(h, entry, state, slot_key)
+    end
+    -- Baslama: Force'ta da 3+ resolver iskasi ya da Force ates engelliyor, ya da bu kiside bu durum ve desende
+    -- daha once kafadan vuran bir aci var (hemen o aciyla). Jitter'li dusmanda degil.
+    local known = hypothesis.known_good(h.outcomes)
+    if h.candidate == 0 and raw >= 2 and (misses >= 3 or stalled or known ~= nil) and now >= h.cooldown
+        and not enemy_watch.multi[guess] then
+        local why = stalled and "Force ates engelliyor" or (misses >= 3 and ("%d resolver iskasi"):format(misses))
+            or ("hafizada kafadan vuran aci (%d kafa), dogrulanacak"):format(h.outcomes[known].heads)
+        hypothesis.advance(h, why, entry ~= nil and entry.name or player_name(enemy), state)
+        -- Hafizadaki aci ilk uygun atisla sinanir (dogrulandi / tutmadi).
+        h.from_memory = h.candidate > 0 and not (misses >= 3 or stalled) or nil
     end
     if h.candidate > 0 then
-        return hypothesis.yaw(h.candidate), h
+        return hypothesis.yaw(hypothesis.actual(h.candidate, h.side)), h
     end
     return nil, h
 end
@@ -2855,11 +3036,40 @@ hypothesis.result = function(shot, target, hit_head, miss)
     local o = h.outcomes[h.candidate] or { heads = 0, misses = 0 }
     h.outcomes[h.candidate] = o
     h.feedback = realtime()
+    if h.from_memory and (hit_head or miss) then
+        h.from_memory = nil
+        if on(menu.resolver_log) then
+            print(("[%s] resolver: %s %s hafizadaki aci (body yaw %d%s) %s"):format(SCRIPT, player_name(target),
+                shot.state, shot.hyp_yaw or 0, DEG, hit_head and "dogrulandi: kafa isabeti" or "tutmadi, siradaki denenecek"))
+        end
+    end
+    -- Kalici sonuc: kisi + durum + (atis anindaki) desen ve duvar, kanonik aday.
+    local entry = resolver.players[shot.hyp_key]
+    local stored
+    if entry ~= nil and (hit_head or miss) then
+        entry.angles = entry.angles or {}
+        local slot = hypothesis.slot(shot.state, shot.hyp_slot or h.seeded)
+        stored = entry.angles[slot]
+        if stored == nil then
+            stored = {}
+            for c = 1, hypothesis.candidates do
+                stored[c] = { 0, 0 }
+            end
+            entry.angles[slot] = stored
+        end
+        persist.dirty = true
+    end
     if hit_head then
         o.heads = min(20, o.heads + 1)
+        if stored ~= nil then
+            stored[h.candidate][1] = min(20, stored[h.candidate][1] + 1)
+        end
     elseif miss then
         o.misses = min(40, o.misses + 1)
-        hypothesis.advance(h, ("body yaw %d%s iskaladi"):format(hypothesis.yaw(h.candidate), DEG),
+        if stored ~= nil then
+            stored[h.candidate][2] = min(40, stored[h.candidate][2] + 1)
+        end
+        hypothesis.advance(h, ("body yaw %d%s iskaladi"):format(shot.hyp_yaw or 0, DEG),
             player_name(target), shot.state)
     end
 end
@@ -2885,6 +3095,101 @@ hypothesis.apply = function(enemy, yaw)
     return plist_override(enemy, PL.FORCE, true)
 end
 
+-- Kisi profili ornegi (saniyede bir) ve hafizadan taninan dusman icin haritada bir kez log.
+resolver.observe = function(enemy)
+    local key = player_id(enemy)
+    if key == nil then
+        return
+    end
+    local entry = resolver.players[key]
+    local profile = enemy_watch.profile(enemy)
+    -- Hafiza canli desenle dogrulanir (canli desen olculur olculmez): ayni (ya da ayni cok tarafli aile) ->
+    -- dogrulandi; farkli -> tutmadi, eski desen sayilari yariya iner ki aliskanlik canli davranisa cabuk
+    -- uysun. Haritada bir kez yazilir.
+    if entry ~= nil and entry.remembered and entry.verified == nil and profile ~= nil and profile.pattern ~= nil then
+        local habit = resolver.habit(entry)
+        if habit ~= nil and habit.pattern ~= nil then
+            local multi = enemy_watch.multi
+            local same = habit.pattern == profile.pattern or (multi[habit.pattern] and multi[profile.pattern]) or false
+            entry.verified = same
+            if not same then
+                for _, name in ipairs(enemy_watch.patterns) do
+                    entry.profile[name] = (entry.profile[name] or 0) / 2
+                end
+            end
+            if on(menu.resolver_log) then
+                print(("[%s] resolver: %s hafiza %s: genelde %s, simdi %s%s"):format(SCRIPT,
+                    entry.name or player_name(enemy), same and "dogrulandi" or "tutmadi", habit.pattern,
+                    profile.pattern, same and "" or " (canli desen kullaniliyor, aliskanlik duzeltildi)"))
+            end
+        end
+    end
+    local now = realtime()
+    if entry ~= nil and entry.sampled ~= nil and now >= entry.sampled and now - entry.sampled < 1 then
+        return
+    end
+    if profile == nil then
+        return
+    end
+    entry = entry or resolver_entry(enemy)
+    if entry == nil then
+        return
+    end
+    entry.sampled = now
+    local p = entry.profile
+    if p == nil then
+        p = { n = 0, jitter = 0, static = 0, spin = 0, xway = 0, random = 0, def = 0, fd = 0 }
+        entry.profile = p
+    end
+    p.n = p.n + 1
+    if profile.pattern ~= nil then
+        p[profile.pattern] = (p[profile.pattern] or 0) + 1
+    end
+    if profile.defensive then
+        p.def = p.def + 1
+    end
+    if profile.fakeduck then
+        p.fd = p.fd + 1
+    end
+    if p.n > 240 then
+        for field, value in pairs(p) do
+            p[field] = value / 2
+        end
+    end
+    persist.dirty = true
+    if entry.remembered and not entry.announced then
+        entry.announced = true
+        local habit = resolver.habit(entry)
+        local parts = {}
+        if habit ~= nil and habit.pattern ~= nil then
+            parts[#parts + 1] = "genelde " .. (habit.pattern == "static" and "statik" or habit.pattern)
+                .. " (dogrulanacak)"
+        end
+        if habit ~= nil and habit.def >= 0.2 then
+            parts[#parts + 1] = ("defensive %%%d"):format(floor(habit.def * 100 + 0.5))
+        end
+        if habit ~= nil and habit.fd >= 0.1 then
+            parts[#parts + 1] = ("fake duck %%%d"):format(floor(habit.fd * 100 + 0.5))
+        end
+        for slot, list in pairs(entry.angles or {}) do
+            local outcomes = {}
+            for c, o in ipairs(list) do
+                outcomes[c] = { heads = o[1], misses = o[2] }
+            end
+            local best = hypothesis.known_good(outcomes)
+            if best ~= nil then
+                local state, pattern, wall = slot:match("^([^|]+)|(%a+)|(%a+)$")
+                parts[#parts + 1] = ("%s %s%s aci %d%s"):format(state or slot, pattern or "?",
+                    (wall == "side" and " duvarli") or (wall == "lby" and " lby") or "", hypothesis.yaw(best), DEG)
+            end
+        end
+        if #parts > 0 and on(menu.resolver_log) then
+            print(("[%s] resolver: %s tanindi (hafiza): %s"):format(SCRIPT, entry.name or player_name(enemy),
+                table.concat(parts, ", ")))
+        end
+    end
+end
+
 -- Her tick butun gorunen dusmanlar icin: seviye, Force safe point (oyuncu listesi), hipotez. Hedefin
 -- seviyesi "Prefer safe point" (silahin rage ayari) ve gostergeler icin dondurulur. Senin kendi safe point
 -- ayarin hic dusurulmez.
@@ -2896,6 +3201,7 @@ local function apply_resolver(class, present)
         present[enemy] = true
         local level, raw, state, prior, key, entry, misses, stalled = 0, 0, nil, false, nil, nil, 0, false
         if on(menu.resolver) then
+            resolver.observe(enemy)
             raw, key, state, entry, prior, misses = resolver_level(enemy)
             level, stalled = stall_level(enemy, resolver.cap(raw, enemy), key, state, entry)
         end
@@ -3081,8 +3387,9 @@ do
             wanted = "Prefer"
         end
         local profile = enemy_watch.profile(enemy)
+        -- Sahte kayit, fake duck ya da LC kirma (GameSense yerini tahmin eder): genis govde hatayi tolere eder.
         if wanted == nil and gun and not (info ~= nil and info[4]) and profile ~= nil
-            and (profile.defensive_now or profile.fakeduck) then
+            and (profile.defensive_now or profile.fakeduck or profile.lc) then
             wanted = "Prefer"
         end
         return wanted, lethal, stalled
@@ -4952,6 +5259,7 @@ local function profile_text(profile)
     end
     local pattern = profile.pattern
     local parts = { (pattern == "jitter" and ("AA jitter %d"):format(round(profile.jitter or 0)))
+        or (pattern == "xway" and "AA x-way") or (pattern == "random" and "AA random")
         or (pattern == "spin" and "AA spin") or (pattern == "static" and "AA statik") or "AA ?" }
     if profile.defensive_now then
         parts[#parts + 1] = "def (sahte kayit)"
@@ -5045,7 +5353,7 @@ listen("aim_fire", protect("aim_fire", function(e)
         local h = hypothesis.get(key, state, false)
         -- Aday ancak ates aninda oyuncu listesinde gercekten yaziliysa o atis adaya sayilir (Correction
         -- kapali ya da senin Force body yaw'in varken aday uygulanmaz; NYKLE Resolver 2.5'teki kontrol).
-        local hyp_yaw = h ~= nil and h.candidate > 0 and hypothesis.yaw(h.candidate) or nil
+        local hyp_yaw = h ~= nil and h.candidate > 0 and hypothesis.yaw(hypothesis.actual(h.candidate, h.side)) or nil
         if hyp_yaw ~= nil and not (plist_get(target, PL.FORCE) == true and plist_get(target, PL.VALUE) == hyp_yaw) then
             hyp_yaw = nil
         end
@@ -5059,7 +5367,8 @@ listen("aim_fire", protect("aim_fire", function(e)
             extrapolated = e.extrapolated == true, interpolated = e.interpolated == true,
             high_priority = e.high_priority == true,
             total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil,
-            hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw }
+            hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw,
+            hyp_slot = h ~= nil and h.seeded or nil }
     end
     local stall = resolver.stalls[target]
     if stall ~= nil then
@@ -5279,19 +5588,84 @@ persist.save = function(force)
         return out
     end
     for key, entry in pairs(resolver.players) do
-        if steam_key(key) and #entry.results > 0 then
+        local p = entry.profile
+        local has_profile = p ~= nil and p.n >= 1
+        if steam_key(key) and (#entry.results > 0 or has_profile or entry.angles ~= nil) then
             local states = {}
             for state, list in pairs(entry.states) do
                 states[state] = copy(list)
             end
+            local angles
+            if entry.angles ~= nil then
+                angles = {}
+                for slot, list in pairs(entry.angles) do
+                    angles[slot] = {}
+                    for c, o in ipairs(list) do
+                        angles[slot][c] = { o[1], o[2] }
+                    end
+                end
+            end
             data.resolver[key] = { name = entry.name, results = copy(entry.results), states = states,
-                hits = entry.hits, misses = entry.misses }
+                hits = entry.hits, misses = entry.misses, angles = angles,
+                profile = has_profile and { n = p.n, jitter = p.jitter, static = p.static, spin = p.spin,
+                    xway = p.xway or 0, random = p.random or 0, def = p.def, fd = p.fd } or nil }
         end
     end
     persist.saved = now
     if type(database) == "table" and pcall(database.write, persist.key, data) then
         persist.dirty = false
     end
+end
+
+-- Kalici kisi profili ve aci sonuclari (bozuk / eski veri atlanir).
+persist.stored_profile = function(p)
+    if type(p) ~= "table" then
+        return nil
+    end
+    local out = {}
+    for _, field in ipairs({ "n", "jitter", "static", "spin", "xway", "random", "def", "fd" }) do
+        local v = p[field]
+        if v == nil and (field == "xway" or field == "random") then
+            v = 0
+        end
+        if not finite(v) or v < 0 or v > 1000 then
+            return nil
+        end
+        out[field] = v
+    end
+    return out.n >= 1 and out or nil
+end
+
+persist.states = { "Standing", "Moving", "Slow walk", "Crouch", "Air", "Fakeduck" }
+
+persist.stored_angles = function(a)
+    if type(a) ~= "table" then
+        return nil
+    end
+    local states = {}
+    for _, state in ipairs(persist.states) do
+        states[state] = true
+    end
+    local patterns = { jitter = true, static = true, spin = true, xway = true, random = true, unknown = true }
+    local walls = { side = true, lby = true, open = true }
+    local out, any = {}, false
+    for slot, list in pairs(a) do
+        local state, pattern, wall = tostring(slot):match("^([^|]+)|(%a+)|(%a+)$")
+        if state ~= nil and states[state] and patterns[pattern] and walls[wall] and type(list) == "table" then
+            local clean = {}
+            for c = 1, hypothesis.candidates do
+                local o = list[c]
+                local heads, misses = type(o) == "table" and o[1] or nil, type(o) == "table" and o[2] or nil
+                if finite(heads) and finite(misses) and heads >= 0 and heads <= 20 and misses >= 0 and misses <= 40 then
+                    clean[c] = { floor(heads), floor(misses) }
+                else
+                    clean[c] = { 0, 0 }
+                end
+            end
+            out[slot], any = clean, true
+        end
+    end
+    return any and out or nil
 end
 
 local function stored_window(list)
@@ -5367,14 +5741,16 @@ persist.load = function()
                     end
                 end
                 if type(e.states) == "table" then
-                    for _, state in ipairs({ "Standing", "Moving", "Slow walk", "Crouch", "Air", "Fakeduck" }) do
+                    for _, state in ipairs(persist.states) do
                         local list = stored_window(e.states[state])
                         if #list > 0 then
                             entry.states[state] = list
                         end
                     end
                 end
-                if #entry.results > 0 then
+                entry.profile, entry.angles = persist.stored_profile(e.profile), persist.stored_angles(e.angles)
+                if #entry.results > 0 or entry.profile ~= nil or entry.angles ~= nil then
+                    entry.remembered = true
                     resolver.players[key] = entry
                     add(key)
                 end
@@ -5415,10 +5791,12 @@ end))
 listen("level_init", protect("level_init", function()
     reset_brute()
     pending_misses = {}
-    -- Yeni harita yeni oturum: Force icin yine bu haritada bir resolver iskasi gerekir.
+    -- Yeni harita yeni oturum: Force icin yine bu haritada bir resolver iskasi gerekir; hafizadan taninan
+    -- dusmanlar yeni haritada yine bir kez yazilir.
     for _, entry in pairs(resolver.players) do
-        entry.fresh = nil
+        entry.fresh, entry.announced, entry.verified = nil, nil, nil
     end
+    hypothesis.wall.cache = {}
     resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
     resolver.stalls, resolver.body_stalls, resolver.open_cache = {}, {}, {}
     exposure.shot, exposure.duel = nil, nil

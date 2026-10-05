@@ -1,4 +1,4 @@
-# Nykle.win lua V1.0.4 — GameSense edition
+# Nykle.win lua V1.0.5 — GameSense edition
 
 `Nykle.win.lua` (Neverlose V1.0) sürümünün bütün özelliklerinin **GameSense (CS:GO)** Lua API'sine taşınmış hali: `Nykle_win_gamesense.lua`. Sadece HvH sunucuları için.
 
@@ -10,7 +10,7 @@ Neverlose sürümünün mantığı (durumlar, varsayılan açılar, exploit seç
 
 1. `Nykle_win_gamesense.lua` dosyasını GameSense'in lua klasörüne at (CS:GO klasörü, `csgo.exe`'nin yanı; diğer lua'ların durduğu yer). **Dosya adını değiştirme**: adda fazladan nokta olursa (eski `Nykle.win.gamesense.lua` gibi) GameSense lua'yı açamayabilir.
 2. GameSense'in script listesinden `Nykle_win_gamesense` → **Load script**.
-3. Konsolda `[Nykle.win] V1.0.4 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
+3. Konsolda `[Nykle.win] V1.0.5 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
 4. Menü, NYKLE Yaw'daki gibi **AA sekmesi → Anti-aimbot angles** kutusunda: en üstte **Enable Nykle.win** ve **Nykle.win tab** (Home, Anti-Aim, Exploits, Builder, Ragebot, Visuals, Misc), altında seçilen sekmenin ayarları. Lua açıkken GameSense'in kendi AA ayarları (Pitch, Yaw, Body yaw, Freestanding ...) bu kutuda **gizlenir** (lua onları kendisi yazıyor); Enable kapatınca ya da unload edince geri görünür. Fake lag ve Other kutuları (Slow motion, On shot anti-aim tuşları) olduğu gibi kalır.
 5. Tuşları bağla (Anti-Aim sekmesi): **Manual left / right / forward**, **Freestanding**, **Static inverter**. AI peek için GameSense'in kendi **Quick peek assist** tuşu (RAGE → Other) kullanılır.
 
@@ -73,6 +73,43 @@ Açıları yine GameSense'in kendi resolver'ı çözer. Bu katman her aimbot at�
 - Slot başka bir oyuncuya geçerse (aynı index) eski değerimiz yeni oyuncuya kalmaz; listeden çıkan / ölen / dormant olan düşmandaki ezmeler hemen geri verilir; harita değişince de geri verilir.
 - Göstergede `RES 1 JIT`, `RES 2 AIR`, hipotezde `RES 3 BY 58`; atış satırında `| BY 58°`; resolver panelinde `BY 58°`.
 - Hipotezler oturumluk (oyun kapanınca unutulur); seviyeler ve anti-brute fazları Steam ID ile kalıcı hafızada.
+
+### V1.0.5: kişiyi tanıyan ve doğrulayan resolver
+
+Resolver artık her düşmanı (Steam ID ile, en fazla 64 kişi, oyunlar arası) tanır ve oynadıkça biriktirir; ama hafızadakini **körü körüne uygulamaz**: canlı gözlem her zaman önce gelir, hafıza her seferinde doğrulanır ya da düzeltilir.
+
+- **Kişi profili:** Düşman göründükçe saniyede bir örnek: AA deseni (jitter / statik / spin / x-way / random), son 1 sn'de defensive, fake duck. 240 örnekte sayılar yarıya iner (eski alışkanlık silinir). Alışkanlık: 10+ örnek ve desen örneklerinin %60'ı aynı.
+- **Tanıma:** Hafızadaki düşman ilk görüldüğünde (haritada bir kez) `resolver: isim tanindi (hafiza): genelde statik (dogrulanacak), defensive %40, Standing static duvarli aci 58°`.
+- **Doğrulama:** Hafızadaki desen sadece canlı desen henüz ölçülmemişken kullanılır (örn. bilinen jitter'cıya ilk atıştan Prefer: `(veri yok, hafizadan, dogrulanacak)`). Canlı desen ölçülür ölçülmez karşılaştırılır: `hafiza dogrulandi: genelde static, simdi static` ya da `hafiza tutmadi: genelde jitter, simdi static (canli desen kullaniliyor, aliskanlik duzeltildi)` (tutmayınca eski desen sayıları yarıya iner, alışkanlık canlı davranışa çabuk uyar).
+- **Kalıcı açılar:** Body yaw açı denemelerinin sonucu (kafa / ıska) kişi + durum + AA deseni + taraf türü başına hafızaya yazılır. O kişiyle tekrar karşılaşınca, Force'a çıktığında (bu haritada bir ıska şart) daha önce **en az 2 kez kafadan vuran** açı varsa 3 ıska beklenmeden hemen o açıyla başlanır: `hafizada kafadan vuran aci (3 kafa), dogrulanacak`. İlk uygun atış sınar: `hafizadaki aci (body yaw 58°) dogrulandi: kafa isabeti` ya da `tutmadi, siradaki denenecek` (skoru hafızada düşer).
+- **Taraf bilgisi (daha fazla bilgi):** Açılar tarafa göre öğrenilir ve **aynalanır**:
+  - *Duvar (anti-freestand):* gözünden düşmanın kafasının iki yanına iz; tek taraf kapalıysa freestanding AA gerçek kafayı o tarafa saklar. Siperin bir tarafında kafadan vuran açı, düşman öbür tarafa geçince aynalanmış haliyle (+58 ↔ −58) kullanılır. Log: `(duvar L)`.
+  - *LBY:* açık alanda duran düşmanda göz yaw'ı ile sunucudan gelen LBY (alt gövde yaw'ı) arasındaki fark 35°+ ise taraf odur (statik desync / LBY breaker / Opposite). Log: `(lby L)`.
+- **Bilinen fake duck'çı** tek güncellemede `Fakeduck` sayılır (diğerleri iki güncelleme üst üste); yine canlı kanıt (yarım eğilme + 6+ tick choke) şart.
+- **Yeni AA desenleri:** `x-way` (3-way / 5-way: son 8 açıda 3-5 ayrı açı kümesi), `random` (skitter / random jitter), yavaş spin. Jitter, x-way ve random çok taraflıdır: sabit body yaw onların ancak bir kısmını tutar, onlara açı denemesi yapılmaz, Force safe point kullanılır.
+- **LC kıran düşmana gövde:** GameSense yerini tahmin ederken DT'li silahta gövde tercih edilir (sahte kayıt ve fake duck'taki gibi).
+
+#### AA türleri ve exploit'ler: lua ne yapıyor
+
+Açıyı her zaman GameSense'in kendi resolver'ı çözer; lua onun üstünde düşman başına safe point / body aim / body yaw / ateş zamanlamasını yönetir.
+
+| AA / exploit | Nasıl anlaşılır | Lua ne yapar |
+|---|---|---|
+| Statik desync | desen `static` | 2 ıskada (biri bu haritada) Force safe point; Force'ta da 3 ıska ya da hafızada tutan açı varsa body yaw açı denemeleri (+58 / −58 / 0 / ±29), kişi + durum + taraf başına kalıcı |
+| Jitter (center / offset), gecikmeli jitter | desen `jitter` (25°+ değişimler sırayla sağa-sola) | İlk atıştan Prefer, 2 ıskada Force safe point; açı denemesi yok |
+| Random / skitter jitter | desen `random` | Jitter gibi |
+| 3-way / 5-way | desen `x-way` | Jitter gibi |
+| Spin (hızlı / yavaş) | desen `spin` | Seviyeler + açı denemeleri (spin tek taraflı desync olabilir) |
+| Freestanding desync | duvar tarafı (iz) | Açı denemeleri duvar tarafına göre öğrenilir, öbür tarafa aynalanır |
+| LBY breaker / Opposite | LBY farkı (dururken) | Açı denemeleri LBY tarafına göre öğrenilir |
+| Az desync (low delta) / desync yok (legit AA) | — | ±29° ve 0° adayları; tutan açı öğrenilir |
+| Fake duck | yarım eğilme + 6+ tick choke | Ayrı durum (`Fakeduck`) olarak öğrenilir, DT'li silahta gövde, sniper sadece öldürecekse gövde, bilinen FD'ci hızlı yakalanır |
+| Defensive / DT defensive, defensive AA (gizli açılar) | sahte kayıt: simülasyon zamanı geri gider | **Wait for real record** (en fazla 14 tick ateş yok, DT boşa gitmez), ıska resolver'a sayılmaz, DT'li silahta gövde, sniper'da öldürecekse gövde |
+| Break LC / teleport | 64+ birim sıçrama, GameSense `teleported` | Iska resolver'a sayılmaz, DT'li silahta gövde |
+| Yüksek fake lag (eski kayıt) | GameSense `extrapolated` | Iska resolver'a sayılmaz |
+| Hide shots / on-shot kaydı | GameSense `high_priority` | Açı denemesi o atıştan öğrenmez |
+| Ani peek | iz (her tick) | Temiz atış: kendi defensive'in atıştan önce kesilir; ateşten sonra 14 tick lag yok |
+| Roll AA, fake walk | — | Tespit edilemiyor (roll açısı ağdan gelmiyor); GameSense'e kalır |
 
 ### V1.0.4: karşıda defensive / DT / ani peek yapan olunca
 
@@ -207,9 +244,10 @@ Neverlose sürümündeki bütün loglar aynı biçimde (atış satırı, vuruldu
 
 ```
 luajit tests/gamesense/run_tests.lua Nykle_win_gamesense.lua
+luajit tests/gamesense/run_memory_tests.lua Nykle_win_gamesense.lua
 ```
 
-Test edilenler: yükleme; V1.0.4 (sahte kayıtta whitelist ile bekleme, gerçek kayıt gelince bırakma, sürekli defensive'de 14 tick sınırı ve 16 tick serbest, kendi whitelist'ine dokunmama, beklerken AA'nın beklenen düşmana dönmesi, aimbot ateş edince 14 tick zorlanan defensive olmaması, kapanışta whitelist'in geri verilmesi); resolver V1.0.3 (teleport / extrapolation ıskasının sayılmaması, jitter'lı düşmanda hipotez olmaması ve Force safe point, yeni haritada eski ıskalarla Force açılmaması ve bu haritadaki ıskayla açılması, statik düşmanda hipotez başlaması, Correction kapalıyken adayın öğrenmemesi, desen değişince hipotezlerin sıfırlanması, spin'in jitter sayılmaması, Slow walk / Moving ayrımı); menünün AA → Anti-aimbot angles kutusunda olması ve GameSense AA ayarlarının lua açıkken gizlenip kapalıyken / kapanışta geri görünmesi; clan tag animasyonu (sıra ve süreler), GameSense spammer'ının kapatılıp geri verilmesi, kapatınca etiketin geri yazılması; trash talk ve clan tag'in varsayılan açık olması; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.
+Test edilenler: yükleme; V1.0.5 (`run_memory_tests.lua`: hafızadaki iki düşmanın tanınması, doğru alışkanlığın doğrulanması, yanlışın düzeltilip hafızada yarıya inmesi, canlı desen yokken hafızadaki jitter alışkanlığının kullanılması, hafızadaki açıyla hemen başlama, duvar L / R aynalama, hafızadaki açının doğrulanması ve tutmaması, LBY tarafı, kapanışta açı sonuçlarının yazılması; `run_tests.lua`: x-way / random / yavaş spin desenleri, profil ve açıların hafızaya yazılması); V1.0.4 (sahte kayıtta whitelist ile bekleme, gerçek kayıt gelince bırakma, sürekli defensive'de 14 tick sınırı ve 16 tick serbest, kendi whitelist'ine dokunmama, beklerken AA'nın beklenen düşmana dönmesi, aimbot ateş edince 14 tick zorlanan defensive olmaması, kapanışta whitelist'in geri verilmesi); resolver V1.0.3 (teleport / extrapolation ıskasının sayılmaması, jitter'lı düşmanda hipotez olmaması ve Force safe point, yeni haritada eski ıskalarla Force açılmaması ve bu haritadaki ıskayla açılması, statik düşmanda hipotez başlaması, Correction kapalıyken adayın öğrenmemesi, desen değişince hipotezlerin sıfırlanması, spin'in jitter sayılmaması, Slow walk / Moving ayrımı); menünün AA → Anti-aimbot angles kutusunda olması ve GameSense AA ayarlarının lua açıkken gizlenip kapalıyken / kapanışta geri görünmesi; clan tag animasyonu (sıra ve süreler), GameSense spammer'ının kapatılıp geri verilmesi, kapatınca etiketin geri yazılması; trash talk ve clan tag'in varsayılan açık olması; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.
 
 **Oyunda test edilmedi.** Sahte ortam GameSense'in davranışını tahmin eder; aşağıdakiler gerçek oyunda doğrulanmalı.
 
