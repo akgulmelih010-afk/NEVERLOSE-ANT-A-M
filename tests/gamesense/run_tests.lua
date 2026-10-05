@@ -83,9 +83,16 @@ local function advance_sim(ticks)
             local p = M.players[i]
             if p ~= nil and p.alive then
                 p.props.m_flSimulationTime = p.props.m_flSimulationTime + 1 / 64
-                -- jitter AA
+                -- AA deseni: varsayilan jitter; M.yaw_mode[i] = "static" / "spin".
                 local yaw = p.props.m_angEyeAngles
-                yaw[2] = (M.tick % 2 == 0) and 140 or -140
+                local mode = M.yaw_mode and M.yaw_mode[i]
+                if mode == "static" then
+                    yaw[2] = 140
+                elseif mode == "spin" then
+                    yaw[2] = (yaw[2] + 40 + 180) % 360 - 180
+                else
+                    yaw[2] = (M.tick % 2 == 0) and 140 or -140
+                end
             end
         end
         -- DT sarji: DT aktifken tickbase sarj kadar (14) geride kalir; atis / kapatma sarji sifirlar.
@@ -172,9 +179,13 @@ step({}, 20)
 
 -- 3) Atislar: aim_fire / aim_hit / aim_miss ("?" -> correction, damage rejection, spread).
 local id = 1
-local function shoot(target, reason, hitgroup)
-    M.fire("aim_fire", { id = id, target = target, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0,
-        teleported = false, extrapolated = false, x = 0, y = 0, z = 0 })
+local function shoot(target, reason, hitgroup, flags)
+    local fire = { id = id, target = target, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0,
+        teleported = false, extrapolated = false, x = 0, y = 0, z = 0 }
+    for k, v in pairs(flags or {}) do
+        fire[k] = v
+    end
+    M.fire("aim_fire", fire)
     M.fire("weapon_fire", { userid = 11, weapon = "ak47" })
     M.discharge = true
     step({}, 4)
@@ -186,14 +197,84 @@ local function shoot(target, reason, hitgroup)
     id = id + 1
     step({}, 4)
 end
+local function count_log(pattern)
+    local n = 0
+    for _, line in ipairs(M.logs) do
+        if line:find(pattern, 1, true) then
+            n = n + 1
+        end
+    end
+    return n
+end
+local function safe_point(index)
+    return M.plist[index] ~= nil and M.plist[index]["Override safe point"] or nil
+end
+
+-- 3a) GameSense'in teleport / extrapolation ile tahmin ettigi kayittaki "?" iskasi resolver'a sayilmaz.
+shoot(2, "?", nil, { teleported = true })
+check(log_has("resolver'a sayilmadi: teleport"), "teleport kaydindaki iska ayrilmadi")
+check(count_log("iska (correction)") == 0, "teleport kaydindaki iska resolver seviyesini degistirdi")
+shoot(2, "?", nil, { extrapolated = true })
+check(log_has("resolver'a sayilmadi: extrapolation"), "extrapolation kaydindaki iska ayrilmadi")
+check(count_log("iska (correction)") == 0, "extrapolation kaydindaki iska resolver seviyesini degistirdi")
+
+-- 3b) Jitter'li dusman: seviye 2'de Force safe point, hipotez yok (sabit aci jitter'in yarisini tutar).
+check(log_has("AA jitter"), "jitter deseni tanimadi")
+shoot(2, "?")
 shoot(2, "?")
 shoot(2, "?")
 shoot(2, "?")
 check(log_has("resolver: enemy one"), "resolver seviye logu yok")
-check(M.plist[2] ~= nil and (M.plist[2]["Override safe point"] == "On" or M.plist[2]["Force body yaw"] == true),
-    "seviye 2/3'te oyuncu listesi ezilmedi")
+check(safe_point(2) == "On", "seviye 2'de oyuncu listesi Force safe point degil")
+check(count_log("denenecek") == 0, "jitter'li dusmana hipotez denendi")
+
+-- 3c) Yeni harita: hafizadaki / onceki iskalar en fazla Prefer; Force icin bu haritada yeni iska gerekir.
+M.fire("level_init", {})
+step({}, 12)
+check(safe_point(2) ~= "On", "yeni haritada eski iskalarla Force safe point acildi")
 shoot(2, "?")
-check(log_has("body yaw"), "hipotez logu yok")
+check(safe_point(2) == "On", "bu haritadaki iskadan sonra Force safe point acilmadi")
+
+-- 3d) Desen statik olunca hipotezler baslar (Force'ta 3+ resolver iskasi).
+M.yaw_mode = { [2] = "static" }
+step({}, 12)
+check(log_has("denenecek"), "statik dusmanda hipotez baslamadi")
+check(M.plist[2] ~= nil and M.plist[2]["Force body yaw"] == true, "hipotez oyuncu listesine yazilmadi")
+
+-- 3e) Aday oyuncu listesinde uygulanmiyorken (Correction kapali) atis adaya yazilmaz; uygulaninca yazilir.
+M.plist[2]["Correction active"] = false
+step({}, 3)
+check(M.plist[2]["Force body yaw"] ~= true, "Correction kapaliyken Force body yaw birakilmadi")
+local missed_candidates = count_log("iskaladi")
+shoot(2, "?")
+check(count_log("iskaladi") == missed_candidates, "uygulanmayan aday iskadan ogrendi")
+M.plist[2]["Correction active"] = true
+step({}, 3)
+shoot(2, "?")
+check(count_log("iskaladi") == missed_candidates + 1, "uygulanan adayin iskasi yazilmadi")
+
+-- 3f) Desen degisince (statik -> jitter) o durumdaki hipotezler silinir.
+M.yaw_mode = nil
+step({}, 12)
+check(log_has("AA deseni degisti (static -> jitter)"), "desen degisince hipotezler sifirlanmadi")
+check(M.plist[2]["Force body yaw"] ~= true, "jitter'a donunce Force body yaw birakilmadi")
+
+-- 3g) Spin jitter sayilmaz; yavas yurume ayri durum.
+M.yaw_mode = { [3] = "spin" }
+step({}, 12)
+shoot(3, "spread")
+check(log_has("AA spin"), "spin deseni tanimadi")
+M.yaw_mode = nil
+e1.props.m_vecVelocity = { 80, 0, 0 }
+step({}, 2)
+shoot(2, "spread")
+check(log_has("enemy one | Slow walk |"), "yavas yuruyen dusman Slow walk degil")
+e1.props.m_vecVelocity = { 220, 0, 0 }
+step({}, 2)
+shoot(2, "spread")
+check(log_has("enemy one | Moving |"), "kosan dusman Moving degil")
+e1.props.m_vecVelocity = { 0, 0, 0 }
+step({}, 2)
 shoot(2, "spread")
 me.props.m_totalHitsOnServer = 1
 M.fire("aim_fire", { id = id, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })

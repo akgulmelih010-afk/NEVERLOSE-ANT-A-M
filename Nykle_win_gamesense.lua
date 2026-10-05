@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2287,8 +2287,13 @@ end
 --  defensive: simulasyon zamani gordugumuz en yuksek degerin gerisine dustu (sahte kayit).
 --  lc: iki guncelleme arasinda 64 birimden fazla yer degistirdi.
 --  jitter: son gercek guncellemeler arasindaki ortalama yaw degisimi (sadece gercek kayitlardan).
+--  pattern: yaw degisimlerinin YONUNE gore AA deseni (NYKLE Resolver 2.5'teki gibi isaretli farklar):
+--    "jitter" 25+ derecelik degisimler sirayla saga-sola (gecikmeli jitter'daki aradaki kucuk farklar
+--    sayilmaz), "spin" hep ayni yone, "static" hic buyuk degisim yok; ayni sonuc iki guncelleme ust uste
+--    cikinca desen degisir. Eskiden ortalama buyukluge bakiliyordu: spin / hizli donen dusman da jitter
+--    sayiliyordu.
 --  fakeduck: yerde, egilme yarim ve paketler bogulu iki guncelleme ust uste.
-local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_prior = 35, jitter_memory = 60,
+local enemy_watch = { list = {}, hold = 16, samples = 6, jitter_memory = 60, pattern_big = 25,
     fd_low = 0.05, fd_high = 0.95, fd_choke = 6, fd_hold = 32 }
 do
     local function eye_yaw(ent)
@@ -2305,7 +2310,55 @@ do
 
     local function fresh(sim, enemy)
         return { sim = sim, max_sim = sim, origin = origin_of(enemy), yaw = eye_yaw(enemy), deltas = {},
-            def_tick = -1000, lc_tick = -1000, fd_tick = -1000, fd_count = 0 }
+            def_tick = -1000, lc_tick = -1000, fd_tick = -1000, fd_count = 0,
+            pattern = nil, proposal = nil, proposal_n = 0 }
+    end
+
+    local function classify(deltas)
+        if #deltas < 4 then
+            return nil
+        end
+        local big, flips, same, prev = 0, 0, 0, nil
+        for _, d in ipairs(deltas) do
+            if abs(d) >= enemy_watch.pattern_big then
+                big = big + 1
+                local sign = d > 0
+                if prev ~= nil then
+                    if sign ~= prev then
+                        flips = flips + 1
+                    else
+                        same = same + 1
+                    end
+                end
+                prev = sign
+            end
+        end
+        if big >= 3 and (flips >= big - 1 or (big >= 5 and flips >= big - 2)) then
+            return "jitter"
+        end
+        if big >= 3 and same >= big - 1 then
+            return "spin"
+        end
+        if big == 0 then
+            return "static"
+        end
+        return nil
+    end
+
+    -- Karar verilemeyen guncelleme (tek bir donus gibi) deseni degistirmez.
+    local function observe(t)
+        local proposal = classify(t.deltas)
+        if proposal == nil then
+            return
+        end
+        if proposal == t.proposal then
+            t.proposal_n = t.proposal_n + 1
+        else
+            t.proposal, t.proposal_n = proposal, 1
+        end
+        if t.proposal_n >= 2 then
+            t.pattern = proposal
+        end
     end
 
     local function ducking_fake(enemy, choked)
@@ -2349,10 +2402,11 @@ do
                     local yaw = eye_yaw(enemy)
                     if not fake then
                         if yaw ~= nil and t.yaw ~= nil then
-                            t.deltas[#t.deltas + 1] = abs((yaw - t.yaw + 180) % 360 - 180)
+                            t.deltas[#t.deltas + 1] = (yaw - t.yaw + 180) % 360 - 180
                             if #t.deltas > enemy_watch.samples then
                                 table.remove(t.deltas, 1)
                             end
+                            observe(t)
                         end
                         t.yaw = yaw
                     end
@@ -2367,7 +2421,7 @@ do
         end
     end
 
-    -- { defensive, defensive_now, lc, fakeduck, jitter } ya da hic veri yoksa nil.
+    -- { defensive, defensive_now, lc, fakeduck, jitter, pattern } ya da hic veri yoksa nil.
     enemy_watch.profile = function(ent)
         local t = ent ~= nil and enemy_watch.list[ent] or nil
         if t == nil then
@@ -2378,7 +2432,7 @@ do
         if #t.deltas >= 4 then
             local sum = 0
             for _, d in ipairs(t.deltas) do
-                sum = sum + d
+                sum = sum + abs(d)
             end
             jitter = sum / #t.deltas
         end
@@ -2388,6 +2442,7 @@ do
             lc = now >= t.lc_tick and now - t.lc_tick <= enemy_watch.hold,
             fakeduck = now >= t.fd_tick and now - t.fd_tick <= enemy_watch.fd_hold,
             jitter = jitter,
+            pattern = t.pattern,
         }
     end
 end
@@ -2406,8 +2461,13 @@ local function enemy_state(ent)
     if finite(duck) and duck > 0.6 then
         return "Crouch"
     end
-    if speed2d(ent) > 6 then
-        return "Moving"
+    local speed = speed2d(ent)
+    if speed > 6 then
+        -- Yavas yurume (silahin en yuksek hizinin %52'si, yurume hizi alti) ayri durum: desync orada tam,
+        -- kosarken azaliyor; resolver hatalari farkli oldugu icin ayri ogrenilir.
+        local top = prop(ent, "m_flMaxspeed")
+        local walk = (finite(top) and top > 100 and top <= 320) and top * 0.52 or 120
+        return speed < walk and "Slow walk" or "Moving"
     end
     return "Standing"
 end
@@ -2469,10 +2529,14 @@ local function window_misses(list)
     return misses
 end
 
+-- Force (seviye 2) icin bu oturumda (bu haritada) o durumda en az bir resolver iskasi gerekir: hafizadan
+-- gelen eski iskalar en fazla Prefer'e cikarir (dusman AA'sini degistirmis olabilir; ilk peek'te Force
+-- safe point atisi geciktirmesin).
 local function entry_level(entry, state)
     local list = entry.states[state]
     if list ~= nil and #list > 0 then
-        return min(window_misses(list), 2)
+        local cap = (entry.fresh ~= nil and entry.fresh[state]) and 2 or 1
+        return min(window_misses(list), cap)
     end
     return min(window_misses(entry.results), 1)
 end
@@ -2497,7 +2561,7 @@ resolver.distance = function(target)
 end
 
 -- Seviye, anahtar, durum, kayit, jitter on bilgisi mi ve o durumdaki resolver iskasi sayisi. Dusmanin o
--- durumda hic sonucu yoksa ve AA'si jitter'liyse (ortalama yaw degisimi 35+) ilk atistan "Prefer".
+-- durumda hic sonucu yoksa ve AA deseni jitter'se (bkz. enemy_watch) ilk atistan "Prefer".
 local function resolver_level(target)
     if target == nil then
         return 0
@@ -2516,7 +2580,7 @@ local function resolver_level(target)
     local prior = false
     local profile = enemy_watch.profile(target)
     local now = realtime()
-    if key ~= nil and profile ~= nil and profile.jitter ~= nil and profile.jitter >= enemy_watch.jitter_prior then
+    if key ~= nil and profile ~= nil and profile.pattern == "jitter" then
         resolver.jittery[key] = now
     end
     local seen = key ~= nil and resolver.jittery[key] or nil
@@ -2727,6 +2791,10 @@ hypothesis.advance = function(h, why, name, state)
 end
 
 -- Bu dusmana su an uygulanacak hipotez yaw'i (yoksa nil). raw: takilma korumasindan onceki seviye.
+-- Jitter'li dusmana hipotez yok: Force body yaw sabit bir aci yazar, her pakette taraf degistiren jitter'a
+-- karsi ancak yarisini tutar; orada Force safe point (her iki taraftaki ortak noktalar) daha iyi. Dusmanin
+-- deseni degisince (statik -> jitter gibi) o dusmanin o durumdaki hipotez sonuclari silinir (NYKLE
+-- Resolver 2.5: "oruntu degisince sifirla").
 hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     if not on(menu.resolver) or not on(menu.hypotheses) or not plist_available(PL.FORCE) then
         return nil
@@ -2739,8 +2807,22 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     if h.candidate > 0 and now - h.feedback > hypothesis.memory then
         h.candidate, h.visited, h.attempts = 0, {}, 0
     end
-    -- Baslama: Force'ta da 3+ resolver iskasi ya da Force ates engelliyor.
-    if h.candidate == 0 and raw >= 2 and (misses >= 3 or stalled) and now >= h.cooldown then
+    local profile = enemy_watch.profile(enemy)
+    local pattern = profile ~= nil and profile.pattern or nil
+    if pattern ~= nil then
+        if h.pattern ~= nil and pattern ~= h.pattern and (h.candidate > 0 or next(h.outcomes) ~= nil) then
+            if on(menu.resolver_log) then
+                print(("[%s] resolver: %s %s AA deseni degisti (%s -> %s): hipotezler sifirlandi"):format(SCRIPT,
+                    entry ~= nil and entry.name or player_name(enemy), state, h.pattern, pattern))
+            end
+            h.candidate, h.visited, h.outcomes, h.attempts = 0, {}, {}, 0
+        elseif pattern == "jitter" and h.candidate > 0 then
+            h.candidate, h.visited, h.attempts = 0, {}, 0
+        end
+        h.pattern = pattern
+    end
+    -- Baslama: Force'ta da 3+ resolver iskasi ya da Force ates engelliyor (jitter'li dusmanda degil).
+    if h.candidate == 0 and raw >= 2 and (misses >= 3 or stalled) and now >= h.cooldown and pattern ~= "jitter" then
         hypothesis.advance(h, stalled and "Force ates engelliyor" or ("%d resolver iskasi"):format(misses),
             entry ~= nil and entry.name or player_name(enemy), state)
     end
@@ -2751,7 +2833,8 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
 end
 
 -- Atis sonucunu hipoteze yazar (sadece uygun atislar: kafaya nisan, backtrack yok, teleport /
--- extrapolation yok, isabet sansi yeterli; ates aninda ayni aday uygulaniyordu).
+-- extrapolation / interpolation / oncelikli (ates eden) kayit yok, isabet sansi yeterli; ates aninda ayni
+-- aday oyuncu listesinde gercekten uygulaniyordu, bkz. aim_fire).
 hypothesis.result = function(shot, target, hit_head, miss)
     if shot == nil or shot.hyp_key == nil or shot.hyp_candidate == nil or shot.hyp_candidate == 0 then
         return
@@ -2761,6 +2844,7 @@ hypothesis.result = function(shot, target, hit_head, miss)
         return
     end
     local eligible = shot.hitgroup == 1 and (shot.backtrack or 0) == 0 and not shot.teleported and not shot.extrapolated
+        and not shot.interpolated and not shot.high_priority
         and (shot.hitchance or 0) >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70)
     if not eligible then
         return
@@ -4763,13 +4847,15 @@ local function event_number(e, name)
     return nil
 end
 
--- Dusmanin ates anindaki AA'si: "AA jit 62", "AA statik" ya da "AA ?"; defensive ve LC kirma varsa eklenir.
+-- Dusmanin ates anindaki AA deseni: "AA jitter 80", "AA spin", "AA statik" ya da "AA ?"; defensive ve LC
+-- kirma varsa eklenir.
 local function profile_text(profile)
     if profile == nil then
         return "AA ?"
     end
-    local parts = { profile.jitter == nil and "AA ?"
-        or (profile.jitter >= 15 and ("AA jit %d"):format(round(profile.jitter)) or "AA statik") }
+    local pattern = profile.pattern
+    local parts = { (pattern == "jitter" and ("AA jitter %d"):format(round(profile.jitter or 0)))
+        or (pattern == "spin" and "AA spin") or (pattern == "static" and "AA statik") or "AA ?" }
     if profile.defensive_now then
         parts[#parts + 1] = "def (sahte kayit)"
     elseif profile.defensive then
@@ -4859,6 +4945,12 @@ listen("aim_fire", protect("aim_fire", function(e)
     if e.id ~= nil then
         local key = player_id(target)
         local h = hypothesis.get(key, state, false)
+        -- Aday ancak ates aninda oyuncu listesinde gercekten yaziliysa o atis adaya sayilir (Correction
+        -- kapali ya da senin Force body yaw'in varken aday uygulanmaz; NYKLE Resolver 2.5'teki kontrol).
+        local hyp_yaw = h ~= nil and h.candidate > 0 and hypothesis.yaw(h.candidate) or nil
+        if hyp_yaw ~= nil and not (plist_get(target, PL.FORCE) == true and plist_get(target, PL.VALUE) == hyp_yaw) then
+            hyp_yaw = nil
+        end
         local lp = local_player()
         resolver.shots[e.id] = { state = state, time = now, safe = safe_label(target), body = body_label(target),
             md = active_min_damage(), health = prop(target, "m_iHealth"),
@@ -4866,10 +4958,10 @@ listen("aim_fire", protect("aim_fire", function(e)
             profile = enemy_watch.profile(target), hitgroup = event_number(e, "hitgroup"),
             damage = event_number(e, "damage"), hitchance = event_number(e, "hit_chance"),
             backtrack = event_number(e, "backtrack"), teleported = e.teleported == true,
-            extrapolated = e.extrapolated == true,
+            extrapolated = e.extrapolated == true, interpolated = e.interpolated == true,
+            high_priority = e.high_priority == true,
             total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil,
-            hyp_key = key, hyp_candidate = h ~= nil and h.candidate or 0,
-            hyp_yaw = h ~= nil and h.candidate > 0 and hypothesis.yaw(h.candidate) or nil }
+            hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw }
     end
     local stall = resolver.stalls[target]
     if stall ~= nil then
@@ -4900,7 +4992,7 @@ local function aim_result(e, reason)
         end
     end
     local target = finite(e.target) and e.target or nil
-    local result
+    local result, excluded
     aim_stats.shots = aim_stats.shots + 1
     if reason == nil then
         aim_stats.hits = aim_stats.hits + 1
@@ -4913,10 +5005,14 @@ local function aim_result(e, reason)
             result = "h"
         end
     elseif reason == "correction" then
-        -- Ates aninda dusman LC kiriyorduysa ya da ates edilen kayit defensive kaydiysa (sahte) bu iska
-        -- resolver'in hatasi degil: ogrenilmez.
+        -- Bu iska resolver'in hatasi degil, ogrenilmez: ates aninda dusman LC kiriyordu ya da kayit defensive
+        -- (sahte) kaydiydi (bizim takibimiz), ya da GameSense kaydin yerini tahmin etmisti (aim_fire'daki
+        -- teleport / extrapolation bayraklari; NYKLE Resolver 2.5 de bunlari saymaz).
         local profile = shot ~= nil and shot.profile or nil
-        if profile ~= nil and (profile.lc or profile.defensive_now) then
+        excluded = (profile ~= nil and profile.lc and "LC") or (profile ~= nil and profile.defensive_now and "sahte kayit")
+            or (shot ~= nil and shot.teleported and "teleport") or (shot ~= nil and shot.extrapolated and "extrapolation")
+            or nil
+        if excluded ~= nil then
             aim_stats.other = aim_stats.other + 1
         else
             aim_stats.correction = aim_stats.correction + 1
@@ -4928,7 +5024,7 @@ local function aim_result(e, reason)
         aim_stats.other = aim_stats.other + 1
     end
     if on(menu.shot_log) then
-        print(shot_line(e, shot, target, reason))
+        print(shot_line(e, shot, target, reason) .. (excluded ~= nil and (" | resolver'a sayilmadi: " .. excluded) or ""))
     end
     ai_peek.result(e.id, reason, event_number(e, "hitgroup"), event_number(e, "damage"),
         target ~= nil and player_name(target) or nil)
@@ -5012,6 +5108,11 @@ local function aim_result(e, reason)
     window_push(entry.results, result)
     entry.states[enemy] = entry.states[enemy] or {}
     window_push(entry.states[enemy], result)
+    -- Bu oturumdaki iska: o durumda Force'a (seviye 2) izin verir (bkz. entry_level).
+    if result == "c" then
+        entry.fresh = entry.fresh or {}
+        entry.fresh[enemy] = true
+    end
     persist.dirty = true
     local level = entry_level(entry, enemy)
     local stall = resolver.stalls[target]
@@ -5168,7 +5269,7 @@ persist.load = function()
                     end
                 end
                 if type(e.states) == "table" then
-                    for _, state in ipairs({ "Standing", "Moving", "Crouch", "Air", "Fakeduck" }) do
+                    for _, state in ipairs({ "Standing", "Moving", "Slow walk", "Crouch", "Air", "Fakeduck" }) do
                         local list = stored_window(e.states[state])
                         if #list > 0 then
                             entry.states[state] = list
@@ -5216,6 +5317,10 @@ end))
 listen("level_init", protect("level_init", function()
     reset_brute()
     pending_misses = {}
+    -- Yeni harita yeni oturum: Force icin yine bu haritada bir resolver iskasi gerekir.
+    for _, entry in pairs(resolver.players) do
+        entry.fresh = nil
+    end
     resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
     resolver.stalls, resolver.body_stalls, resolver.open_cache = {}, {}, {}
     exposure.shot, exposure.duel = nil, nil
