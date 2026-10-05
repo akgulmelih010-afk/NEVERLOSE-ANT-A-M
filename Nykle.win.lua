@@ -20,6 +20,8 @@
       - AA ogrenmesi: denenmemis anti-brute fazi 0.3 sayilir (0.5 idi); peek'te yarisi kafadan vurulan
         faz hic birakilmiyordu (16/33).
       - Anti-brute fazi AA'nin baktigi dusmandan; ogrenilen faz AA'nin gosterdigi fazdan hesaplanir.
+      - Sniper'da sahte kayit kurali sadece govde olduruyorsa (tam canli dusmana atis kesilmiyor); temiz
+        atis ve AI peek kafanin kenarlarini da sayar.
       - AI peek govde noktasini sadece olduruyorsa sayar; noktada sahte kayitta 0.2 sn fazla bekler.
       - Stats panelinde durum basina KD, konsolda round sonu atis ozeti.
       - Fake duck her yerde senin: "Fake duck only when standing still" varsayilan kapali (bunny hop +
@@ -589,11 +591,11 @@ menu.smart_baim     = style.tip(grp.resolver:switch(style.title("person-rays", "
 -- ates eder. Tam canli dusmanda bu kafa demek; govde ancak olduruyorsa vurulur.
 menu.head_only      = style.tip(grp.resolver:switch(style.title("skull", "Head unless body kills (snipers)"), true),
     "Biri seni gorebiliyorken scout / AWP / R8 sadece oldurecek atisa ates eder (Min. Damage can + 1).")
--- Scout / AWP / R8: hedefin kaydi defensive'de (sahte) iken kafa atisi yok, sadece govde (olduruyorsa);
--- kafa gercek kayda gider (bkz. resolver.fake).
-menu.fake_body      = style.tip(grp.resolver:switch(style.title("user-secret", "Snipers: no head on fake records"), true),
-    "Hedefin kaydi defensive'de (sahte) iken scout / AWP / R8 sadece oldurecek govdeye ates eder; kafa " ..
-    "atisi gercek kayda gider (en fazla 12 tick bekler).")
+-- Scout / AWP / R8: hedefin kaydi defensive'de (sahte) iken govde olduruyorsa kafa yerine govde (bkz.
+-- resolver.fake). V1.0: govde oldurmuyorsa kafaya ates edilir (eskiden hic atis gelmiyordu).
+menu.fake_body      = style.tip(grp.resolver:switch(style.title("user-secret", "Snipers: lethal body on fake records"), true),
+    "Hedefin kaydi defensive'de (sahte) iken govde olduruyorsa scout / AWP / R8 kafa yerine govdeye ates " ..
+    "eder (en fazla 12 tick). Govde oldurmuyorsa kafaya ates edilir.")
 menu.resolver_info  = grp.resolver:label("Raises safe points per enemy after resolver misses.")
 
 menu.state = grp.angles_raw:combo(style.title("list", "State"), STATES)
@@ -956,6 +958,19 @@ local function head_visible_to(threat, eye, head, dx, dy, dz)
     end
     local ex, ey = -sy / length * exposure.edge, sx / length * exposure.edge
     return hits(x + ex, y + ey) or hits(x - ex, y - ey)
+end
+
+-- Bir noktanin iki yani: from'dan bakis cizgisine dik, yatayda edge birim (kafanin kenarlari). V1.0:
+-- dusmanin kafasina da (temiz atis, AI peek) sadece ortasi degil kenarlari da sayilir; aimbot kafanin
+-- gorunen her yerine (multipoint) ates edebilir. Bakis cizgisi cok kisaysa bos.
+local function side_points(point, from, edge)
+    local sx, sy = point.x - from.x, point.y - from.y
+    local length = sqrt(sx * sx + sy * sy)
+    if length < 1 then
+        return {}
+    end
+    local ex, ey = -sy / length * edge, sx / length * edge
+    return { vector(point.x + ex, point.y + ey, point.z), vector(point.x - ex, point.y - ey, point.z) }
 end
 
 -- EXPOSE_LOOKAHEAD sonra kafa ne kadar yukari / asagi gidecek. Yerdeyken 0; ziplama
@@ -2518,7 +2533,10 @@ do
             f.index, f.ticks = index, 0
         end
         local cooling = now >= f.free_until - f.cooldown and now < f.free_until
-        local body_only = sniper and fake and menu.fake_body:get() and not cooling
+        -- V1.0: sadece govde olduruyorsa (lethal). Tam canli dusmanda govde oldurmez ve Min. Damage can + 1
+        -- oldugu icin govde listesi hic atis getirmiyordu: dusman sahte kayittayken 12 tick, sonra yine ve
+        -- yine ("onume egiliyor, kafasini net goruyorum, sikmiyor"). Govde oldurmuyorsa kafaya ates edilir.
+        local body_only = sniper and fake and lethal and menu.fake_body:get() and not cooling
         if body_only then
             f.ticks = f.ticks + 1
             if f.ticks > f.max then
@@ -2532,7 +2550,7 @@ do
         override("hitboxes", body_only and f.body or nil)
         if body_only and menu.resolver_log:get() and (now < f.logged or now - f.logged > 5) then
             f.logged = now
-            print(("[%s] resolver: %s sahte kayitta (defensive): sniper sadece govdeye, kafa gercek kayda"):format(
+            print(("[%s] resolver: %s sahte kayitta (defensive): sniper oldurecek govdeye, kafa gercek kayda"):format(
                 SCRIPT, player_name(target)))
         end
     end
@@ -2696,16 +2714,21 @@ clean_shot.shootable = function(lp, target)
     end
     local need = clean_shot.need(target)
     for _, hitbox in ipairs(clean_shot.boxes) do
-        -- Sahte kayit kuralinda (current.fake_body) aimbot'un hitbox'lari sadece govde: kafaya acik aci
-        -- atis getirmez. Eskiden kafa sayiliyordu ve atis gelmeyecekken lag ~0.3 sn bosuna kapaniyordu.
-        local ok_box, point = false, nil
-        if hitbox ~= 0 or not current.fake_body then
-            ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
-        end
+        local ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
         if ok_box and point ~= nil then
-            local ok, damage = pcall(trace_bullet, lp, eye, point)
-            if ok and type(damage) == "number" and damage >= need then
-                return true
+            -- Kafada ortasi kapaliysa iki kenari da (V1.0): egilen / siperden kafasinin bir kismini gosteren
+            -- dusman; aimbot kafanin gorunen kismina da ates eder.
+            local points = { point }
+            if hitbox == 0 then
+                for _, side in ipairs(side_points(point, eye, exposure.edge)) do
+                    points[#points + 1] = side
+                end
+            end
+            for _, p in ipairs(points) do
+                local ok, damage = pcall(trace_bullet, lp, eye, p)
+                if ok and type(damage) == "number" and damage >= need then
+                    return true
+                end
             end
         end
     end
@@ -3323,7 +3346,9 @@ do
 
     -- Dusmanin kafasi, gogsu ve midesi (hitbox okunamazsa goz, govde ortasi ve bel). points.health:
     -- dusmanin cani (okunamazsa 100), govde noktalarinin oldurup oldurmedigi icin.
-    local function aim_points(enemy)
+    -- V1.0: kafanin iki kenari da (from'a, yani bizim konumumuza gore): kafasinin sadece bir kismi
+    -- gorunen dusman ("onume egiliyor, kafasini goruyorum, sikmiyor"). Kenarlar en sonda denenir.
+    local function aim_points(enemy, from)
         local health = prop(enemy, "m_iHealth")
         local points = { health = type(health) == "number" and health > 0 and health or 100 }
         local ok_head, head = pcall(function() return enemy:get_hitbox_position(0) end)
@@ -3333,6 +3358,7 @@ do
         if ok_head and head ~= nil then
             points[#points + 1] = { pos = head, head = true }
         end
+        local edges = ok_head and head ~= nil and from ~= nil and side_points(head, from, exposure.edge) or {}
         for _, body in ipairs({ { 5, 50 }, { 3, 40 } }) do
             local ok_body, point = pcall(function() return enemy:get_hitbox_position(body[1]) end)
             if not ok_body or point == nil then
@@ -3343,13 +3369,17 @@ do
                 points[#points + 1] = { pos = point, head = false }
             end
         end
+        for _, edge in ipairs(edges) do
+            points[#points + 1] = { pos = edge, head = true }
+        end
         return points
     end
 
     -- Bu goz noktasindan sayilan en iyi hasar. Govde noktasi sadece olduruyorsa sayilir (DT'li silahta
     -- iki mermiyle): V1.0, "ai peek body atabiliyor": auto / deagle'da Min. Damage dusukken script
     -- oldurmeyen bir govde acisina yuruyordu. Kafa her zaman sayilir; scout'ta gereken zaten can + 1.
-    local function best_damage(lp, eye, points)
+    -- need verilirse ona ulasinca durur (kafanin kenarlari gereksiz yere taranmasin).
+    local function best_damage(lp, eye, points, need)
         local shots = (effective("doubletap") and not SNIPERS[current.weapon]) and 2 or 1
         local best = 0
         for _, point in ipairs(points) do
@@ -3360,6 +3390,9 @@ do
                 end
                 if damage > best then
                     best = damage
+                    if need ~= nil and best >= need then
+                        return best
+                    end
                 end
             end
         end
@@ -3432,11 +3465,11 @@ do
             return nil
         end
         dx, dy = dx / length, dy / length
-        local height, need, points = eye_height(lp, mine), required_damage(enemy), aim_points(enemy)
+        local height, need, points = eye_height(lp, mine), required_damage(enemy), aim_points(enemy, mine)
         if #points == 0 then
             return nil
         end
-        if best_damage(lp, vector(mine.x, mine.y, mine.z + height), points) >= need then
+        if best_damage(lp, vector(mine.x, mine.y, mine.z + height), points, need) >= need then
             return "here"
         end
         local found, watcher
@@ -3458,7 +3491,7 @@ do
                 if not walkable(lp, mine, spot) then
                     break
                 end
-                local damage = best_damage(lp, vector(spot.x, spot.y, spot.z + height), points)
+                local damage = best_damage(lp, vector(spot.x, spot.y, spot.z + height), points, need)
                 if damage >= need then
                     local other = seen_by_other(spot, height, enemy)
                     if other == nil then
@@ -3477,11 +3510,11 @@ do
 
     -- Bu noktadan (goz yuksekliginde) dusmana en iyi hasar ve gereken hasar.
     local function spot_damage(lp, mine, spot, enemy)
-        local points, need = aim_points(enemy), required_damage(enemy)
+        local points, need = aim_points(enemy, spot), required_damage(enemy)
         if #points == 0 then
             return 0, need
         end
-        return best_damage(lp, vector(spot.x, spot.y, spot.z + eye_height(lp, mine)), points), need
+        return best_damage(lp, vector(spot.x, spot.y, spot.z + eye_height(lp, mine)), points, need), need
     end
 
     -- Hedefe dogru tam hizla (son 12 birimde yavaslayarak) yurur; uzakligi dondurur.
