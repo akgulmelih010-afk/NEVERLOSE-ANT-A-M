@@ -778,6 +778,69 @@ do
     step({}, 8)
 end
 
+-- 9e) V1.0.11 (oyun logundan): fake duck'ta sniper mermisi yiyince fake duck birakilir (tufekte degil), o
+-- gormeyince geri; nisan alinan yerine arkadaki oyuncuya giden mermi resolver'a sayilmaz; dormant'ta gecen
+-- sure defensive sayilmaz; ates / el bombasi hasari detay satiri yazmaz; round sonunda "sen ozeti".
+do
+    local function new_line(from, pattern)
+        for i = from + 1, #M.logs do
+            if M.logs[i]:find(pattern, 1, true) then
+                return M.logs[i]
+            end
+        end
+        return nil
+    end
+    local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
+    me.alive, me.weapon = true, 102
+    e1.alive, e1.dormant = true, false
+    M.visible[2] = true
+    M.items[fd_id].value.held = true
+    step({}, 3)
+    check(ui.get(fd_id), "fake duck basili degil (test kurulumu)")
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ak47", dmg_health = 20, hitgroup = 2, health = 80 })
+    step({}, 4)
+    check(ui.get(fd_id), "tufekle vurulunca da fake duck birakildi (sadece sniper'da birakilmali)")
+    local before = #M.logs
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ssg08", dmg_health = 50, hitgroup = 3, health = 30 })
+    step({}, 4)
+    check(not ui.get(fd_id) and new_line(before, "sniper ile vurdu") ~= nil, "sniper ile vurulunca fake duck birakilmadi")
+    step({}, 64)
+    check(not ui.get(fd_id), "sniper seni gorurken fake duck erken geri geldi")
+    M.visible[2] = false
+    step({}, 80)
+    check(ui.get(fd_id), "sniper seni gormeyince fake duck geri verilmedi")
+    M.items[fd_id].value.held = false
+    step({}, 4)
+
+    before = #M.logs
+    M.fire("aim_fire", { id = 960, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+    M.fire("aim_hit", { id = 960, target = 3, hitgroup = 1, damage = 100 })
+    check(new_line(before, "mermi baska oyuncuya gitti (nisan: enemy one)") ~= nil, "baska oyuncuya giden isabet ayrilmadi")
+    check(new_line(before, "resolver: enemy two") == nil, "baska oyuncuya giden isabet resolver'a yazildi")
+
+    before = #M.logs
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "inferno", dmg_health = 4, hitgroup = 0, health = 26 })
+    check(new_line(before, "dbg vurulma-detay") == nil, "ates hasari detay satiri yazdi")
+
+    M.fire("round_start", {})
+    step({}, 4)
+    e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+    step({}, 2)
+    e1.dormant = true
+    step({}, 100)
+    e1.dormant = false
+    step({}, 4)
+    before = #M.logs
+    M.fire("round_start", {})
+    local def_line = new_line(before, "dbg def ozeti: enemy one")
+    local longest = def_line ~= nil and tonumber(def_line:match("en uzun (%d+)t")) or nil
+    check(longest ~= nil and longest <= 12, "dormant'ta gecen sure defensive sayildi: " .. tostring(def_line))
+    local mine = new_line(before, "dbg sen ozeti:")
+    check(mine ~= nil and mine:find("defensive zorlanan", 1, true) ~= nil and mine:find("run_command", 1, true) ~= nil,
+        "sen ozeti yok: " .. tostring(mine))
+    me.weapon = 101
+end
+
 -- 10) Kapat / ac ve kapanis: hepsi geri.
 local enable = M.find_lua("Enable Nykle.win")
 ui.set(enable.id, false)

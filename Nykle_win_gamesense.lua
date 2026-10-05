@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.10"
+local VERSION = "1.0.11"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1212,6 +1212,10 @@ menu.safe_high      = grp.protect:switch("  » Safe head: high ground", false, f
 menu.anti_brute     = grp.protect:switch("Anti-bruteforce", true)
 menu.brute_reset    = grp.protect:slider("  » Anti-brute reset after", 1, 15, 6, "s", function() return on(menu.anti_brute) end)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
+-- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
+-- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
+-- fake duck birakilir: hiz, DT ve defensive geri gelir; sniper'in ikinci mermisi en erken 1.25 sn sonra.
+menu.fd_hit         = grp.protect:switch("Release fake duck when hit by sniper", true)
 -- V1.0'da varsayilan kapali: fake duck'i bilerek bunny hop + ani peek icin kullaniyorsun.
 menu.fd_still       = grp.protect:switch("Fake duck only when standing still", false)
 
@@ -3510,8 +3514,12 @@ resolver.held_death = function(attacker)
     held.enemies[key] = (held.enemies[key] or 0) + 1
     held.total = held.total + 1
     if on(menu.resolver_log) then
-        print(("[%s] ogrenildi: %s seni sen kafa beklerken (sniper, ates etmeden) oldurdu -> bu haritada %s govde de atilacak"):format(
-            SCRIPT, player_name(attacker), held.total >= 2 and "herkese karsi" or "ona karsi"))
+        -- Senin Min. damage'in zaten 100+ ise gevseme bir sey degistirmez (aimbot yine sadece oldurecek yere).
+        local user_md = user_value("min_damage")
+        local note = (finite(user_md) and user_md >= 100)
+            and (" (ama senin Min. damage'in %d: govde yine atilmaz)"):format(user_md) or ""
+        print(("[%s] ogrenildi: %s seni sen kafa beklerken (sniper, ates etmeden) oldurdu -> bu haritada %s govde de atilacak%s"):format(
+            SCRIPT, player_name(attacker), held.total >= 2 and "herkese karsi" or "ona karsi", note))
     end
 end
 
@@ -4212,7 +4220,31 @@ do
     -- birakildi, hemen zeus'landin).
     local ZEUS_NEAR, ZEUS_FAR = 420, 520
     local FD_MOVE, FD_STOP, FD_GRACE = 40, 10, 10
+    -- Sniper mermisinden sonra: en az FD_HIT_MIN sn, saldiran seni gordukce en fazla FD_HIT_MAX sn.
+    local FD_HIT_MIN, FD_HIT_MAX, FD_HIT_SIGHT = 1.25, 3, 32
     local fd = { why = nil, logged = -1000, moving = 0 }
+
+    -- own.fd_hit (player_hurt'te yazilir) hala gecerli mi.
+    local function hit_release()
+        local h = own.fd_hit
+        if h == nil or not on(menu.fd_hit) then
+            return false
+        end
+        local now = realtime()
+        if now < h.time or now - h.time > FD_HIT_MAX then
+            own.fd_hit = nil
+            return false
+        end
+        if now - h.time < FD_HIT_MIN then
+            return true
+        end
+        local s, tick = exposure.sight[h.attacker], tickcount()
+        if alive(h.attacker) and s ~= nil and tick >= s.last and tick - s.last <= FD_HIT_SIGHT then
+            return true
+        end
+        own.fd_hit = nil
+        return false
+    end
 
     local function fd_pointless(lp)
         if not on(menu.fd_still) then
@@ -4260,6 +4292,11 @@ do
                     override("fakeduck", nil)
                     fd.why = nil
                 end
+            elseif fd.why == "hit" then
+                if not hit_release() then
+                    override("fakeduck", nil)
+                    fd.why = nil
+                end
             elseif not on(menu.fd_guard) or knife_enemy(lp, KNIFE_FAR) == nil then
                 override("fakeduck", nil)
                 fd.why = nil
@@ -4279,6 +4316,17 @@ do
                     fd.logged = now
                     print(("[%s] fake duck birakildi: %s (fake duck DT/HS'yi kapatir; yerinde dururken calisir)"):format(
                         SCRIPT, on_ground(lp) and "hareket ediyorsun" or "havadasin"))
+                end
+            end
+            return
+        end
+        if hit_release() then
+            override("fakeduck", NEVER)
+            if is_overridden("fakeduck") then
+                fd.why = "hit"
+                if on(menu.hit_log) then
+                    print(("[%s] fake duck birakildi: %s sniper ile vurdu (fake duck'ta DT / defensive yok; o seni gordukce en fazla %d sn)"):format(
+                        SCRIPT, own.fd_hit.name or "?", FD_HIT_MAX))
                 end
             end
             return
@@ -5444,6 +5492,10 @@ listen("player_hurt", protect("player_hurt", function(e)
 
     local now = realtime()
     brute.hurt[e.attacker] = now
+    -- Fake duck'tayken sniper mermisi: fake duck korumasi bir sure birakir (bkz. update_fd_guard).
+    if fd_on() and (e.weapon == "ssg08" or e.weapon == "awp") then
+        own.fd_hit = { attacker = attacker, time = now, name = player_name(attacker) }
+    end
     ai_peek.hurt(e.hitgroup, e.dmg_health, player_name(attacker))
     for i = #pending_misses, 1, -1 do
         if pending_misses[i].userid == e.attacker then
@@ -5610,7 +5662,7 @@ listen("aim_fire", protect("aim_fire", function(e)
             hyp_yaw = nil
         end
         local lp = local_player()
-        resolver.shots[e.id] = { state = state, time = now, safe = safe_label(target), body = body_label(target),
+        resolver.shots[e.id] = { target = target, state = state, time = now, safe = safe_label(target), body = body_label(target),
             md = active_min_damage(), health = prop(target, "m_iHealth"),
             weapon = weapon_label() .. (lag ~= nil and " " .. lag or (current.clean and " temiz" or "")), lag = lag,
             profile = enemy_watch.profile(target), hitgroup = event_number(e, "hitgroup"),
@@ -5663,12 +5715,17 @@ local function aim_result(e, reason)
     end
     local result, excluded
     aim_stats.shots = aim_stats.shots + 1
+    -- V1.0.10 logu: nisan alinan oyuncu iskalandi, mermi arkadaki baska bir dusmana isabet etti (GameSense
+    -- aim_hit'te vurulan oyuncuyu verir). Kimsenin resolver'ina / hipotezine sayilmaz.
+    local stray = reason == nil and shot ~= nil and shot.target ~= nil and target ~= nil and shot.target ~= target
     if reason == nil then
         aim_stats.hits = aim_stats.hits + 1
         -- Kafaya nisan alinip baska yere isabet: resolver'a isabet sayilmaz, seviyeyi dusurmez.
         local wanted = shot ~= nil and shot.hitgroup or nil
         local hit = event_number(e, "hitgroup")
-        if (wanted == 1 or wanted == 8) and hit ~= nil and hit ~= 1 and hit ~= 8 then
+        if stray then
+            result, excluded = nil, ("mermi baska oyuncuya gitti (nisan: %s)"):format(player_name(shot.target))
+        elseif (wanted == 1 or wanted == 8) and hit ~= nil and hit ~= 1 and hit ~= 8 then
             result = nil
         else
             result = "h"
@@ -5703,7 +5760,9 @@ local function aim_result(e, reason)
     ai_peek.result(e.id, reason, event_number(e, "hitgroup"), event_number(e, "damage"),
         target ~= nil and player_name(target) or nil)
     -- Hipotez: kafa isabeti adayi tutar, resolver iskasi sonrakine gecirir.
-    hypothesis.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
+    if not stray then
+        hypothesis.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
+    end
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
     local lag = shot ~= nil and shot.lag or nil
     -- Lag yokken exploit'li (HS / DT) atis reddedildiyse exploit'e yazilir (bkz. sniper.reject).
@@ -6387,10 +6446,14 @@ end))
 --  dbg duello:        bir dusmanla karsilasma bitince: kim once gordu, defensive suresi, hiz, atislar.
 --  dbg vurulma-detay / olum-detay / kill-detay: konumlar, mesafe, duvardan mi, son iki atisi arasi (DT).
 --  dbg def ozeti:     round sonunda dusman basina defensive sayisi ve suresi.
+--  dbg sen ozeti:     round sonunda senin tarafin: zorlanan defensive tick'i ve onu goren uc ayri olcum
+--                     (setup_command / run_command / net_update tickbase), teleportlar ve sonrasi vurulma.
 --  dbg round / harita / ayarlar: baslik satirlari.
 do
+-- min_damage: bundan az hasar (cok duvar arkasi, 1-4 hasar) "vurulabilir" sayilmaz.
 local D = { vis = {}, duel = {}, def = {}, round_def = {}, last_def = {}, shots = {}, scan_tick = -1000,
-    every = 4, see_after = 0.4, vis_gap = 16, duel_gap = 48, sight_hold = 12, refs = {} }
+    every = 4, see_after = 0.4, vis_gap = 16, duel_gap = 48, sight_hold = 12, refs = {}, min_damage = 10,
+    my = nil, tb = { rc_max = 0, net_max = 0, rc = false, net = false } }
 
 D.on = function()
     return on(menu.enabled) and on(menu.debug_log)
@@ -6628,7 +6691,7 @@ D.no_shot = function(enemy, v, lp, now)
     if not on_ground(lp) then
         reasons[#reasons + 1] = "sen havadasin"
     elseif fd_on() then
-        reasons[#reasons + 1] = "fake duck (sadece asagida ates)"
+        reasons[#reasons + 1] = "fake duck (ates sadece kalkarken)"
     elseif speed2d(lp) > 100 then
         reasons[#reasons + 1] = ("sen hareketlisin v%d (isabet sansi)"):format(round(speed2d(lp)))
     end
@@ -6648,6 +6711,11 @@ D.scan = function(lp, now)
     if eye == nil or class == nil or MELEE[class] or class == "CC4" or is_grenade(class) then
         return
     end
+    -- Fake duck'ta aimbot ayakta goz yuksekliginden sikar (egik gozden iz atmak yanlis "vuramiyordun" verir).
+    local base = fd_on() and origin_of(lp) or nil
+    if base ~= nil and eye.z < base.z + 64 then
+        eye = vector(eye.x, eye.y, base.z + 64)
+    end
     for _, enemy in ipairs(enemy_list()) do
         local head = hitbox_of(enemy, 0)
         local dh = head ~= nil and bullet_damage(lp, eye, head, enemy) or nil
@@ -6663,7 +6731,7 @@ D.scan = function(lp, now)
             end
         end
         local v = D.vis[enemy]
-        if (dh or 0) > 0 or (db or 0) > 0 then
+        if (dh or 0) >= D.min_damage or (db or 0) >= D.min_damage then
             if v == nil or now < v.last or now - v.last > D.vis_gap then
                 v = { first = now, last = now, fired = 0, other = 0, logged = false }
                 D.vis[enemy] = v
@@ -6721,23 +6789,52 @@ D.close_all = function(result)
 end
 
 -- Her tick: dusmanlarin defensive bolumleri ve duellolar.
+-- Defensive bolumu biter: sure bolumun son goruldugu tick'e kadar (dormant'ta gecen sure sayilmaz).
+D.end_def = function(enemy, ep, now)
+    D.def[enemy], D.last_def[enemy] = nil, now
+    local r = D.round_def[ep.name] or { n = 0, ticks = 0, longest = 0, moving = 0 }
+    D.round_def[ep.name] = r
+    local length = max(1, ep.last - ep.start + 1)
+    r.n, r.ticks, r.longest = r.n + 1, r.ticks + length, max(r.longest, length)
+    if ep.speed >= 100 then
+        r.moving = r.moving + 1
+    end
+end
+
+-- Senin tarafin (round boyunca): zorlanan defensive ve uc ayri olcumle gorulen defensive tick'leri,
+-- teleportlar ve teleporttan sonraki 1.5 sn icinde vurulma.
+D.mine = function()
+    local m = D.my
+    if m == nil then
+        m = { ticks = 0, forced = 0, setup = 0, rc = 0, net = 0, dt = 0, tp = 0, tp_hit = 0, tp_last = teleport.last }
+        D.my = m
+    end
+    return m
+end
+
 D.track = function(lp, now)
+    local m = D.mine()
+    m.ticks = m.ticks + 1
+    m.forced = m.forced + (current.forced and 1 or 0)
+    m.setup = m.setup + (defensive_active() and 1 or 0)
+    m.rc = m.rc + (D.tb.rc and 1 or 0)
+    m.net = m.net + (D.tb.net and 1 or 0)
+    m.dt = m.dt + (dt_on() and 1 or 0)
+    if teleport.last ~= m.tp_last then
+        m.tp_last, m.tp = teleport.last, m.tp + 1
+    end
+    local present = {}
     for _, enemy in ipairs(enemy_list()) do
         local t = enemy_watch.list[enemy]
         local in_def = t ~= nil and t.sim < t.max_sim
+        present[enemy] = true
         local ep = D.def[enemy]
         if in_def and ep == nil then
-            D.def[enemy] = { start = now, speed = speed2d(enemy) }
-        elseif not in_def and ep ~= nil then
-            D.def[enemy], D.last_def[enemy] = nil, now
-            local name = player_name(enemy)
-            local r = D.round_def[name] or { n = 0, ticks = 0, longest = 0, moving = 0 }
-            D.round_def[name] = r
-            local length = max(1, now - ep.start)
-            r.n, r.ticks, r.longest = r.n + 1, r.ticks + length, max(r.longest, length)
-            if ep.speed >= 100 then
-                r.moving = r.moving + 1
-            end
+            D.def[enemy] = { start = now, last = now, speed = speed2d(enemy), name = player_name(enemy) }
+        elseif in_def then
+            ep.last = now
+        elseif ep ~= nil then
+            D.end_def(enemy, ep, now)
         end
         local s = exposure.sight[enemy]
         local sees = s ~= nil and now >= s.last and now - s.last <= D.sight_hold
@@ -6769,11 +6866,32 @@ D.track = function(lp, now)
             E.air = E.air or not on_ground(enemy)
         end
     end
+    for enemy, ep in pairs(D.def) do
+        if not present[enemy] then
+            D.end_def(enemy, ep, now)
+        end
+    end
     for enemy, E in pairs(D.duel) do
         if now < E.last or now - E.last > D.duel_gap then
             D.close(enemy, "ayrildi")
         end
     end
+end
+
+-- Tickbase en yuksek degerinin 2+ tick gerisinde mi (defensive). Iki ayri yerden olculur: hangisinin
+-- gercek oyunda defensive'i gordugu "dbg sen ozeti"nden anlasilacak.
+D.tb_check = function(field)
+    local lp = local_player()
+    local tb = lp ~= nil and prop(lp, "m_nTickBase") or nil
+    if not finite(tb) then
+        return
+    end
+    local key = field .. "_max"
+    if abs(tb - D.tb[key]) > 64 then
+        D.tb[key] = tb
+    end
+    D.tb[field] = D.tb[key] - tb >= 2
+    D.tb[key] = max(D.tb[key], tb)
 end
 
 D.header = function()
@@ -6798,7 +6916,7 @@ D.settings = function()
 end
 
 D.reset = function()
-    D.vis, D.duel, D.def, D.round_def, D.last_def, D.shots = {}, {}, {}, {}, {}, {}
+    D.vis, D.duel, D.def, D.round_def, D.last_def, D.shots, D.my = {}, {}, {}, {}, {}, {}, nil
 end
 
 listen("setup_command", protect("detailed log", function()
@@ -6815,6 +6933,18 @@ listen("setup_command", protect("detailed log", function()
         D.scan(lp, now)
     end
     D.track(lp, now)
+end))
+
+listen("run_command", protect("detailed log run_command", function()
+    if D.on() then
+        D.tb_check("rc")
+    end
+end))
+
+listen("net_update_end", protect("detailed log net_update_end", function()
+    if D.on() then
+        D.tb_check("net")
+    end
 end))
 
 listen("aim_fire", protect("detailed log aim_fire", function(e)
@@ -6876,10 +7006,15 @@ listen("player_hurt", protect("detailed log player_hurt", function(e)
         return
     end
     local attacker = userid_index(e.attacker)
-    if attacker == nil or attacker == lp or not is_enemy(attacker) then
+    if attacker == nil or attacker == lp or not is_enemy(attacker) or NON_BULLET_DAMAGE[tostring(e.weapon)] then
         return
     end
     local damage = tonumber(e.dmg_health) or 0
+    local m = D.mine()
+    local since_tp = realtime() - teleport.last
+    if since_tp >= 0 and since_tp <= 1.5 then
+        m.tp_hit = m.tp_hit + 1
+    end
     local E = D.duel[attacker]
     if E ~= nil then
         E.his_hits, E.his_dmg = E.his_hits + 1, E.his_dmg + damage
@@ -6960,9 +7095,17 @@ end))
 listen("round_start", protect("detailed log round_start", function()
     if D.on() then
         D.close_all("round bitti")
+        for enemy, ep in pairs(D.def) do
+            D.end_def(enemy, ep, tickcount())
+        end
         for name, r in pairs(D.round_def) do
             print(("[%s] dbg def ozeti: %s %d kez, toplam %dt, ort %.1ft, en uzun %dt, %d tanesi hareketliyken"):format(
                 SCRIPT, name, r.n, r.ticks, r.ticks / r.n, r.longest, r.moving))
+        end
+        local m = D.my
+        if m ~= nil and m.ticks > 0 then
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick, gorulen: setup %d / run_command %d / net_update %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d"):format(
+                SCRIPT, m.ticks, m.dt, m.forced, m.setup, m.rc, m.net, m.tp, m.tp_hit))
         end
         print(D.header())
     end
