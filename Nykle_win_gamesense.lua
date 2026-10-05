@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.6"
+local VERSION = "1.0.7"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3239,14 +3239,20 @@ end
 -- gerisine); sunucu o zamani dusmanin ESKI konumuyla eslestirir, o kayda giden mermi (DT'nin iki mermisi
 -- dahil) bosa gider. Kayit sahteyken o dusman oyuncu listesinde kisa sure "Add to whitelist" yapilir:
 -- aimbot gercek kayit gelene kadar ona ates etmez, DT sarji gercek kayda kalir. Bir pencerede en fazla
--- max tick (GameSense'in defensive kaymasi kadar), sonra cooldown tick beklenmez: surekli defensive acan
--- dusmana da ates edilir. Senin kendi whitelist'in hic degistirilmez.
-resolver.wait = { max = 14, cooldown = 16, enemies = {}, log_every = 5 }
+-- max tick (GameSense'in defensive kaymasi kadar). Senin kendi whitelist'in hic degistirilmez.
+-- V1.0.7 (oyun logu: surekli defensive acan dusmana neredeyse hic ates edilmedi, AI peek bos dondu):
+--  - Duelloda beklenmez: dusman kafani goruyorsa ya da sen peek atiyorsan (Peek durumu, Quick peek tusu)
+--    ates serbest, kayit secimi GameSense'in. Beklemek sadece aciyi sen tutarken (dusman seni gormezken)
+--    bedava.
+--  - Her beklemeden sonra (gercek kayit gelse de sinir dolsa da) cooldown tick ates serbest: surekli
+--    defensive acan dusmana da duzenli sikilir.
+resolver.wait = { max = 14, cooldown = 32, enemies = {}, log_every = 5 }
 
 resolver.wait_apply = function(class, present)
     local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
     local enabled = on(menu.resolver) and on(menu.wait_real) and gun and plist_available(PL.WHITELIST)
     local wait, now = resolver.wait, tickcount()
+    local duel = current.state == "Peek" or peek_key_held()
     current.waiting = nil
     for _, enemy in ipairs(enemy_list()) do
         present[enemy] = true
@@ -3257,17 +3263,20 @@ resolver.wait_apply = function(class, present)
         end
         local profile = enabled and enemy_watch.profile(enemy) or nil
         local cooling = now >= w.free_until - wait.cooldown and now < w.free_until
-        local hold = profile ~= nil and profile.defensive_now and not cooling
-            and plist_user(enemy, PL.WHITELIST) ~= true
+        local hold = profile ~= nil and profile.defensive_now and not cooling and not duel
+            and not sees_me(enemy) and plist_user(enemy, PL.WHITELIST) ~= true
         if hold then
             w.ticks = w.ticks + 1
             if w.ticks > wait.max then
-                w.free_until, hold = now + wait.cooldown, false
+                hold = false
             end
         end
         if hold and plist_override(enemy, PL.WHITELIST, true) then
             current.waiting = current.waiting or enemy
         else
+            if w.ticks > 0 then
+                w.free_until = now + wait.cooldown
+            end
             if w.ticks > 0 and on(menu.resolver_log) then
                 -- Iki tur ayri hiz sinirli (surekli defensive'de konsol dolmasin).
                 local capped, real = w.ticks > wait.max, realtime()
@@ -4073,16 +4082,6 @@ end
 local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
     local threat = current_threat()
     exposure.facing = threat
-    -- Sahte kayit beklemesi o dusmani oyuncu listesinde whitelist'e alir; GameSense'in "At targets"i onu
-    -- atlayabilir. Beklerken AA o dusmana (genelde peek atan) bizim acimizla doner.
-    local waiting = current.waiting
-    if waiting ~= nil and yaw_base == "At Target" and alive(waiting) then
-        local mine, theirs, view = origin_of(lp), origin_of(waiting), view_yaw(cmd)
-        if mine ~= nil and theirs ~= nil and view ~= nil then
-            exposure.facing = waiting
-            return "Local View", yaw_offset + yaw_to(mine, theirs) - view
-        end
-    end
     if yaw_base ~= "At Target" or freestand then
         return yaw_base, yaw_offset
     end
@@ -4900,9 +4899,7 @@ end
 
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     local manual_dir = manual.dir
-    -- Sahte kayit beklenirken (dusman whitelist'te) GameSense'in freestanding'i o dusmani atlayabilir: o
-    -- birkac tick freestanding yok, AA beklenen dusmana doner (bkz. face_target).
-    local freestand = freestanding_allowed(move_state) and current.waiting == nil
+    local freestand = freestanding_allowed(move_state)
     local state
     if manual_dir ~= "Off" then
         state = "Manual"

@@ -318,20 +318,27 @@ shoot(2, nil, 2)
 local function whitelisted(index)
     return M.plist[index] ~= nil and M.plist[index]["Add to whitelist"] == true
 end
-step({}, 4)
+-- Bekleme sadece dusman seni gormezken ve sen peek atmiyorken (dururken aciyi tutarken).
+local visible_before, velocity_before = M.visible[2], me.props.m_vecVelocity
+M.visible[2] = false
+me.props.m_vecVelocity = { 0, 0, 0 }
+step({}, 8)
 check(not whitelisted(2), "gercek kayitta whitelist yapildi")
+local fs_item = M.items[select(1, ui.reference("AA", "Anti-aimbot angles", "Freestanding"))]
+local fs_before = fs_item.value
 e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
 step({}, 2)
 check(whitelisted(2), "sahte kayitta (defensive) bekleme yok")
-check(M.items[select(1, ui.reference("AA", "Anti-aimbot angles", "Yaw base"))].value == "Local view",
-    "beklerken AA beklenen dusmana kendi acimizla donmedi")
+check(fs_item.value == fs_before, "beklerken freestanding degisti (AA'ya dokunulmamali)")
 step({}, 12)
 check(not whitelisted(2), "gercek kayit gelince whitelist birakilmadi")
 check(log_has("gercek kayit beklendi, gercek kayit geldi"), "bekleme logu yok")
 -- Surekli defensive: bir pencerede en fazla 14 tick beklenir, sonra 16 tick ates serbest.
 local runs, last = {}, nil
-for _ = 1, 44 do
-    e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 2 / 64
+-- Sim zamani bir kez geri, sonra sabit (her tick advance_sim'in ekledigi geri alinir): kayit hep sahte.
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+for _ = 1, 100 do
+    e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 1 / 64
     step({}, 1)
     local now = whitelisted(2)
     if now ~= last then
@@ -349,11 +356,26 @@ for _, r in ipairs(runs) do
     end
 end
 check(first_hold ~= nil and first_hold <= 14, "surekli defensive'de bekleme siniri yok: " .. tostring(first_hold))
-check(first_free ~= nil and first_free >= 15, "sinirdan sonra ates serbest kalmadi: " .. tostring(first_free))
+check(first_free ~= nil and first_free >= 31, "beklemeden sonra 32 tick ates serbest kalmadi: " .. tostring(first_free))
 check(log_has("sinir doldu, ates serbest"), "bekleme siniri logu yok")
 e1.props.m_flSimulationTime = e1.props.m_flSimulationTime + 2
 step({}, 20)
 check(not whitelisted(2), "defensive bitince whitelist kaldi")
+-- Duelloda beklenmez: dusman kafani goruyorsa ya da Quick peek tusu basiliyken ates serbest.
+M.visible[2] = true
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+step({}, 3)
+check(not whitelisted(2), "dusman kafani gorurken (duello) beklendi")
+step({}, 40)
+M.visible[2] = false
+local qp_cb, qp_key = ui.reference("RAGE", "Other", "Quick peek assist")
+M.items[qp_key].value.held = true
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+step({}, 3)
+check(not whitelisted(2), "Quick peek tusu basiliyken beklendi")
+M.items[qp_key].value.held = false
+step({}, 40)
+check(not whitelisted(2), "duello testlerinden sonra whitelist kaldi")
 -- Olunce bekleme whitelist'i geri verilir.
 e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
 step({}, 2)
@@ -369,6 +391,7 @@ e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
 step({}, 16)
 check(M.plist[2]["Add to whitelist"] == true, "kendi whitelist'in degistirildi")
 M.plist[2]["Add to whitelist"] = false
+M.visible[2], me.props.m_vecVelocity = visible_before, velocity_before
 step({}, 4)
 
 -- 4) Dusman mermisi kafanin yanindan (anti-brute) ve vurulma.
