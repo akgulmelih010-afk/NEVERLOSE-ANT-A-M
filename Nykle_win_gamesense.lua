@@ -33,7 +33,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.8"
+local VERSION = "1.0.9"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2146,9 +2146,14 @@ end
 -- Scout / AWP / R8 (tek atisli silahlar).
 local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 
--- Sniper'da hangi exploit daha az kafadan vurduruyor (Auto learn): once HS, en az 4 mermi gormeden
--- degismez, digerinin orani 0.1 daha iyiyse ona gecer.
-local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "hs", min_shots = 4 }
+-- Sniper'da hangi exploit daha az kafadan vurduruyor (Auto learn): en az 4 mermi gormeden degismez,
+-- digerinin orani 0.1 daha iyiyse ona gecer.
+-- V1.0.9: GameSense'te once DT. HS ile defensive zorlanamiyor (DT sarji yok; oyun logu: scout'ta HS iken
+-- olumlerin hepsinde "HS LC, DEF yok"): scout'ta peek'e karsi defensive, havada air lag ve teleport hic
+-- calismiyordu; DT ile calisir. Kesif: kullanilan exploit'te 8+ mermide kafa orani %40+ ve oteki hic
+-- denenmemisse (4 mermiden az) oteki denenir (eskiden denenmemisin 0.5 on bilgisi yuzunden takili kaliyordu).
+local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 4,
+    explore_shots = 8, explore_rate = 0.4 }
 
 sniper.mode = function(class)
     if not SNIPERS[class] or fd_on() then
@@ -2164,8 +2169,14 @@ sniper.mode = function(class)
 end
 
 sniper.decide = function()
-    if sniper.stats[sniper.choice].shots < sniper.min_shots then
-        return sniper.choice
+    local mine = sniper.stats[sniper.choice]
+    if mine.shots < sniper.min_shots then
+        return sniper.choice, false
+    end
+    local other = sniper.choice == "hs" and "dt" or "hs"
+    if sniper.stats[other].shots < sniper.min_shots and mine.shots >= sniper.explore_shots
+        and mine.hits / mine.shots >= sniper.explore_rate then
+        return other, true
     end
     local hs, dt = brute.rate(sniper.stats.hs), brute.rate(sniper.stats.dt)
     if sniper.choice == "hs" and dt < hs - 0.1 then
@@ -2214,14 +2225,14 @@ sniper.record = function(mode, hit)
         return
     end
     brute.count(stat, hit)
-    local choice = sniper.decide()
+    local choice, exploring = sniper.decide()
     if choice ~= sniper.choice then
         sniper.choice = choice
         if on(menu.hit_log) then
             local hs, dt = sniper.stats.hs, sniper.stats.dt
-            print(("[%s] sniper exploit: Hide shots %d/%d, Double tap %d/%d kafa isabeti -> %s"):format(SCRIPT,
+            print(("[%s] sniper exploit: Hide shots %d/%d, Double tap %d/%d kafa isabeti -> %s%s"):format(SCRIPT,
                 floor(hs.hits + 0.5), floor(hs.shots + 0.5), floor(dt.hits + 0.5), floor(dt.shots + 0.5),
-                choice == "hs" and "Hide shots" or "Double tap"))
+                choice == "hs" and "Hide shots" or "Double tap", exploring and " (deneme: oteki hic denenmedi)" or ""))
         end
     end
 end
@@ -3853,6 +3864,14 @@ end
 clean_shot.update = function(lp, target, armed)
     local tick = tickcount()
     if not on(menu.clean_shot) or not armed or target == nil then
+        clean_shot.until_tick = -1000
+        return false
+    end
+    -- Ayna defensive (V1.0.9): hedef sahte kayittayken (defensive) atis buyuk ihtimalle gecmez (oyun logu:
+    -- sahte kayda giden 3 atistan 2'si iska). O sirada temiz atis yok: kendi defensive'in acik kalir, onun
+    -- mermisi de senin sahte kaydina gider. Gercek kaydi gelince temiz atis doner.
+    local profile = enemy_watch.profile(target)
+    if profile ~= nil and profile.defensive_now then
         clean_shot.until_tick = -1000
         return false
     end
@@ -5816,7 +5835,7 @@ persist.load = function()
                 sniper.stats[mode] = { shots = e.shots, hits = e.hits }
             end
         end
-        sniper.choice = "hs"
+        sniper.choice = "dt"
         sniper.choice = sniper.decide()
     end
     for _, grp_name in ipairs(brute.groups) do
@@ -5868,7 +5887,7 @@ forget_enemies = function()
     brute.enemies, brute.recent, brute.hurt = {}, nil, {}
     brute.reset_phases()
     sniper.stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }
-    sniper.choice = "hs"
+    sniper.choice = "dt"
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     resolver.jittery, resolver.stalls = {}, {}
     hypothesis.store = {}

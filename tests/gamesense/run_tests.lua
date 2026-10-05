@@ -187,6 +187,18 @@ for _ = 1, 20 do
     end
 end
 check(forced_clean == 0, "temiz atista defensive zorlandi: " .. forced_clean)
+-- Ayna defensive: hedef sahte kayittayken temiz atis yok, kendi defensive'in zorlanir.
+e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
+local forced_fake = 0
+for _ = 1, 6 do
+    advance_sim(1)
+    local cmd = M.step({})
+    if cmd.force_defensive then
+        forced_fake = forced_fake + 1
+    end
+end
+check(forced_fake > 0, "hedef sahte kayittayken kendi defensive'in zorlanmadi")
+step({}, 12)
 me.props.m_vecVelocity = { 0, 0, 0 }
 M.can_hit[2] = nil
 me.props.m_flDuckAmount = 1
@@ -437,13 +449,22 @@ check(ui.get(md_id) == 20, "SSG 08 Min. damage geri verilmedi: " .. tostring(ui.
 ui.set(M.weapon_type_id, "Rifle")
 step({}, 5)
 
--- 5b) Sunucu Hide shots atisini reddediyor: lua'nin lag'i yokken HS ile 60 sn'de 2 damage rejection ->
--- sniper'da (Auto) Hide shots birakilir. Tek olay yetmez.
+-- 5b) Scout'ta Auto (learn) once DT (GameSense'te HS ile defensive zorlanamiyor).
 me.weapon = 102
 ui.set(M.weapon_type_id, "SSG 08")
 step({}, 10)
 local hs_ref = ui.reference("AA", "Other", "On shot anti-aim")
-check(M.items[hs_ref].value == true, "scout'ta Auto (learn) Hide shots degil")
+check(M.items[hs_ref].value == false and M.items[dt_cb].value == true, "scout'ta Auto (learn) once DT degil")
+-- DT'de kafa yemeye devam: oran Hide shots'un on bilgisinden 0.1 kotuyse Hide shots'a gecilir.
+for _ = 1, 8 do
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ssg08", dmg_health = 1, hitgroup = 1, health = 99 })
+    step({}, 2)
+end
+check(log_has("kafa isabeti -> Hide shots"), "DT'de kafa yerken sniper exploit degismedi")
+step({}, 4)
+check(M.items[hs_ref].value == true, "kesifte scout Hide shots'a gecmedi")
+-- Sunucu Hide shots atisini reddediyor: lua'nin lag'i yokken HS ile 60 sn'de 2 damage rejection ->
+-- sniper'da (Auto) Hide shots birakilir. Tek olay yetmez.
 local function rejected_shot()
     local hits = me.props.m_totalHitsOnServer
     M.fire("aim_fire", { id = id, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
