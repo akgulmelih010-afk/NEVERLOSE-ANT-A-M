@@ -19,6 +19,7 @@
         kaymis gitmesi resolver disi iskalarin kaynagiydi.
       - AA ogrenmesi: denenmemis anti-brute fazi 0.3 sayilir (0.5 idi); peek'te yarisi kafadan vurulan
         faz hic birakilmiyordu (16/33).
+      - Anti-brute fazi AA'nin baktigi dusmandan; ogrenilen faz AA'nin gosterdigi fazdan hesaplanir.
       - Fake duck her yerde senin: "Fake duck only when standing still" varsayilan kapali (bunny hop +
         FD ile ani peek'i havada / kosarken FD'yi birakarak bozuyordu).
 
@@ -1150,7 +1151,10 @@ do
         end
         local tick, seen = globals.tickcount, exposure.others[d.index]
         local sees = seen ~= nil and tick >= seen and tick - seen <= OTHER_HOLD
-        local threat = current_threat()
+        -- Gorus izleri aa_threat()'e gore tutulur (Neverlose'un tehdidi yoksa en yakin dusman): o dusmanin
+        -- gorusu exposure.now'da, others'ta degil. Eskiden Neverlose'un tehdidine bakiliyordu; tehdit yokken
+        -- en yakin dusman ates ettigin dusmansa hic "goruyor" sayilmiyordu.
+        local threat = aa_threat()
         if threat ~= nil and index_of(threat) == d.index then
             sees = exposure.now or exposure.soon
         end
@@ -1753,9 +1757,10 @@ end
 
 -- Faz, kafani goren dusmana gore secilir: tehdit gormuyor (ve birazdan da gormeyecek)
 -- ama baska bir dusman goruyorsa desync'ini o cozmeye calisiyor, onun fazi uygulanir.
--- Kimse gormuyorsa tehdidinki.
+-- Kimse gormuyorsa tehdidinki; Neverlose'un tehdidi yoksa en yakin dusman (V1.0: AA de ona
+-- doner, bkz. face_target; eskiden faz son ates edenden geliyordu, AA'nin baktigi dusmandan degil).
 local function brute_target()
-    return duel_target() or recent_shooter() or seeing_flanker() or current_threat()
+    return duel_target() or recent_shooter() or seeing_flanker() or aa_threat()
 end
 
 local function threat_stage(group)
@@ -2686,7 +2691,12 @@ clean_shot.shootable = function(lp, target)
     end
     local need = clean_shot.need(target)
     for _, hitbox in ipairs(clean_shot.boxes) do
-        local ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
+        -- Sahte kayit kuralinda (current.fake_body) aimbot'un hitbox'lari sadece govde: kafaya acik aci
+        -- atis getirmez. Eskiden kafa sayiliyordu ve atis gelmeyecekken lag ~0.3 sn bosuna kapaniyordu.
+        local ok_box, point = false, nil
+        if hitbox ~= 0 or not current.fake_body then
+            ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
+        end
         if ok_box and point ~= nil then
             local ok, damage = pcall(trace_bullet, lp, eye, point)
             if ok and type(damage) == "number" and damage >= need then
@@ -3124,11 +3134,9 @@ local function face_target(cmd, lp, yaw_base, yaw_offset, freestand)
         if duel ~= nil and threat ~= nil and index_of(duel) == index_of(threat) then
             duel = nil
         end
-        if threat == nil then
-            target = duel or recent_shooter() or aa_threat()
-        else
-            target = duel or recent_shooter() or seeing_flanker()
-        end
+        -- Anti-brute ile ayni sira (bkz. brute_target): AA hangi dusmana donuyorsa faz da onunki.
+        -- Eskiden tehdit yokken yandan goren dusmana (seeing_flanker) donulmuyordu.
+        target = duel or recent_shooter() or seeing_flanker() or (threat == nil and aa_threat() or nil)
     end
     local mine, theirs = origin_of(lp), target ~= nil and origin_of(target) or nil
     local ok, view = pcall(function() return cmd.view_angles.y end)
@@ -4238,14 +4246,19 @@ events.player_hurt:set(protect("player_hurt", function(e)
         end
     end
 
-    -- Vuruldugumuz faz: mermi olayi az once geldiyse onun kaydettigi faz (mermi
-    -- AA'yi zaten ilerletti), gelmediyse su an uygulanan faz.
+    -- Vuruldugumuz faz: mermi geldiginde gercekten uygulanan faz (AA'nin dondugu dusmaninki). Mermi
+    -- olayi az once geldiyse onun kaydettigi faz (mermi AA'yi zaten ilerletti), gelmediyse su an
+    -- uygulanan faz. V1.0: eskiden saldiranin kendi fazi kullaniliyordu; AA baska dusmana donukken
+    -- (duel / yandan goren) ikisi farkli ve kalici faz (+1) saldiranin az once cozdugu faza esit
+    -- olabiliyordu (or. kendi fazi 2, uygulanan 3: "bir sonraki" faz tam vurulan 3). Log'daki "faz" ve
+    -- round ozeti de artik uygulanan faz. Mermi olayi yoksa faz createmove'daki gibi yeniden hesaplanir
+    -- (current.brute round basi / unutma sonrasi bir tick eski kalabilir).
     local _, enemy = brute_entry(attacker, "u" .. tostring(e.attacker))
-    local hit_stage, applied, group, shot_sniper = nil, nil, nil, sniper.mode(current.weapon)
+    local phase, group, shot_sniper = nil, nil, sniper.mode(current.weapon)
     if enemy.shot_stage ~= nil and enemy.last ~= nil and now >= enemy.last and now - enemy.last < MISS_WINDOW then
-        hit_stage, applied, group, shot_sniper = enemy.shot_stage, enemy.shot_applied, enemy.shot_group, enemy.shot_sniper
+        phase, group, shot_sniper = enemy.shot_applied, enemy.shot_group, enemy.shot_sniper
     else
-        hit_stage = menu.anti_brute:get() and brute_entry_stage(enemy, current.phase_group) or 0
+        phase = menu.anti_brute:get() and threat_stage(current.phase_group) or 0
         group = brute.stat_group()
     end
     -- Bicak ve zeus yakin mesafe silahi; AA'nin saklayabilecegi bir sey degil. Log'a
@@ -4255,11 +4268,11 @@ events.player_hurt:set(protect("player_hurt", function(e)
     -- Sadece kafa isabeti resolver'in aciyi cozdugunu gosterir; govde ve bacak
     -- isabetleri baim / safe point'tir, desync onlari saklayamaz.
     if e.hitgroup == 1 and not melee and menu.anti_brute:get() then
-        enemy.base, enemy.learned = (hit_stage + 1) % (#BRUTE_PHASES + 1), true
+        enemy.base, enemy.learned = (phase + 1) % (#BRUTE_PHASES + 1), true
     end
     -- Fazin istatistigi de yazilir (kalici hafizayi da kirli isaretler).
     if e.hitgroup == 1 and not melee then
-        record_phase(group, applied or current.brute, true)
+        record_phase(group, phase, true)
         sniper.record(shot_sniper, true)
     end
 
@@ -4270,12 +4283,12 @@ events.player_hurt:set(protect("player_hurt", function(e)
         if e.hitgroup == 1 then
             entry.head = entry.head + 1
         end
-        own.count(current.state, hit_stage, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
+        own.count(current.state, phase, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
     end
     if menu.hit_log:get() then
         print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s)"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
-            current.state, hit_stage, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
+            current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
     end
 end))
 
