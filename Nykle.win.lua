@@ -17,6 +17,8 @@
       - Temiz atis: silah ates edebiliyorken ve hedef vurulabilirken kendi lag'in (Break LC, zorlanan
         defensive, havada teleport) durur, mermi gidince geri gelir. Lag'li atislarin kayip ya da
         kaymis gitmesi resolver disi iskalarin kaynagiydi.
+      - Fake duck her yerde senin: "Fake duck only when standing still" varsayilan kapali (bunny hop +
+        FD ile ani peek'i havada / kosarken FD'yi birakarak bozuyordu).
 
     Neler var
       - 13 durumlu builder (Global, Standing, Moving, Slow walk, Crouching, Crouch move, Peek, Air,
@@ -509,10 +511,12 @@ end
 -- Fake duck'ta egik ve yavassin, DT/HS calismaz. Bicak / zeus tutan bir dusman
 -- yaklasinca fake duck birakilir; uzaklasinca senin tusun yine gecerli olur.
 menu.fd_guard       = grp.protect:switch(style.title("user-ninja", "Release fake duck near knife"), true)
--- Havadayken ve hareket ederken fake duck'in faydasi yok, sadece DT/HS'yi kapatir: v4.9-v5.0
--- loglarinda kafa olumlerinin cogu "Fake duck | FD, DT %0 (bind)" idi (havada FD de vardi;
--- fake duck egilme tusuna bagli olabilir). Yerinde dururken fake duck aynen calisir.
-menu.fd_still       = grp.protect:switch(style.title("person", "Fake duck only when standing still"), true)
+-- Acikken havada ve hareket ederken fake duck birakilir (DT/HS geri gelir). v5.0'da v4.9-v5.0
+-- loglarindaki "Fake duck | FD, DT %0 (bind)" olumleri yuzunden eklenmisti. V1.0'da varsayilan kapali:
+-- fake duck'i bilerek bunny hop + ani peek icin kullaniyorsun (FD'nin paket bogmasiyla dusmanin onune
+-- "isinlanip" hemen kafa) ve FD'siz daha cok oluyorsun; bu ayar o peek'i bozuyordu.
+menu.fd_still       = style.tip(grp.protect:switch(style.title("person", "Fake duck only when standing still"), false),
+    "Acikken havada / hareket ederken fake duck birakilir. Kapali (varsayilan): FD tusun her yerde calisir.")
 
 -- Exploits
 menu.auto_exploit   = style.tip(grp.exploits:switch(style.title("bolt", "Auto exploit"), true),
@@ -3976,7 +3980,9 @@ events.createmove:set(protect("createmove", function(cmd)
         avoid_overlap = s.avoid_overlap:get(), body_fs = body_fs, freestand = freestand,
     })
     local armed = weapon_ready(lp, 0.15)
-    current.clean = clean_shot.update(lp, aim_target, armed and class ~= nil and not NON_GUNS[class] and not is_grenade(class))
+    -- Fake duck senin tusun ve kendisi lag'dir (paketler bogulur): temiz atis o sirada yok.
+    current.clean = clean_shot.update(lp, aim_target, armed and class ~= nil and not NON_GUNS[class]
+        and not is_grenade(class) and not effective("fakeduck"))
     apply_defensive(cmd, builder[state], class, state,
         move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck", armed, current.clean)
     teleport.update(lp, move_state)
