@@ -22,11 +22,17 @@
         sadece headshot, olasilik, tum chat / takim chati, gecikme ayarlanir). Varsayilan kapali.
 
     Kurulum, ayarlar ve degisiklikler icin README_GAMESENSE.md'ye bak.
+    Dosya adi Nykle_win_gamesense.lua kalmali: GameSense script adindaki fazladan noktalari dosya yolu
+    gibi okuyabiliyor (lua acilmaz), o yuzden ad alt cizgili.
 ]]
+
+-- Butun script tek fonksiyonda calisir: yuklenirken hata olursa en alttaki xpcall hatayi satir numarasi
+-- ile konsola yazar (girinti yok; govde dosyanin sonuna kadar surer).
+local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -91,6 +97,15 @@ do
             end
         end
     end
+end
+
+-- Olay kaydi: bir olay kaydedilemezse script yuklenmeyi birakmaz, konsola hangisi oldugu yazilir.
+local function listen(name, fn)
+    local ok, err = pcall(client.set_event_callback, name, fn)
+    if not ok then
+        print(("[%s] %s olayi kaydedilemedi: %s"):format(SCRIPT, name, tostring(err)))
+    end
+    return ok
 end
 
 -- GameSense'te globals fonksiyondur (Neverlose'da alan).
@@ -788,6 +803,7 @@ local function unique(column, name)
 end
 
 local all_elements = {}
+local menu_failures = 0
 
 local function create(column, kind, name, ...)
     local label = unique(column, name)
@@ -812,7 +828,11 @@ local function create(column, kind, name, ...)
         ok, ref = pcall(ui.new_label, MENU_TAB, column, label)
     end
     if not ok or ref == nil then
-        print(("[%s] menu ogesi olusturulamadi: %s"):format(SCRIPT, style.plain(name)))
+        -- Konsol dolmasin: ilk uc hata nedeniyle yazilir, toplam menu kurulunca.
+        menu_failures = menu_failures + 1
+        if menu_failures <= 3 then
+            print(("[%s] menu ogesi olusturulamadi: %s (%s)"):format(SCRIPT, style.plain(name), tostring(ref)))
+        end
         return nil
     end
     local element = setmetatable({ ref = ref, kind = kind, name = style.plain(name), shown = true }, Element)
@@ -1308,6 +1328,9 @@ if menu.recommended ~= nil then
 end
 apply_recommended()
 recommended_state.pending, recommended_state.report_off = true, true
+if menu_failures > 0 then
+    print(("[%s] toplam %d menu ogesi olusturulamadi"):format(SCRIPT, menu_failures))
+end
 end
 
 -- Config yuklenince onerilen ayarlar yeniden kontrol edilir (asagida, olaylar bolumunde).
@@ -4406,7 +4429,7 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     sample_exploit(state)
 end
 
-client.set_event_callback("setup_command", protect("setup_command", function(cmd)
+listen("setup_command", protect("setup_command", function(cmd)
     local lp, choked, move_state, class, aim_target = tick_prepare(cmd)
     if lp == nil or tick_special(cmd, lp, move_state, class) then
         return
@@ -4503,7 +4526,7 @@ do
         return sqrt(dx * dx + dy * dy + dz * dz)
     end
 
-    client.set_event_callback("bullet_impact", protect("bullet_impact", function(e)
+    listen("bullet_impact", protect("bullet_impact", function(e)
         if not on(menu.enabled) then
             return
         end
@@ -4629,7 +4652,7 @@ own.shot_summary = function()
         r.clean_hits, r.clean, r.lag_hits, r.lag, #parts > 0 and table.concat(parts, ", ") or "yok"))
 end
 
-client.set_event_callback("player_hurt", protect("player_hurt", function(e)
+listen("player_hurt", protect("player_hurt", function(e)
     if not on(menu.enabled) then
         return
     end
@@ -4689,7 +4712,7 @@ client.set_event_callback("player_hurt", protect("player_hurt", function(e)
     end
 end))
 
-client.set_event_callback("weapon_fire", protect("weapon_fire", function(e)
+listen("weapon_fire", protect("weapon_fire", function(e)
     local lp = local_player()
     if lp ~= nil and userid_index(e.userid) == lp then
         own.last_shot = realtime()
@@ -4780,7 +4803,7 @@ local function shot_line(e, shot, target, reason)
         shot ~= nil and shot.weapon or weapon_label(), profile_text(profile), hyp)
 end
 
-client.set_event_callback("aim_fire", protect("aim_fire", function(e)
+listen("aim_fire", protect("aim_fire", function(e)
     local target = finite(e.target) and e.target or nil
     if target == nil then
         return
@@ -4969,11 +4992,11 @@ local function aim_result(e, reason)
     end
 end
 
-client.set_event_callback("aim_hit", protect("aim_hit", function(e)
+listen("aim_hit", protect("aim_hit", function(e)
     aim_result(e, nil)
 end))
 
-client.set_event_callback("aim_miss", protect("aim_miss", function(e)
+listen("aim_miss", protect("aim_miss", function(e)
     aim_result(e, tostring(e.reason or "?"))
 end))
 
@@ -5143,7 +5166,7 @@ forget_enemies = function()
     persist.dirty = false
 end
 
-client.set_event_callback("round_start", protect("round_start", function()
+listen("round_start", protect("round_start", function()
     own.summary()
     own.shot_summary()
     reset_brute()
@@ -5156,7 +5179,7 @@ end))
 
 -- Harita degisince slot numaralari degisir; Steam ID ile ogrenilenler korunur. Oyuncu listesi ezmeleri
 -- geri verilir (HvH sunucularinda oyuncular haritalar arasi kalir; slotu degisen oyuncuya varsayilan yazilir).
-client.set_event_callback("level_init", protect("level_init", function()
+listen("level_init", protect("level_init", function()
     reset_brute()
     pending_misses = {}
     resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
@@ -5178,7 +5201,7 @@ local function count_kd(field)
     entry[field] = entry[field] + 1
 end
 
-client.set_event_callback("player_death", protect("player_death", function(e)
+listen("player_death", protect("player_death", function(e)
     local lp = local_player()
     if lp == nil then
         return
@@ -5324,7 +5347,7 @@ do
         talk.busy_until = now + delay + 0.5
     end
 
-    client.set_event_callback("player_death", protect("trash_talk", function(e)
+    listen("player_death", protect("trash_talk", function(e)
         if not on(menu.enabled) or not on(menu.trash_talk) then
             return
         end
@@ -5347,13 +5370,13 @@ end
 
 -- Config kaydedilirken GameSense ayarlarinin senin degerleri kaydedilir (ezmeler geri verilir, sonraki tick
 -- yeniden uygulanir). Config yuklenince ezmeler unutulur ve onerilen ayarlar yeniden kontrol edilir.
-pcall(client.set_event_callback, "pre_config_save", protect("pre_config_save", function()
+listen("pre_config_save", protect("pre_config_save", function()
     reset_overrides()
 end))
-pcall(client.set_event_callback, "pre_config_load", protect("pre_config_load", function()
+listen("pre_config_load", protect("pre_config_load", function()
     reset_overrides()
 end))
-pcall(client.set_event_callback, "post_config_load", protect("post_config_load", function()
+listen("post_config_load", protect("post_config_load", function()
     forget_overrides()
     recommended_state.pending, recommended_state.report_off = true, true
     pcall(update_visibility)
@@ -5781,7 +5804,7 @@ local function safe_draw(name, fn, ...)
     end
 end
 
-client.set_event_callback("paint", protect("paint", function()
+listen("paint", protect("paint", function()
     if not on(menu.enabled) then
         return
     end
@@ -5810,7 +5833,7 @@ client.set_event_callback("paint", protect("paint", function()
 end))
 
 -- Menu acikken gorunurlukler (config yuklenince ya da sekme degisince) guncel kalsin.
-client.set_event_callback("paint_ui", protect("paint_ui", function()
+listen("paint_ui", protect("paint_ui", function()
     if try(ui.is_menu_open) == true then
         local tab = menu.tab ~= nil and menu.tab:get() or nil
         local enabled = on(menu.enabled)
@@ -5821,7 +5844,7 @@ client.set_event_callback("paint_ui", protect("paint_ui", function()
     end
 end))
 
-client.set_event_callback("shutdown", protect("shutdown", function()
+listen("shutdown", protect("shutdown", function()
     reset_overrides()
     plist_reset(false)
     persist.save(true)
@@ -5834,4 +5857,17 @@ do
     local loaded = persist.load()
     print(("[%s] V%s (%s edition) yuklendi%s"):format(SCRIPT, VERSION, EDITION,
         loaded > 0 and (" (hafiza: %d oyuncu)"):format(loaded) or ""))
+end
+
+end
+
+do
+    local ok, err = xpcall(nykle_main, function(e)
+        local traceback = type(debug) == "table" and debug.traceback
+        return traceback and traceback(tostring(e), 2) or tostring(e)
+    end)
+    if not ok then
+        print("[Nykle.win] YUKLENEMEDI (bu hatayi gonder): " .. tostring(err))
+        error(err, 0)
+    end
 end

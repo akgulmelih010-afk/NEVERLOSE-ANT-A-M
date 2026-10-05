@@ -1,6 +1,6 @@
-# Nykle.win lua V1.0 — GameSense edition
+# Nykle.win lua V1.0.1 — GameSense edition
 
-`Nykle.win.lua` (Neverlose V1.0) sürümünün bütün özelliklerinin **GameSense (CS:GO)** Lua API'sine taşınmış hali: `Nykle.win.gamesense.lua`. Sadece HvH sunucuları için.
+`Nykle.win.lua` (Neverlose V1.0) sürümünün bütün özelliklerinin **GameSense (CS:GO)** Lua API'sine taşınmış hali: `Nykle_win_gamesense.lua`. Sadece HvH sunucuları için.
 
 Neverlose sürümünün mantığı (durumlar, varsayılan açılar, exploit seçimi, Smart defensive, anti-brute fazları ve öğrenmesi, AI peek, resolver seviyeleri, temiz atış, loglar, istatistikler, panel) **aynen** korundu; açıklamaları ve "neden"leri için ana [README.md](README.md)'ye bak. Bu dosya GameSense'e özel olanları, farkları ve devir teslim notlarını anlatır.
 
@@ -8,9 +8,9 @@ Neverlose sürümünün mantığı (durumlar, varsayılan açılar, exploit seç
 
 ## Kurulum
 
-1. `Nykle.win.gamesense.lua` dosyasını GameSense'in lua klasörüne at (CS:GO klasörü, `csgo.exe`'nin yanı).
-2. GameSense menüsü → **LUA** sekmesi → script listesinden `Nykle.win.gamesense` → **Load**.
-3. Konsolda `[Nykle.win] V1.0 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
+1. `Nykle_win_gamesense.lua` dosyasını GameSense'in lua klasörüne at (CS:GO klasörü, `csgo.exe`'nin yanı; diğer lua'ların durduğu yer). **Dosya adını değiştirme**: adda fazladan nokta olursa (eski `Nykle.win.gamesense.lua` gibi) GameSense lua'yı açamayabilir.
+2. GameSense'in script listesinden `Nykle_win_gamesense` → **Load script**.
+3. Konsolda `[Nykle.win] V1.0.1 (GameSense edition) yuklendi` satırı çıkar (önceden öğrenilmiş düşman varsa sonunda `(hafiza: 12 oyuncu)`).
 4. Menü **LUA** sekmesinde: **Enable Nykle.win** ve **Nykle.win tab** (Home, Anti-Aim, Exploits, Builder, Ragebot, Visuals, Misc) sol sütunda; seçilen sekmenin ikinci sütunu sağda.
 5. Tuşları bağla (Anti-Aim sekmesi): **Manual left / right / forward**, **Freestanding**, **Static inverter**. AI peek için GameSense'in kendi **Quick peek assist** tuşu (RAGE → Other) kullanılır.
 
@@ -20,6 +20,15 @@ Neverlose sürümünün mantığı (durumlar, varsayılan açılar, exploit seç
 - Kapatınca (Enable kapalı, script unload) ve **config kaydederken** GameSense ayarlarının hepsi senin değerlerine geri döner; config'ine lua'nın geçici değerleri kaydedilmez.
 
 > Konsolda `[Nykle.win] menude bulunamadi: ...` ya da `oyuncu listesinde bulunamadi: ...` çıkarsa GameSense sürümünde o ayarın adı farklıdır; script çökmez, o özelliği atlar. `... ayarlanamadi: ...` = GameSense değeri kabul etmedi, 5 sn sonra tekrar dener. `... hata verdi: ...` = beklenmedik bir API değeri; script durmaz, satırı bana at.
+
+### Lua açılmıyorsa
+
+1. Dosya adı tam olarak `Nykle_win_gamesense.lua` olmalı (`.lua` uzantısı görünür olsun, Windows "bilinen uzantıları gizle" açıksa `Nykle_win_gamesense.lua.txt` gibi kalabilir). Eski `Nykle.win.gamesense.lua`'yı sil.
+2. Konsolu aç (`~`) ve Load'a bas:
+   - `[Nykle.win] YUKLENEMEDI (bu hatayi gonder): ...` → lua yüklenirken hata verdi; satırın tamamı (dosya:satır numarası ve altındaki `stack traceback`) hatanın yerini gösterir, onu gönder.
+   - `[Nykle.win] ... olayi kaydedilemedi` / `menu ogesi olusturulamadi` / `menude bulunamadi` → lua açıldı ama GameSense sürümünde o olay / menü öğesi farklı; satırı gönder, o özellik kapalı çalışır.
+   - Hiçbir `[Nykle.win]` satırı yoksa GameSense dosyayı hiç çalıştırmadı (dosya adı / klasör); GameSense'in kendi kırmızı hata satırını gönder.
+3. Başka bir lua aynı anda yüklüyse onu kapatıp tekrar dene.
 
 ## Neverlose sürümünden farklar
 
@@ -171,7 +180,7 @@ Neverlose sürümündeki bütün loglar aynı biçimde (atış satırı, vuruldu
 `tests/gamesense/` altında GameSense API'sini taklit eden sahte bir ortam (`mock_gs.lua`) ve senaryolar (`run_tests.lua`) var:
 
 ```
-luajit tests/gamesense/run_tests.lua Nykle.win.gamesense.lua
+luajit tests/gamesense/run_tests.lua Nykle_win_gamesense.lua
 ```
 
 Test edilenler: yükleme; durumlar (durma, yürüme, hava, eğilme, slow walk, fake duck, manuel, legit AA, merdiven, spin); AA'nın GameSense ayarlarına yazılması; auto exploit; DT şarj tahmini; görülürken Smart defensive zorlaması; temiz atışta zorlama olmaması; havada teleport (`discharge_pending`); aimbot olayları (`?` → correction, damage rejection, spread, isabet); seviye 1-2-3 (oyuncu listesi Force safe point ve body yaw hipotezleri); anti-brute (kafanın yanından geçen mermi, vurulma); sniper Min. damage'ın sadece kendi silah grubuna yazılıp silah değişince geri verilmesi; bıçaklı düşman yakınken fake duck bırakma ve geri verme; AI peek sırasında Quick peek kutusunun geri verilmesi; round / ölüm / harita olayları; resolver panelinin sürüklenmesi; stats paneli; trash talk (kapalıyken yazmama, öldürünce / ölünce, takım chati, sadece headshot, takım arkadaşında yazmama, tehlikeli karakter temizliği); 1500 tick rastgele durum / olay / menü değişikliği (fuzz); **config kaydederken ve kapanışta bütün GameSense ayarlarının (her silah grubu dahil) ve oyuncu listesinin geri verilmesi**; hafızanın yazılması; hiçbir olay fonksiyonunun hata vermemesi. Derleme LuaJIT 2.1 ile (GameSense'in Lua'sı); tanımsız global kullanımı yok.

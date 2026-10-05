@@ -1,7 +1,7 @@
 -- Nykle.win GameSense edition: sahte ortamda senaryo testleri.
 package.path = arg[0]:gsub("run_tests.lua$", "") .. "?.lua;" .. package.path
 local M = require("mock_gs")
-local SCRIPT_PATH = arg[1] or "Nykle.win.gamesense.lua"
+local SCRIPT_PATH = arg[1] or "Nykle_win_gamesense.lua"
 
 local failures = 0
 local function check(cond, msg)
