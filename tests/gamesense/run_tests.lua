@@ -829,6 +829,22 @@ do
         and duel:find("o: 2 ates 1 isabet -27", 1, true) ~= nil, "duello ozeti yok / yanlis: " .. tostring(duel))
     M.fire("round_start", {})
     check(new_line("dbg ===== round") ~= nil, "round basligi yok")
+    -- V1.0.20: harita basinda round_start arka arkaya iki kez gelince (V1.0.18 logu) baslik bir kez yazilir;
+    -- kazanansiz round sonu "? kazandi" yazmaz.
+    local function count_lines(pattern)
+        local n = 0
+        for i = before + 1, #M.logs do
+            if M.logs[i]:find(pattern, 1, true) then
+                n = n + 1
+            end
+        end
+        return n
+    end
+    M.fire("round_end", { winner = 1 })
+    M.fire("round_start", {})
+    M.fire("round_start", {})
+    check(count_lines("dbg ===== round") == 2, "ayni round basligi iki kez yazildi: " .. count_lines("dbg ===== round"))
+    check(new_line("kazanan yok") ~= nil and new_line("? kazandi") == nil, "kazanansiz round sonu '? kazandi' yazdi")
     local file = M.files["nykle_log.txt"] or ""
     check(file:find("eski oturum satiri", 1, true) ~= nil and file:find("yuklendi", 1, true) ~= nil
         and file:find("dbg atis-detay", 1, true) ~= nil, "log dosyasi eski + yeni satirlari tutmuyor")

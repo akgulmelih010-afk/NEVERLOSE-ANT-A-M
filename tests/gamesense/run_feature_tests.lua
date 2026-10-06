@@ -191,6 +191,30 @@ check(strafe.value == true, "3: lua kapatilinca Air strafe geri verilmedi")
 ui.set(enabled.id, true)
 step({}, 4)
 
+-- 4) V1.0.20 (V1.0.17 logu: "AA (peek): en az vurulan faz 1 (0/0 kafa isabeti)"): yerde faz 0 iki kafa
+-- yiyince verisi olmayan dusmanlara hic denenmemis faz 1 verilir; satir bunu "en az vurulan" ve "0/0" diye
+-- degil, kafa yiyen fazla ve "denenmemis" diye yazar. Iki ayri dusman: ikisi de henuz faz 0'da.
+local e2 = M.player(3, { alive = true, enemy = true, name = "enemy two", steam = "76561198000000003", weapon = 102,
+    origin = { 0, 900, 0 }, props = { m_fFlags = 1, m_vecVelocity = { 0, 0, 0 }, m_flDuckAmount = 0,
+        m_flSimulationTime = 10, m_angEyeAngles = { 89, -90, 0 }, m_flLowerBodyYawTarget = -90, m_iHealth = 100,
+        m_ArmorValue = 100, ["m_vecViewOffset[2]"] = 64 } })
+M.userids[13] = 3
+me.weapon = 101
+step({}, 4)
+M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ssg08", dmg_health = 1, hitgroup = 1, health = 99 })
+step({}, 4)
+check(not log_has("AA (yerde)"), "4: tek kafada faz degisti")
+M.threat = 3
+step({}, 4)
+M.fire("player_hurt", { userid = 11, attacker = 13, weapon = "ssg08", dmg_health = 1, hitgroup = 1, health = 98 })
+step({}, 4)
+check(not log_has("(0/0 kafa isabeti)"), "4: denenmemis faz '0/0 kafa isabeti' diye yazildi")
+check(log_has("AA (yerde): faz 0 cok kafa yiyor (2/2 kafa isabeti) -> verisi olmayan dusmanlara denenmemis faz 1"),
+    "4: denenmemis faza gecis yazilmadi")
+M.threat = 2
+e2.alive = false
+step({}, 4)
+
 for _, line in ipairs(M.errors_in_log()) do
     io.stderr:write("LOG ERROR: " .. line .. "\n")
     failures = failures + 1

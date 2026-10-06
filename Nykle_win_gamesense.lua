@@ -32,7 +32,7 @@
 -- round basinda, harita degisince, her 5 dakikada ve kapanista yazilir; onceki oturumlarin loglari
 -- dosyada kalir ("Clear saved logs" ile silinir). Sadece bu lua'nin satirlari tutulur.
 local nlog = { raw = print, lines = {}, cap = 12000, trim = 1000, file = "nykle_log.txt", old = "",
-    old_cap = 2000000, dirty = false, saved = -1000, save_every = 300 }
+    old_cap = 2000000, dirty = false, saved = -1000, save_every = 300, count = 0 }
 
 nlog.stamp = function()
     local ok, h, m, s = pcall(client.system_time)
@@ -46,6 +46,7 @@ end
 nlog.push = function(line)
     local lines = nlog.lines
     lines[#lines + 1] = nlog.stamp() .. " " .. line
+    nlog.count = nlog.count + 1
     if #lines > nlog.cap + nlog.trim then
         local keep = {}
         for i = #lines - nlog.cap + 1, #lines do
@@ -166,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.19"
+local VERSION = "1.0.20"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2308,12 +2309,19 @@ local function record_phase(grp_name, phase, hit)
     end
     brute.count(list[phase], hit)
     local best = brute_default(grp_name)
-    if best ~= brute.default[grp_name] then
+    local previous = brute.default[grp_name]
+    if best ~= previous then
         brute.default[grp_name] = best
         if on(menu.hit_log) then
-            local chosen = list[best]
-            print(("[%s] AA (%s): en az vurulan faz %d (%d/%d kafa isabeti) -> verisi olmayan dusmanlara faz %d"):format(
-                SCRIPT, brute.group_label[grp_name], best, floor(chosen.hits + 0.5), floor(chosen.shots + 0.5), best))
+            local chosen, left = list[best], list[previous]
+            -- V1.0.20: hic mermi yememis faz "en az vurulan" degil, denenmemis (eskiden "0/0 kafa isabeti").
+            if chosen.shots < 0.5 then
+                print(("[%s] AA (%s): faz %d cok kafa yiyor (%d/%d kafa isabeti) -> verisi olmayan dusmanlara denenmemis faz %d"):format(
+                    SCRIPT, brute.group_label[grp_name], previous, floor(left.hits + 0.5), floor(left.shots + 0.5), best))
+            else
+                print(("[%s] AA (%s): en az vurulan faz %d (%d/%d kafa isabeti) -> verisi olmayan dusmanlara faz %d"):format(
+                    SCRIPT, brute.group_label[grp_name], best, floor(chosen.hits + 0.5), floor(chosen.shots + 0.5), best))
+            end
         end
     end
 end
@@ -7419,7 +7427,11 @@ listen("round_end", protect("detailed log round_end", function(e)
     local lp = local_player()
     local team = lp ~= nil and prop(lp, "m_iTeamNum") or nil
     local winner = tonumber(e.winner)
-    print(("[%s] dbg round sonu: %s kazandi%s"):format(SCRIPT, winner == 2 and "T" or (winner == 3 and "CT" or "?"),
+    if winner ~= 2 and winner ~= 3 then
+        print(("[%s] dbg round sonu: kazanan yok (oyun basi / yeniden baslatma)"):format(SCRIPT))
+        return
+    end
+    print(("[%s] dbg round sonu: %s kazandi%s"):format(SCRIPT, winner == 2 and "T" or "CT",
         (finite(team) and winner == team) and " (senin takimin)" or ""))
 end))
 
@@ -7443,7 +7455,13 @@ listen("round_start", protect("detailed log round_start", function()
                 SCRIPT, m.ticks, m.dt, m.forced, extra, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
                 teleport.off and " (teleport bu harita kapali)" or ""))
         end
-        print(D.header())
+        -- V1.0.20: harita basinda round_start arka arkaya iki kez geliyor; arada satir yoksa ayni baslik
+        -- ikinci kez yazilmaz.
+        local header = D.header()
+        if header ~= D.last_header or nlog.count ~= D.header_count then
+            print(header)
+        end
+        D.last_header, D.header_count = header, nlog.count
     end
     D.reset()
     nlog.save()
