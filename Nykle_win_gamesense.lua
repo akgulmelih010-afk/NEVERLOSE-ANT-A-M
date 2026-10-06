@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.15"
+local VERSION = "1.0.16"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2308,6 +2308,8 @@ local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 -- calismiyordu; DT ile calisir. Kesif: kullanilan exploit'te 8+ mermide kafa orani %40+ ve oteki hic
 -- denenmemisse (4 mermiden az) oteki denenir (eskiden denenmemisin 0.5 on bilgisi yuzunden takili kaliyordu).
 -- V1.0.15: "mermi" = dusmanin sana attigi her mermi: iska, govde ya da kafa (eskiden govde sayilmiyordu).
+-- V1.0.16: kendi 4 mermisi olmayan exploit'e oran karsilastirmasiyla gecilmez, sadece kesifle (oyun logu:
+-- "Hide shots 0/0, Double tap 4/4 -> Hide shots"; denenmemisin 0.5 on bilgisi 4 mermide DT'yi kapatiyordu).
 local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 4,
     explore_shots = 8, explore_rate = 0.4 }
 
@@ -2330,9 +2332,11 @@ sniper.decide = function()
         return sniper.choice, false
     end
     local other = sniper.choice == "hs" and "dt" or "hs"
-    if sniper.stats[other].shots < sniper.min_shots and mine.shots >= sniper.explore_shots
-        and mine.hits / mine.shots >= sniper.explore_rate then
-        return other, true
+    if sniper.stats[other].shots < sniper.min_shots then
+        if mine.shots >= sniper.explore_shots and mine.hits / mine.shots >= sniper.explore_rate then
+            return other, true
+        end
+        return sniper.choice, false
     end
     local hs, dt = brute.rate(sniper.stats.hs), brute.rate(sniper.stats.dt)
     if sniper.choice == "hs" and dt < hs - 0.1 then

@@ -480,12 +480,23 @@ ui.set(M.weapon_type_id, "SSG 08")
 step({}, 10)
 local hs_ref = ui.reference("AA", "Other", "On shot anti-aim")
 check(M.items[hs_ref].value == false and M.items[dt_cb].value == true, "scout'ta Auto (learn) once DT degil")
--- DT'de kafa yemeye devam: oran Hide shots'un on bilgisinden 0.1 kotuyse Hide shots'a gecilir.
-for _ = 1, 8 do
+-- DT'de 4 kafa: hic denenmemis Hide shots'a on bilgisiyle gecilmez (V1.0.16; oyun logu:
+-- "Hide shots 0/0, Double tap 4/4 -> Hide shots").
+local function sniper_head()
     M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ssg08", dmg_health = 1, hitgroup = 1, health = 99 })
     step({}, 2)
 end
-check(log_has("kafa isabeti -> Hide shots"), "DT'de kafa yerken sniper exploit degismedi")
+for _ = 1, 4 do
+    sniper_head()
+end
+step({}, 4)
+check(not log_has("kafa isabeti -> Hide shots"), "4 mermide hic denenmemis Hide shots'a gecildi")
+check(M.items[hs_ref].value == false and M.items[dt_cb].value == true, "4 mermide scout DT'den cikti")
+-- DT'de kafa yemeye devam: 8 mermide %40+ kafa -> kesif, Hide shots denenir.
+for _ = 1, 4 do
+    sniper_head()
+end
+check(log_has("kafa isabeti -> Hide shots (deneme"), "DT'de kafa yerken sniper exploit degismedi")
 step({}, 4)
 check(M.items[hs_ref].value == true, "kesifte scout Hide shots'a gecmedi")
 -- Sunucu Hide shots atisini reddediyor: lua'nin lag'i yokken HS ile 60 sn'de 2 damage rejection ->
@@ -983,6 +994,9 @@ end
 -- basiliysa log "FD | DEF yok" der (V1.0.15). AI peek'te ates edilince peek bos sayilmaz (V1.0.15).
 do
     local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
+    -- Scout'ta durumun exploit'i (DT): 5b'deki kesif sniper'i Hide shots'ta birakti, burada fake duck test ediliyor.
+    local sniper_item = M.find_lua("Snipers (SSG08/AWP/R8)")
+    ui.set(sniper_item.id, "Same as state")
     me.alive, me.weapon = true, 102
     e1.alive, e1.dormant = true, false
     M.visible[2], M.can_hit[2] = false, false
@@ -1140,6 +1154,7 @@ do
     client.trace_bullet = real_bullet
     e2.alive = e2_alive
     M.visible[2], M.can_hit[2], M.visible[3] = nil, nil, nil
+    ui.set(sniper_item.id, "Auto (learn)")
     step({}, 10)
 end
 
