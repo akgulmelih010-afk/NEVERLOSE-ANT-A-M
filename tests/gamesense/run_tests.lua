@@ -54,6 +54,10 @@ M.files = { ["nykle_log.txt"] = "12:00:00 [Nykle.win] eski oturum satiri\n" }
 function readfile(name) return M.files[name] end
 function writefile(name, data) M.files[name] = data end
 
+-- Eski (V1.0.14 ve oncesi, govde isabeti sayilmayan) sniper verisi HS'yi iyi gosteriyor: V1.0.15'te alinmaz,
+-- scout yine DT ile baslar (bkz. 5b).
+M.db["nykle_win_gs_memory"] = { version = 1, sniper = { hs = { shots = 10, hits = 0 }, dt = { shots = 10, hits = 10 } } }
+
 -- Yukle
 local chunk = assert(loadfile(SCRIPT_PATH))
 local ok, err = pcall(chunk)
@@ -270,9 +274,12 @@ check(safe_point(2) ~= "On", "yeni haritada eski iskalarla Force safe point acil
 shoot(2, "?")
 check(safe_point(2) == "On", "bu haritadaki iskadan sonra Force safe point acilmadi")
 
--- 3d) Desen statik olunca hipotezler baslar (Force'ta 3+ resolver iskasi).
+-- 3d) Desen statik olunca hipotezler baslar (Force'ta 3+ resolver iskasi); V1.0.15: yeni desen 1.5 sn
+-- oturmadan baslamaz.
 M.yaw_mode = { [2] = "static" }
 step({}, 12)
+check(not log_has("denenecek"), "desen oturmadan (1.5 sn) hipotez basladi")
+step({}, 100)
 check(log_has("denenecek"), "statik dusmanda hipotez baslamadi")
 check(M.plist[2] ~= nil and M.plist[2]["Force body yaw"] == true, "hipotez oyuncu listesine yazilmadi")
 
@@ -293,6 +300,19 @@ M.yaw_mode = nil
 step({}, 12)
 check(log_has("AA deseni degisti (static -> jitter)"), "desen degisince hipotezler sifirlanmadi")
 check(M.plist[2]["Force body yaw"] ~= true, "jitter'a donunce Force body yaw birakilmadi")
+
+-- 3f2) V1.0.15 (oyun logu, Vice Luaaa): desen 20 sn'de 3. kez degisince kararsiz; desen otursa da 20 sn
+-- hipotez yok, "degisti / denenecek" spam'i yok.
+local tries_before = count_log("denenecek")
+M.yaw_mode = { [2] = "static" }
+step({}, 12)
+check(count_log("AA deseni kararsiz") == 1, "3f2: kararsiz desen yazilmadi")
+step({}, 120)
+check(count_log("denenecek") == tries_before, "3f2: kararsiz desende hipotez basladi")
+M.yaw_mode = nil
+step({}, 12)
+check(count_log("AA deseni kararsiz") == 1 and count_log("AA deseni degisti") == 1,
+    "3f2: kararsizken desen logu tekrarlandi")
 
 -- 3g) Spin jitter sayilmaz; yavas yurume ayri durum.
 M.yaw_mode = { [3] = "spin" }
@@ -959,8 +979,8 @@ end
 -- 9h) V1.0.14 / V1.0.15 (oyun logundan): havada fake duck tusu DT'yi kapatmaz (GameSense'in fake duck'i sadece
 -- yerde), yere inince fake duck'ta DT kapali. Sniper mermisiyle fake duck birakilinca sarj beklenmez (DT
 -- hemen acik); tusu kendin birakinca (gorulurken) sarj yine beklenir. Bicakli dusman yakinken scout'ta
--- Min. damage gecici 60 (101 kafa kurali ve senin 100'un yerine; V1.0.15'te 30'dan 60'a), uzaklasinca
--- geri. Oluyken fake duck tusu basiliysa log "FD | DEF yok" der (V1.0.15).
+-- Min. damage gecici 30 (101 kafa kurali ve senin 100'un yerine), uzaklasinca geri. Oluyken fake duck tusu
+-- basiliysa log "FD | DEF yok" der (V1.0.15). AI peek'te ates edilince peek bos sayilmaz (V1.0.15).
 do
     local fd_id = ui.reference("RAGE", "Other", "Duck peek assist")
     me.alive, me.weapon = true, 102
@@ -1004,7 +1024,7 @@ do
     M.visible[2] = false
     step({}, 90)
 
-    -- Bicakli dusman yakin: scout'ta Min. damage gecici 60.
+    -- Bicakli dusman yakin: scout'ta Min. damage gecici 30.
     local md_id = ui.reference("RAGE", "Aimbot", "Minimum damage")
     me.weapon = 101
     ui.set(M.weapon_type_id, "SSG 08")
@@ -1019,12 +1039,19 @@ do
     local before = #M.logs
     e2.origin = { 0, 150, 0 }
     step({}, 6)
-    check(ui.get(md_id) == 60, "9h: bicakli dusman yakinken Min. damage 60 degil: " .. tostring(ui.get(md_id)))
+    check(ui.get(md_id) == 30, "9h: bicakli dusman yakinken Min. damage 30 degil: " .. tostring(ui.get(md_id)))
     local knife_line = false
     for i = before + 1, #M.logs do
-        knife_line = knife_line or M.logs[i]:find("bicak/zeus ile yakinda: Min. damage gecici 60", 1, true) ~= nil
+        knife_line = knife_line or M.logs[i]:find("bicak/zeus ile yakinda: Min. damage gecici 30", 1, true) ~= nil
     end
     check(knife_line, "9h: bicakli dusman yakinken Min. damage logu yok")
+    -- Yakinda 6 sn kalinca log tekrarlanmaz (V1.0.15: 5 sn'de bir yaziyordu).
+    step({}, 400)
+    local knife_lines = 0
+    for i = before + 1, #M.logs do
+        knife_lines = knife_lines + (M.logs[i]:find("bicak/zeus ile yakinda", 1, true) and 1 or 0)
+    end
+    check(knife_lines == 1 and ui.get(md_id) == 30, "9h: bicak logu yakinda kalinca tekrarlandi: " .. knife_lines)
     e2.origin = { 0, 900, 0 }
     step({}, 6)
     check(ui.get(md_id) == 101, "9h: bicakli uzaklasinca Min. damage geri gelmedi: " .. tostring(ui.get(md_id)))
@@ -1050,6 +1077,69 @@ do
         "9h: oluyken fake duck tusu basili ama log FD / DEF yok demedi: " .. tostring(dead_line))
     M.items[fd_id].value.held = false
     me.alive, me.props.m_fFlags = true, 1
+    step({}, 10)
+
+    -- AI peek: aimbot peek'te ates etti (aim_fire) ama weapon_fire sunucudan gec geliyor. Peek bos sayilmaz,
+    -- "2 bos peek" kilidi gelmez (oyun logu 01:20:07 / 01:20:34). Gercekten bos iki peek'te kilit yine gelir.
+    local real_bullet = client.trace_bullet
+    client.trace_bullet = function(from, x1, y1, z1, x2, y2, z2)
+        if from == 1 and math.abs(y1) < 5 then
+            return -1, 0
+        end
+        return real_bullet(from, x1, y1, z1, x2, y2, z2)
+    end
+    local qp_peek_key = select(2, ui.reference("RAGE", "Other", "Quick peek assist"))
+    local e2_alive = e2.alive
+    e2.alive = false
+    M.visible[2], M.can_hit[2], M.visible[3] = false, true, false
+    M.threat = 2
+    step({}, 90)
+    local function peek_logs(from)
+        local starts, empties, blocked, results = 0, 0, 0, 0
+        for i = from + 1, #M.logs do
+            local line = M.logs[i]
+            starts = starts + ((line:find("ai peek: s[oa][lg] %d+ birim") ~= nil) and 1 or 0)
+            empties = empties + (line:find("ai peek: atis olmadi", 1, true) and 1 or 0)
+            blocked = blocked + (line:find("2 bos peek", 1, true) and 1 or 0)
+            results = results + (line:find("ai peek sonucu: isabet", 1, true) and 1 or 0)
+        end
+        return starts, empties, blocked, results
+    end
+    before = #M.logs
+    M.items[qp_peek_key].value.held = true
+    for shot = 1, 2 do
+        local waited = 0
+        while select(1, peek_logs(before)) < shot and waited < 200 do
+            step({}, 1)
+            waited = waited + 1
+        end
+        M.fire("aim_fire", { id = 990 + shot, target = 2, hit_chance = 90, hitgroup = 1, damage = 120, backtrack = 0 })
+        M.weapons[101].m_flNextPrimaryAttack = M.realtime + 1
+        -- weapon_fire sunucudan peek'in sure dolmasindan (0.4 sn) sonra gelir.
+        step({}, 32)
+        M.fire("weapon_fire", { userid = 11, weapon = "ak47" })
+        M.fire("aim_hit", { id = 990 + shot, target = 2, hitgroup = 1, damage = 40 })
+        step({}, 20)
+    end
+    M.weapons[101].m_flNextPrimaryAttack = 0
+    local starts, empties, blocked, results = peek_logs(before)
+    check(starts >= 2 and results == 2,
+        ("9h: AI peek senaryosu kurulamadi (peek %d, sonuc %d)"):format(starts, results))
+    check(empties == 0 and blocked == 0,
+        ("9h: ates edilen peek bos sayildi (atis olmadi %d, 2 bos peek %d)"):format(empties, blocked))
+    -- Tusu birakip yeniden bas: bu sefer aimbot ates etmez, iki bos peek -> kilit.
+    M.items[qp_peek_key].value.held = false
+    step({}, 4)
+    before = #M.logs
+    M.items[qp_peek_key].value.held = true
+    step({}, 240)
+    starts, empties, blocked = peek_logs(before)
+    check(empties >= 2 and blocked == 1,
+        ("9h: bos peek kilidi calismadi (peek %d, atis olmadi %d, 2 bos peek %d)"):format(starts, empties, blocked))
+    M.items[qp_peek_key].value.held = false
+    client.trace_bullet = real_bullet
+    e2.alive = e2_alive
+    M.visible[2], M.can_hit[2], M.visible[3] = nil, nil, nil
     step({}, 10)
 end
 

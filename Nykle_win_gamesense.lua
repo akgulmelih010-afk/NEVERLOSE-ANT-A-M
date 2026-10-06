@@ -2307,6 +2307,7 @@ local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 -- olumlerin hepsinde "HS LC, DEF yok"): scout'ta peek'e karsi defensive, havada air lag ve teleport hic
 -- calismiyordu; DT ile calisir. Kesif: kullanilan exploit'te 8+ mermide kafa orani %40+ ve oteki hic
 -- denenmemisse (4 mermiden az) oteki denenir (eskiden denenmemisin 0.5 on bilgisi yuzunden takili kaliyordu).
+-- V1.0.15: "mermi" = dusmanin sana attigi her mermi: iska, govde ya da kafa (eskiden govde sayilmiyordu).
 local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 4,
     explore_shots = 8, explore_rate = 0.4 }
 
@@ -3008,7 +3009,11 @@ end
 
 -- Body yaw hipotezleri (NYKLE Resolver 2.5'ten, GameSense'e ozel): store[anahtar][durum] = { candidate,
 -- visited, outcomes, attempts, cooldown, feedback }. Aday 0 = GameSense'in kendi resolver'i.
-local hypothesis = { store = {}, candidates = 5, attempts = 5, cooldown = 4, memory = 30 }
+-- V1.0.15: desen 20 sn'de 3 kez degisirse kararsiz sayilir (oyun logu: Vice Luaaa static / jitter / xway /
+-- spin arasinda saniyede bir; her degisimde "hipotezler sifirlandi", hemen ardindan yine "3 resolver iskasi
+-- -> body yaw 58"). Kararsizken hipotez yok (Force safe point kalir); yeni desen 1.5 sn oturmadan baslamaz.
+local hypothesis = { store = {}, candidates = 5, attempts = 5, cooldown = 4, memory = 30,
+    settle = 1.5, flip_window = 20, flip_max = 3 }
 
 hypothesis.yaw = function(candidate)
     local limit = menu.hyp_angle ~= nil and menu.hyp_angle:get() or 58
@@ -3181,13 +3186,32 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     local profile = enemy_watch.profile(enemy)
     local pattern = profile ~= nil and profile.pattern or nil
     if pattern ~= nil then
-        if h.pattern ~= nil and pattern ~= h.pattern and (h.candidate > 0 or next(h.outcomes) ~= nil) then
-            if on(menu.resolver_log) then
+        local changed = h.pattern ~= nil and pattern ~= h.pattern
+        if changed then
+            h.pattern_since = now
+            local flips = {}
+            for _, t in ipairs(h.flips or {}) do
+                if now >= t and now - t <= hypothesis.flip_window then
+                    flips[#flips + 1] = t
+                end
+            end
+            flips[#flips + 1] = now
+            h.flips = flips
+            if #flips >= hypothesis.flip_max then
+                if now >= (h.unstable or -1000) and on(menu.resolver_log) then
+                    print(("[%s] resolver: %s %s AA deseni kararsiz (%d sn'de %d degisim): hipotez yok, Force safe point"):format(
+                        SCRIPT, entry ~= nil and entry.name or player_name(enemy), state, hypothesis.flip_window, #flips))
+                end
+                h.unstable = now + hypothesis.flip_window
+            end
+        end
+        if changed and (h.candidate > 0 or next(h.outcomes) ~= nil) then
+            if on(menu.resolver_log) and now >= (h.unstable or -1000) then
                 print(("[%s] resolver: %s %s AA deseni degisti (%s -> %s): hipotezler sifirlandi"):format(SCRIPT,
                     entry ~= nil and entry.name or player_name(enemy), state, h.pattern, pattern))
             end
             h.candidate, h.visited, h.outcomes, h.attempts, h.seeded = 0, {}, {}, 0, nil
-        elseif enemy_watch.multi[pattern] and h.candidate > 0 then
+        elseif (enemy_watch.multi[pattern] or now < (h.unstable or -1000)) and h.candidate > 0 then
             h.candidate, h.visited, h.attempts = 0, {}, 0
         end
         h.pattern = pattern
@@ -3204,7 +3228,8 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     -- daha once kafadan vuran bir aci var (hemen o aciyla). Jitter'li dusmanda degil.
     local known = hypothesis.known_good(h.outcomes)
     if h.candidate == 0 and raw >= 2 and (misses >= 3 or stalled or known ~= nil) and now >= h.cooldown
-        and not enemy_watch.multi[guess] then
+        and not enemy_watch.multi[guess] and now >= (h.unstable or -1000)
+        and now - (h.pattern_since or -1000) >= hypothesis.settle then
         local why = stalled and "Force ates engelliyor" or (misses >= 3 and ("%d resolver iskasi"):format(misses))
             or ("hafizada kafadan vuran aci (%d kafa), dogrulanacak"):format(h.outcomes[known].heads)
         hypothesis.advance(h, why, entry ~= nil and entry.name or player_name(enemy), state)
@@ -3640,9 +3665,10 @@ do
 
     local PLIST_BODY_VALUE = { Prefer = "On", Force = "Force", Default = "Off" }
     local HP_PLUS_ONE = 101
-    -- Bicak / zeus tutan dusman bu kadar yakinken (V1.0.14): oldurmese de vurulur, Min. damage en fazla 60.
-    -- V1.0.15: 30 iken bacaga -37 atildi; 60 bacak / kolu eler, govde (75-95) yine atilir.
-    local KNIFE_MD = { dist = 320, value = 60, logged = -1000 }
+    -- Bicak / zeus tutan dusman bu kadar yakinken (V1.0.14): oldurmese de vurulur, Min. damage en fazla 30.
+    -- Oyun logunda ilk atis (bacak -37 / mide -51) ikinci govde atisini (75+) oldurucu yapti; yuksek tutmak
+    -- ilk atisi geciktirir. Log yaklasma basina bir kez (V1.0.15: yakinda durdukca 5 sn'de bir yaziyordu).
+    local KNIFE_MD = { dist = 320, value = 30, who = nil, seen = -1000 }
 
     apply_body_aim = function(lp, class, target, level, present)
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
@@ -3742,14 +3768,15 @@ do
                 min_damage = nil
             end
         end
-        -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 60'a iner (override
-        -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 87 hasarlik atis bile iyi.
+        -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
+        -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 30 + govde 75 = olu.
         local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
             and not md_override
         if knife_md then
             min_damage = (finite(user_md) and user_md > KNIFE_MD.value) and KNIFE_MD.value or nil
-            if min_damage ~= nil and on(menu.hit_log) and (now < KNIFE_MD.logged or now - KNIFE_MD.logged > 5) then
-                KNIFE_MD.logged = now
+            local fresh = KNIFE_MD.who ~= melee_near or now < KNIFE_MD.seen or now - KNIFE_MD.seen > 2
+            KNIFE_MD.who, KNIFE_MD.seen = melee_near, now
+            if min_damage ~= nil and on(menu.hit_log) and fresh then
                 print(("[%s] %s bicak/zeus ile yakinda: Min. damage gecici %d (oldurmese de vur)"):format(
                     SCRIPT, player_name(melee_near), KNIFE_MD.value))
             end
@@ -4875,10 +4902,10 @@ do
         end
     end
 
+    -- Bos peek sayaci geri donus bitince artar (V1.0.15): donerken atis olursa peek bos sayilmaz.
     local function give_up(cmd, mine, now, reason)
         ai_peek.mode, ai_peek.until_time = "back", now + ai_peek.back_time
         move_to(cmd, mine, ai_peek.home or mine)
-        aim_stats.ai_empty = aim_stats.ai_empty + 1
         if on(menu.shot_log) then
             print(("[%s] ai peek: atis olmadi, %s (%d/%d birim gidildi) -> geri"):format(SCRIPT, reason,
                 floor(ai_peek.reached + 0.5), ai_peek.step))
@@ -4896,10 +4923,13 @@ do
         end
     end
 
+    -- aim_fire istemcide hemen gelir; weapon_fire (own.last_shot) sunucudan gec gelir (V1.0.15: arada peek
+    -- "atis olmadi" deyip bos sayiliyordu, isabetli peek'ten sonra "2 bos peek" kilidi). Donerken atis da sayilir.
     ai_peek.fired = function(id, target)
-        if (ai_peek.mode ~= "go" and ai_peek.mode ~= "hold") or id == nil then
+        if ai_peek.mode == nil or id == nil then
             return
         end
+        ai_peek.shot = true
         aim_stats.ai_shots = aim_stats.ai_shots + 1
         ai_peek.shots[id] = { name = player_name(target), reached = floor(ai_peek.reached + 0.5) }
     end
@@ -4958,7 +4988,7 @@ do
         if ai_peek.held_since == nil then
             ai_peek.held_since = now
         end
-        if (ai_peek.mode == "go" or ai_peek.mode == "hold") and own.last_shot >= ai_peek.started then
+        if (ai_peek.mode == "go" or ai_peek.mode == "hold") and (ai_peek.shot or own.last_shot >= ai_peek.started) then
             ai_peek.mode, ai_peek.target, ai_peek.fails, ai_peek.blocked = "back", nil, 0, nil
             ai_peek.until_time, ai_peek.shot = now + ai_peek.back_time, true
         end
@@ -4971,10 +5001,11 @@ do
             if ai_peek.home == nil or move_to(cmd, mine, ai_peek.home) < 6 or now > ai_peek.until_time then
                 stand(cmd)
                 ai_peek.mode, ai_peek.rest = nil, now + 0.3
-                if ai_peek.shot then
-                    ai_peek.shot = false
+                if ai_peek.shot or own.last_shot >= ai_peek.started then
+                    ai_peek.shot, ai_peek.fails, ai_peek.blocked = false, 0, nil
                     return
                 end
+                aim_stats.ai_empty = aim_stats.ai_empty + 1
                 ai_peek.fails = ai_peek.fails + 1
                 if ai_peek.fails >= 2 then
                     ai_peek.blocked = ai_peek.enemy
@@ -5110,7 +5141,7 @@ do
             ai_peek.fails = 0
         end
         ai_peek.mode, ai_peek.target, ai_peek.side, ai_peek.started = "go", result.spot, result.side, now
-        ai_peek.extended = false
+        ai_peek.extended, ai_peek.shot = false, false
         ai_peek.enemy, ai_peek.reached, ai_peek.step, ai_peek.lost, ai_peek.faked = enemy, 0, result.step, 0, false
         aim_stats.ai_peeks = aim_stats.ai_peeks + 1
         ai_peek.until_time = now + 0.25 + result.step / 120
@@ -5644,7 +5675,11 @@ listen("player_hurt", protect("player_hurt", function(e)
     end
     if e.hitgroup == 1 and not melee then
         record_phase(grp_name, phase, true)
-        sniper.record(shot_sniper, true)
+    end
+    -- Sniper exploit: govde isabeti de mermi sayilir, kafa degil (V1.0.15; oyun logu: DT'de yenen 33 isabetin
+    -- 17'si govde, HS'de 21'in hepsi kafa; govde sayilmayinca HS daha iyi gorunup 30 dk DT / defensive kapali kaldi).
+    if not melee then
+        sniper.record(shot_sniper, e.hitgroup == 1)
     end
 
     local info = attacker_info(attacker)
@@ -6021,7 +6056,7 @@ persist.save = function(force)
         return
     end
     local data = { version = 1, brute = {}, resolver = {}, phase_groups = {},
-        sniper = { hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
+        sniper = { v = 2, hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
             dt = { shots = sniper.stats.dt.shots, hits = sniper.stats.dt.hits } } }
     for key, entry in pairs(brute.enemies) do
         if steam_key(key) and entry.learned then
@@ -6160,7 +6195,8 @@ persist.load = function()
             end
         end
     end
-    if type(data.sniper) == "table" then
+    -- v2 (V1.0.15): govde isabetleri de sayiliyor; eski (govdesiz, HS'yi iyi gosteren) sayilar alinmaz.
+    if type(data.sniper) == "table" and data.sniper.v == 2 then
         for _, mode in ipairs({ "hs", "dt" }) do
             local e = data.sniper[mode]
             if type(e) == "table" and finite(e.shots) and finite(e.hits)

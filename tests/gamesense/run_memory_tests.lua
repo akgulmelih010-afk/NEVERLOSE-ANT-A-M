@@ -42,10 +42,10 @@ M.threat = 2
 
 -- enemy one: genelde statik, defensive %40; duvarli durumda kanonik +58 (aday 1) 3 kez kafadan vurmus.
 -- enemy two: hafizada jitter'ci (ama artik statik oynuyor); acik alanda -58 (aday 2) 2 kez kafadan vurmus.
--- Sniper exploit: DT 10 mermide 4 kafa (%40), HS hic denenmemis -> kesif: HS denenir.
+-- Sniper exploit: DT 10 mermide 4 kafa (%40), HS hic denenmemis -> kesif: HS denenir (v2: govde de sayilan veri).
 M.weapons[102] = { class = "CWeaponSSG08", m_iClip1 = 10, m_flNextPrimaryAttack = 0, m_iItemDefinitionIndex = 40 }
 M.db["nykle_win_gs_memory"] = { version = 1, brute = {},
-    sniper = { hs = { shots = 0, hits = 0 }, dt = { shots = 10, hits = 4 } }, resolver = {
+    sniper = { v = 2, hs = { shots = 0, hits = 0 }, dt = { shots = 10, hits = 4 } }, resolver = {
     ["s:76561198000000002"] = { name = "enemy one", results = {}, states = {},
         profile = { n = 50, jitter = 2, static = 40, spin = 0, xway = 0, random = 0, def = 20, fd = 0 },
         angles = { ["Standing|static|side"] = { { 3, 0 }, { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 0 } } } },
@@ -133,6 +133,11 @@ me.weapon = 102
 step(6)
 local hs_cb = ui.reference("AA", "Other", "On shot anti-aim")
 check(M.items[hs_cb].value == true, "hafizadaki sniper istatistigiyle kesif yapilmadi (scout HS degil)")
+-- V1.0.15: govde isabeti de sniper mermisi sayilir (kafa degil).
+for _ = 1, 3 do
+    M.fire("player_hurt", { userid = 11, attacker = 12, weapon = "ssg08", dmg_health = 1, hitgroup = 3, health = 99 })
+    step(2)
+end
 me.weapon = 101
 step(4)
 
@@ -143,6 +148,9 @@ local slot = saved and saved.angles and saved.angles["Standing|static|side"]
 check(slot ~= nil and slot[1][1] == 4, "duvarli aci sonucu hafizaya yazilmadi: " .. tostring(slot and slot[1][1]))
 local two = M.db["nykle_win_gs_memory"].resolver["s:76561198000000003"]
 check(two ~= nil and two.profile ~= nil and two.profile.jitter < 40, "yanlis aliskanlik hafizada duzeltilmedi")
+local sn = M.db["nykle_win_gs_memory"].sniper
+check(sn ~= nil and sn.v == 2 and sn.hs.shots == 3 and sn.hs.hits == 0,
+    "govde isabetleri sniper istatistigine sayilmadi: " .. tostring(sn and sn.hs and sn.hs.shots))
 
 for _, line in ipairs(M.errors_in_log()) do
     io.stderr:write("LOG ERROR: " .. line .. "\n")
