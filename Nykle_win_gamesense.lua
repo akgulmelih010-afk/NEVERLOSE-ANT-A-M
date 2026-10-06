@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.17"
+local VERSION = "1.0.18"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -437,6 +437,8 @@ do
     refs.maxshift = find({ { "MISC", "Settings", "sv_maxusrcmdprocessticks2" } }, true)
     refs.roll = find({ { "AA", "Anti-aimbot angles", "Roll" } }, true)
     refs.clantag_spammer = find({ { "MISC", "Miscellaneous", "Clan tag spammer" } }, true)
+    -- V1.0.18: jump scout (yerinde ziplarken Air strafe kapatilir).
+    refs.air_strafe = find({ { "MISC", "Movement", "Air strafe" } }, true)
 end
 
 -- Hotkey referanslari: ui.get -> aktif mi, mod (0-3), tus. Ezerken { mode, key } verilir.
@@ -1084,6 +1086,7 @@ grp.indicators = group("Visuals", "A", "Indicators", false)
 grp.panel     = group("Visuals", "B", "Resolver panel", false)
 grp.clantag   = group("Misc", "A", "Clan tag", false)
 grp.trash     = group("Misc", "A", "Trash talk", false)
+grp.movement  = group("Misc", "B", "Movement", false)
 
 STATES = {
     "Global", "Standing", "Moving", "Slow walk", "Crouching", "Crouch move", "Peek", "Air", "Air crouch",
@@ -1197,6 +1200,9 @@ menu.manual_right   = grp.aa_raw:hotkey("Manual right")
 menu.manual_forward = grp.aa_raw:hotkey("Manual forward")
 menu.inverter       = grp.aa_raw:hotkey("Static inverter")
 menu.avoid_backstab = grp.aa:switch("Avoid backstab", true)
+-- V1.0.18 (XYESOSENSE / luasense): bicakli dusman yakinken DT defensive'i de zorlanir (bicak da lag
+-- compensation'li; LC kirilinca eski kaydina vurur).
+menu.backstab_def   = grp.aa:switch("  » Defensive while knife is close", true, function() return on(menu.avoid_backstab) end)
 menu.legit_use      = grp.aa:switch("Legit AA on use", true)
 menu.spin           = grp.aa:switch("Spin when idle", true)
 -- HvH sunucularinda warmup'ta da savasiliyor, o yuzden varsayilan kapali.
@@ -1244,6 +1250,8 @@ menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
 menu.clean_shot     = grp.defensive:switch("Clean shot (no lag while shooting)", true)
+-- V1.0.18 (enderphobia "Weapon switch" tetigi, luasense defensive'i): silah cekilirken zaten ates edemiyorsun.
+menu.switch_def     = grp.defensive:switch("Defensive while switching weapons", true)
 menu.sniper_air_dt  = grp.defensive:switch("Snipers use DT in the air", false)
 
 -- Ragebot. GameSense'in kendi resolver'i acilari cozmeye devam eder; bu katman bir dusmana resolver
@@ -1365,6 +1373,10 @@ menu.tt_chat     = grp.trash:combo("  » Chat", { "All chat", "Team chat" }, tt_
 -- Satirlar arasi bekleme: cumle uzunluguna gore (NYKLE Yaw: 2.3 sn, uzunluk / 24 (kill), / 20 (olum)).
 menu.tt_delay    = grp.trash:slider("  » Message delay", 5, 50, 23, "s", tt_on, nil, 0.1)
 menu.tt_info     = grp.trash:label(DIM_HEX .. "English lines; one message set at a time.", tt_on)
+
+-- V1.0.18 (yOndery paketindeki jumpscout.lua): scout'la yerinde ziplarken GameSense'in Air strafe'i kapatilir.
+-- Onerilen ayarlara girmez (kapatirsan kapali kalir).
+menu.jump_scout  = grp.movement:switch("Jump scout (no air strafe on standing jump)", true)
 
 -- GameSense'in kendi AA ayarlari: lua acikken gizli (lua bunlari kendisi yaziyor, menusu de ayni kutuda),
 -- kapaliyken ve unload'da geri gorunur (angelwings'in yontemi).
@@ -1947,6 +1959,13 @@ local function weapon_ready(lp, lead)
     local next_attack, player_next = prop(weapon, "m_flNextPrimaryAttack"), prop(lp, "m_flNextAttack")
     local at = max(finite(next_attack) and next_attack or 0, finite(player_next) and player_next or 0)
     return at - curtime() <= lead
+end
+
+-- V1.0.18: silah cekiliyor: oyuncunun m_flNextAttack'i lead sn'den ileride (GameSense / Source silah
+-- cekerken kurar; sarjor degisiminde de kuruluyorsa orada da). Surgu (m_flNextPrimaryAttack) sayilmaz.
+local function weapon_switching(lp, lead)
+    local player_next = prop(lp, "m_flNextAttack")
+    return finite(player_next) and player_next - curtime() > lead
 end
 
 -- Silah grubu (GameSense "Weapon type" adlari): rage ayarlarini sadece elindeki silahin grubu seciliyken
@@ -2960,7 +2979,8 @@ local flip = { side = false, packets = 0, extra = 0, step = 0, yaw_n = 0, mod_n 
 
 local current = { state = "Global", side = false, limit = 60, freestand = false, defensive = false, forced = false, lc = false,
     brute = 0, phase_group = "still", resolver = 0, res_state = nil, res_prior = false, weapon = nil, lethal = false,
-    head_only = false, clean = false, hyp = nil, anti = false, fake_body = false }
+    head_only = false, clean = false, hyp = nil, anti = false, fake_body = false, switching = false, knife_def = false,
+    backstab = nil }
 
 -- Istatistigin yazilacagi grup; AA'si hareket durumundan farkli olan ozel durumlarda nil.
 brute.unlearned = { ["Safe head"] = true, Manual = true, ["Fake duck"] = true }
@@ -4260,6 +4280,24 @@ do
         return now >= anti.last and now - anti.last <= ANTI_HOLD
     end
 
+    -- V1.0.18 (enderphobia "Weapon switch" tetigi; luasense / XYESOSENSE defensive'i: weaponselect): silah
+    -- cekilirken (ya da o tick silah secilirken) zaten ates edemiyorsun, DT defensive'i zorlanir. Silah
+    -- 0.15 sn icinde hazir olacaksa birakilir (temiz atis, armed ile ayni sinir). Canli dusman yokken yok.
+    -- Bicakli dusman yakinken de (Avoid backstab'in buldugu, XYESOSENSE) zorlanir.
+    local SWITCH_LEAD = 0.15
+
+    local function switch_window(cmd)
+        if not on(menu.switch_def) then
+            return false
+        end
+        local ok, select = pcall(function() return cmd.weaponselect end)
+        local selecting = ok and finite(select) and select ~= 0
+        if not selecting and not weapon_switching(local_player(), SWITCH_LEAD) then
+            return false
+        end
+        return #enemy_list() > 0
+    end
+
     -- GameSense: defensive cmd.force_defensive ile zorlanir (Neverlose'daki Lag Options / HS "Break LC" yerine).
     -- "On peek": GameSense'in kendi davranisi (zorlama yok) + Smart / anti-peek / AI peek zorlamalari.
     -- Hidden acilar: defensive penceresi tickbase'den gorulurken pitch / yaw menu ayarina yazilir.
@@ -4283,10 +4321,15 @@ do
         local window = mode == "Smart" and (smart_window(now) or (airborne and on(menu.air_lag)))
         local guard = mode == "On peek" and on(menu.anti_peek) and anti_window(now, armed ~= false)
         local peeking = on_peek and exposure.peeking ~= nil and on(menu.peek_defensive)
-        local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF") and not clean
+        local switching = on_peek and switch_window(cmd)
+        local knife = on_peek and current.backstab ~= nil and on(menu.backstab_def)
+        local forced = (window or guard or peeking or switching or knife) and dt and exploit_active()
+            and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
         current.forced = forced
         current.anti = forced and guard
+        current.switching = forced and switching
+        current.knife_def = forced and knife
 
         -- Break LC sadece DT kapaliyken gecerli (DT, HS'den once gelir).
         local break_lc = on_peek and hs_peek or (not on_peek and hs and lc_ok and not clean)
@@ -4523,6 +4566,11 @@ end
 
 -- Avoid backstab (GameSense'in AA'sinda yok; NYKLE Yaw'daki gibi): bicakli dusman 250 birimden yakin ve
 -- goz goze ise yuzun ona doner.
+-- V1.0.18 (wraith 16 tick, XYESOSENSE 9 tick tahmini): iki oyuncunun hizindan 6 ve 12 tick (0.1 / 0.19 sn)
+-- sonraki yerleri de denenir; kosarak gelen bicakli 250 birime girmeden yakalanir. Goz gozelik simdiki ya
+-- da tahmini yerden (koseden cikmak uzere olan). Yaklasma basina bir log.
+local backstab = { range = 250, steps = { 0, 6, 12 }, who = nil, seen = -1000 }
+
 local function backstab_target(lp)
     if not on(menu.avoid_backstab) then
         return nil
@@ -4531,17 +4579,39 @@ local function backstab_target(lp)
     if mine == nil or eye == nil then
         return nil
     end
+    local interval = tick_interval()
+    local my_vel = velocity_of(lp)
+    local range2 = backstab.range * backstab.range
     for _, enemy in ipairs(enemy_list()) do
         local class = weapon_class(enemy)
         if class == "CKnife" or class == "CKnifeGG" then
             local pos = origin_of(enemy)
             if pos ~= nil then
-                local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
-                if dx * dx + dy * dy + dz * dz <= 250 * 250 then
-                    local their_eye = eye_of(enemy)
-                    local fraction, hit = trace_line(lp, eye, their_eye or pos)
-                    if fraction ~= nil and (fraction >= 0.97 or hit == enemy) then
-                        return enemy
+                local their_vel = velocity_of(enemy)
+                local their_eye = eye_of(enemy) or pos
+                for _, step in ipairs(backstab.steps) do
+                    local t = step * interval
+                    local mx, my, mz = mine.x + my_vel.x * t, mine.y + my_vel.y * t, mine.z + my_vel.z * t
+                    local px, py, pz = pos.x + their_vel.x * t, pos.y + their_vel.y * t, pos.z + their_vel.z * t
+                    local dx, dy, dz = px - mx, py - my, pz - mz
+                    local dist2 = dx * dx + dy * dy + dz * dz
+                    if dist2 <= range2 then
+                        local from = vector(eye.x + my_vel.x * t, eye.y + my_vel.y * t, eye.z + my_vel.z * t)
+                        local to = vector(their_eye.x + their_vel.x * t, their_eye.y + their_vel.y * t,
+                            their_eye.z + their_vel.z * t)
+                        local fraction, hit = trace_line(lp, from, to)
+                        if fraction ~= nil and (fraction >= 0.97 or hit == enemy) then
+                            local now = realtime()
+                            if on(menu.hit_log) and (backstab.who ~= enemy or now < backstab.seen or now - backstab.seen > 2) then
+                                local cx, cy, cz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
+                                print(("[%s] backstab: %s bicakli, %d birimde%s -> yuz ona%s"):format(SCRIPT,
+                                    player_name(enemy), round(sqrt(cx * cx + cy * cy + cz * cz)),
+                                    step > 0 and (" (%.2f sn sonra %d)"):format(t, round(sqrt(dist2))) or "",
+                                    (on(menu.backstab_def) and dt_on()) and ", defensive" or ""))
+                            end
+                            backstab.who, backstab.seen = enemy, now
+                            return enemy
+                        end
                     end
                 end
             end
@@ -5229,6 +5299,7 @@ end
 --  tick_aa: normal durum secimi, builder AA'si, anti-brute fazi, defensive, teleport.
 local function tick_prepare(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
+    current.switching, current.knife_def, current.backstab = false, false, nil
     local rec, tick = recommended_state, tickcount()
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
@@ -5387,6 +5458,7 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
         exposure.facing = nil
     else
         local knife = backstab_target(lp)
+        current.backstab = knife
         local view = knife ~= nil and view_yaw(cmd) or nil
         local mine, theirs = origin_of(lp), knife ~= nil and origin_of(knife) or nil
         if view ~= nil and mine ~= nil and theirs ~= nil then
@@ -5426,6 +5498,29 @@ listen("setup_command", protect("setup_command", function(cmd)
         return
     end
     tick_aa(cmd, lp, choked, move_state, class, aim_target)
+end))
+
+-- V1.0.18 (yOndery paketindeki jumpscout.lua): scout'la yerinde (yatay hiz < 10) ziplarken GameSense'in
+-- Air strafe'i kapatilir: havada fareyle nisan alirken auto strafe yana kaydirip isabeti bozmasin. Inene
+-- kadar kapali kalir; hareketli ziplamada, baska silahta ve yerde senin ayarin geri gelir.
+local jump_scout = { active = false, speed = 10 }
+
+listen("setup_command", protect("jump_scout", function(cmd)
+    local lp = local_player()
+    if on(menu.enabled) and on(menu.jump_scout) and refs.air_strafe ~= nil and lp ~= nil and alive(lp)
+        and user_value("air_strafe") == true then
+        if on_ground(lp) then
+            jump_scout.active = pressed(cmd.in_jump) and weapon_class(lp) == "CWeaponSSG08"
+                and speed2d(lp) < jump_scout.speed
+        end
+    else
+        jump_scout.active = false
+    end
+    if jump_scout.active then
+        override("air_strafe", false)
+    else
+        override("air_strafe", nil)
+    end
 end))
 
 -------------------------------------------------------------------------------
@@ -7000,7 +7095,7 @@ D.mine = function()
     local m = D.my
     if m == nil then
         m = { ticks = 0, forced = 0, setup = 0, pred = 0, both = 0, net = 0, dt = 0, tp = 0, tp_hit = 0,
-            tp_last = teleport.last }
+            tp_last = teleport.last, switching = 0, knife = 0 }
         D.my = m
     end
     return m
@@ -7010,6 +7105,9 @@ D.track = function(lp, now)
     local m = D.mine()
     m.ticks = m.ticks + 1
     m.forced = m.forced + (current.forced and 1 or 0)
+    -- V1.0.18: zorlananin icinde silah degisirken / bicakli yakinken olanlar.
+    m.switching = m.switching + (current.switching and 1 or 0)
+    m.knife = m.knife + (current.knife_def and 1 or 0)
     local pred = tickbase.predicted()
     m.setup = m.setup + ((tickbase.left > 0 or tickbase.jump) and 1 or 0)
     m.pred = m.pred + (pred and 1 or 0)
@@ -7101,13 +7199,14 @@ D.header = function()
 end
 
 D.settings = function()
-    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s"):format(
+    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s | air strafe %s, jump scout %s"):format(
         SCRIPT, round(1 / tick_interval()), D.setting("RAGE", "Aimbot", "Enabled"),
         D.setting("RAGE", "Aimbot", "Minimum hit chance"), tostring(get("min_damage")), tostring(get("weapon_type")),
         tostring(get("doubletap")), tostring(get("hideshots")), tostring(get("dt_fakelag")),
         D.setting("AA", "Fake lag", "Amount"), D.setting("AA", "Fake lag", "Limit"), tostring(get("maxshift")),
         tostring(on(menu.recommended)), tostring(menu.sniper_exploit ~= nil and menu.sniper_exploit:get() or "?"),
-        tostring(on(menu.auto_exploit)), tostring(on(menu.wait_real)))
+        tostring(on(menu.auto_exploit)), tostring(on(menu.wait_real)),
+        refs.air_strafe ~= nil and tostring(user_value("air_strafe")) or "?", tostring(on(menu.jump_scout)))
 end
 
 D.reset = function()
@@ -7293,8 +7392,12 @@ listen("round_start", protect("detailed log round_start", function()
         end
         local m = D.my
         if m ~= nil and m.ticks > 0 then
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s"):format(
-                SCRIPT, m.ticks, m.dt, m.forced, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
+            local extra = ""
+            if m.switching > 0 or m.knife > 0 then
+                extra = (" (silah degisirken %d, bicakli yakinken %d)"):format(m.switching, m.knife)
+            end
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s"):format(
+                SCRIPT, m.ticks, m.dt, m.forced, extra, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
                 teleport.off and " (teleport bu harita kapali)" or ""))
         end
         print(D.header())

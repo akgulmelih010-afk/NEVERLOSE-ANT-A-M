@@ -95,6 +95,7 @@ ref("RAGE", "Weapon type", "Weapon type", weapon_type_id)
 ref("MISC", "Settings", "sv_maxusrcmdprocessticks2", new_item("slider", "MISC", "Settings", "maxshift", 16, { min = 1, max = 18 }))
 ref("AA", "Anti-aimbot angles", "Roll", new_item("slider", "AA", "Anti-aimbot angles", "Roll", 0, { min = -50, max = 50 }))
 ref("MISC", "Miscellaneous", "Clan tag spammer", new_item("checkbox", "MISC", "Miscellaneous", "Clan tag spammer", true))
+ref("MISC", "Movement", "Air strafe", new_item("checkbox", "MISC", "Movement", "Air strafe", true))
 M.weapon_type_id = weapon_type_id
 
 local function fire_callbacks(id)
