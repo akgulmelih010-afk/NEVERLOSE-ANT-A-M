@@ -510,20 +510,34 @@ end
 check(log_has("kafa isabeti -> Hide shots (deneme"), "DT'de kafa yerken sniper exploit degismedi")
 step({}, 4)
 check(M.items[hs_ref].value == true, "kesifte scout Hide shots'a gecmedi")
--- Sunucu Hide shots atisini reddediyor: lua'nin lag'i yokken HS ile 60 sn'de 2 damage rejection ->
--- sniper'da (Auto) Hide shots birakilir. Tek olay yetmez.
-local function rejected_shot()
+-- Sunucu Hide shots atisini reddediyor (V1.0.19 kurali): lag yokken HS ile atilan son 4 atisin 3'u
+-- reddedildiyse ve en az 2 farkli dusmanda -> sniper'da (Auto) Hide shots birakilir. Ayni dusmana arka arkaya
+-- iki ret ve araya isabet giren retler yetmez (V1.0.17 logu: eski "60 sn'de 2 ret" kurali 3 saatte 4 kez
+-- tetiklendi, ret orani HS'de %9, DT'de %14).
+local function rejected_shot(target, rejected)
     local hits = me.props.m_totalHitsOnServer
-    M.fire("aim_fire", { id = id, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
-    me.props.m_totalHitsOnServer = hits + 1
-    M.fire("aim_miss", { id = id, target = 2, hit_chance = 85, hitgroup = 1, reason = "?" })
+    M.fire("aim_fire", { id = id, target = target, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+    if rejected then
+        me.props.m_totalHitsOnServer = hits + 1
+        M.fire("aim_miss", { id = id, target = target, hit_chance = 85, hitgroup = 1, reason = "?" })
+    else
+        M.fire("aim_hit", { id = id, target = target, hit_chance = 85, hitgroup = 1, damage = 100 })
+    end
     id = id + 1
     step({}, 2)
 end
-rejected_shot()
-check(not log_has("ile atilan atislari reddediyor"), "tek damage rejection'da exploit degisti")
-rejected_shot()
-check(log_has("sunucu Hide shots ile atilan atislari reddediyor"), "HS reddi ogrenilmedi")
+rejected_shot(2, true)
+rejected_shot(2, true)
+check(not log_has("ile atilan atislari reddediyor"), "ayni dusmana 2 damage rejection'da exploit degisti")
+check(M.items[hs_ref].value == true, "ayni dusmana 2 retten sonra scout Hide shots'tan cikti")
+rejected_shot(2, false)
+rejected_shot(2, false)
+rejected_shot(3, true)
+rejected_shot(3, true)
+check(not log_has("ile atilan atislari reddediyor"), "araya isabet giren retlerde (son 4'te 2) exploit degisti")
+rejected_shot(2, true)
+check(log_has("sunucu Hide shots ile atilan atislari reddediyor (son 4 atisin 3'i, 2 dusmanda, son: damage rejection)"),
+    "HS reddi ogrenilmedi (son 4 atisin 3'u, 2 dusman)")
 step({}, 4)
 check(M.items[hs_ref].value == false, "HS reddedilince sniper Hide shots'tan cikmadi")
 
@@ -537,6 +551,21 @@ check(ui.get(md_id) == 20, "ogrendikten sonra enemy one'a karsi kafa kurali gevs
 M.fire("level_init", {})
 step({}, 6)
 check(ui.get(md_id) == 101, "yeni haritada kafa kurali geri gelmedi: " .. tostring(ui.get(md_id)))
+-- V1.0.19: senin Min. damage'in 100 (V1.0.17 logundaki gibi; gevseme eskiden bir sey degistirmiyordu):
+-- gevseyince seni gorurken gecici 70, yeni haritada yine 101.
+ui.set(md_id, 100)
+step({}, 4)
+check(ui.get(md_id) == 101, "MD 100 iken kafa kurali 101 yazmadi: " .. tostring(ui.get(md_id)))
+M.fire("player_death", { userid = 11, attacker = 12, headshot = true })
+check(log_has("(senin Min. damage'in 100: seni gorurken gecici 70)"), "MD 100 iken ogrenme logu gecici 70 demedi")
+step({}, 4)
+check(ui.get(md_id) == 70, "MD 100 iken gevseyince Min. damage 70 olmadi: " .. tostring(ui.get(md_id)))
+check(not log_has("govde yine atilmaz"), "eski 'govde yine atilmaz' notu yazildi")
+M.fire("level_init", {})
+step({}, 6)
+check(ui.get(md_id) == 101, "MD 100 iken yeni haritada kafa kurali geri gelmedi: " .. tostring(ui.get(md_id)))
+ui.set(md_id, 20)
+step({}, 4)
 me.weapon = 101
 ui.set(M.weapon_type_id, "Rifle")
 step({}, 5)
@@ -809,6 +838,17 @@ do
     before = #M.logs
     M.press(M.find_lua("Print all logs to console").id)
     check(new_line("===== tum loglar:") ~= nil and new_line("===== loglarin sonu") ~= nil, "Print all logs calismadi")
+    -- V1.0.19: hemen ardindan Copy all logs: sebep yazilir, loglar 10 sn icinde ikinci kez konsola yazilmaz
+    -- (V1.0.17 logunda 2 sn'de 13 basis, her biri 4300 satir).
+    before = #M.logs
+    M.press(M.find_lua("Copy all logs").id)
+    local copy_line = new_line("panoya kopyalanamadi")
+    check(copy_line ~= nil and copy_line:find("kopyalanamadi (", 1, true) ~= nil
+        and copy_line:find("Allow unsafe scripts kapali olabilir", 1, true) == nil,
+        "pano yokken sebep yazilmadi: " .. tostring(copy_line))
+    check(new_line("===== tum loglar:") == nil and new_line("sn once konsola yazildi") ~= nil,
+        "Copy all logs 10 sn icinde loglari ikinci kez konsola yazdi")
+    step({}, 704)
     before = #M.logs
     M.press(M.find_lua("Copy all logs").id)
     check(new_line("panoya kopyalanamadi") ~= nil and new_line("===== tum loglar:") ~= nil,

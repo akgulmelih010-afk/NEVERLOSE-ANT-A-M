@@ -99,37 +99,53 @@ nlog.save = function()
 end
 
 -- Panoya kopyalama: CS:GO'nun VGUI_System010 arayuzu (SetClipboardText, sanal tablo 9; GameSense'in
--- clipboard kutuphanesiyle ayni). FFI ya da arayuz yoksa false.
+-- clipboard kutuphanesiyle ayni). Olmazsa false ve sebep (V1.0.19: V1.0.17 logunda 17 kez "kopyalanamadi",
+-- sebebi yazmiyordu).
 nlog.clipboard = function(text)
     local _, create = pcall(function() return client.create_interface end)
     if type(create) ~= "function" then
-        return false
+        return false, "client.create_interface yok"
     end
     local ok_ffi, ffi = pcall(require, "ffi")
     if not ok_ffi or type(ffi) ~= "table" then
-        return false
+        return false, "FFI yok: GameSense'te Allow unsafe scripts kapali"
     end
     local ok, done = pcall(function()
         local iface = create("vgui2.dll", "VGUI_System010")
         if iface == nil then
-            return false
+            return "VGUI_System010 arayuzu bulunamadi"
         end
         local vt = ffi.cast("void***", iface)
         local set_text = ffi.cast("void(__thiscall*)(void*, const char*, int)", vt[0][9])
         set_text(vt, text, #text)
         return true
     end)
-    return ok and done == true
+    if ok and done == true then
+        return true
+    end
+    return false, ok and tostring(done) or ("hata: " .. tostring(done))
 end
 
--- Bu oturumun butun satirlari konsola (dogrudan; tekrar kayda girmez).
+-- Bu oturumun butun satirlari konsola (dogrudan; tekrar kayda girmez). V1.0.19: 10 sn icinde tekrar
+-- basilirsa yazilmaz (V1.0.17 logunda Copy all logs 2 sn'de 13 kez basildi; her biri 4300 satiri yeniden
+-- konsola yaziyordu). Donus: yazildi mi.
+nlog.dumped = -1000
 nlog.dump = function()
+    local ok_rt, now = pcall(globals.realtime)
+    now = (ok_rt and type(now) == "number") and now or nil
+    if now ~= nil and now >= nlog.dumped and now - nlog.dumped < 10 then
+        nlog.raw(("[Nykle.win] loglar %.0f sn once konsola yazildi (yukari kaydir); tekrar yazmak icin 10 sn bekle"):format(
+            now - nlog.dumped))
+        return false
+    end
+    nlog.dumped = now or nlog.dumped
     local lines = nlog.lines
     nlog.raw(("[Nykle.win] ===== tum loglar: %d satir (bu oturum) ====="):format(#lines))
     for _, line in ipairs(lines) do
         nlog.raw(line)
     end
     nlog.raw("[Nykle.win] ===== loglarin sonu =====")
+    return true
 end
 
 nlog.load_old()
@@ -150,7 +166,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.18"
+local VERSION = "1.0.19"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1175,11 +1191,11 @@ menu.log_copy     = grp.console:button("Copy all logs", function()
     local text = nlog.text(true)
     local count = select(2, text:gsub("\n", "\n")) + (text ~= "" and 1 or 0)
     local file = nlog.save() and ("; dosya: %s (CS:GO klasoru)"):format(nlog.file) or ""
-    if nlog.clipboard(text) then
+    local copied, why = nlog.clipboard(text)
+    if copied then
         print(("[%s] %d satir log panoya kopyalandi (Ctrl+V ile yapistir)%s"):format(SCRIPT, count, file))
     else
-        print(("[%s] panoya kopyalanamadi (GameSense'te Allow unsafe scripts kapali olabilir): loglar asagida konsolda%s"):format(
-            SCRIPT, file))
+        print(("[%s] panoya kopyalanamadi (%s): loglar asagida konsolda%s"):format(SCRIPT, tostring(why), file))
         nlog.dump()
     end
 end)
@@ -2370,33 +2386,49 @@ sniper.decide = function()
 end
 
 -- Sunucu exploit'li atisi reddediyor mu (V1.0.8, oyun logu: Hide shots acikken arka arkaya "damage
--- rejection"): lua'nin kendi lag'i yokken ayni exploit'le (HS / DT) 60 sn icinde 2 damage rejection /
--- unregistered shot -> sniper'larda (Auto) o exploit 5 dk kullanilmaz, oteki secilir. Tek olay kanit sayilmaz.
-sniper.rejects, sniper.avoid = { hs = {}, dt = {} }, { hs = -1000, dt = -1000 }
+-- rejection"): lua'nin kendi lag'i yokken ayni exploit'le (HS / DT) atilan son 4 atisin 3'u 120 sn icinde
+-- damage rejection / unregistered shot ise ve en az 2 farkli dusmanda -> sniper'larda (Auto) o exploit 5 dk
+-- kullanilmaz, oteki secilir.
+-- V1.0.19 (V1.0.17 logu, 3 saat): eski kural "60 sn'de 2 ret" idi. Ret orani HS'de %9 (311 atista 28), DT'de
+-- %14 (35'te 5); yani HS'ye ozgu degil. 4 kez tetiklenip sniper'i toplam 20 dk DT'de birakti; o sirada
+-- dusman mermilerinin %64'u kafaya geldi (HS'de %38). Tetiklerin 3'u ayni dusmana 1-3 sn arayla iki ret
+-- (o dusmanin kaydi / pingi; V1.0.17'de Haise, bu logda Elmaci 43 atista 9 ret). Yeni kural V1.0.10-1.0.17 loglarinin
+-- hicbirinde tetiklenmiyor; sunucu HS'yi gercekten reddediyorsa 3 atista yakalar.
+sniper.recent, sniper.avoid = { hs = {}, dt = {} }, { hs = -1000, dt = -1000 }
+sniper.REJECT = { last = 4, need = 3, window = 120, distinct = 2 }
 
 sniper.avoided = function(mode)
     local until_time, now = sniper.avoid[mode], realtime()
     return until_time ~= nil and now < until_time and now >= until_time - 300
 end
 
-sniper.reject = function(mode, reason)
-    local list = sniper.rejects[mode]
+-- Her atisin sonucu (reason nil = isabet). Olum ("death") cagrilmaz.
+sniper.reject = function(mode, reason, target)
+    local list = sniper.recent[mode]
     if list == nil then
         return
     end
-    local now, kept = realtime(), {}
-    for _, t in ipairs(list) do
-        if now >= t and now - t <= 60 then
-            kept[#kept + 1] = t
+    local rule, now = sniper.REJECT, realtime()
+    list[#list + 1] = { time = now, rejected = reason == "damage rejection" or reason == "unregistered shot",
+        who = target ~= nil and player_id(target) or "?" }
+    while #list > rule.last do
+        table.remove(list, 1)
+    end
+    local count, distinct, seen = 0, 0, {}
+    for _, shot in ipairs(list) do
+        if shot.rejected and now >= shot.time and now - shot.time <= rule.window then
+            count = count + 1
+            if not seen[shot.who] then
+                seen[shot.who], distinct = true, distinct + 1
+            end
         end
     end
-    kept[#kept + 1] = now
-    sniper.rejects[mode] = kept
-    if #kept >= 2 and not sniper.avoided(mode) then
-        sniper.avoid[mode], sniper.rejects[mode] = now + 300, {}
+    if count >= rule.need and distinct >= rule.distinct and not sniper.avoided(mode) then
+        sniper.avoid[mode], sniper.recent[mode] = now + 300, {}
         if on(menu.shot_log) then
-            print(("[%s] sunucu %s ile atilan atislari reddediyor (60 sn'de 2 kez, son: %s) -> sniper'da 5 dk %s"):format(
-                SCRIPT, mode == "hs" and "Hide shots" or "Double tap", reason, mode == "hs" and "Double tap" or "Hide shots"))
+            print(("[%s] sunucu %s ile atilan atislari reddediyor (son %d atisin %d'i, %d dusmanda, son: %s) -> sniper'da 5 dk %s"):format(
+                SCRIPT, mode == "hs" and "Hide shots" or "Double tap", #list, count, distinct, reason,
+                mode == "hs" and "Double tap" or "Hide shots"))
         end
     end
 end
@@ -3569,7 +3601,10 @@ end
 -- olum): dusman seni gorurken scout "HP + 1" ile sadece oldurecek yere ates eder. Bir dusman seni sen bu
 -- kuralla ates etmeden beklerken oldurduyse bu haritada ona karsi kural gevser (aimbot senin Min. damage'inle
 -- govdeye de sikar); haritada 2 boyle olumde herkese karsi gevser. Yeni haritada sifirlanir.
+-- V1.0.19: senin Min. damage'in govdeyi zaten atmiyorsa (70'ten yuksek) gevseyince seni gorurken gecici
+-- 70 yazilir (bkz. apply_body_aim); yoksa gevseme bir sey degistirmiyordu.
 resolver.held = { total = 0, enemies = {} }
+resolver.RELAXED_MD = 70
 
 resolver.head_relaxed = function(target)
     local held = resolver.held
@@ -3589,10 +3624,10 @@ resolver.held_death = function(attacker)
     held.enemies[key] = (held.enemies[key] or 0) + 1
     held.total = held.total + 1
     if on(menu.resolver_log) then
-        -- Senin Min. damage'in zaten 100+ ise gevseme bir sey degistirmez (aimbot yine sadece oldurecek yere).
+        -- V1.0.19: senin Min. damage'in govdeyi atmayacak kadar yuksekse gorulurken gecici RELAXED_MD.
         local user_md = user_value("min_damage")
-        local note = (finite(user_md) and user_md >= 100)
-            and (" (ama senin Min. damage'in %d: govde yine atilmaz)"):format(user_md) or ""
+        local note = (finite(user_md) and user_md > resolver.RELAXED_MD)
+            and (" (senin Min. damage'in %d: seni gorurken gecici %d)"):format(user_md, resolver.RELAXED_MD) or ""
         print(("[%s] ogrenildi: %s seni sen kafa beklerken (sniper, ates etmeden) oldurdu -> bu haritada %s govde de atilacak%s"):format(
             SCRIPT, player_name(attacker), held.total >= 2 and "herkese karsi" or "ona karsi", note))
     end
@@ -3807,6 +3842,14 @@ do
                 min_damage = nil
             end
         end
+        -- V1.0.19 (V1.0.17 logu: SSG 08 Min. damage'in 100; 3 saatte 13 "ogrenildi ... kafa beklerken" ve en sik
+        -- "sikmadi" sebebi "hasar 70-89 < MD 100", 93 kez): kafa kurali gevsedi ama senin Min. damage'in
+        -- govdeyi atmiyor -> seni gorurken gecici 70 (zirhli gogus ~75). Override tusun basiliysa dokunulmaz.
+        local relaxed_md = not sniper_rule and on(menu.head_only) and info ~= nil and info[4] and exposed
+            and not md_override and finite(user_md) and user_md > resolver.RELAXED_MD and resolver.head_relaxed(target)
+        if relaxed_md then
+            min_damage = resolver.RELAXED_MD
+        end
         -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
         -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 30 + govde 75 = olu.
         local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
@@ -3820,7 +3863,7 @@ do
                     SCRIPT, player_name(melee_near), KNIFE_MD.value))
             end
         end
-        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md
+        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not relaxed_md
         override("min_damage", min_damage, scope)
     end
 end
@@ -6039,10 +6082,10 @@ local function aim_result(e, reason)
     end
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
     local lag = shot ~= nil and shot.lag or nil
-    -- Lag yokken exploit'li (HS / DT) atis reddedildiyse exploit'e yazilir (bkz. sniper.reject).
-    if (reason == "damage rejection" or reason == "unregistered shot") and lag == nil and shot ~= nil
-        and shot.exploit ~= nil then
-        sniper.reject(shot.exploit, reason)
+    -- Lag yokken exploit'li (HS / DT) atisin sonucu exploit'e yazilir (bkz. sniper.reject; V1.0.19'dan beri
+    -- reddedilmeyenler de: son 4 atis).
+    if lag == nil and shot ~= nil and shot.exploit ~= nil and reason ~= "death" and reason ~= "player death" then
+        sniper.reject(shot.exploit, reason, shot.target or target)
     end
     if (reason == "unregistered shot" or reason == "damage rejection" or reason == "prediction error")
         and lag ~= nil and resolver.unreg[lag] ~= nil then
