@@ -313,6 +313,17 @@ M.yaw_mode = nil
 step({}, 12)
 check(count_log("AA deseni kararsiz") == 1 and count_log("AA deseni degisti") == 1,
     "3f2: kararsizken desen logu tekrarlandi")
+-- 3f3) V1.0.17 (oyun logu, Haise jitter 50 <-> x-way 85): ikisi de hipotezsiz (Force safe point), aralarindaki
+-- gecis kararsizlik sayilmaz.
+step({}, 64 * 21)
+local unstable_before = count_log("AA deseni kararsiz")
+for _, mode in ipairs({ "xway", false, "xway", false, "xway", false }) do
+    M.yaw_mode = mode and { [2] = mode } or nil
+    step({}, 20)
+end
+check(count_log("AA deseni kararsiz") == unstable_before, "3f3: jitter / x-way gecisi kararsiz sayildi")
+M.yaw_mode = nil
+step({}, 12)
 
 -- 3g) Spin jitter sayilmaz; yavas yurume ayri durum.
 M.yaw_mode = { [3] = "spin" }
@@ -754,10 +765,20 @@ do
         end
         return nil
     end
-    step({}, 40)
+    -- V1.0.17: LC kiran (her 8 tick'te 100 birim isinlanan) dusman sikmadi sebebinde yazilir.
+    local base_y = e1.origin[2]
+    for i = 1, 40 do
+        if i % 8 == 0 then
+            e1.origin[2] = e1.origin[2] == base_y and base_y + 100 or base_y
+        end
+        step({}, 1)
+    end
+    e1.origin[2] = base_y
     local no_shot = new_line("dbg sikmadi: enemy one")
     check(no_shot ~= nil and no_shot:find("vurulabilir", 1, true) ~= nil and no_shot:find("@", 1, true) ~= nil
         and no_shot:find("ben @", 1, true) ~= nil, "gorup sikmadi satiri yok: " .. tostring(no_shot))
+    check(no_shot ~= nil and no_shot:find("onun kaydi LC kiriyor", 1, true) ~= nil,
+        "sikmadi satirinda LC sebebi yok: " .. tostring(no_shot))
     M.fire("aim_fire", { id = 950, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 2,
         extrapolated = true, x = 500, y = 0, z = 64 })
     M.fire("aim_miss", { id = 950, target = 2, reason = "spread" })

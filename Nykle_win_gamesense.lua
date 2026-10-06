@@ -150,7 +150,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.16"
+local VERSION = "1.0.17"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2301,7 +2301,7 @@ end
 -- Scout / AWP / R8 (tek atisli silahlar).
 local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 
--- Sniper'da hangi exploit daha az kafadan vurduruyor (Auto learn): en az 4 mermi gormeden degismez,
+-- Sniper'da hangi exploit daha az kafadan vurduruyor (Auto learn): kullanilan exploit en az 8 mermi gormeden degismez,
 -- digerinin orani 0.1 daha iyiyse ona gecer.
 -- V1.0.9: GameSense'te once DT. HS ile defensive zorlanamiyor (DT sarji yok; oyun logu: scout'ta HS iken
 -- olumlerin hepsinde "HS LC, DEF yok"): scout'ta peek'e karsi defensive, havada air lag ve teleport hic
@@ -2310,8 +2310,11 @@ local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 -- V1.0.15: "mermi" = dusmanin sana attigi her mermi: iska, govde ya da kafa (eskiden govde sayilmiyordu).
 -- V1.0.16: kendi 4 mermisi olmayan exploit'e oran karsilastirmasiyla gecilmez, sadece kesifle (oyun logu:
 -- "Hide shots 0/0, Double tap 4/4 -> Hide shots"; denenmemisin 0.5 on bilgisi 4 mermide DT'yi kapatiyordu).
+-- V1.0.17: kullanilan exploit kendi 8 mermisini gormeden birakilmaz (oyun logu: hafizada DT 4/4, HS 27 mermide
+-- 10 kafa kalmisti; DT secilmedigi icin 4 mermisi hic artmadi, her yuklemede yine Hide shots). Yuklemede once
+-- DT secilir, 8 mermiye kadar veri toplar, sonra karsilastirilir.
 local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 4,
-    explore_shots = 8, explore_rate = 0.4 }
+    stay_shots = 8, explore_shots = 8, explore_rate = 0.4 }
 
 sniper.mode = function(class)
     if not SNIPERS[class] or fd_on() then
@@ -2328,7 +2331,7 @@ end
 
 sniper.decide = function()
     local mine = sniper.stats[sniper.choice]
-    if mine.shots < sniper.min_shots then
+    if mine.shots < sniper.stay_shots then
         return sniper.choice, false
     end
     local other = sniper.choice == "hs" and "dt" or "hs"
@@ -2379,6 +2382,13 @@ sniper.reject = function(mode, reason)
     end
 end
 
+sniper.summary = function()
+    local hs, dt = sniper.stats.hs, sniper.stats.dt
+    return ("Hide shots %d/%d, Double tap %d/%d kafa isabeti -> %s"):format(floor(hs.hits + 0.5),
+        floor(hs.shots + 0.5), floor(dt.hits + 0.5), floor(dt.shots + 0.5),
+        sniper.choice == "hs" and "Hide shots" or "Double tap")
+end
+
 sniper.record = function(mode, hit)
     local stat = mode ~= nil and sniper.stats[mode] or nil
     if stat == nil then
@@ -2389,10 +2399,8 @@ sniper.record = function(mode, hit)
     if choice ~= sniper.choice then
         sniper.choice = choice
         if on(menu.hit_log) then
-            local hs, dt = sniper.stats.hs, sniper.stats.dt
-            print(("[%s] sniper exploit: Hide shots %d/%d, Double tap %d/%d kafa isabeti -> %s%s"):format(SCRIPT,
-                floor(hs.hits + 0.5), floor(hs.shots + 0.5), floor(dt.hits + 0.5), floor(dt.shots + 0.5),
-                choice == "hs" and "Hide shots" or "Double tap", exploring and " (deneme: oteki hic denenmedi)" or ""))
+            print(("[%s] sniper exploit: %s%s"):format(SCRIPT, sniper.summary(),
+                exploring and " (deneme: oteki hic denenmedi)" or ""))
         end
     end
 end
@@ -3019,6 +3027,13 @@ end
 local hypothesis = { store = {}, candidates = 5, attempts = 5, cooldown = 4, memory = 30,
     settle = 1.5, flip_window = 20, flip_max = 3 }
 
+-- V1.0.17: jitter / x-way / random tek aile (hipotez yok, Force safe point); aralarindaki gecis desen
+-- degisimi ve kararsizlik sayilmaz (oyun logu: Haise jitter 50 <-> x-way 85 arasinda okunuyordu, 9 dk'da
+-- 5 kez "AA deseni kararsiz" yazildi; hicbir etkisi yoktu).
+hypothesis.family = function(pattern)
+    return enemy_watch.multi[pattern] and "multi" or pattern
+end
+
 hypothesis.yaw = function(candidate)
     local limit = menu.hyp_angle ~= nil and menu.hyp_angle:get() or 58
     if candidate == 1 then return limit end
@@ -3190,7 +3205,7 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     local profile = enemy_watch.profile(enemy)
     local pattern = profile ~= nil and profile.pattern or nil
     if pattern ~= nil then
-        local changed = h.pattern ~= nil and pattern ~= h.pattern
+        local changed = h.pattern ~= nil and hypothesis.family(pattern) ~= hypothesis.family(h.pattern)
         if changed then
             h.pattern_since = now
             local flips = {}
@@ -6209,7 +6224,13 @@ persist.load = function()
             end
         end
         sniper.choice = "dt"
-        sniper.choice = sniper.decide()
+        local choice, exploring = sniper.decide()
+        sniper.choice = choice
+        -- V1.0.17: hangi exploit'le baslandigi yuklemede gorunsun.
+        if sniper.stats.hs.shots + sniper.stats.dt.shots > 0 and on(menu.hit_log) then
+            print(("[%s] sniper exploit (hafiza): %s%s"):format(SCRIPT, sniper.summary(),
+                exploring and " (deneme: oteki hic denenmedi)" or ""))
+        end
     end
     for _, grp_name in ipairs(brute.groups) do
         local groups = type(data.phase_groups) == "table" and data.phase_groups or nil
@@ -6854,6 +6875,11 @@ D.no_shot = function(enemy, v, lp, now)
     local t = enemy_watch.list[enemy]
     if t ~= nil and t.sim < t.max_sim then
         reasons[#reasons + 1] = "onun kaydi sahte (DEF)"
+    end
+    -- V1.0.17: LC kiran (isinlanan) kayit; oyun logunda "sebep bilinmiyor" yaziyordu (v3681, LC).
+    local profile = enemy_watch.profile(enemy)
+    if profile ~= nil and profile.lc then
+        reasons[#reasons + 1] = "onun kaydi LC kiriyor (isinlaniyor)"
     end
     if not on_ground(lp) then
         reasons[#reasons + 1] = "sen havadasin"
