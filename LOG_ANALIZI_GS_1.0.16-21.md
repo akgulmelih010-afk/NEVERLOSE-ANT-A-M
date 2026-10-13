@@ -145,6 +145,20 @@ Yargı için çok kısa: 7 atış / 7 isabet, 5 öldürme / 2 ölüm, hata yok. 
 - GameSense Lua'da başka taraf kaynağı yok: animasyon katmanları / pose parametreleri okunamıyor, GS'nin çözdüğü açı dışarı verilmiyor. Kalan tek yol: **açıyı kendimiz zorlayıp sonucu düşman başına öğrenmek**. → **V1.0.33:** statik desync'li düşmanda taraf bilgisi gerektirmeyen `abs+` / `abs-` kolları (+58 / −58), UCB ile denenir, düşman başına kalıcı öğrenilir. Statik desync'te gerçek kafa sahte yaw'ın hep aynı tarafında; 36 atışın 15'i statik düşmana gitti.
 - `sikmadi` 12: 5'i kaan / furkan'da "hasar 85–86 < MD 100" (DT çifti için can 100 > 2 × 86 değil, kural doğru).
 
+## V1.0.33 logu (onuncu log: de_mirage 10 dk, 18:27–18:37)
+
+| | V1.0.32 (20 dk) | V1.0.33 (10 dk) |
+|---|---|---|
+| Öldürme / ölüm | 18 / 21 | **17 / 8** |
+| Sana gelen isabet / kafa | 38 / 12 | 14 / 4 |
+| Senin atış / isabet | 36 / 26 (%72), 5 correction | 23 / 21 (%91), **0 correction** |
+| Kol kararı / kolla giden atış | 3 / 0 | 4 / **6** |
+
+- **Kendi resolver ilk kez atışa girdi:** `res abs+` ile 6 atış, 6 isabet (4 kafa: Ayz 3, PACo 1). Ayz'a karar 18:28:11'de "Slow walk"ta verildi, atışlar Moving / Standing / Slow walk'ta gitti (V1.0.32'nin düşman başına taşıması çalışıyor). Panelde `ABS+ 3/3` (kafaya nişanlı 3 atış sayıldı; mideye gidenler ölçüme girmez).
+- UCB sırayla deniyor: abs+ 3/3 olunca bir sonraki karar `furkan | bizim abs-` (deneme) oldu; furkan'a atış gelmedi.
+- PACo'ya duvar kararı (`wall+`) dormant'ken 37 sn asılı kaldı, bırakıldı; sonra abs+ ile 2 isabet.
+- Ölümler 8: 6'sı Peek'te. Hata yok, `sikmadi` 2. Kod değişikliği gerekmedi.
+
 ## Genel tablo
 
 | | |
