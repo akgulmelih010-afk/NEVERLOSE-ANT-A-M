@@ -80,6 +80,23 @@ Kalan kafa mermileri: 20/34 Peek'te; 17'sinde `DT %N` (şarj doluyor) ya da `DT 
 
 → **V1.0.26:** DT çifti öldürüyorsa (gövde × 2 ≥ can, DT dolu) gövde serbest: Min. damage 100 şartı "sadece öldürecek atış" demek, çift öldürüyor. Temiz atışın atış sonrası tutması 14 → 6 tick (defensive şarjla birlikte dönsün). Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
 
+## V1.0.27–1.0.29 logu (altıncı log: office DM 8 dk, fysnow 5 dk, de_mirage 22 dk / 8 round)
+
+| | V1.0.27 (office) | V1.0.28 (fysnow) | V1.0.29 (mirage) |
+|---|---|---|---|
+| Öldürme / ölüm | 5 / 16 | 5 / 6 | 13 / 25 |
+| Sana gelen isabet / kafa | 28 / 10 | 8 / 5 | 38 / 14 (%37) |
+| Senin atış / isabet | 15 / 9 | 11 / 8 | 30 / 19 (%63), 5 correction |
+| `gormedi` kafa | — | — | 4 (13 `iz: kapali`) |
+| Teleport | — | — | 3 ok / 4 vurulma |
+
+Mirage okuması:
+- **DT çifti çalışıyor:** 5 satır (`MD 86` / `MD 72` geçici), hedef kafa/mide 22/6, mideye giden 5/6 tuttu.
+- **Kendi resolver hiç uygulanmadı:** 30 atışın hepsi `res gs`, panelde `kollar: GS 6/7`. Sebep: LBY kolu sadece duran düşmana seçiliyordu (`speed < 5`), atışların 28'i hareketli hedefe gitti. → **V1.0.30:** LBY kolu yerdeki her düşmanda; taraf bilgisi gidince kol bırakılır; eşikte histerezis.
+- Faz 8 (asimetrik) 44 merminin 30'unu yedi, %30 kafa: diğer fazlarla aynı bant, öğrenme elemiyor; veri az, izlenecek.
+- `sen havadasın` 4/9 `sikmadi`: havada hit chance 40 çalışıyor (eskiden 75/254).
+- Çalışma hatası yok; Peek 10/20, Air 2/11 kafa.
+
 ## Genel tablo
 
 | | |

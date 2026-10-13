@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.29"
+local VERSION = "1.0.30"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3218,8 +3218,8 @@ end
 -- Taraf bilgisi (dusman basina 4 tick onbellek), donus: taraf ("L" / "R" / "open") ve tur:
 --  "side": duvar (anti-freestand): bizim gozumuzden dusmanin kafasinin iki yanina (gorus cizgisine dik
 --          24 birim) iz; tek taraf kapaliysa freestanding AA gercek kafayi o tarafa saklar.
---  "lby":  acik alanda duran dusmanda goz yaw ile LBY (alt govde yaw'i, sunucudan gelir) arasindaki fark
---          35+ ise tarafi o belirler (statik desync / LBY breaker).
+--  "lby":  acik alanda yerdeki dusmanda goz yaw ile LBY (alt govde yaw'i, sunucudan gelir) arasindaki fark
+--          35+ ise tarafi o belirler (statik desync / LBY breaker; V1.0.30'dan beri hareketlide de).
 --  "open": bilgi yok.
 -- Adaylar "kanonik" tutulur: kapali taraf L sayilir, R'de aday aynalanir (+aci <-> -aci). Boylece duvarin
 -- bir tarafinda kafadan vuran aci, dusman siperin obur tarafina gecince aynalanmis haliyle kullanilir.
@@ -3251,12 +3251,17 @@ hypothesis.wall_side = function(enemy)
             end
         end
     end
-    if kind == "open" and on_ground(enemy) and speed2d(enemy) < 5 then
+    -- V1.0.30: hareket eden dusmanda da. LBY sunucunun gercek goz yaw'ina 0.22 sn'de bir guncellenir; gordugumuz
+    -- goz yaw'i (sahte) ile fark desync'in kendisidir. V1.0.29 logunda 30 atisin 28'i hareketli hedefeydi ve
+    -- kol sadece durana secildigi icin hicbir atista uygulanamadi (hepsi "res gs").
+    if kind == "open" and on_ground(enemy) then
         local _, eye_yaw = prop(enemy, "m_angEyeAngles")
         local lby = prop(enemy, "m_flLowerBodyYawTarget")
         if finite(eye_yaw) and finite(lby) then
             local delta = (eye_yaw - lby + 180) % 360 - 180
-            if abs(delta) >= 35 then
+            -- Histerezis: LBY kolu seciliyken esik 25, yoksa 35 (esik etrafinda titreyip kolu dusurmesin).
+            local threshold = cached ~= nil and cached.kind == "lby" and 25 or 35
+            if abs(delta) >= threshold then
                 side, kind, mag = delta > 0 and "L" or "R", "lby", abs(delta)
             end
         end
@@ -3395,6 +3400,16 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     local habit = resolver.habit(entry)
     local guess = pattern or (habit ~= nil and habit.pattern) or nil
     h.side, h.kind, h.mag = hypothesis.wall_side(enemy)
+    -- Kendi resolver'in kolu secildigi taraf bilgisine baglidir (lby+ = LBY tarafina dogru). Bilgi kaybolur ya da
+    -- turu degisirse (lby -> open / duvar) aci dayanaksiz kalir: aday birakilir, GS resolver'ina donulur ve
+    -- yeni ture gore kol yeniden secilir (V1.0.30). Taraf (L/R) degisimi actual() ile zaten aynalaniyor.
+    if h.own_arm ~= nil and h.kind ~= h.arm_kind then
+        if on(menu.resolver_log) then
+            print(("[%s] resolver: %s %s | taraf bilgisi degisti (%s -> %s): %s kolu birakildi, GS resolver'i"):format(SCRIPT,
+                entry ~= nil and entry.name or player_name(enemy), state, h.arm_kind or "?", h.kind, h.own_arm))
+        end
+        h.candidate, h.visited, h.attempts, h.own_arm = 0, {}, 0, nil
+    end
     local slot_key = (guess or "unknown") .. "|" .. h.kind
     if h.candidate == 0 and h.seeded ~= slot_key then
         hypothesis.seed(h, entry, state, slot_key)

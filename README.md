@@ -321,7 +321,15 @@ Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 5
 
 **V1.0.28:** Misc → Movement → **Left hand (cl_righthand 0, permanent)** (açık): lua yüklenir yüklenmez silah sol ele geçer ve açık kaldıkça öyle kalır (oyun / config geri çevirse de); kapatınca ya da script kaldırılınca eski değer geri gelir.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.29 kuralları (62 kontrol).
+**V1.0.30** (V1.0.29 logu, de_mirage 22 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| LBY kolu (`lby+` / `lby-`) **hareket eden düşmanda da** seçilir (eskiden sadece duran düşmanda) | V1.0.29 oturumunda 30 atışın 28'i hareketli hedefe gitti; kol sadece durana seçildiği için hiçbir atışta uygulanmadı (hepsi `res gs`, panelde `kollar: GS 6/7`). LBY sunucunun gerçek göz yaw'ına güncellenir, gördüğümüz göz yaw'ı sahtedir; fark hareketliyken de desync'in kendisidir |
+| Taraf bilgisi kaybolur ya da türü değişirse (lby → open / duvar) seçili kol **bırakılır**, GS resolver'ına dönülür, yeni türe göre kol yeniden seçilir (logda `taraf bilgisi degisti (lby -> open): lby+ kolu birakildi`) | Kol seçildiği taraf bilgisine bağlı; bilgi gidince Force body yaw dayanaksız kalıyordu (isabetten sonra aday 30 sn tutuluyordu) |
+| LBY eşiğinde histerezis: kol seçiliyken 25°, yoksa 35° | Fark eşik etrafında titreyince kol düşüp yeniden seçilmesin |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.30 kuralları (65 kontrol).
 
 ## Notlar
 

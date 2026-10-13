@@ -361,7 +361,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.29 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.29")
+check(printed("V1.0.30 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.30")
 
 local function errors_since(i)
     local found = {}
@@ -633,7 +633,17 @@ tick(2)
 fire("aim_hit", { id = 7, target = 2, hitgroup = 1, damage = 120 })
 line = printed("atis: dusman2", before)
 check(line ~= nil and line:find("| res lby+", 1, true) ~= nil, "atis satirinda kol: res lby+ (" .. tostring(line) .. ")")
+before = #prints + 1
 W.elby[2] = 180
+tick(10)
+check(plist.get(2, "Force body yaw") == false, "V1.0.30: LBY farki kalkinca Force body yaw birakilir")
+check(printed("taraf bilgisi degisti (lby -> open): lby+ kolu birakildi", before) ~= nil, "kol birakma loga yazildi")
+-- V1.0.30: hareket eden dusmanda da LBY kolu (dusman 2 100 birim/sn ile yuruyor, fark 50).
+W.evel[2], W.elby[2] = 100, 130
+tick(10)
+check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58,
+    "V1.0.30: hareketli dusmanda da lby+ (" .. tostring(plist.get(2, "Force body yaw")) .. ")")
+W.evel[2], W.elby[2] = 0, 180
 tick(10)
 
 -------------------------------------------------------------------------------
