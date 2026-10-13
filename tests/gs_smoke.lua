@@ -361,7 +361,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.30 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.30")
+check(printed("V1.0.31 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.31")
 
 local function errors_since(i)
     local found = {}
@@ -636,8 +636,26 @@ check(line ~= nil and line:find("| res lby+", 1, true) ~= nil, "atis satirinda k
 before = #prints + 1
 W.elby[2] = 180
 tick(10)
-check(plist.get(2, "Force body yaw") == false, "V1.0.30: LBY farki kalkinca Force body yaw birakilir")
-check(printed("taraf bilgisi degisti (lby -> open): lby+ kolu birakildi", before) ~= nil, "kol birakma loga yazildi")
+check(plist.get(2, "Force body yaw") == true, "V1.0.31: LBY farki anlik kaybolunca kol tutulur (0.16 sn)")
+W.elby[2] = 130
+tick(10)
+W.elby[2] = 180
+tick(60)
+check(plist.get(2, "Force body yaw") == true, "V1.0.31: fark arada geri geldiyse kol hala tutulur")
+tick(10)
+check(plist.get(2, "Force body yaw") == false, "V1.0.30: LBY farki 1 sn kesintisiz kalkinca Force body yaw birakilir")
+check(printed("sn'dir yok (lby -> open): lby+ kolu birakildi", before) ~= nil, "kol birakma loga yazildi")
+-- V1.0.31: sag taraf (dusman 3, LBY 230: fark -50 -> R, aci aynalanir: body yaw -58); anlik kayipta secilen taraf korunur.
+W.sees[3], W.elby[3] = true, 230
+tick(20)
+check(plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") == -58,
+    "V1.0.31: sag tarafta lby+ body yaw -58 (" .. tostring(plist.get(3, "Force body yaw value")) .. ")")
+W.elby[3] = 180
+tick(10)
+check(plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") == -58,
+    "V1.0.31: anlik kayipta secilen taraf (R) korunur (" .. tostring(plist.get(3, "Force body yaw value")) .. ")")
+W.sees[3], W.elby[3] = false, 180
+tick(80)
 -- V1.0.30: hareket eden dusmanda da LBY kolu (dusman 2 100 birim/sn ile yuruyor, fark 50).
 W.evel[2], W.elby[2] = 100, 130
 tick(10)

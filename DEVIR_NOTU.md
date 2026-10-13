@@ -123,4 +123,4 @@ Her şey tek dosyada, yukarıdan aşağı:
 
 - Anti-cheat ya da sunucu korumalarını (örneğin sunucunun kapattığı roll ve cezası) atlatmaya yönelik hiçbir şey yok ve eklenmeyecek.
 - Oyuncu yokken kendi kendine oynayan otomasyon (tuşsuz, AFK peek) yok. AI peek tuşla çalışır.
-- GameSense sürümü ayrı dosyada: `Nykle.win.gamesense.lua` (V1.0.30; oyunda `Nykle_win_gamesense.lua` adıyla). Duman testi `tests/run_gs_smoke.sh` (`tests/gs_smoke.lua`: sahte GameSense API'si, 65 kontrol). Piyasa lualarıyla karşılaştırma `LUA_KARSILASTIRMA.md`. Log analizi `LOG_ANALIZI_GS_1.0.16-21.md`; `README.md` → "GameSense edition".
+- GameSense sürümü ayrı dosyada: `Nykle.win.gamesense.lua` (V1.0.31; oyunda `Nykle_win_gamesense.lua` adıyla). Duman testi `tests/run_gs_smoke.sh` (`tests/gs_smoke.lua`: sahte GameSense API'si, 69 kontrol). Piyasa lualarıyla karşılaştırma `LUA_KARSILASTIRMA.md`. Log analizi `LOG_ANALIZI_GS_1.0.16-21.md`; `README.md` → "GameSense edition".

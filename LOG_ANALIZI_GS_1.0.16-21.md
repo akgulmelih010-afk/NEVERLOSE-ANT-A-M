@@ -97,6 +97,21 @@ Mirage okuması:
 - `sen havadasın` 4/9 `sikmadi`: havada hit chance 40 çalışıyor (eskiden 75/254).
 - Çalışma hatası yok; Peek 10/20, Air 2/11 kafa.
 
+## V1.0.30 logu (yedinci log: de_mirage 26 dk, 16:50–17:16)
+
+| | V1.0.29 (mirage 22 dk) | V1.0.30 (mirage 26 dk) |
+|---|---|---|
+| Öldürme / ölüm | 13 / 25 | **22 / 17** |
+| Sana gelen isabet / kafa | 38 / 14 (%37) | 33 / 10 (**%30**) |
+| Senin atış / isabet | 30 / 19 (%63), 5 correction | 30 / 27 (**%90**), 2 correction |
+| `gormedi` kafa | 4 | 11 (13 `iz: kapali`) |
+| DT çifti | 5 | 7 |
+
+- **Kendi resolver yine uygulanmadı, bu kez başka sebepten:** 8 kol seçimi (`bizim lby+ ... (deneme)`) ve 8'i aynı saniye `taraf bilgisi degisti (lby -> open): lby+ kolu birakildi`. LBY farkı anlık: düşman yürürken LBY göz yaw'ına eşitleniyor, fark bir an 0'a düşüyor (vurulma-detay'da `lby+0` / `lby-106` yan yana). V1.0.30'un "bilgi gidince bırak" kuralı fazla hevesliydi. → **V1.0.31:** 1 sn kesintisiz kayıp şartı; anlık kayıpta seçilen taraf korunur.
+- Seçimlerin hepsi `(deneme)`: GS kolu 23/24 ile çok yüksek skorlu, LBY kolu sadece %15 denemeyle seçiliyor. Bu doğru: GS bu sunucuda %90 tutuyor, kendi kol ancak veri biriktirince öne geçer.
+- Gerçek kayıt bekleme: 46 kez kayıt geldi, 76 kez 14 tick sınırı doldu (XOXO 41 kez / round defensive'de). Sahte kayda giden 4 atışın 2'si tuttu.
+- Ölümlerin 17'si Peek'te (33 isabetin 17'si); kafa 10/33, faz 0 ve 8'de 3+3.
+
 ## Genel tablo
 
 | | |

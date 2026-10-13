@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.30"
+local VERSION = "1.0.31"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3403,12 +3403,20 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     -- Kendi resolver'in kolu secildigi taraf bilgisine baglidir (lby+ = LBY tarafina dogru). Bilgi kaybolur ya da
     -- turu degisirse (lby -> open / duvar) aci dayanaksiz kalir: aday birakilir, GS resolver'ina donulur ve
     -- yeni ture gore kol yeniden secilir (V1.0.30). Taraf (L/R) degisimi actual() ile zaten aynalaniyor.
-    if h.own_arm ~= nil and h.kind ~= h.arm_kind then
-        if on(menu.resolver_log) then
-            print(("[%s] resolver: %s %s | taraf bilgisi degisti (%s -> %s): %s kolu birakildi, GS resolver'i"):format(SCRIPT,
-                entry ~= nil and entry.name or player_name(enemy), state, h.arm_kind or "?", h.kind, h.own_arm))
+    -- Anlik kayip sayilmaz: bilgi grace sn boyunca kesintisiz yoksa birakilir (V1.0.31).
+    if h.own_arm ~= nil then
+        if h.kind == h.arm_kind then
+            h.kind_seen, h.arm_side = now, h.side
+        elseif now - (h.kind_seen or now) <= hypothesis.own.grace then
+            -- Bilgi yokken taraf "open" doner ve aci aynalanmaz kalirdi: secildigi taraf korunur.
+            h.side = h.arm_side or h.side
+        else
+            if on(menu.resolver_log) then
+                print(("[%s] resolver: %s %s | taraf bilgisi %.1f sn'dir yok (%s -> %s): %s kolu birakildi, GS resolver'i"):format(SCRIPT,
+                    entry ~= nil and entry.name or player_name(enemy), state, now - h.kind_seen, h.arm_kind or "?", h.kind, h.own_arm))
+            end
+            h.candidate, h.visited, h.attempts, h.own_arm = 0, {}, 0, nil
         end
-        h.candidate, h.visited, h.attempts, h.own_arm = 0, {}, 0, nil
     end
     local slot_key = (guess or "unknown") .. "|" .. h.kind
     if h.candidate == 0 and h.seeded ~= slot_key then
@@ -3426,6 +3434,7 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
             if arm ~= "gs" then
                 local c = hypothesis.own.candidate(arm, h.kind, h.mag)
                 h.candidate, h.visited, h.attempts, h.feedback, h.own_arm = c, { [c] = true }, 1, now, arm
+                h.kind_seen, h.arm_side = now, h.side
                 if on(menu.resolver_log) then
                     print(("[%s] resolver: %s %s | bizim %s (%s %s%s) body yaw %d%s%s | kollar: %s"):format(SCRIPT,
                         entry ~= nil and entry.name or player_name(enemy), state, arm,
@@ -3540,6 +3549,10 @@ hypothesis.own = {
     arms = { "gs", "lby+", "lby-", "wall+", "wall-" },
     prior = { gs = 0.55, ["lby+"] = 0.62, ["lby-"] = 0.45, ["wall+"] = 0.60, ["wall-"] = 0.45 },
     stats = {}, k_global = 8, k_enemy = 4, explore_max = 30, hold = 10, cap_global = 60, cap_enemy = 20,
+    -- Taraf bilgisi bu kadar sn kesintisiz kaybolursa kol birakilir (V1.0.31). LBY farki anlik olculur: dusman
+    -- yururken LBY her guncellemede goz yaw'ina esitlenir, fark bir an 0 olup geri gelir. V1.0.30 logunda 8 kol
+    -- secimi ayni saniye "lby -> open" ile birakildi, hicbir atis kolla gitmedi.
+    grace = 1.0,
 }
 
 hypothesis.own.reset = function()

@@ -329,7 +329,14 @@ Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 5
 | Taraf bilgisi kaybolur ya da türü değişirse (lby → open / duvar) seçili kol **bırakılır**, GS resolver'ına dönülür, yeni türe göre kol yeniden seçilir (logda `taraf bilgisi degisti (lby -> open): lby+ kolu birakildi`) | Kol seçildiği taraf bilgisine bağlı; bilgi gidince Force body yaw dayanaksız kalıyordu (isabetten sonra aday 30 sn tutuluyordu) |
 | LBY eşiğinde histerezis: kol seçiliyken 25°, yoksa 35° | Fark eşik etrafında titreyince kol düşüp yeniden seçilmesin |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.30 kuralları (65 kontrol).
+**V1.0.31** (V1.0.30 logu, de_mirage 26 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| Kol, taraf bilgisi **1 sn kesintisiz** yoksa bırakılır (anlık kayıp sayılmaz); logda `taraf bilgisi 1.2 sn'dir yok (lby -> open): lby+ kolu birakildi` | LBY farkı anlık ölçülür: düşman yürürken LBY her güncellemede göz yaw'ına eşitlenir, fark bir an 0 olup geri gelir. V1.0.30 oturumunda 8 kol seçiminin 8'i aynı saniye bırakıldı, 30 atışın hepsi yine `res gs` |
+| Bilgi anlık yokken seçildiği taraf (L/R) korunur | Taraf `open` dönünce açı aynalanmıyor, sağ taraf kolu sol açıya kayıyordu |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.31 kuralları (69 kontrol).
 
 ## Notlar
 
