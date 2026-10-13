@@ -63,7 +63,20 @@ Dördüncü log: V1.0.24 ile 14 dk DM (dm_hvh_fysnow_bc_aurorahvh, 14:49–15:03
 | `sikmadi` → ölüm (2 sn) | 9, 8'inde gövde 70+ vardı (`Body 70+` kapalı) |
 | Sahte / gerçek kayda atış | 16/23 · 23/42 (küçük örnek) |
 
-Okuma: ölümlerin çoğu ekranda hiç görünmeyen, defensive'li, uzak scout'lardan; o sırada defensive kapalı (`On peek` görünmeyen düşmana zorlamıyor). → Smart artık 1800 birim içinde düşman varken de zorlar; dururken / eğilirken / freestanding'de varsayılan Smart. Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
+Okuma: ölümlerin çoğu ekranda hiç görünmeyen, defensive'li, uzak scout'lardan; o sırada defensive kapalı (`On peek` görünmeyen düşmana zorlamıyor). → Smart artık 1800 birim içinde düşman varken de zorlar; dururken / eğilirken / freestanding'de varsayılan Smart.
+
+## V1.0.25'in ilk logu (aynı harita, 10 dk, 15:11–15:21)
+
+| | V1.0.24 (14 dk) | V1.0.25 (10 dk) |
+|---|---|---|
+| Öldürme / ölüm | 29 / 49 | **41 / 46** |
+| Sana gelen mermi / isabet / kafa | 103 / 75 / 48 (%64 kafa) | 82 / 68 / 34 (**%50**) |
+| `gormedi` kafa | 21 | **5** |
+| Senin atış / isabet | 65 / 39 (%60) | 79 / 54 (**%68**) |
+| Sahte / gerçek kayda atış | 16/23 · 23/42 | 11/19 · 39/56 |
+| Teleport | 15, 2 vurulma | 3, 2 vurulma → haritada kapandı |
+
+Kalan kafa mermileri: 20/34 Peek'te; 17'sinde `DT %N` (şarj doluyor) ya da `DT dolu, DEF yok` ve 12'si **kendi atışından 0.4 sn içinde**: DT'yle ateş ettin, şarj boşaldı, karşılık geldi. Bu DT'nin kendi bedeli, script'ten azalmaz; peek'ten sonra geri çekilmek (AI peek bunu yapıyor) tek çözüm. `sikmadi` → ölüm 12, 11'inde gövde 70+ vardı (`Body 70+` hâlâ kapalı). Kod değişikliği yok. Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
 
 ## Genel tablo
 
