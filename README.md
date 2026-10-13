@@ -298,7 +298,14 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | **DT pair counts as lethal** (Ragebot → Resolver, açık): scout DT iki mermi atar; DT doluyken gövde × 2 ≥ can (ve tek mermi ≥ 60) ise atış "öldürücü" sayılır, Min. damage geçici olarak gövde hasarının 1 altına iner. DT boşken kural eskisi gibi (can + 1). | Beş logda da en büyük ölüm kaynağı: gövdeye 70–87 vurabilirken kafa beklemek (son oturumda 12 ölümün 11'i). "Min. damage 100 = sadece öldürecek atış" şartı korunur: çift öldürüyor. |
 | Temiz atışın atış sonrası tutması 14 → 6 tick | Kafa mermilerinin 12'si kendi DT atışından 0.4 sn içinde; 14 tick, DT şarjının geri gelişi kadar sürüp defensive'i geciktiriyordu. DT'nin ikinci mermisi 1–2 tick sonra gider. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.26 kuralları (46 kontrol).
+**V1.0.27** (piyasadaki lualarla karşılaştırma, `LUA_KARSILASTIRMA.md`):
+
+| Değişiklik | Nereden / neden |
+|---|---|
+| Anti-brute **faz 8**: taraflar eşit sürmez (bir taraf 2 paket uzun, uzun taraf her 4 çevirmede değişir); öğrenme seçer | abyss lua'sının "Switch" body jitter'ı; "her N tick'te bir çeviriyor" diye brute eden resolver periyodu tutturamaz |
+| **In-air hit chance (snipers)** (Exploits → Defensive, varsayılan 40, 0 = kapalı): havada sniper tutarken Minimum hit chance geçici bu değer | abyss'in durum başına hit chance'i; 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55), havadan giden atışlar %67–89 tuttu |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.27 kuralları (49 kontrol).
 
 ## Notlar
 

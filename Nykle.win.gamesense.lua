@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.26"
+local VERSION = "1.0.27"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -452,6 +452,8 @@ do
     refs.force_body = find({ { "RAGE", "Aimbot", "Force body aim" } }, true)
     refs.min_damage = find({ { "RAGE", "Aimbot", "Minimum damage" } })
     refs.md_override, refs.md_override_key, refs.md_override_value = find({ { "RAGE", "Aimbot", "Minimum damage override" } }, true)
+    -- V1.0.27: havada sniper icin isabet sansi (abyss lua'sinin durum basina hit chance'i).
+    refs.hit_chance = find({ { "RAGE", "Aimbot", "Minimum hit chance" } }, true)
     refs.weapon_type = find({ { "RAGE", "Weapon type", "Weapon type" } }, true)
     refs.maxshift = find({ { "MISC", "Settings", "sv_maxusrcmdprocessticks2" } }, true)
     refs.roll = find({ { "AA", "Anti-aimbot angles", "Roll" } }, true)
@@ -513,7 +515,7 @@ local override, is_overridden, user_value, reset_overrides, forget_overrides
 do
     local MODE_NAMES = { [0] = "Always on", "On hotkey", "Toggle", "Off hotkey" }
     -- Silah grubuna gore ayri tutulan rage ayarlari (GameSense "Weapon type").
-    local RAGE_SCOPED = { min_damage = true, prefer_safe = true }
+    local RAGE_SCOPED = { min_damage = true, prefer_safe = true, hit_chance = true }
     local REJECT_RETRY = 5
     local overridden, rejected, reported = {}, {}, {}
 
@@ -1277,6 +1279,10 @@ menu.clean_shot     = grp.defensive:switch("Clean shot (no lag while shooting)",
 -- V1.0.18 (enderphobia "Weapon switch" tetigi, luasense defensive'i): silah cekilirken zaten ates edemiyorsun.
 menu.switch_def     = grp.defensive:switch("Defensive while switching weapons", true)
 menu.sniper_air_dt  = grp.defensive:switch("Snipers use DT in the air", false)
+-- V1.0.27 (abyss lua'sinin durum basina hit chance'i; bes logda 254 "sikmadi"nin 75'i "sen havadasin", hepsi hc 55):
+-- havada sniper tutarken Minimum hit chance gecici bu deger (0 = kapali). Sadece oldurecek atis kurali havada da gecerli;
+-- loglarda havadan giden atislar %67-89 tuttu.
+menu.air_hc         = grp.defensive:slider("In-air hit chance (snipers, 0 = off)", 0, 100, 40, "%")
 
 -- Ragebot. GameSense'in kendi resolver'i acilari cozmeye devam eder; bu katman bir dusmana resolver
 -- yuzunden ("?" iskasi) iska gectikce sadece o dusmana karsi safe point'i yukseltir.
@@ -2263,6 +2269,10 @@ local BRUTE_PHASES = {
     { invert = false, scale = 1.0,  shift = 0, freestand = true },
     { invert = false, scale = 0.55, shift = 0 },
     { invert = true,  scale = 0.7,  shift = 10 },
+    -- V1.0.27 (abyss lua'sinin "Switch" body jitter'i): taraflar esit surmez, bir taraf asym paket daha uzun
+    -- tutulur ve uzun taraf her 4 cevirmede yer degistirir; "her N tick'te bir ceviriyor" diye brute eden
+    -- resolver periyodu tutturamaz. Digerleri gibi ogrenmeyle secilir.
+    { invert = false, scale = 1.0,  shift = 0, asym = 2 },
 }
 
 -- enemies[key] = { stage, time, base, learned, last, shot_stage, name, seen }; anahtar Steam ID.
@@ -3995,6 +4005,21 @@ do
         current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not body_md and not pair_md
         override("min_damage", min_damage, scope)
     end
+
+    -- Havada sniper: Minimum hit chance gecici menu.air_hc (V1.0.27). Yerde ya da baska silahta senin degerin
+    -- geri gelir; senin degerin zaten daha dusukse dokunulmaz. Silah grubu seciliyken yazilir (rage_scope).
+    resolver.air_hitchance = function(lp, class)
+        local value = menu.air_hc ~= nil and menu.air_hc:get() or 0
+        local scope = rage_scope(class)
+        local wanted = nil
+        if finite(value) and value > 0 and SNIPERS[class] and lp ~= nil and not on_ground(lp) then
+            local user_hc = user_value("hit_chance")
+            if not finite(user_hc) or user_hc > value then
+                wanted = value
+            end
+        end
+        override("hit_chance", wanted, scope)
+    end
 end
 
 local function update_flip(s, exploit, choked)
@@ -4004,6 +4029,11 @@ local function update_flip(s, exploit, choked)
     end
     flip.packets = flip.packets + 1
     local target = exploit and s.delay:get() + flip.extra or 1
+    -- Faz 8 (V1.0.27): bir taraf asym paket daha uzun; uzun taraf her 4 cevirmede degisir.
+    local phase = BRUTE_PHASES[current.brute]
+    if exploit and phase ~= nil and phase.asym ~= nil and flip.side == (flip.step % 8 < 4) then
+        target = target + phase.asym
+    end
     if flip.packets < target then
         return
     end
@@ -5591,6 +5621,7 @@ local function tick_prepare(cmd)
     local present = {}
     local aim_target, resolver_raw = apply_resolver(class, present)
     apply_body_aim(lp, class, aim_target, resolver_raw, present)
+    resolver.air_hitchance(lp, class)
     resolver.wait_apply(class, present)
     plist_release_missing(present)
     update_ai_peek(lp, cmd, class)

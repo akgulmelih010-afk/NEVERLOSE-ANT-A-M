@@ -356,7 +356,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.26 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.26")
+check(printed("V1.0.27 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.27")
 
 local function errors_since(i)
     local found = {}
@@ -592,8 +592,11 @@ W.head_dmg[3], W.body_dmg[3] = 0, 0
 -------------------------------------------------------------------------------
 -- V1.0.23: havada kotu bilinen faz 1 (hafiza: 15/20) dusman basina ilerlemede atlanir
 -------------------------------------------------------------------------------
+local hc_ref = find_ref("Minimum hit chance")
+check(hc_ref ~= nil and hc_ref.value == 55, "yerde hit chance senin 55")
 W.flags, W.speed, W.sees[2] = 0, 200, true -- havada
 tick(10)
+check(hc_ref.value == 40, "V1.0.27: havada sniper hit chance 40 (" .. tostring(hc_ref.value) .. ")")
 before = #prints + 1
 fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 100, hitgroup = 1, weapon = "ssg08" })
 line = printed("vuruldun:", before)
@@ -606,6 +609,7 @@ line = printed("vuruldun:", before)
 check(line ~= nil and line:find("faz 2", 1, true) ~= nil, "ogrenilen faz 1 kotu bilindigi icin faz 2 (" .. tostring(line) .. ")")
 W.flags, W.speed, W.sees[2] = 1, 0, false
 tick(10)
+check(hc_ref.value == 55, "yere inince hit chance geri 55 (" .. tostring(hc_ref.value) .. ")")
 
 -------------------------------------------------------------------------------
 -- Kapanis
