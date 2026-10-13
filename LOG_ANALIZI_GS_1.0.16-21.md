@@ -127,6 +127,10 @@ Mirage okuması:
 - Correction ıskası 2 → 12 (%28): Black Beatles 4, ﷽﷽ 3, furkan 2. Çoğu `BA Off` ile (bu oturumda body aim kapalı, kafa 32/43). Kendi kol tam bu düşmanlarda devreye girmeliydi; Black Beatles'ta skorla (`GS 1/4`) seçildi ama durum anahtarına takıldı.
 - Çalışma hatası yok; gerçek kayıt bekleme ve DT çifti öncekiyle aynı.
 
+## V1.0.32 logu (dokuzuncu log: de_mirage 2 dk, 18:00–18:02)
+
+Yargı için çok kısa: 7 atış / 7 isabet, 5 öldürme / 2 ölüm, hata yok. Kendi resolver bir kez kol seçti (`kaan Standing | bizim wall+ (duvar L)`), aynı saniye kaan'ın AA deseni static → x-way'e döndü (hipotezler sıfırlandı; x-way çok yönlü desen, kol uygulanmaz) ve kaan 27 sn siper olmayan yerde yürüdü → kol bırakıldı (doğru). kaan'a tek atış x-way + sahte kayıtta gitti, `res gs`. V1.0.32'nin durum taşıması bu oturumda sınanmadı; uzun oturum gerekli.
+
 ## Genel tablo
 
 | | |
