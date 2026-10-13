@@ -363,7 +363,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.32 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.32")
+check(printed("V1.0.33 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.33")
 
 local function errors_since(i)
     local found = {}
@@ -654,11 +654,21 @@ W.elby[2] = 180
 tick(60)
 check(plist.get(2, "Force body yaw") == true, "V1.0.31: fark arada geri geldiyse kol hala tutulur")
 tick(10)
-check(plist.get(2, "Force body yaw") == false, "V1.0.30: LBY farki 1 sn kesintisiz kalkinca Force body yaw birakilir")
-check(printed("sn'dir yok (lby -> open): lby+ kolu birakildi", before) ~= nil, "kol birakma loga yazildi")
+check(printed("sn'dir yok (lby -> open): lby+ kolu birakildi", before) ~= nil, "V1.0.30: LBY farki 1 sn kesintisiz kalkinca lby+ kolu birakilir (loga yazildi)")
+-- V1.0.33: taraf bilgisi yok ama desen statik -> abs+ kolu (dogrudan +58), atis "res abs+" ile etiketlenir.
+check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58
+    and printed("| bizim abs+ (statik desync, taraf bilgisi yok) body yaw 58", before) ~= nil,
+    "V1.0.33: statik dusmanda taraf bilgisi yokken abs+ kolu (" .. tostring(plist.get(2, "Force body yaw value")) .. ")")
+before = #prints + 1
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+fire("aim_fire", { id = 8, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+tick(2)
+fire("aim_hit", { id = 8, target = 2, hitgroup = 1, damage = 120 })
+line = printed("atis: dusman2", before)
+check(line ~= nil and line:find("| res abs+", 1, true) ~= nil, "V1.0.33: atis satirinda res abs+ (" .. tostring(line) .. ")")
 -- V1.0.31: sag taraf (dusman 3, LBY 230: fark -50 -> R, aci aynalanir: body yaw -58); anlik kayipta secilen taraf korunur.
 W.sees[3], W.elby[3] = true, 230
-tick(20)
+tick(80) -- dusman 3 daha once statik + acikta gorulmustu (abs+ karari olabilir): 1 sn'de birakilir, lby+ secilir
 check(plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") == -58,
     "V1.0.31: sag tarafta lby+ body yaw -58 (" .. tostring(plist.get(3, "Force body yaw value")) .. ")")
 W.elby[3] = 180
@@ -668,9 +678,11 @@ check(plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw va
 W.sees[3], W.elby[3] = false, 180
 tick(80)
 -- V1.0.30: hareket eden dusmanda da LBY kolu (dusman 2 100 birim/sn ile yuruyor, fark 50).
+before = #prints + 1
 W.evel[2], W.elby[2] = 100, 130
-tick(10)
-check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58,
+tick(80) -- abs+ kolu (open) 1 sn sonra birakilir, LBY bilgisiyle lby+ secilir
+check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58
+    and printed("| bizim lby+ (lby L 50", before) ~= nil,
     "V1.0.30: hareketli dusmanda da lby+ (" .. tostring(plist.get(2, "Force body yaw")) .. ")")
 W.evel[2], W.elby[2] = 0, 180
 tick(10)

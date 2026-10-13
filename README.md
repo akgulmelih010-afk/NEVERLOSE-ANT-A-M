@@ -345,7 +345,15 @@ Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 5
 | İsabet eden kol düşmanda kalır; resolver ıskasında bırakılır ve yeniden seçilir. Bilgi kaybında karar da sıfırlanır (bilgi dönünce beklemeden yeni karar) | Her atıştan sonra karar sıfırlanınca bilgi o an yoksa kol kayboluyordu |
 | LBY farkı **150° üstü** taraf bilgisi sayılmaz | 178°, 122°, 111° gibi "farklar": desync en çok ~58°, bu LBY kırıcı / bayat LBY; işaret anlamsız |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.32 kuralları (70 kontrol). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.33** (V1.0.32 logu, de_mirage 20 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| Yeni kollar **`abs+` / `abs-`**: taraf bilgisi (LBY / duvar) yokken **statik desync'li** düşmanda doğrudan body yaw +58 / −58; hangi taraf olduğu düşman başına öğrenilir (kalıcı), ön bilgi 0.50 / 0.50 | 36 atışın 28'inde LBY farkı 0, 20 dakikada sadece 3 kol kararı: LBY ve duvar bilgisi nadir. Statik desync'te gerçek kafa sahte yaw'ın hep aynı tarafında; 36 atışın 15'i statik düşmana. Jitter / x-way'de yok (her pakette taraf değişir) |
+| Own resolver kapatılınca bekleyen karar silinir | Kapalıyken eski karar Force body yaw'ı tutuyordu |
+| Log: `bizim abs+ (statik desync, taraf bilgisi yok) body yaw 58°`, atışta `res abs+` | |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.33 kuralları (71 kontrol). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

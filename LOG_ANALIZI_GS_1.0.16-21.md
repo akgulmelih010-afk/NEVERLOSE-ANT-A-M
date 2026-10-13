@@ -131,6 +131,20 @@ Mirage okuması:
 
 Yargı için çok kısa: 7 atış / 7 isabet, 5 öldürme / 2 ölüm, hata yok. Kendi resolver bir kez kol seçti (`kaan Standing | bizim wall+ (duvar L)`), aynı saniye kaan'ın AA deseni static → x-way'e döndü (hipotezler sıfırlandı; x-way çok yönlü desen, kol uygulanmaz) ve kaan 27 sn siper olmayan yerde yürüdü → kol bırakıldı (doğru). kaan'a tek atış x-way + sahte kayıtta gitti, `res gs`. V1.0.32'nin durum taşıması bu oturumda sınanmadı; uzun oturum gerekli.
 
+### Devamı: aynı oturumun tamamı (de_mirage 20 dk, 18:00–18:20)
+
+| | V1.0.31 | V1.0.32 |
+|---|---|---|
+| Öldürme / ölüm | 24 / 25 | 18 / 21 |
+| Sana gelen isabet / kafa | 39 / 15 (%38) | 38 / 12 (%32) |
+| Senin atış / isabet | 43 / 29 (%67), 12 correction | 36 / 26 (%72), 5 correction |
+| Kol kararı / kolla giden atış | 12 / 0 | 3 / 0 |
+
+- Durum taşıması çalışıyor ama **karar verecek bilgi yok**: 36 atışın 28'inde atış-detay'daki LBY farkı 0 (`lby+0`), 35° üstü sadece 8'inde (70, 146, 47, 168 …). Duvar kararı 20 dakikada 1. Jitter / x-way düşman 21 atış (kol yok), "AA deseni kararsız" 23 satır (e 14).
+- İki karar düşman dormant'ken 26–28 sn asılı kaldı (güncelleme gelmedi), bırakıldı; biri (kaan 18:13:39) 1 sn sonra bırakıldı. Hiçbiri atışa denk gelmedi.
+- GameSense Lua'da başka taraf kaynağı yok: animasyon katmanları / pose parametreleri okunamıyor, GS'nin çözdüğü açı dışarı verilmiyor. Kalan tek yol: **açıyı kendimiz zorlayıp sonucu düşman başına öğrenmek**. → **V1.0.33:** statik desync'li düşmanda taraf bilgisi gerektirmeyen `abs+` / `abs-` kolları (+58 / −58), UCB ile denenir, düşman başına kalıcı öğrenilir. Statik desync'te gerçek kafa sahte yaw'ın hep aynı tarafında; 36 atışın 15'i statik düşmana gitti.
+- `sikmadi` 12: 5'i kaan / furkan'da "hasar 85–86 < MD 100" (DT çifti için can 100 > 2 × 86 değil, kural doğru).
+
 ## Genel tablo
 
 | | |

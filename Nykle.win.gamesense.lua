@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.32"
+local VERSION = "1.0.33"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3408,6 +3408,10 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     -- (havada yazilmaz, orada Force safe point). Kol secildigi taraf bilgisine baglidir (lby+ = LBY tarafina
     -- dogru): bilgi grace sn kesintisiz yoksa ya da turu degisirse (lby -> open / duvar) kol birakilir
     -- (V1.0.30/31); anlik kayipta secildigi taraf (L/R) korunur, aci aynalanmaz kalmasin.
+    if entry ~= nil and entry.own ~= nil and not on(menu.own_res) then
+        -- Secenek kapatildi: karar silinir, durum hipotezleri asagida kendiliginden birakilir.
+        entry.own, entry.own_choice = nil, nil
+    end
     local own = entry ~= nil and entry.own or nil
     if own ~= nil then
         if h.kind == own.kind then
@@ -3442,10 +3446,10 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
         local c = hypothesis.own.candidate(own.arm, own.kind, own.mag)
         h.candidate, h.visited, h.attempts, h.feedback = c, { [c] = true }, 1, now
         h.own_arm, h.own_stamp = own.arm, own.stamp
-    elseif own_ok and own == nil and h.candidate == 0 and h.kind ~= "open" then
+    elseif own_ok and own == nil and h.candidate == 0 and (h.kind ~= "open" or guess == "static") then
         local choice = entry.own_choice
         if choice == nil or choice.kind ~= h.kind or now < choice.time or now - choice.time > hypothesis.own.hold then
-            local arm, exploring = hypothesis.own.choose(entry, h.kind)
+            local arm, exploring = hypothesis.own.choose(entry, h.kind, guess)
             entry.own_choice = { arm = arm, kind = h.kind, time = now }
             if arm ~= "gs" then
                 hypothesis.own.stamp = hypothesis.own.stamp + 1
@@ -3454,9 +3458,10 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
                 h.candidate, h.visited, h.attempts, h.feedback = c, { [c] = true }, 1, now
                 h.own_arm, h.own_stamp = arm, hypothesis.own.stamp
                 if on(menu.resolver_log) then
-                    print(("[%s] resolver: %s %s | bizim %s (%s %s%s) body yaw %d%s%s | kollar: %s"):format(SCRIPT,
-                        entry.name or player_name(enemy), state, arm,
-                        h.kind == "lby" and "lby" or "duvar", h.side, h.mag ~= nil and (" %d%s"):format(floor(h.mag + 0.5), DEG) or "",
+                    local where = h.kind == "lby" and ("lby %s%s"):format(h.side, h.mag ~= nil and (" %d%s"):format(floor(h.mag + 0.5), DEG) or "")
+                        or h.kind == "side" and ("duvar %s"):format(h.side) or "statik desync, taraf bilgisi yok"
+                    print(("[%s] resolver: %s %s | bizim %s (%s) body yaw %d%s%s | kollar: %s"):format(SCRIPT,
+                        entry.name or player_name(enemy), state, arm, where,
                         hypothesis.yaw(hypothesis.actual(c, h.side)), DEG, exploring and " (deneme)" or "",
                         hypothesis.own.summary(entry)))
                 end
@@ -3564,8 +3569,13 @@ end
 -- menu.own_explore ile en az denenmis kol denenir (deneme sayisi 30'u gecen kol artik denenmez). Kol kaybederse
 -- kendiliginden GS'ye doner: hicbir dusmanda GS'den kotu kalmaz.
 hypothesis.own = {
-    arms = { "gs", "lby+", "lby-", "wall+", "wall-" },
-    prior = { gs = 0.55, ["lby+"] = 0.62, ["lby-"] = 0.45, ["wall+"] = 0.60, ["wall-"] = 0.45 },
+    -- abs+ / abs- (V1.0.33): taraf bilgisi yokken statik desync'li dusmanda dogrudan +lim / -lim. Statik
+    -- desync'te gercek kafa sahte yaw'in hep ayni tarafinda; hangi taraf oldugu dusman basina ogrenilir
+    -- (entry.arms, kalici). V1.0.32 logunda 36 atisin 28'inde LBY farki 0, 20 dakikada 3 kol karari: LBY /
+    -- duvar bilgisi nadir, statik dusman atislarin 15/36'si.
+    arms = { "gs", "lby+", "lby-", "wall+", "wall-", "abs+", "abs-" },
+    prior = { gs = 0.55, ["lby+"] = 0.62, ["lby-"] = 0.45, ["wall+"] = 0.60, ["wall-"] = 0.45,
+        ["abs+"] = 0.50, ["abs-"] = 0.50 },
     stats = {}, k_global = 8, k_enemy = 4, explore_max = 30, hold = 10, cap_global = 60, cap_enemy = 20,
     -- Taraf bilgisi bu kadar sn kesintisiz kaybolursa kol birakilir (V1.0.31). LBY farki anlik olculur: dusman
     -- yururken LBY her guncellemede goz yaw'ina esitlenir, fark bir an 0 olup geri gelir. V1.0.30 logunda 8 kol
@@ -3602,19 +3612,21 @@ hypothesis.own.score = function(entry, arm)
     return own.rate(mine, global, own.k_enemy), global
 end
 
-hypothesis.own.applicable = function(kind)
+hypothesis.own.applicable = function(kind, pattern)
     if kind == "lby" then
         return { "gs", "lby+", "lby-" }
     elseif kind == "side" then
         return { "gs", "wall+", "wall-" }
+    elseif pattern == "static" then
+        return { "gs", "abs+", "abs-" }
     end
     return { "gs" }
 end
 
 -- Donus: kol, deneme mi.
-hypothesis.own.choose = function(entry, kind)
+hypothesis.own.choose = function(entry, kind, pattern)
     local own = hypothesis.own
-    local list = own.applicable(kind)
+    local list = own.applicable(kind, pattern)
     local explore = menu.own_explore ~= nil and (menu.own_explore:get() or 0) / 100 or 0
     if explore > 0 and random() < explore then
         local least, least_shots = nil, nil
