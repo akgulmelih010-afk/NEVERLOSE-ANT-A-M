@@ -256,6 +256,105 @@ Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama
 - **Daha iyi vurmak için:** Sihirli bir exploit yok. İşe yarayanlar: **AI peek** (Peek Assist tuşunu basılı tut, hareket tuşlarına basma: script öldürecek atışın olduğu en yakın noktaya yürür), Neverlose'un **Fake latency**'si (Misc; loglarda `bt 27t` gibi uzun backtrack'ler zaten var, yani açık), quick peek + defensive (önce sen görürsün, ateş edip geri çekilirsin), scout'ta sadece öldürecek atış (**Head unless body kills**) ve resolver'ın öğrenmesi (aynı düşmanlarla oynadıkça hafıza dolar).
 - **Fake duck'tan ateş etme** seni gören bir düşmana: fake duck'ta HS/DT çalışmaz, ateş anındaki açın açıkta kalır (loglarda FD atışından 0.06-0.21 sn sonra kafadan vurulma).
 
+## GameSense edition (`Nykle.win.gamesense.lua`)
+
+Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Nykle_win_gamesense.lua` adıyla yüklenir (GameSense script adındaki fazladan noktaları sevmez). Farklar ve kurulum dosyanın başındaki yorumda. Oyun logları (`nykle_log.txt`, Home → Console → Copy all logs) bu sürümün geliştirme verisi; V1.0.16–1.0.21 loglarının analizi `LOG_ANALIZI_GS_1.0.16-21.md`'de.
+
+**V1.0.22'de ne değişti** (10 961 satırlık logdan):
+
+| Değişiklik | Neden |
+|---|---|
+| **Safe recharge** Peek'te ve yürürken (> 100 birim/sn) beklemez; bekleme üst sınırı 1.2 → 0.5 sn | Beklerken DT kapalı ve defensive yok: `sarj bekle` ile 179 mermi / 70 kafa yendi, 57'si Peek'te, çoğu atıştan sonraki 0.3 sn içinde. |
+| **Wait for real record** varsayılan **açık**; ilk gerçek kayıttan sonra 3 tick daha beklenir | Sahte kayda giden 178 atış %57 tuttu (correction %25), gerçek kayda giden %75 (%9); defensive bittikten 0–2 tick sonra giden atış da %58. Kurallar aynı: düelloda / görülürken beklenmez, en fazla 14 tick, sonra 32 tick serbest. |
+| Yeni seçenek **Body 70+ while an enemy sees you** (Ragebot → Resolver, varsayılan **kapalı**) | 94 ölümün 2 sn öncesinde `sikmadi` vardı, 71'inde gövdeye 70+ vurulabilirdi; 369 kafa ölümünün 183'ünde hiç ateş edilmemişti. Min. damage 100 kalsın isteği için kapalı; açarsan biri kafanı görürken ve kafa öldüremezken gövde 70+ için Min. damage geçici 70. |
+| `vuruldun:` satırında `gormedi` yanına iz sonucu: `(iz: su an goruyor / duvardan goruyor / kapali)` | 85 kafa mermisi "gormedi" idi (50'si duvardan); görüş takibinin neyi kaçırdığı artık logdan okunur. |
+| `dbg sikmadi` yeni sebepler: `aimbot tehdidi baska`, `gercek kayit bekleniyor (whitelist)`, `safe point Force` | 22 `sebep bilinmiyor`. |
+
+**V1.0.23: anti-aim** (aynı log, sana gelen 1 100 mermi):
+
+| Değişiklik | Neden |
+|---|---|
+| **Defensive vs enemy peeks** silahın hazırken de: seni yeni gören / sana peek atan düşmana karşı dururken, eğilirken ve freestanding'de de DT defensive zorlanır (temiz atış varsa yine kalkar) | Kafa mermilerinin %42'si düşman seni gördükten < 0.1 sn sonra geldi (1 sn+ görenlerde %17); dururken %53, freestanding'de %54. Eskiden sadece silah ateş edemezken zorlanıyordu. |
+| İki yeni anti-brute fazı: **6** desync 32°, **7** desync 41° + taraf çevirme | 0–5 fazlarının hepsi aynı kafa oranını yedi (%32–43): desync hep 58–60 olunca resolver'ın ±58 tahmini yazı-tura. Düşük desync'te iki tahmin de kafayı bulmaz. Hangisinin işe yaradığını grup başına öğrenme seçer; Stats → AA FAZ'da yeni sütunlar. |
+| **Kötü bilinen faz atlanır:** bir grupta ≥ 12 mermi ve ≥ %55 kafa yiyen faz, düşman başına ilerlemede ve öğrenilen başlangıçta atlanır (panelde `x`) | Havada faz 1: 16/25 = %64 kafa (faz 0: %35); düşman başına ilerleme yine de ona dönüyordu. |
+
+**V1.0.24** (V1.0.23'ün ilk logu: 12 dk DM, 70 mermi):
+
+| Değişiklik | Neden |
+|---|---|
+| **Snipers** varsayılanı `Same as state` (= DT); `Auto (learn)` seçilirse eşikler yüksek (öteki ≥ 16, kendisi ≥ 24 mermi, fark 0.15) | Öğrenme 60 mermilik sayımıyla oturumu Hide shots'a çevirdi; 1 100 mermilik logda HS'de kafa %45, DT'de %36 (havada %76 / %52) ve HS ile zorlanan defensive, teleport, peek koruması çalışmıyor. |
+| Düşmanın kaydı sahteyken (defensive) görüş sisteminin ileri bakışı kaydın gerisi kadar uzar (0.2 + ≤ 0.25 sn) | `gormedi` kafa mermilerinin 22/23'ünde vurulma anında onun gözünden iz kapalıydı, 13'ünde kaydı sahteydi: defensive'li düşman gördüğümüz yerden değil ilerisinden ateş ediyor. |
+
+**V1.0.25** (V1.0.24'ün ilk logu: 14 dk DM, 75 isabet / 48 kafa):
+
+| Değişiklik | Neden |
+|---|---|
+| **Smart** defensive 1800 birim içinde bir düşman varken de zorlanır (görünmesi beklenmez); Standing / Crouching / Freestanding / Manual varsayılanı `On peek` → `Smart` (hidden açı yine yok) | Kafa mermilerinin 36'sında saldıran `gormedi`, 32'sinde vurulma anında bile iz kapalı, 16'sında kaydı sahte: defensive'li düşman ekranda görünmeden ateş ediyor (245–1991 birimden, yarısı 1600+). Defensive açıkken kafa %38, kapalıyken %53–69. |
+
+**V1.0.26** (V1.0.25'in logu: 10 dk, 68 isabet / 34 kafa, 41 / 46):
+
+| Değişiklik | Neden |
+|---|---|
+| **DT pair counts as lethal** (Ragebot → Resolver, açık): scout DT iki mermi atar; DT doluyken gövde × 2 ≥ can (ve tek mermi ≥ 60) ise atış "öldürücü" sayılır, Min. damage geçici olarak gövde hasarının 1 altına iner. DT boşken kural eskisi gibi (can + 1). | Beş logda da en büyük ölüm kaynağı: gövdeye 70–87 vurabilirken kafa beklemek (son oturumda 12 ölümün 11'i). "Min. damage 100 = sadece öldürecek atış" şartı korunur: çift öldürüyor. |
+| Temiz atışın atış sonrası tutması 14 → 6 tick | Kafa mermilerinin 12'si kendi DT atışından 0.4 sn içinde; 14 tick, DT şarjının geri gelişi kadar sürüp defensive'i geciktiriyordu. DT'nin ikinci mermisi 1–2 tick sonra gider. |
+
+**V1.0.27** (piyasadaki lualarla karşılaştırma, `LUA_KARSILASTIRMA.md`):
+
+| Değişiklik | Nereden / neden |
+|---|---|
+| Anti-brute **faz 8**: taraflar eşit sürmez (bir taraf 2 paket uzun, uzun taraf her 4 çevirmede değişir); öğrenme seçer | abyss lua'sının "Switch" body jitter'ı; "her N tick'te bir çeviriyor" diye brute eden resolver periyodu tutturamaz |
+| **In-air hit chance (snipers)** (Exploits → Defensive, varsayılan 40, 0 = kapalı): havada sniper tutarken Minimum hit chance geçici bu değer | abyss'in durum başına hit chance'i; 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55), havadan giden atışlar %67–89 tuttu |
+
+**V1.0.29 — kendi resolver** (Ragebot → Resolver → **Own resolver (LBY / cover side, measured vs GS)**, açık):
+
+GameSense Lua'da açıyı doğrudan belirleyen tek araç oyuncu listesindeki Force body yaw. Eskiden hipotezler ancak Force'ta 3+ ıskadan sonra sırayla deneniyordu; şimdi taraf bilgisi olan düşmanda **ilk atıştan** itibaren ölçülen bir "kol" seçilir:
+
+| Kol | Ne yapar |
+|---|---|
+| `gs` | GameSense'in resolver'ı (açı yazılmaz) — taban, her zaman aday |
+| `lby+` / `lby-` | Duran düşmanda göz yaw ile LBY farkı ≥ 35°: gerçek ayak yaw'ı LBY tarafında. `+` teorik yön, `-` tersi (GameSense'in işaret kuralı belgesiz; iki kol da ölçülür, kazanan kalır) |
+| `wall+` / `wall-` | Duvarlı düşman: tek tarafı kapalıysa freestanding gerçek kafayı oraya saklar |
+
+Ölçüm: her uygun atış (kafaya nişan, backtrack / teleport / extrapolation yok, hit chance ≥ eşik) kolun hesabına yazılır: isabet = isabet, resolver ıskası (`correction`; sahte kayıt / LC hariç) = ıska. Skor `(isabet + önbilgi × k) / (atış + k)`: genel sayım (k = 8, kalıcı hafıza) ve düşman başına sayım (k = 4, genel orana çekilir). En iyi kol seçilir; **Own resolver exploration** (%15) oranında en az denenmiş kol denenir (30 atışı geçen kol artık denenmez). Kol kaybederse kendiliğinden `gs`'ye döner. Jitter'lı / kararsız desende ve havada kol yok (Force safe point). Karar düşman başına bir kez verilir, atış sonucu gelene (ya da 10 sn) kadar tutulur.
+
+Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 50°) body yaw 58° | kollar: GS 12/20 LBY+ 5/7 ...`; Stats panelinde `RESOLVER` satırı; hafızada kol sayımları.
+
+**V1.0.28:** Misc → Movement → **Left hand (cl_righthand 0, permanent)** (açık): lua yüklenir yüklenmez silah sol ele geçer ve açık kaldıkça öyle kalır (oyun / config geri çevirse de); kapatınca ya da script kaldırılınca eski değer geri gelir.
+
+**V1.0.30** (V1.0.29 logu, de_mirage 22 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| LBY kolu (`lby+` / `lby-`) **hareket eden düşmanda da** seçilir (eskiden sadece duran düşmanda) | V1.0.29 oturumunda 30 atışın 28'i hareketli hedefe gitti; kol sadece durana seçildiği için hiçbir atışta uygulanmadı (hepsi `res gs`, panelde `kollar: GS 6/7`). LBY sunucunun gerçek göz yaw'ına güncellenir, gördüğümüz göz yaw'ı sahtedir; fark hareketliyken de desync'in kendisidir |
+| Taraf bilgisi kaybolur ya da türü değişirse (lby → open / duvar) seçili kol **bırakılır**, GS resolver'ına dönülür, yeni türe göre kol yeniden seçilir (logda `taraf bilgisi degisti (lby -> open): lby+ kolu birakildi`) | Kol seçildiği taraf bilgisine bağlı; bilgi gidince Force body yaw dayanaksız kalıyordu (isabetten sonra aday 30 sn tutuluyordu) |
+| LBY eşiğinde histerezis: kol seçiliyken 25°, yoksa 35° | Fark eşik etrafında titreyince kol düşüp yeniden seçilmesin |
+
+**V1.0.31** (V1.0.30 logu, de_mirage 26 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| Kol, taraf bilgisi **1 sn kesintisiz** yoksa bırakılır (anlık kayıp sayılmaz); logda `taraf bilgisi 1.2 sn'dir yok (lby -> open): lby+ kolu birakildi` | LBY farkı anlık ölçülür: düşman yürürken LBY her güncellemede göz yaw'ına eşitlenir, fark bir an 0 olup geri gelir. V1.0.30 oturumunda 8 kol seçiminin 8'i aynı saniye bırakıldı, 30 atışın hepsi yine `res gs` |
+| Bilgi anlık yokken seçildiği taraf (L/R) korunur | Taraf `open` dönünce açı aynalanmıyor, sağ taraf kolu sol açıya kayıyordu |
+
+**V1.0.32** (V1.0.31 logu, de_mirage 30 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| Kendi resolver'ın kararı **düşman başına** tutulur, durum başına değil: düşman Standing → Slow walk → Moving geçse de aynı kol o durumun hipotezine yazılır (havada yazılmaz) | V1.0.31 oturumunda 12 kol seçiminin hepsi "Standing"de verildi, atışlar 1 sn sonra "Slow walk" / "Moving"de gitti; o durumun hipotezi boş olduğundan 43 atışın hepsi yine `res gs` |
+| Kol seçiminde **UCB1 kesif primi**: skor + 0.25 · √(ln(toplam atış + 1) / (kolun atışı + 1)) | GS %85 tutarken hiç denenmemiş kol salt ön bilgiyle (0.62) asla öne geçemiyordu; prim denenmemiş kolu ilk 4–8 atışta öne alır, tutmuyorsa kendiliğinden söner |
+| İsabet eden kol düşmanda kalır; resolver ıskasında bırakılır ve yeniden seçilir. Bilgi kaybında karar da sıfırlanır (bilgi dönünce beklemeden yeni karar) | Her atıştan sonra karar sıfırlanınca bilgi o an yoksa kol kayboluyordu |
+| LBY farkı **150° üstü** taraf bilgisi sayılmaz | 178°, 122°, 111° gibi "farklar": desync en çok ~58°, bu LBY kırıcı / bayat LBY; işaret anlamsız |
+
+**V1.0.33** (V1.0.32 logu, de_mirage 20 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| Yeni kollar **`abs+` / `abs-`**: taraf bilgisi (LBY / duvar) yokken **statik desync'li** düşmanda doğrudan body yaw +58 / −58; hangi taraf olduğu düşman başına öğrenilir (kalıcı), ön bilgi 0.50 / 0.50 | 36 atışın 28'inde LBY farkı 0, 20 dakikada sadece 3 kol kararı: LBY ve duvar bilgisi nadir. Statik desync'te gerçek kafa sahte yaw'ın hep aynı tarafında; 36 atışın 15'i statik düşmana. Jitter / x-way'de yok (her pakette taraf değişir) |
+| Own resolver kapatılınca bekleyen karar silinir | Kapalıyken eski karar Force body yaw'ı tutuyordu |
+| Log: `bizim abs+ (statik desync, taraf bilgisi yok) body yaw 58°`, atışta `res abs+` | |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.33 kuralları (71 kontrol). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+
 ## Notlar
 
 - Neverlose'un **CS:GO** Lua API'sine göre yazıldı. CS2 Neverlose'un API'si farklı, orada çalışmaz.
