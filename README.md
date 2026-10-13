@@ -285,7 +285,13 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | **Snipers** varsayılanı `Same as state` (= DT); `Auto (learn)` seçilirse eşikler yüksek (öteki ≥ 16, kendisi ≥ 24 mermi, fark 0.15) | Öğrenme 60 mermilik sayımıyla oturumu Hide shots'a çevirdi; 1 100 mermilik logda HS'de kafa %45, DT'de %36 (havada %76 / %52) ve HS ile zorlanan defensive, teleport, peek koruması çalışmıyor. |
 | Düşmanın kaydı sahteyken (defensive) görüş sisteminin ileri bakışı kaydın gerisi kadar uzar (0.2 + ≤ 0.25 sn) | `gormedi` kafa mermilerinin 22/23'ünde vurulma anında onun gözünden iz kapalıydı, 13'ünde kaydı sahteydi: defensive'li düşman gördüğümüz yerden değil ilerisinden ateş ediyor. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.24 kuralları (40 kontrol).
+**V1.0.25** (V1.0.24'ün ilk logu: 14 dk DM, 75 isabet / 48 kafa):
+
+| Değişiklik | Neden |
+|---|---|
+| **Smart** defensive 1800 birim içinde bir düşman varken de zorlanır (görünmesi beklenmez); Standing / Crouching / Freestanding / Manual varsayılanı `On peek` → `Smart` (hidden açı yine yok) | Kafa mermilerinin 36'sında saldıran `gormedi`, 32'sinde vurulma anında bile iz kapalı, 16'sında kaydı sahte: defensive'li düşman ekranda görünmeden ateş ediyor (245–1991 birimden, yarısı 1600+). Defensive açıkken kafa %38, kapalıyken %53–69. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.25 kuralları (41 kontrol).
 
 ## Notlar
 

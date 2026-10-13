@@ -45,7 +45,25 @@ Uygulananlar: (1) ilk görüşte / peek'te defensive silah hazırken de (temiz a
 - **`gormedi (iz: kapali)` 22/23:** vurulma anında saldıranın gözünden kafana iz kapalı; 13'ünde kaydı sahte (`DEF geri`). → Sahte kayıttaki düşman için ileri bakış kaydın gerisi kadar uzatıldı.
 - Faz 6/7: 24 + 18 mermi, %42 / %44 — faz 3 (%41) ile aynı; öğrenme peek için faz 3'ü seçti. Tek rakip, erken.
 - Gerçek kayıt bekleme: 285 "gerçek kayıt geldi", 233 "sınır doldu" (düşman 14 tick'ten uzun defensive'de). Sahte kayda 12 atış %50, gerçeğe 29 atış %62.
-- `sarj bekle` ile vurulma: 0 (V1.0.22 değişikliği). Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
+- `sarj bekle` ile vurulma: 0 (V1.0.22 değişikliği).
+
+## V1.0.24'ün ilk logu → V1.0.25
+
+Dördüncü log: V1.0.24 ile 14 dk DM (dm_hvh_fysnow_bc_aurorahvh, 14:49–15:03), DT açık (`sniper Same as state`). 29 öldürme / 49 ölüm; sana 103 mermi, 75 isabet, **48 kafa (%64)**; senin 65 atış, 39 isabet (%60).
+
+| Kırılım | Kafa / mermi |
+|---|---|
+| Freestanding / Peek / Standing / Air | 19/37 · 17/33 · 4/17 · 5/8 |
+| Saldıran `gormedi` | 21/36 = %58; `iz: kapali` 32, `duvardan` 3, `su an goruyor` 1; 16'sında `DEF geri` |
+| `gormedi` saldıran mesafesi | 245–1991 birim, 11'i 1600+ |
+| Defensive penceresi açık / kapalı | 9/23 = %39 · 39/80 = %49 |
+| `DT dolu, DEF yok, atis yok` / `DEF yok (zorla)` | 11 · 8 kafa |
+| Faz 1 / 2 / 3 / 5 / 6 / 7 | %31 / %29 / %54 / %55 / **%65** / %48 (öğrenme: yerde faz 2; faz 6 artık "kötü bilinen") |
+| Teleport | 15, 2'si 1.5 sn içinde vurulma (eskiden %29) |
+| `sikmadi` → ölüm (2 sn) | 9, 8'inde gövde 70+ vardı (`Body 70+` kapalı) |
+| Sahte / gerçek kayda atış | 16/23 · 23/42 (küçük örnek) |
+
+Okuma: ölümlerin çoğu ekranda hiç görünmeyen, defensive'li, uzak scout'lardan; o sırada defensive kapalı (`On peek` görünmeyen düşmana zorlamıyor). → Smart artık 1800 birim içinde düşman varken de zorlar; dururken / eğilirken / freestanding'de varsayılan Smart. Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
 
 ## Genel tablo
 

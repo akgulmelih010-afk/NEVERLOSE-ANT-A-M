@@ -356,7 +356,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.24 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.24")
+check(printed("V1.0.25 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.25")
 
 local function errors_since(i)
     local found = {}
@@ -493,21 +493,27 @@ tick(40)
 -------------------------------------------------------------------------------
 -- V1.0.23: dusman seni yeni gordu (peek), silahin hazir, temiz atis yok -> dururken de defensive zorlanir
 -------------------------------------------------------------------------------
+-- V1.0.25: dururken "Smart": 1800 birim icinde dusman varken gorunmese de zorlanir. Dusman 2 ve 3 uzaga alinir.
 W.sees[2], W.sees[3], W.head_dmg[2], W.body_dmg[2], W.speed, W.lag = false, false, 0, 0, 0, 12
-tick(80) -- gorus yok, peek penceresi kapandi
-check(last_cmd.force_defensive ~= true, "gorulmuyorken dururken defensive zorlanmaz")
+ORIGIN[2], ORIGIN[3] = { 2500, 0, 0 }, { 0, 2500, 0 }
+tick(80) -- gorus yok, dusman uzak
+check(last_cmd.force_defensive ~= true, "dusman uzakta (2500) ve gorulmuyor: dururken defensive zorlanmaz")
 W.sees[2] = true
 tick(2)
-check(last_cmd.force_defensive == true, "dusman seni yeni gordu, silah hazir: defensive zorlanir")
-tick(40) -- 16 tick yeni gorus + 16 tick tutma gecti
-check(last_cmd.force_defensive ~= true, "0.5 sn sonra (artik yeni degil) zorlama biter")
+check(last_cmd.force_defensive == true, "uzaktaki dusman seni gordu, silah hazir: defensive zorlanir")
 W.sees[2] = false
 tick(40)
+check(last_cmd.force_defensive ~= true, "gorus bitince zorlama biter")
 W.head_dmg[2] = 300 -- temiz atis var: zorlama yok
 W.sees[2] = true
 tick(2)
-check(last_cmd.force_defensive ~= true, "temiz atis varken peek'e karsi defensive zorlanmaz")
+check(last_cmd.force_defensive ~= true, "temiz atis varken defensive zorlanmaz")
 W.head_dmg[2], W.sees[2] = 0, false
+tick(40)
+ORIGIN[2] = { 500, 0, 0 } -- yakin ama gorunmuyor
+tick(3)
+check(last_cmd.force_defensive == true, "V1.0.25: 500 birimde gorunmeyen dusman varken dururken defensive zorlanir")
+ORIGIN[2] = { 2500, 0, 0 }
 tick(40)
 
 -------------------------------------------------------------------------------
@@ -517,6 +523,7 @@ local sniper_ref = find_ref("Snipers (SSG08/AWP/R8)")
 check(sniper_ref ~= nil and sniper_ref.value == "Same as state", "sniper exploit varsayilani Same as state")
 -- Dusman 2 100 birim/sn ile yuruyor, su anki yerinden kafamizi gormuyor, 30+ birim ilerisinden gorur.
 -- Kaydi normalken ileri bakis 0.2 sn = 20 birim: gormez. Kaydi 10 tick (0.16 sn) geride: 0.36 sn = 36 birim: gorur.
+-- (dusman 2 hala 2500 birimde: Smart'in yakinlik kurali devrede degil, sadece ileri bakis test edilir.)
 W.evel[2], W.sees[2], W.sees_ahead[2], W.sim_shift[2] = 100, false, true, 0
 tick(80)
 check(last_cmd.force_defensive ~= true, "kaydi normal, 20 birim ileriden gormuyor: zorlama yok")
@@ -525,6 +532,8 @@ tick(3)
 check(last_cmd.force_defensive == true, "kaydi 10 tick geride: ileri bakis onu kafani gorecek yere koyar, defensive zorlanir")
 W.evel[2], W.sees_ahead[2], W.sim_shift[2] = 0, false, 0
 tick(60)
+ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 500, 0 }
+tick(10)
 
 -------------------------------------------------------------------------------
 -- V1.0.22: govde 70+ secenegi (varsayilan kapali; acilinca MD gecici 70)

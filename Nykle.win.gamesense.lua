@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.24"
+local VERSION = "1.0.25"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1141,17 +1141,20 @@ local DEFAULTS = {
 -- Exploit varsayilanlari: { exploit, defensive, hidden pitch, hidden yaw } (Neverlose V1.0 ile ayni).
 -- Dururken / egilip dururken ve Peek'te hidden aci yok (V1.0): kafayi siperin / freestanding'in
 -- arkasindan cikariyordu. Yururken ve havada kalir (havada spin).
+-- V1.0.25: dururken / egilirken / freestanding'de / manuelde de "Smart" (yakinda dusman varken defensive;
+-- hidden aci yine yok). V1.0.24 logunda bu durumlardaki kafa mermilerinin cogu defensive kapaliyken geldi
+-- ("DT dolu, DEF yok"), "On peek" gorunmeyen dusmana karsi hic zorlamiyordu.
 local EXPLOIT_DEFAULTS = {
-    ["Standing"]     = { "Double tap", "On peek",   "Off",    "Off" },
+    ["Standing"]     = { "Double tap", "Smart",     "Off",    "Off" },
     ["Moving"]       = { "Double tap", "Smart",     "Up",     "Random" },
     ["Slow walk"]    = { "Double tap", "Smart",     "Up",     "Random" },
-    ["Crouching"]    = { "Double tap", "On peek",   "Off",    "Off" },
+    ["Crouching"]    = { "Double tap", "Smart",     "Off",    "Off" },
     ["Crouch move"]  = { "Double tap", "Smart",     "Up",     "Random" },
     ["Peek"]         = { "Double tap", "Smart",     "Off",    "Off" },
     ["Air"]          = { "Double tap", "Smart",     "Up",     "Spin" },
     ["Air crouch"]   = { "Double tap", "Smart",     "Up",     "Random" },
-    ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
-    ["Freestanding"] = { "Double tap", "On peek",   "Off",    "Off" },
+    ["Manual"]       = { "Double tap", "Smart",     "Off",    "Off" },
+    ["Freestanding"] = { "Double tap", "Smart",     "Off",    "Off" },
     ["Safe head"]    = { "Double tap", "On peek",   "Off",    "Off" },
 }
 
@@ -4450,11 +4453,34 @@ do
 
     -- "Smart" + DT: biri kafani gordugu (ya da 0.2 sn icinde gorecegi) surece ve gorus kesildikten sonra
     -- SMART_HOLD tick daha defensive zorlanir.
+    -- V1.0.25 (V1.0.24 logu, 75 isabet / 48 kafa): kafa mermilerinin 36'sinda saldiran "gormedi" idi, 32'sinde
+    -- vurulma aninda bile izi kapaliydi, 16'sinda kaydi sahteydi: defensive'li dusman ekranda gorunmeden ates
+    -- ediyor, gorus sistemi onu hic yakalayamiyor. Defensive penceresi acikken kafa %38, kapaliyken %53-69.
+    -- Bu yuzden Smart, SMART_NEAR birim icinde (dormant olmayan) bir dusman varken de zorlar: gorunmesi
+    -- beklenmez (gormeden vuranlarin mesafesi 245-1991, yarisi 1600+: uzak scout). Temiz atis yine kazanir.
     local SMART_HOLD = 8
+    local SMART_NEAR = 1800
     local smart = { last = -1000 }
 
+    local function enemy_near()
+        local mine = origin_of(local_player())
+        if mine == nil then
+            return false
+        end
+        for _, enemy in ipairs(enemy_list()) do
+            local pos = origin_of(enemy)
+            if pos ~= nil then
+                local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
+                if dx * dx + dy * dy + dz * dz <= SMART_NEAR * SMART_NEAR then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     local function smart_window(now)
-        if seen_by_enemy() then
+        if seen_by_enemy() or enemy_near() then
             smart.last = now
         end
         return now >= smart.last and now - smart.last <= SMART_HOLD
