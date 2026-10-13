@@ -392,6 +392,16 @@ function entity.hitbox_position(i, hitbox)
 end
 
 M.weapons = {}
+-- ESP verisi: flags bit 11 (2048) = ragebot o oyuncuyu vurabiliyor (M.esp_flags[i]).
+M.esp_flags = {}
+function entity.get_esp_data(i)
+    local p = M.players[i]
+    if p == nil then
+        return nil
+    end
+    return { alpha = 255, health = p.props.m_iHealth or 100, weapon_id = 0, flags = M.esp_flags[i] or 0 }
+end
+
 function entity.get_player_weapon(i)
     local p = M.players[i]
     return p ~= nil and p.weapon or nil
@@ -533,6 +543,7 @@ function globals.frametime() return 1 / 64 end
 function globals.tickinterval() return 1 / 64 end
 function globals.maxplayers() return 64 end
 function globals.mapname() return "de_mirage" end
+function globals.chokedcommands() return M.choked or 0 end
 
 M.draws = 0
 renderer = {}

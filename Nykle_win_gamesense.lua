@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.20"
+local VERSION = "1.0.21"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3609,10 +3609,10 @@ end
 -- olum): dusman seni gorurken scout "HP + 1" ile sadece oldurecek yere ates eder. Bir dusman seni sen bu
 -- kuralla ates etmeden beklerken oldurduyse bu haritada ona karsi kural gevser (aimbot senin Min. damage'inle
 -- govdeye de sikar); haritada 2 boyle olumde herkese karsi gevser. Yeni haritada sifirlanir.
--- V1.0.19: senin Min. damage'in govdeyi zaten atmiyorsa (70'ten yuksek) gevseyince seni gorurken gecici
--- 70 yazilir (bkz. apply_body_aim); yoksa gevseme bir sey degistirmiyordu.
+-- V1.0.21: V1.0.19'un "seni gorurken gecici 70" gevsemesi kaldirildi (istek: Min. damage 100 kalsin; logda
+-- 87 / 86 / 75 / 89 / 90 hasarli oldurmeyen govde atislari). Gevseme sadece HP + 1 kuralini kaldirir, senin
+-- Min. damage'in yazilir.
 resolver.held = { total = 0, enemies = {} }
-resolver.RELAXED_MD = 70
 
 resolver.head_relaxed = function(target)
     local held = resolver.held
@@ -3632,10 +3632,11 @@ resolver.held_death = function(attacker)
     held.enemies[key] = (held.enemies[key] or 0) + 1
     held.total = held.total + 1
     if on(menu.resolver_log) then
-        -- V1.0.19: senin Min. damage'in govdeyi atmayacak kadar yuksekse gorulurken gecici RELAXED_MD.
+        -- Senin Min. damage'in govdeyi zaten atmiyorsa (scout zirhli gogse en fazla ~88) gevseme bir sey
+        -- degistirmez.
         local user_md = user_value("min_damage")
-        local note = (finite(user_md) and user_md > resolver.RELAXED_MD)
-            and (" (senin Min. damage'in %d: seni gorurken gecici %d)"):format(user_md, resolver.RELAXED_MD) or ""
+        local note = (finite(user_md) and user_md >= 90)
+            and (" (senin Min. damage'in %d: govde yine atilmaz)"):format(user_md) or ""
         print(("[%s] ogrenildi: %s seni sen kafa beklerken (sniper, ates etmeden) oldurdu -> bu haritada %s govde de atilacak%s"):format(
             SCRIPT, player_name(attacker), held.total >= 2 and "herkese karsi" or "ona karsi", note))
     end
@@ -3850,14 +3851,6 @@ do
                 min_damage = nil
             end
         end
-        -- V1.0.19 (V1.0.17 logu: SSG 08 Min. damage'in 100; 3 saatte 13 "ogrenildi ... kafa beklerken" ve en sik
-        -- "sikmadi" sebebi "hasar 70-89 < MD 100", 93 kez): kafa kurali gevsedi ama senin Min. damage'in
-        -- govdeyi atmiyor -> seni gorurken gecici 70 (zirhli gogus ~75). Override tusun basiliysa dokunulmaz.
-        local relaxed_md = not sniper_rule and on(menu.head_only) and info ~= nil and info[4] and exposed
-            and not md_override and finite(user_md) and user_md > resolver.RELAXED_MD and resolver.head_relaxed(target)
-        if relaxed_md then
-            min_damage = resolver.RELAXED_MD
-        end
         -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
         -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 30 + govde 75 = olu.
         local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
@@ -3871,7 +3864,7 @@ do
                     SCRIPT, player_name(melee_near), KNIFE_MD.value))
             end
         end
-        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not relaxed_md
+        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md
         override("min_damage", min_damage, scope)
     end
 end
@@ -4108,7 +4101,30 @@ end
 -- kafa / gogus / mide / ust gogus / kalca / uyluklara bakilir ve hareket ediyorsan 0.1 sn sonraki gozden de
 -- (kafa, gogus, mide): defensive atistan once kesilir, atis anina denk gelmez.
 local clean_shot = { every = 2, hold = 6, fire_hold = 14, checked = -1000, index = nil, until_tick = -1000,
-    from_tick = -1000, boxes = { 0, 5, 3, 6, 2, 7, 8 }, ahead = 0.1, ahead_boxes = 3, ahead_speed = 50 }
+    from_tick = -1000, boxes = { 0, 5, 3, 6, 2, 7, 8 }, ahead = 0.1, ahead_boxes = 3, ahead_speed = 50,
+    FLAG = 2048, flag_until = -1000, by = nil }
+
+-- V1.0.21: GameSense'in kendi "vurulabilir" bayragi (ESP flags, bit 11; wraith / Etterance / Multi-Tools bunu
+-- kullanir): ragebot o dusmani su an vurabiliyor. Iz tek basina yetmiyordu: V1.0.17 logunda 364 scout
+-- atisinin 205'i defensive zorlanirken gitti (%47-51 isabet; temiz atislar %64) ve "spread" iskalari
+-- neredeyse sadece bunlarda. Herhangi bir dusmanda bayrak varsa temiz atis (hedef secili olmasa da).
+-- Bayragi tasiyan dusman ya da false; API yoksa nil.
+clean_shot.flagged = function()
+    if type(entity.get_esp_data) ~= "function" then
+        return nil
+    end
+    for _, enemy in ipairs(enemy_list()) do
+        local ok, data = pcall(entity.get_esp_data, enemy)
+        local flags = (ok and type(data) == "table") and data.flags or nil
+        if finite(flags) then
+            local ok_bit, hit = pcall(bit.band, flags, clean_shot.FLAG)
+            if ok_bit and hit ~= 0 then
+                return enemy
+            end
+        end
+    end
+    return false
+end
 
 -- Aimbot'un su an kullandigi Min. damage (override tusu basiliysa override degeri).
 local function active_min_damage()
@@ -4171,28 +4187,42 @@ end
 -- Aimbot ates etti (aim_fire): o hedefe fire_hold tick temiz atis.
 clean_shot.fired = function(target)
     local tick = tickcount()
+    clean_shot.by = clean_shot.by or "atis"
     clean_shot.index, clean_shot.checked = target, tick
     clean_shot.from_tick, clean_shot.until_tick = tick, max(clean_shot.until_tick, tick + clean_shot.fire_hold)
 end
 
 clean_shot.update = function(lp, target, armed)
     local tick = tickcount()
-    if not on(menu.clean_shot) or not armed or target == nil then
+    clean_shot.by = nil
+    if not on(menu.clean_shot) or not armed then
         clean_shot.until_tick = -1000
         return false
     end
-    -- Ayna defensive (V1.0.9): hedef sahte kayittayken (defensive) atis buyuk ihtimalle gecmez (oyun logu:
-    -- sahte kayda giden 3 atistan 2'si iska). O sirada temiz atis yok: kendi defensive'in acik kalir, onun
-    -- mermisi de senin sahte kaydina gider. Gercek kaydi gelince temiz atis doner.
-    local profile = enemy_watch.profile(target)
-    if profile ~= nil and profile.defensive_now then
+    -- V1.0.21: V1.0.9'un "ayna defensive"i (hedef sahte kayittayken temiz atis yok) kaldirildi. 3 atisa
+    -- dayaniyordu; V1.0.10-1.0.19 loglarinda sahte kayittaki dusmana giden 132 scout atisinin hepsi bu
+    -- yuzden kendi defensive'imiz zorlanirken gitti ve %47-52 tuttu; sahte kaydin kendi maliyeti ~4 puan
+    -- (lag'li atislarda %51'e karsi %47), kendi defensive'imizin maliyeti ~15 puan.
+    if clean_shot.flagged() then
+        if not (tick <= clean_shot.until_tick and tick >= clean_shot.from_tick) then
+            clean_shot.from_tick = tick
+        end
+        clean_shot.until_tick = max(clean_shot.until_tick, tick + clean_shot.hold)
+        clean_shot.flag_until = tick + clean_shot.hold
+    end
+    if target == nil then
+        if tick <= clean_shot.flag_until then
+            clean_shot.by = "bayrak"
+            return true
+        end
         clean_shot.until_tick = -1000
         return false
     end
     local index = target
     local every = (exposure.now or exposure.soon or exposure.any) and 1 or clean_shot.every
     if index ~= clean_shot.index or tick < clean_shot.checked or tick - clean_shot.checked >= every then
-        if index ~= clean_shot.index then
+        -- Hedef degisti: izin tuttugu sure sifirlanir (bayragin tuttugu sure degil).
+        if index ~= clean_shot.index and tick > clean_shot.flag_until then
             clean_shot.until_tick = -1000
         end
         clean_shot.index, clean_shot.checked = index, tick
@@ -4203,7 +4233,11 @@ clean_shot.update = function(lp, target, armed)
             clean_shot.until_tick = max(clean_shot.until_tick, tick + clean_shot.hold)
         end
     end
-    return tick <= clean_shot.until_tick and tick >= clean_shot.from_tick
+    local clean = tick <= clean_shot.until_tick and tick >= clean_shot.from_tick
+    if clean then
+        clean_shot.by = tick <= clean_shot.flag_until and "bayrak" or "iz"
+    end
+    return clean
 end
 
 -- cmd / pmax / pdiff / ptick: predict_command olcumu (asagida).
@@ -6949,6 +6983,14 @@ D.me = function(lp)
         parts[#parts + 1] = "peek tusu"
     end
     parts[#parts + 1] = exploit_status()
+    -- V1.0.21: kendi choke'umuz (fake lag) ve temiz atisin kaynagi (iz / bayrak / atis).
+    local choked = try(globals.chokedcommands)
+    if finite(choked) then
+        parts[#parts + 1] = ("bogma %d"):format(choked)
+    end
+    if current.clean then
+        parts[#parts + 1] = "temiz" .. (clean_shot.by ~= nil and (" (" .. clean_shot.by .. ")") or "")
+    end
     return table.concat(parts, " | ")
 end
 

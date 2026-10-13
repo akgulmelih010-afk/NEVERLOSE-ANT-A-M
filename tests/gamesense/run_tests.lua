@@ -196,7 +196,8 @@ for _ = 1, 20 do
     end
 end
 check(forced_clean == 0, "temiz atista defensive zorlandi: " .. forced_clean)
--- Ayna defensive: hedef sahte kayittayken temiz atis yok, kendi defensive'in zorlanir.
+-- V1.0.21: hedef sahte kayittayken de temiz atis (V1.0.9'un ayna defensive'i kaldirildi: loglarda sahte
+-- kayittaki dusmana giden 132 atisin hepsi kendi defensive'imiz zorlanirken gitti, %47-52 isabet).
 e1.props.m_flSimulationTime = e1.props.m_flSimulationTime - 10 / 64
 local forced_fake = 0
 for _ = 1, 6 do
@@ -206,8 +207,36 @@ for _ = 1, 6 do
         forced_fake = forced_fake + 1
     end
 end
-check(forced_fake > 0, "hedef sahte kayittayken kendi defensive'in zorlanmadi")
+check(forced_fake == 0, "hedef sahte kayittayken temiz atis yerine defensive zorlandi: " .. forced_fake)
 step({}, 12)
+-- V1.0.21: iz hedefi vurulabilir gormese de GameSense'in "vurulabilir" bayragi (ESP flags bit 11) varsa
+-- temiz atis; bayrak kalkinca defensive geri gelir. Atis detayinda kaynak ve choke yazilir.
+M.can_hit[2] = false
+M.esp_flags[2] = 2048
+local forced_flag = 0
+for _ = 1, 12 do
+    advance_sim(1)
+    local cmd = M.step({})
+    if cmd.force_defensive then
+        forced_flag = forced_flag + 1
+    end
+end
+check(forced_flag == 0, "vurulabilir bayragi varken defensive zorlandi: " .. forced_flag)
+M.fire("aim_fire", { id = 901, target = 2, hit_chance = 85, hitgroup = 1, damage = 120, backtrack = 0 })
+M.fire("aim_miss", { id = 901, target = 2, hit_chance = 85, hitgroup = 1, reason = "spread" })
+check(log_has("| temiz (bayrak) | sonuc spread") and log_has("| bogma 0 |"), "atis detayinda temiz atisin kaynagi / choke yok")
+step({}, 16)
+M.esp_flags[2] = 0
+local forced_unflag = 0
+for _ = 1, 12 do
+    advance_sim(1)
+    local cmd = M.step({})
+    if cmd.force_defensive then
+        forced_unflag = forced_unflag + 1
+    end
+end
+check(forced_unflag > 0, "bayrak kalkinca defensive geri gelmedi")
+M.can_hit[2] = nil
 me.props.m_vecVelocity = { 0, 0, 0 }
 M.can_hit[2] = nil
 me.props.m_flDuckAmount = 1
@@ -551,16 +580,16 @@ check(ui.get(md_id) == 20, "ogrendikten sonra enemy one'a karsi kafa kurali gevs
 M.fire("level_init", {})
 step({}, 6)
 check(ui.get(md_id) == 101, "yeni haritada kafa kurali geri gelmedi: " .. tostring(ui.get(md_id)))
--- V1.0.19: senin Min. damage'in 100 (V1.0.17 logundaki gibi; gevseme eskiden bir sey degistirmiyordu):
--- gevseyince seni gorurken gecici 70, yeni haritada yine 101.
+-- Senin Min. damage'in 100: gevseme HP + 1 kuralini kaldirir, senin 100'un yazilir (V1.0.21: V1.0.19'un
+-- "seni gorurken gecici 70"u kaldirildi, istek uzerine; log bunu soyler). Yeni haritada yine 101.
 ui.set(md_id, 100)
 step({}, 4)
 check(ui.get(md_id) == 101, "MD 100 iken kafa kurali 101 yazmadi: " .. tostring(ui.get(md_id)))
 M.fire("player_death", { userid = 11, attacker = 12, headshot = true })
-check(log_has("(senin Min. damage'in 100: seni gorurken gecici 70)"), "MD 100 iken ogrenme logu gecici 70 demedi")
+check(log_has("(senin Min. damage'in 100: govde yine atilmaz)"), "MD 100 iken ogrenme logu 'govde yine atilmaz' demedi")
 step({}, 4)
-check(ui.get(md_id) == 70, "MD 100 iken gevseyince Min. damage 70 olmadi: " .. tostring(ui.get(md_id)))
-check(not log_has("govde yine atilmaz"), "eski 'govde yine atilmaz' notu yazildi")
+check(ui.get(md_id) == 100, "MD 100 iken gevseyince Min. damage 100 kalmadi: " .. tostring(ui.get(md_id)))
+check(not log_has("gecici 70"), "kaldirilan 'gecici 70' gevsemesi yazildi")
 M.fire("level_init", {})
 step({}, 6)
 check(ui.get(md_id) == 101, "MD 100 iken yeni haritada kafa kurali geri gelmedi: " .. tostring(ui.get(md_id)))
