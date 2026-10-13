@@ -112,6 +112,21 @@ Mirage okuması:
 - Gerçek kayıt bekleme: 46 kez kayıt geldi, 76 kez 14 tick sınırı doldu (XOXO 41 kez / round defensive'de). Sahte kayda giden 4 atışın 2'si tuttu.
 - Ölümlerin 17'si Peek'te (33 isabetin 17'si); kafa 10/33, faz 0 ve 8'de 3+3.
 
+## V1.0.31 logu (sekizinci log: de_mirage 30 dk, 17:23–17:53)
+
+| | V1.0.30 | V1.0.31 |
+|---|---|---|
+| Öldürme / ölüm | 22 / 17 | 24 / 25 |
+| Sana gelen isabet / kafa | 33 / 10 (%30) | 39 / 15 (%38) |
+| Senin atış / isabet | 30 / 27 (%90), 2 correction | 43 / 29 (%67), **12 correction** |
+| `sikmadi` | 10 | 8 |
+
+- **Kendi resolver üçüncü kez uygulanmadı**, bu kez sebep durum anahtarı: 12 kol seçimi (`bizim lby+ / wall+ ... (deneme)`), hepsi "Standing"de; atışlar 1 sn sonra düşman "Slow walk" / "Moving"deyken gitti (klaus 17:25:49 → 17:25:50, ﷽﷽ 17:25:50 → 17:25:51). Hipotez kaydı (düşman, durum) başına; yeni durumun kaydı boş → `res gs`. Bırakmalar artık 1–31 sn sonra (grace çalışıyor). → **V1.0.32:** karar düşman başına, her durumun hipotezine taşınır.
+- Seçimlerin 11'i `(deneme)`: GS kolu 42/49 (%86) ile skor 0.84, lby+ ön bilgisi 0.62. Sadece ε ile seçiliyor. → UCB1 primi (0.25): denenmemiş kol ilk 4–8 atışta öne geçer.
+- `lby L 102°`, `111°`, `122°`, `R 178°`: desync'in üstünde farklar, LBY kırıcı / bayat LBY. → 150° üstü taraf sayılmaz.
+- Correction ıskası 2 → 12 (%28): Black Beatles 4, ﷽﷽ 3, furkan 2. Çoğu `BA Off` ile (bu oturumda body aim kapalı, kafa 32/43). Kendi kol tam bu düşmanlarda devreye girmeliydi; Black Beatles'ta skorla (`GS 1/4`) seçildi ama durum anahtarına takıldı.
+- Çalışma hatası yok; gerçek kayıt bekleme ve DT çifti öncekiyle aynı.
+
 ## Genel tablo
 
 | | |

@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.31"
+local VERSION = "1.0.32"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -3261,7 +3261,9 @@ hypothesis.wall_side = function(enemy)
             local delta = (eye_yaw - lby + 180) % 360 - 180
             -- Histerezis: LBY kolu seciliyken esik 25, yoksa 35 (esik etrafinda titreyip kolu dusurmesin).
             local threshold = cached ~= nil and cached.kind == "lby" and 25 or 35
-            if abs(delta) >= threshold then
+            -- 150 ustu (V1.0.32): LBY goz yaw'inin neredeyse tersi; desync en cok ~58, bu LBY kirici / bayat
+            -- LBY'dir, tarafin isareti anlamsiz (V1.0.31 logunda 178, 122, 111, 102 derecelik "farklar").
+            if abs(delta) >= threshold and abs(delta) <= 150 then
                 side, kind, mag = delta > 0 and "L" or "R", "lby", abs(delta)
             end
         end
@@ -3400,23 +3402,30 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     local habit = resolver.habit(entry)
     local guess = pattern or (habit ~= nil and habit.pattern) or nil
     h.side, h.kind, h.mag = hypothesis.wall_side(enemy)
-    -- Kendi resolver'in kolu secildigi taraf bilgisine baglidir (lby+ = LBY tarafina dogru). Bilgi kaybolur ya da
-    -- turu degisirse (lby -> open / duvar) aci dayanaksiz kalir: aday birakilir, GS resolver'ina donulur ve
-    -- yeni ture gore kol yeniden secilir (V1.0.30). Taraf (L/R) degisimi actual() ile zaten aynalaniyor.
-    -- Anlik kayip sayilmaz: bilgi grace sn boyunca kesintisiz yoksa birakilir (V1.0.31).
-    if h.own_arm ~= nil then
-        if h.kind == h.arm_kind then
-            h.kind_seen, h.arm_side = now, h.side
-        elseif now - (h.kind_seen or now) <= hypothesis.own.grace then
-            -- Bilgi yokken taraf "open" doner ve aci aynalanmaz kalirdi: secildigi taraf korunur.
-            h.side = h.arm_side or h.side
+    -- Kendi resolver'in karari dusman basina tutulur (entry.own), durum basina degil (V1.0.32): V1.0.31 logunda
+    -- kol "Standing"de secildi, atis 1 sn sonra "Slow walk"ta gitti ve o durumun hipotezi bos oldugu icin 43
+    -- atisin hepsi "res gs" kaldi. Karar, dusman hangi duruma gecerse gecsin o durumun hipotezine yazilir
+    -- (havada yazilmaz, orada Force safe point). Kol secildigi taraf bilgisine baglidir (lby+ = LBY tarafina
+    -- dogru): bilgi grace sn kesintisiz yoksa ya da turu degisirse (lby -> open / duvar) kol birakilir
+    -- (V1.0.30/31); anlik kayipta secildigi taraf (L/R) korunur, aci aynalanmaz kalmasin.
+    local own = entry ~= nil and entry.own or nil
+    if own ~= nil then
+        if h.kind == own.kind then
+            own.seen, own.side, own.mag = now, h.side, h.mag
+        elseif now - own.seen <= hypothesis.own.grace then
+            h.side = own.side
         else
             if on(menu.resolver_log) then
                 print(("[%s] resolver: %s %s | taraf bilgisi %.1f sn'dir yok (%s -> %s): %s kolu birakildi, GS resolver'i"):format(SCRIPT,
-                    entry ~= nil and entry.name or player_name(enemy), state, now - h.kind_seen, h.arm_kind or "?", h.kind, h.own_arm))
+                    entry.name or player_name(enemy), state, now - own.seen, own.kind, h.kind, own.arm))
             end
-            h.candidate, h.visited, h.attempts, h.own_arm = 0, {}, 0, nil
+            -- Bilgi geri gelince bekletmeden yeni karar verilsin.
+            entry.own, entry.own_choice, own = nil, nil, nil
         end
+    end
+    -- Bu durumun hipotezi dusmanin karariyla uyumlu tutulur: karar kalktiysa / degistiyse aday birakilir.
+    if h.own_arm ~= nil and (own == nil or own.stamp ~= h.own_stamp) then
+        h.candidate, h.visited, h.attempts, h.own_arm = 0, {}, 0, nil
     end
     local slot_key = (guess or "unknown") .. "|" .. h.kind
     if h.candidate == 0 and h.seeded ~= slot_key then
@@ -3425,26 +3434,35 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     -- Kendi resolver (V1.0.29): taraf bilgisi varsa (LBY ya da duvar) ilk atistan itibaren olculen kola gore
     -- aci; GS'ye birakmak da bir koldur ("gs"). Karar bir kez verilir, o dusmana atis sonucu gelene (ya da
     -- hold sn gecene) kadar tutulur. Jitter'li / kararsiz desende ve havada yok (orada Force safe point).
-    if on(menu.own_res) and h.candidate == 0 and h.kind ~= "open" and state ~= "Air" and now >= h.cooldown
+    local own_ok = on(menu.own_res) and entry ~= nil and state ~= "Air" and now >= h.cooldown
         and not enemy_watch.multi[guess] and now >= (h.unstable or -1000)
-        and now - (h.pattern_since or -1000) >= hypothesis.settle then
-        if h.arm == nil or h.arm_kind ~= h.kind or now < (h.arm_time or 0) or now - (h.arm_time or 0) > hypothesis.own.hold then
+        and now - (h.pattern_since or -1000) >= hypothesis.settle
+    if own_ok and own ~= nil and h.candidate == 0 then
+        -- Var olan karar bu duruma da yazilir (durum degisti ya da aday zaman asimina ugradi).
+        local c = hypothesis.own.candidate(own.arm, own.kind, own.mag)
+        h.candidate, h.visited, h.attempts, h.feedback = c, { [c] = true }, 1, now
+        h.own_arm, h.own_stamp = own.arm, own.stamp
+    elseif own_ok and own == nil and h.candidate == 0 and h.kind ~= "open" then
+        local choice = entry.own_choice
+        if choice == nil or choice.kind ~= h.kind or now < choice.time or now - choice.time > hypothesis.own.hold then
             local arm, exploring = hypothesis.own.choose(entry, h.kind)
-            h.arm, h.arm_time, h.arm_kind = arm, now, h.kind
+            entry.own_choice = { arm = arm, kind = h.kind, time = now }
             if arm ~= "gs" then
+                hypothesis.own.stamp = hypothesis.own.stamp + 1
+                entry.own = { arm = arm, kind = h.kind, side = h.side, mag = h.mag, seen = now, stamp = hypothesis.own.stamp }
                 local c = hypothesis.own.candidate(arm, h.kind, h.mag)
-                h.candidate, h.visited, h.attempts, h.feedback, h.own_arm = c, { [c] = true }, 1, now, arm
-                h.kind_seen, h.arm_side = now, h.side
+                h.candidate, h.visited, h.attempts, h.feedback = c, { [c] = true }, 1, now
+                h.own_arm, h.own_stamp = arm, hypothesis.own.stamp
                 if on(menu.resolver_log) then
                     print(("[%s] resolver: %s %s | bizim %s (%s %s%s) body yaw %d%s%s | kollar: %s"):format(SCRIPT,
-                        entry ~= nil and entry.name or player_name(enemy), state, arm,
+                        entry.name or player_name(enemy), state, arm,
                         h.kind == "lby" and "lby" or "duvar", h.side, h.mag ~= nil and (" %d%s"):format(floor(h.mag + 0.5), DEG) or "",
                         hypothesis.yaw(hypothesis.actual(c, h.side)), DEG, exploring and " (deneme)" or "",
                         hypothesis.own.summary(entry)))
                 end
             elseif exploring and on(menu.resolver_log) then
                 print(("[%s] resolver: %s %s | GS resolver'i (deneme) | kollar: %s"):format(SCRIPT,
-                    entry ~= nil and entry.name or player_name(enemy), state, hypothesis.own.summary(entry)))
+                    entry.name or player_name(enemy), state, hypothesis.own.summary(entry)))
             end
         end
     end
@@ -3553,6 +3571,12 @@ hypothesis.own = {
     -- yururken LBY her guncellemede goz yaw'ina esitlenir, fark bir an 0 olup geri gelir. V1.0.30 logunda 8 kol
     -- secimi ayni saniye "lby -> open" ile birakildi, hicbir atis kolla gitmedi.
     grace = 1.0,
+    -- UCB1 kesif primi (V1.0.32): skor + ucb * sqrt(ln(toplam atis + 1) / (kolun atisi + 1)). GS %85 tutarken
+    -- hic denenmemis kol salt on bilgiyle (0.62) asla one gecemiyor, %15 deneme de durum degisimine
+    -- yeniyordu; prim denenmemis kolu ilk 4-8 atista one alir, tutmuyorsa kendiliginden soner.
+    ucb = 0.25,
+    -- Her yeni karar ayri damga tasir; durum hipotezleri bu damgayla dusmanin karariyla eslesir.
+    stamp = 0,
 }
 
 hypothesis.own.reset = function()
@@ -3604,9 +3628,14 @@ hypothesis.own.choose = function(entry, kind)
             return least, true
         end
     end
+    local total = 0
+    for _, arm in ipairs(list) do
+        total = total + (own.stats[arm] ~= nil and own.stats[arm].shots or 0)
+    end
     local best, best_score = "gs", -1
     for _, arm in ipairs(list) do
-        local score = own.score(entry, arm)
+        local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
+        local score = own.score(entry, arm) + own.ucb * sqrt(math.log(total + 1) / (shots + 1))
         if score > best_score + 1e-9 then
             best, best_score = arm, score
         end
@@ -3651,9 +3680,13 @@ hypothesis.own.result = function(shot, target, hit, miss)
     if shot == nil or shot.res_arm == nil or shot.hyp_key == nil then
         return
     end
-    local h = hypothesis.get(shot.hyp_key, shot.state, false)
-    if h ~= nil then
-        h.arm = nil
+    local entry = resolver.players[shot.hyp_key]
+    if entry ~= nil then
+        -- Karar serbest kalir; isabet eden kol dusmanda kalir, resolver iskasinda birakilir (yeniden secilir).
+        entry.own_choice = nil
+        if miss then
+            entry.own = nil
+        end
     end
     if not (hit or miss) or not hypothesis.eligible(shot) or hypothesis.own.stats[shot.res_arm] == nil then
         return

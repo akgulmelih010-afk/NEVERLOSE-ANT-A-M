@@ -313,7 +313,9 @@ function renderer.circle_outline() end
 
 -- Hafiza: hava grubunda faz 1 kotu bilinsin (20 mermi, 15 kafa) -> V1.0.23 faz atlama testi.
 local db = { nykle_win_gs_memory = { version = 1, brute = {}, resolver = {}, phase_groups = {
-    air = { { shots = 0, hits = 0 }, { shots = 20, hits = 15 } } } } }
+    air = { { shots = 0, hits = 0 }, { shots = 20, hits = 15 } } },
+    -- V1.0.32: GS kolu hafizada 40/45 (%89): salt on bilgiyle lby+ (0.62) one gecemez, UCB primi gecirir.
+    own_res = { v = 1, arms = { gs = { shots = 45, hits = 40 } } } } }
 local database = {}
 function database.read(key) return db[key] end
 function database.write(key, v) db[key] = v end
@@ -361,7 +363,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.31 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.31")
+check(printed("V1.0.32 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.32")
 
 local function errors_since(i)
     local found = {}
@@ -626,6 +628,15 @@ check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw va
     "kendi resolver acik: lby+ kolu, Force body yaw 58 (" .. tostring(plist.get(2, "Force body yaw")) .. " / "
     .. tostring(plist.get(2, "Force body yaw value")) .. ")")
 check(printed("| bizim lby+ (lby L 50") ~= nil, "kol secimi loga yazildi")
+-- V1.0.32: karar dusman basina: dusman yurumeye gecince (Moving hipotezi) kol yeni karar verilmeden tasinir.
+before = #prints + 1
+W.evel[2] = 100
+tick(10)
+check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58
+    and printed("| bizim lby+", before) == nil,
+    "V1.0.32: kol durum degisince (Standing -> Moving) yeni karar olmadan tasinir (" .. tostring(plist.get(2, "Force body yaw")) .. ")")
+W.evel[2] = 0
+tick(10)
 before = #prints + 1
 fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
 fire("aim_fire", { id = 7, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })

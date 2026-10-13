@@ -336,7 +336,16 @@ Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 5
 | Kol, taraf bilgisi **1 sn kesintisiz** yoksa bırakılır (anlık kayıp sayılmaz); logda `taraf bilgisi 1.2 sn'dir yok (lby -> open): lby+ kolu birakildi` | LBY farkı anlık ölçülür: düşman yürürken LBY her güncellemede göz yaw'ına eşitlenir, fark bir an 0 olup geri gelir. V1.0.30 oturumunda 8 kol seçiminin 8'i aynı saniye bırakıldı, 30 atışın hepsi yine `res gs` |
 | Bilgi anlık yokken seçildiği taraf (L/R) korunur | Taraf `open` dönünce açı aynalanmıyor, sağ taraf kolu sol açıya kayıyordu |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.31 kuralları (69 kontrol).
+**V1.0.32** (V1.0.31 logu, de_mirage 30 dk):
+
+| Değişiklik | Neden |
+|---|---|
+| Kendi resolver'ın kararı **düşman başına** tutulur, durum başına değil: düşman Standing → Slow walk → Moving geçse de aynı kol o durumun hipotezine yazılır (havada yazılmaz) | V1.0.31 oturumunda 12 kol seçiminin hepsi "Standing"de verildi, atışlar 1 sn sonra "Slow walk" / "Moving"de gitti; o durumun hipotezi boş olduğundan 43 atışın hepsi yine `res gs` |
+| Kol seçiminde **UCB1 kesif primi**: skor + 0.25 · √(ln(toplam atış + 1) / (kolun atışı + 1)) | GS %85 tutarken hiç denenmemiş kol salt ön bilgiyle (0.62) asla öne geçemiyordu; prim denenmemiş kolu ilk 4–8 atışta öne alır, tutmuyorsa kendiliğinden söner |
+| İsabet eden kol düşmanda kalır; resolver ıskasında bırakılır ve yeniden seçilir. Bilgi kaybında karar da sıfırlanır (bilgi dönünce beklemeden yeni karar) | Her atıştan sonra karar sıfırlanınca bilgi o an yoksa kol kayboluyordu |
+| LBY farkı **150° üstü** taraf bilgisi sayılmaz | 178°, 122°, 111° gibi "farklar": desync en çok ~58°, bu LBY kırıcı / bayat LBY; işaret anlamsız |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.32 kuralları (70 kontrol). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
