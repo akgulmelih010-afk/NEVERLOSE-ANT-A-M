@@ -14,6 +14,29 @@ Sayılar `atis:`, `vuruldun:`, `iska:`, `dbg duello`, `dbg sikmadi`, `dbg olum-d
 | 9 (sebep bilinmiyor) | `aimbot tehdidi baska`, `gercek kayit bekleniyor`, `safe point Force` sebepleri. |
 | 2, 4, 6, 8 | Yapılmadı: Peek AA ve temiz atış değişiklikleri oyun içi deneme ister; önce V1.0.22 logu. |
 
+## V1.0.23: anti-aim (ikinci log, aynı veri + 1 oturum)
+
+İkinci log (9 612 satır) aynı dosyanın devamı: 990 yeni satır, bir V1.0.21 oturumu (aurorahvh, 105 mermi: dururken %56, Peek %50, freestanding %62 kafa) ve V1.0.22'nin sadece yüklenmesi. AA için sana gelen 1 100 merminin kırılımı:
+
+| Kırılım | Kafa / mermi |
+|---|---|
+| Düşman seni gördükten < 0.1 sn sonra | 137 / 329 = **%42** |
+| 0.1–1 sn | 123 / 346 = %36 |
+| ≥ 1 sn | 23 / 137 = **%17** |
+| `gormedi` | 87 / 240 = %36 |
+| Dururken < 0.1 sn | 31 / 58 = %53 |
+| Freestanding < 0.1 sn | 14 / 26 = %54 |
+| Faz 0 / 1 / 2 / 3 / 4 / 5 (hepsi) | %35 / %43 / %33 / %32 / %34 / %37 |
+| Desync `sag 58` / `sol 58` / `sol 60` / `sag 60` | %40 / %37 / %29 / %31 |
+| Saldıran `AA hedefi` / `AA hedefi degil` | %33 / **%45** |
+| Saldıran defensive'de (`DEF geri`) / değil | **%59** / %33 |
+| `DT dolu, DEF yok (zorla)` (zorlandı, pencere yok) | 61 / 114 = %54 |
+| Scout mermisi | 346 / 598 = %58 |
+
+Okuma: AA bir kez görüldükten sonra iş görüyor (%17); ölümler ilk 0.1 sn'de ve defensive'li, ön nişanlı scout'lardan. Faz ve taraf değişimi fark yaratmıyor (resolver yazı-tura atıyor, desync 58 iken doğru tahmin = kafa).
+
+Uygulananlar: (1) ilk görüşte / peek'te defensive silah hazırken de (temiz atış hariç), (2) düşük desync fazları 6–7 (öğrenme seçer), (3) kötü bilinen faz atlanır. Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
+
 ## Genel tablo
 
 | | |

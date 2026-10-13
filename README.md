@@ -270,7 +270,15 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | `vuruldun:` satırında `gormedi` yanına iz sonucu: `(iz: su an goruyor / duvardan goruyor / kapali)` | 85 kafa mermisi "gormedi" idi (50'si duvardan); görüş takibinin neyi kaçırdığı artık logdan okunur. |
 | `dbg sikmadi` yeni sebepler: `aimbot tehdidi baska`, `gercek kayit bekleniyor (whitelist)`, `safe point Force` | 22 `sebep bilinmiyor`. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22 kuralları (30 kontrol).
+**V1.0.23: anti-aim** (aynı log, sana gelen 1 100 mermi):
+
+| Değişiklik | Neden |
+|---|---|
+| **Defensive vs enemy peeks** silahın hazırken de: seni yeni gören / sana peek atan düşmana karşı dururken, eğilirken ve freestanding'de de DT defensive zorlanır (temiz atış varsa yine kalkar) | Kafa mermilerinin %42'si düşman seni gördükten < 0.1 sn sonra geldi (1 sn+ görenlerde %17); dururken %53, freestanding'de %54. Eskiden sadece silah ateş edemezken zorlanıyordu. |
+| İki yeni anti-brute fazı: **6** desync 32°, **7** desync 41° + taraf çevirme | 0–5 fazlarının hepsi aynı kafa oranını yedi (%32–43): desync hep 58–60 olunca resolver'ın ±58 tahmini yazı-tura. Düşük desync'te iki tahmin de kafayı bulmaz. Hangisinin işe yaradığını grup başına öğrenme seçer; Stats → AA FAZ'da yeni sütunlar. |
+| **Kötü bilinen faz atlanır:** bir grupta ≥ 12 mermi ve ≥ %55 kafa yiyen faz, düşman başına ilerlemede ve öğrenilen başlangıçta atlanır (panelde `x`) | Havada faz 1: 16/25 = %64 kafa (faz 0: %35); düşman başına ilerleme yine de ona dönüyordu. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.23 kuralları (36 kontrol).
 
 ## Notlar
 

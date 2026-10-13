@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.22"
+local VERSION = "1.0.23"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -2237,13 +2237,20 @@ local MANUAL_YAW = { Left = -90, Right = 90, Forward = 180 }
 -- Anti-brute fazlari (Neverlose V1.0 ile ayni): her isabet / yakin kacan mermide bir sonrakine gecer.
 -- Faz 1: Static'te tarafi cevirir, jitter'da desync'i yaw sirasinin tersine kaydirir. 2-3: kafa +-15
 -- derece kayar. 4: desync tarafi her flip'te rastgele. 5: sabit desync, tarafi GameSense'in "Freestanding
--- body yaw"i secer (gercek kafa duvar tarafinda). Desync hicbir fazda dusurulmez.
+-- body yaw"i secer (gercek kafa duvar tarafinda).
+-- V1.0.23 (V1.0.16-1.0.21 logu, 1 100 mermi): 0-5 fazlarinin hepsi ayni kafa oranini yedi (Peek'te %32-43,
+-- hepsinde %32-43): taraf / +-15 derece degistirmek resolver'in yazi-tura tahminini bozmuyor, cunku desync
+-- hep 58-60 ve resolver +-58'i deniyor. 6-7: desync dusuk (32 / 41 derece): +-58 tahmininin ikisi de kafayi
+-- bulmaz. Hangi fazin ise yaradigini grup basina ogrenme secer (yeni fazlar "denenmemis" sayilir, ilk firsatta
+-- denenir); Stats > AA FAZ'da 6 ve 7 sutunlari.
 local BRUTE_PHASES = {
     { invert = true,  scale = 1.0,  shift = 0 },
     { invert = false, scale = 1.0,  shift = 15 },
     { invert = true,  scale = 0.85, shift = -15 },
     { invert = false, scale = 1.0,  shift = 0, random = true },
     { invert = false, scale = 1.0,  shift = 0, freestand = true },
+    { invert = false, scale = 0.55, shift = 0 },
+    { invert = true,  scale = 0.7,  shift = 10 },
 }
 
 -- enemies[key] = { stage, time, base, learned, last, shot_stage, name, seen }; anahtar Steam ID.
@@ -2332,6 +2339,27 @@ local function record_phase(grp_name, phase, hit)
     end
 end
 
+-- V1.0.23: grupta kotu bilinen faz (en az bad_shots mermi, bad_rate ustu kafa; logda havada faz 1: 16/25 = %64,
+-- faz 0: %35) dusman basina ilerlemede ve ogrenilen baslangicta atlanir, bir sonrakine gecilir. Grup
+-- varsayilani zaten en az vurulan fazdir.
+brute.bad_shots, brute.bad_rate = 12, 0.55
+
+brute.known_bad = function(grp_name, phase)
+    local list = brute.phases[grp_name]
+    local stat = list ~= nil and list[phase] or nil
+    return stat ~= nil and stat.shots >= brute.bad_shots and stat.hits / stat.shots >= brute.bad_rate
+end
+
+brute.skip_bad = function(grp_name, phase)
+    for _ = 0, #BRUTE_PHASES do
+        if not brute.known_bad(grp_name, phase) then
+            return phase
+        end
+        phase = (phase + 1) % (#BRUTE_PHASES + 1)
+    end
+    return phase
+end
+
 local function brute_entry_stage(entry, grp_name)
     if entry == nil then
         return brute.default[grp_name]
@@ -2339,10 +2367,10 @@ local function brute_entry_stage(entry, grp_name)
     local now = realtime()
     local reset_after = menu.brute_reset ~= nil and menu.brute_reset:get() or 6
     if entry.stage > 0 and now >= entry.time and now - entry.time <= reset_after then
-        return entry.stage
+        return brute.skip_bad(grp_name, entry.stage)
     end
     if entry.learned then
-        return entry.base
+        return brute.skip_bad(grp_name, entry.base)
     end
     return brute.default[grp_name]
 end
@@ -4412,12 +4440,16 @@ do
     end
 
     -- "Defensive vs enemy peeks": "On peek" durumlarinda bir dusman sana dogru peek atarken DT defensive'i
-    -- zorlanir ve ANTI_HOLD tick daha surer. Kafani gorurken peek atiyorsa sadece silahin ates edemiyorken.
+    -- zorlanir ve ANTI_HOLD tick daha surer.
+    -- V1.0.23: kafani gorurken peek atiyorsa (ya da seni yeni gordu) silahin hazirken de zorlanir. Eskiden
+    -- "ates edemiyorken" sartı vardi; logda kafa mermilerinin %42'si dusman seni gordukten < 0.1 sn sonra
+    -- geldi (1 sn+ gorenlerde %17), dururken %53 / freestanding'de %54. Temiz atis varsa (hedefe mermi geciyor)
+    -- zorlama zaten kalkar (apply_defensive: not clean), yani atisini geciktirmez.
     local ANTI_HOLD = 16
     local anti = { last = -1000 }
 
-    local function anti_window(now, armed)
-        if exposure.peeked or (exposure.enemy_peek and not armed) then
+    local function anti_window(now)
+        if exposure.peeked or exposure.enemy_peek then
             anti.last = now
         end
         return now >= anti.last and now - anti.last <= ANTI_HOLD
@@ -4462,7 +4494,7 @@ do
             and now >= hs_lc.until_tick - HS_LC_HOLD
         local airborne = state == "Air" or state == "Air crouch"
         local window = mode == "Smart" and (smart_window(now) or (airborne and on(menu.air_lag)))
-        local guard = mode == "On peek" and on(menu.anti_peek) and anti_window(now, armed ~= false)
+        local guard = mode == "On peek" and on(menu.anti_peek) and anti_window(now)
         local peeking = on_peek and exposure.peeking ~= nil and on(menu.peek_defensive)
         local switching = on_peek and switch_window(cmd)
         local knife = on_peek and current.backstab ~= nil and on(menu.backstab_def)
@@ -7805,8 +7837,9 @@ local function draw_stats(sw, sh)
         local parts = { brute.group_label[grp_name]:upper() }
         for phase = 0, #BRUTE_PHASES do
             local stat = brute.phases[grp_name][phase]
-            parts[#parts + 1] = ("%d%s %d/%d"):format(phase, phase == brute.default[grp_name] and "*" or "",
-                floor(stat.hits + 0.5), floor(stat.shots + 0.5))
+            -- * = verisi olmayan dusmanlara uygulanan faz; x = kotu bilinen, ilerlemede atlanan faz (V1.0.23).
+            parts[#parts + 1] = ("%d%s %d/%d"):format(phase, phase == brute.default[grp_name] and "*"
+                or (brute.known_bad(grp_name, phase) and "x" or ""), floor(stat.hits + 0.5), floor(stat.shots + 0.5))
         end
         y = y + 10
         text(x, y, COLOR.WHITE, FONT, table.concat(parts, "   "))

@@ -305,7 +305,9 @@ function renderer.circle() end
 function renderer.gradient() end
 function renderer.circle_outline() end
 
-local db = {}
+-- Hafiza: hava grubunda faz 1 kotu bilinsin (20 mermi, 15 kafa) -> V1.0.23 faz atlama testi.
+local db = { nykle_win_gs_memory = { version = 1, brute = {}, resolver = {}, phase_groups = {
+    air = { { shots = 0, hits = 0 }, { shots = 20, hits = 15 } } } } }
 local database = {}
 function database.read(key) return db[key] end
 function database.write(key, v) db[key] = v end
@@ -349,7 +351,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.22 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.22")
+check(printed("V1.0.23 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.23")
 
 local function errors_since(i)
     local found = {}
@@ -369,6 +371,7 @@ check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or 
 -- Tick surucusu
 -------------------------------------------------------------------------------
 local cmdno = 1
+local last_cmd = nil
 local function tick(n)
     for _ = 1, n or 1 do
         W.tick = W.tick + 1
@@ -376,6 +379,7 @@ local function tick(n)
         local cmd = { command_number = cmdno, chokedcommands = 0, in_jump = 0, in_duck = 0, in_use = 0,
             in_forward = W.speed > 0 and 1 or 0, in_back = 0, in_moveleft = 0, in_moveright = 0,
             forwardmove = W.speed > 0 and 450 or 0, sidemove = 0, yaw = 0, pitch = 0, weaponselect = 0 }
+        last_cmd = cmd
         fire("run_command", cmd)
         fire("predict_command", cmd)
         fire("setup_command", cmd)
@@ -482,6 +486,26 @@ W.speed, W.lag = 0, 12
 tick(40)
 
 -------------------------------------------------------------------------------
+-- V1.0.23: dusman seni yeni gordu (peek), silahin hazir, temiz atis yok -> dururken de defensive zorlanir
+-------------------------------------------------------------------------------
+W.sees[2], W.sees[3], W.head_dmg[2], W.body_dmg[2], W.speed, W.lag = false, false, 0, 0, 0, 12
+tick(80) -- gorus yok, peek penceresi kapandi
+check(last_cmd.force_defensive ~= true, "gorulmuyorken dururken defensive zorlanmaz")
+W.sees[2] = true
+tick(2)
+check(last_cmd.force_defensive == true, "dusman seni yeni gordu, silah hazir: defensive zorlanir")
+tick(40) -- 16 tick yeni gorus + 16 tick tutma gecti
+check(last_cmd.force_defensive ~= true, "0.5 sn sonra (artik yeni degil) zorlama biter")
+W.sees[2] = false
+tick(40)
+W.head_dmg[2] = 300 -- temiz atis var: zorlama yok
+W.sees[2] = true
+tick(2)
+check(last_cmd.force_defensive ~= true, "temiz atis varken peek'e karsi defensive zorlanmaz")
+W.head_dmg[2], W.sees[2] = 0, false
+tick(40)
+
+-------------------------------------------------------------------------------
 -- V1.0.22: govde 70+ secenegi (varsayilan kapali; acilinca MD gecici 70)
 -------------------------------------------------------------------------------
 local md_ref = find_ref("Minimum damage")
@@ -514,6 +538,24 @@ line = printed("dbg sikmadi: dusman3", before)
 check(line ~= nil, "dusman3 icin sikmadi satiri")
 check(line ~= nil and line:find("aimbot tehdidi baska: dusman2", 1, true) ~= nil, "sebep: aimbot tehdidi baska")
 W.head_dmg[3], W.body_dmg[3] = 0, 0
+
+-------------------------------------------------------------------------------
+-- V1.0.23: havada kotu bilinen faz 1 (hafiza: 15/20) dusman basina ilerlemede atlanir
+-------------------------------------------------------------------------------
+W.flags, W.speed, W.sees[2] = 0, 200, true -- havada
+tick(10)
+before = #prints + 1
+fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 100, hitgroup = 1, weapon = "ssg08" })
+line = printed("vuruldun:", before)
+check(line ~= nil and line:find("| Air |", 1, true) ~= nil and line:find("faz 0", 1, true) ~= nil,
+    "havada ilk kafa mermisi faz 0'da (" .. tostring(line) .. ")")
+tick(4)
+before = #prints + 1
+fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 100, hitgroup = 1, weapon = "ssg08" })
+line = printed("vuruldun:", before)
+check(line ~= nil and line:find("faz 2", 1, true) ~= nil, "ogrenilen faz 1 kotu bilindigi icin faz 2 (" .. tostring(line) .. ")")
+W.flags, W.speed, W.sees[2] = 1, 0, false
+tick(10)
 
 -------------------------------------------------------------------------------
 -- Kapanis
