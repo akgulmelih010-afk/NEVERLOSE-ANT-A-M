@@ -4,6 +4,10 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim, exploit ve resolver lua's
 
 **Kurar kurmaz çalışır.** Bütün ayarlar hazır gelir; exploitler ve defensive her durumda kendiliğinden doğru moda geçer. **Always use recommended settings** açık kaldıkça her sürümde en iyi bilinen ayarlar korunur, ayarlara dokunman gerekmez.
 
+## GameSense edition
+
+Aynı lua'nın **GameSense (CS:GO)** sürümü: [`Nykle_win_gamesense.lua`](Nykle_win_gamesense.lua). Bu dosyadaki bütün özellikler (durumlar, builder, Smart defensive, anti-brute ve öğrenmesi, AI peek, resolver seviyeleri, temiz atış, loglar, paneller) GameSense API'sine taşındı; üstüne GameSense'e özel düşman başına safe point / body aim (oyuncu listesi), NYKLE Resolver 2.5'in body yaw hipotezleri ve Misc sekmesinde NYKLE Yaw'daki animasyonlu `Nykle.win` clan tag'i ve ayarlanabilir trash talk var. Menüsü NYKLE Yaw gibi **AA → Anti-aimbot angles**'ta. Kurulum, Neverlose'tan farklar, referans GameSense lua'larından alınanlar ve testler: [README_GAMESENSE.md](README_GAMESENSE.md).
+
 ## V1.0'da ne değişti
 
 **Resolver: en kararlı sürüme dönüş + mantıklı iyileştirmeler.** Sürümler tek tek karşılaştırıldı. v5.2'den sonra resolver'a eklenen üç şey her sürümde atışı biraz daha kısıtlıyordu ve "resolver gittikçe kötüleşti" hissinin kaynağı bunlardı:
