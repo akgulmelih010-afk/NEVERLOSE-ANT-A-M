@@ -278,7 +278,14 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | İki yeni anti-brute fazı: **6** desync 32°, **7** desync 41° + taraf çevirme | 0–5 fazlarının hepsi aynı kafa oranını yedi (%32–43): desync hep 58–60 olunca resolver'ın ±58 tahmini yazı-tura. Düşük desync'te iki tahmin de kafayı bulmaz. Hangisinin işe yaradığını grup başına öğrenme seçer; Stats → AA FAZ'da yeni sütunlar. |
 | **Kötü bilinen faz atlanır:** bir grupta ≥ 12 mermi ve ≥ %55 kafa yiyen faz, düşman başına ilerlemede ve öğrenilen başlangıçta atlanır (panelde `x`) | Havada faz 1: 16/25 = %64 kafa (faz 0: %35); düşman başına ilerleme yine de ona dönüyordu. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.23 kuralları (36 kontrol).
+**V1.0.24** (V1.0.23'ün ilk logu: 12 dk DM, 70 mermi):
+
+| Değişiklik | Neden |
+|---|---|
+| **Snipers** varsayılanı `Same as state` (= DT); `Auto (learn)` seçilirse eşikler yüksek (öteki ≥ 16, kendisi ≥ 24 mermi, fark 0.15) | Öğrenme 60 mermilik sayımıyla oturumu Hide shots'a çevirdi; 1 100 mermilik logda HS'de kafa %45, DT'de %36 (havada %76 / %52) ve HS ile zorlanan defensive, teleport, peek koruması çalışmıyor. |
+| Düşmanın kaydı sahteyken (defensive) görüş sisteminin ileri bakışı kaydın gerisi kadar uzar (0.2 + ≤ 0.25 sn) | `gormedi` kafa mermilerinin 22/23'ünde vurulma anında onun gözünden iz kapalıydı, 13'ünde kaydı sahteydi: defensive'li düşman gördüğümüz yerden değil ilerisinden ateş ediyor. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.24 kuralları (40 kontrol).
 
 ## Notlar
 

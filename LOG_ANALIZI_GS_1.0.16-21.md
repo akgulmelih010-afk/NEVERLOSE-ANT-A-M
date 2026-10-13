@@ -35,7 +35,17 @@ Sayılar `atis:`, `vuruldun:`, `iska:`, `dbg duello`, `dbg sikmadi`, `dbg olum-d
 
 Okuma: AA bir kez görüldükten sonra iş görüyor (%17); ölümler ilk 0.1 sn'de ve defensive'li, ön nişanlı scout'lardan. Faz ve taraf değişimi fark yaratmıyor (resolver yazı-tura atıyor, desync 58 iken doğru tahmin = kafa).
 
-Uygulananlar: (1) ilk görüşte / peek'te defensive silah hazırken de (temiz atış hariç), (2) düşük desync fazları 6–7 (öğrenme seçer), (3) kötü bilinen faz atlanır. Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
+Uygulananlar: (1) ilk görüşte / peek'te defensive silah hazırken de (temiz atış hariç), (2) düşük desync fazları 6–7 (öğrenme seçer), (3) kötü bilinen faz atlanır.
+
+## V1.0.23'ün ilk logu → V1.0.24
+
+Üçüncü log: V1.0.23 ile 12 dk DM (dm_twentysixer_office_aurorahvh, 14:30–14:43), çoğu tek rakibe karşı (мопсик: 37 ölüm+öldürme). 20 öldürme / 34 ölüm; sana 70 mermi, 31 kafa (%44); senin 42 atış, 24 isabet.
+
+- **Bütün oturum Hide shots'taydı:** sniper öğrenmesi "HS 17/32, DT 19/28 → Hide shots" demişti. HS'de zorlanan defensive, teleport ve peek koruması yok; V1.0.23'ün "ilk görüşte defensive" değişikliği hiç devreye girmedi. 1 100 mermilik toplamda HS %45 / DT %36 kafa. → Varsayılan `Same as state` (DT), Auto eşikleri yükseltildi.
+- **`gormedi (iz: kapali)` 22/23:** vurulma anında saldıranın gözünden kafana iz kapalı; 13'ünde kaydı sahte (`DEF geri`). → Sahte kayıttaki düşman için ileri bakış kaydın gerisi kadar uzatıldı.
+- Faz 6/7: 24 + 18 mermi, %42 / %44 — faz 3 (%41) ile aynı; öğrenme peek için faz 3'ü seçti. Tek rakip, erken.
+- Gerçek kayıt bekleme: 285 "gerçek kayıt geldi", 233 "sınır doldu" (düşman 14 tick'ten uzun defensive'de). Sahte kayda 12 atış %50, gerçeğe 29 atış %62.
+- `sarj bekle` ile vurulma: 0 (V1.0.22 değişikliği). Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
 
 ## Genel tablo
 

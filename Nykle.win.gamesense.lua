@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.23"
+local VERSION = "1.0.24"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1256,7 +1256,9 @@ menu.fd_still       = grp.protect:switch("Fake duck only when standing still", f
 
 -- Exploits
 menu.auto_exploit   = grp.exploits:switch("Auto exploit", true)
-menu.sniper_exploit = grp.exploits:combo("Snipers (SSG08/AWP/R8)", { "Auto (learn)", "Hide shots", "Same as state" },
+-- V1.0.24: varsayilan "Same as state" (durumun exploit'i, yani DT): loglarda HS'de kafa orani DT'den yuksek ve
+-- HS ile zorlanan defensive / teleport / peek korumasi calismiyor (bkz. sniper tablosu).
+menu.sniper_exploit = grp.exploits:combo("Snipers (SSG08/AWP/R8)", { "Same as state", "Auto (learn)", "Hide shots" },
     function() return on(menu.auto_exploit) end)
 menu.safe_recharge  = grp.exploits:switch("Safe recharge", true)
 menu.hidden_spin    = grp.exploits:slider("Hidden spin speed", 1, 30, 10)
@@ -1696,12 +1698,16 @@ local function vertical_lookahead(lp, cmd)
 end
 
 -- Dusmanin K.LOOKAHEAD sn sonraki goz konumu (yatay hiziyla); durgunsa nil.
+-- V1.0.24 (V1.0.23 logu): kafaya gelen "gormedi" mermilerinin 22/23'unde vurulma aninda onun gozunden kafana
+-- iz kapaliydi, 13'unde kaydi sahteydi (DEF geri): defensive'li dusman gordugumuz yerden degil, kaydinin
+-- gerisinde kaldigi kadar ilerisinden ates ediyor. Kaydi sahteyse bakis o kadar (saniye) daha ileri alinir.
 local function enemy_eye_ahead(enemy, eye)
     local v = velocity_of(enemy)
     if v.x * v.x + v.y * v.y < 400 then
         return nil
     end
-    return vector(eye.x + v.x * K.LOOKAHEAD, eye.y + v.y * K.LOOKAHEAD, eye.z)
+    local ahead = K.LOOKAHEAD + (exposure.record_lag ~= nil and exposure.record_lag(enemy) or 0)
+    return vector(eye.x + v.x * ahead, eye.y + v.y * ahead, eye.z)
 end
 
     local function mark_sight(index, now)
@@ -2390,8 +2396,13 @@ local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 -- V1.0.17: kullanilan exploit kendi 8 mermisini gormeden birakilmaz (oyun logu: hafizada DT 4/4, HS 27 mermide
 -- 10 kafa kalmisti; DT secilmedigi icin 4 mermisi hic artmadi, her yuklemede yine Hide shots). Yuklemede once
 -- DT secilir, 8 mermiye kadar veri toplar, sonra karsilastirilir.
-local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 4,
-    stay_shots = 8, explore_shots = 8, explore_rate = 0.4 }
+-- V1.0.24 (V1.0.16-1.0.23 loglari, 1 100 mermi): HS acikken kafa orani %45 (208 mermi), DT'de %36 (898);
+-- Peek'te %45 / %38, havada %76 / %52. Ogrenme 60 mermilik kendi sayimiyla ("DT 19/28 -> Hide shots") butun
+-- oturumu HS'ye cevirdi (V1.0.23 logu: 70 mermi, %43 kafa, zorlanan defensive / teleport / peek korumasi
+-- hic calismadi). Varsayilan artik "Same as state" (DT); Auto secilirse esikler yuksek: oteki en az 16, kendisi
+-- en az 24 mermi, gecis farki 0.15.
+local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 16,
+    stay_shots = 24, explore_shots = 24, explore_rate = 0.45, margin = 0.15 }
 
 sniper.mode = function(class)
     if not SNIPERS[class] or fd_on() then
@@ -2419,9 +2430,9 @@ sniper.decide = function()
         return sniper.choice, false
     end
     local hs, dt = brute.rate(sniper.stats.hs), brute.rate(sniper.stats.dt)
-    if sniper.choice == "hs" and dt < hs - 0.1 then
+    if sniper.choice == "hs" and dt < hs - sniper.margin then
         return "dt"
-    elseif sniper.choice == "dt" and hs < dt - 0.1 then
+    elseif sniper.choice == "dt" and hs < dt - sniper.margin then
         return "hs"
     end
     return sniper.choice
@@ -2777,6 +2788,16 @@ do
                 enemy_watch.list[index] = nil
             end
         end
+    end
+
+    -- Dusmanin kaydi gordugumuz en yeni kaydin kac saniye gerisinde (sahte kayit degilse 0). Gorus
+    -- sisteminin ileri bakisi icin (bkz. enemy_eye_ahead, V1.0.24).
+    exposure.record_lag = function(ent)
+        local t = ent ~= nil and enemy_watch.list[ent] or nil
+        if t == nil or not finite(t.sim) or not finite(t.max_sim) then
+            return 0
+        end
+        return max(0, min(0.25, t.max_sim - t.sim))
     end
 
     -- { defensive, defensive_now, lc, fakeduck, jitter, pattern } ya da hic veri yoksa nil.

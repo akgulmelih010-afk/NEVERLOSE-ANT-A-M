@@ -22,6 +22,8 @@ local W = {
     head_dmg = { [2] = 0, [3] = 0 },     -- bizim gozumuzden dusmanin kafasina
     body_dmg = { [2] = 0, [3] = 0 },     -- bizim gozumuzden dusmanin govdesine
     sim_shift = { [2] = 0, [3] = 0 },    -- dusmanin simulasyon zamani kac tick geride (sahte kayit)
+    evel = { [2] = 0, [3] = 0 },         -- dusmanin x hizi
+    sees_ahead = { [2] = false, [3] = false }, -- 30+ birim ilerisinden (ileri bakis) kafamizi goruyor mu
     speed = 0, flags = 1, duck = 0,
     weapon_class = "CWeaponSSG08", next_attack = 0, clip = 5,
     printed = {},
@@ -178,7 +180,10 @@ function client.trace_bullet(from_ent, x1, y1, z1, x2, y2, z2)
         return (d or 0) > 0 and target or -1, d or 0
     end
     if target == 1 then
-        return W.sees[from_ent] and 1 or -1, W.sees[from_ent] and 90 or 0
+        local o = ORIGIN[from_ent]
+        local moved = o ~= nil and ((x1 - o[1]) ^ 2 + (y1 - o[2]) ^ 2) >= 30 * 30
+        local sees = moved and W.sees_ahead[from_ent] or W.sees[from_ent]
+        return sees and 1 or -1, sees and 90 or 0
     end
     return -1, 0
 end
@@ -252,7 +257,7 @@ function entity.get_prop(ent, name, idx)
     if ent == 2 or ent == 3 then
         if name == "m_iHealth" then return 100 end
         if name == "m_fFlags" then return 1 end
-        if name == "m_vecVelocity" then return 0, 0, 0 end
+        if name == "m_vecVelocity" then return W.evel[ent] or 0, 0, 0 end
         if name == "m_flDuckAmount" then return 0 end
         if name == "m_flSimulationTime" then return (W.tick - W.sim_shift[ent]) * W.interval end
         if name == "m_iTeamNum" then return 3 end
@@ -351,7 +356,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.23 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.23")
+check(printed("V1.0.24 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.24")
 
 local function errors_since(i)
     local found = {}
@@ -506,6 +511,22 @@ W.head_dmg[2], W.sees[2] = 0, false
 tick(40)
 
 -------------------------------------------------------------------------------
+-- V1.0.24: sniper varsayilani "Same as state" (DT); defensive'li dusmana ileri bakis kaydinin gerisi kadar
+-------------------------------------------------------------------------------
+local sniper_ref = find_ref("Snipers (SSG08/AWP/R8)")
+check(sniper_ref ~= nil and sniper_ref.value == "Same as state", "sniper exploit varsayilani Same as state")
+-- Dusman 2 100 birim/sn ile yuruyor, su anki yerinden kafamizi gormuyor, 30+ birim ilerisinden gorur.
+-- Kaydi normalken ileri bakis 0.2 sn = 20 birim: gormez. Kaydi 10 tick (0.16 sn) geride: 0.36 sn = 36 birim: gorur.
+W.evel[2], W.sees[2], W.sees_ahead[2], W.sim_shift[2] = 100, false, true, 0
+tick(80)
+check(last_cmd.force_defensive ~= true, "kaydi normal, 20 birim ileriden gormuyor: zorlama yok")
+W.sim_shift[2] = 10
+tick(3)
+check(last_cmd.force_defensive == true, "kaydi 10 tick geride: ileri bakis onu kafani gorecek yere koyar, defensive zorlanir")
+W.evel[2], W.sees_ahead[2], W.sim_shift[2] = 0, false, 0
+tick(60)
+
+-------------------------------------------------------------------------------
 -- V1.0.22: govde 70+ secenegi (varsayilan kapali; acilinca MD gecici 70)
 -------------------------------------------------------------------------------
 local md_ref = find_ref("Minimum damage")
@@ -514,6 +535,10 @@ check(body_ref ~= nil and body_ref.value == false, "Body 70+ secenegi var ve var
 W.sees[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 86
 tick(10)
 check(md_ref.value == 101, "secenek kapali: sniper kurali MD 101 (" .. tostring(md_ref.value) .. ")")
+-- "Always use recommended settings" 64 tick'te bir secenegi varsayilana (kapali) dondurur: test icin kapatilir.
+local rec_ref = find_ref("Always use recommended settings")
+check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
+rec_ref.value = false
 body_ref.value = true
 tick(10)
 check(md_ref.value == 70, "secenek acik, kafa kapali, govde 86: MD 70 (" .. tostring(md_ref.value) .. ")")
@@ -526,6 +551,7 @@ W.body_dmg[2] = 86
 tick(10)
 check(md_ref.value == 100, "gorulmuyorken sniper kurali yok, MD senin 100 (" .. tostring(md_ref.value) .. ")")
 body_ref.value = false
+rec_ref.value = true
 
 -------------------------------------------------------------------------------
 -- V1.0.22: sikmadi sebebi "aimbot tehdidi baska"
