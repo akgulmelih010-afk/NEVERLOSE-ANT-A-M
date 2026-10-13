@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.27"
+local VERSION = "1.0.28"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1414,6 +1414,9 @@ menu.tt_info     = grp.trash:label(DIM_HEX .. "English lines; one message set at
 -- V1.0.18 (yOndery paketindeki jumpscout.lua): scout'la yerinde ziplarken GameSense'in Air strafe'i kapatilir.
 -- Onerilen ayarlara girmez (kapatirsan kapali kalir).
 menu.jump_scout  = grp.movement:switch("Jump scout (no air strafe on standing jump)", true)
+-- V1.0.28: kalici sol el. Lua yuklenir yuklenmez cl_righthand 0 yazilir ve acik kaldikca oyle tutulur (oyun ya da
+-- config geri cevirse de); kapatinca / script kaldirilinca senin eski degerin geri gelir.
+menu.left_hand   = grp.movement:switch("Left hand (cl_righthand 0, permanent)", true)
 
 -- GameSense'in kendi AA ayarlari: lua acikken gizli (lua bunlari kendisi yaziyor, menusu de ayni kutuda),
 -- kapaliyken ve unload'da geri gorunur (angelwings'in yontemi).
@@ -5785,6 +5788,54 @@ listen("setup_command", protect("setup_command", function(cmd)
     end
     tick_aa(cmd, lp, choked, move_state, class, aim_target)
 end))
+
+-- V1.0.28: kalici sol el (cl_righthand 0). Her karede kontrol edilir: acikken deger 0 degilse 0 yazilir (ilk
+-- yazimda senin degerin saklanir), kapatinca ya da script kaldirilinca saklanan deger geri yazilir. cvar nesnesi
+-- yoksa client.exec ile.
+do
+    local lefthand = { original = nil, applied = false }
+
+    local function read()
+        local ok, c = pcall(function() return cvar.cl_righthand end)
+        if not ok or c == nil then
+            return nil
+        end
+        local ok_v, v = pcall(c.get_int, c)
+        return (ok_v and finite(v)) and v or nil
+    end
+
+    local function write(value)
+        local ok, c = pcall(function() return cvar.cl_righthand end)
+        if ok and c ~= nil and pcall(c.set_int, c, value) then
+            return
+        end
+        pcall(client.exec, "cl_righthand " .. tostring(value))
+    end
+
+    local function update()
+        if on(menu.enabled) and on(menu.left_hand) then
+            local v = read()
+            if v ~= 0 then
+                if not lefthand.applied then
+                    lefthand.original = v
+                end
+                write(0)
+                lefthand.applied = true
+            end
+        elseif lefthand.applied then
+            write(lefthand.original or 1)
+            lefthand.applied, lefthand.original = false, nil
+        end
+    end
+
+    listen("paint", protect("left hand", update))
+    listen("shutdown", protect("left hand", function()
+        if lefthand.applied then
+            write(lefthand.original or 1)
+            lefthand.applied = false
+        end
+    end))
+end
 
 -- V1.0.18 (yOndery paketindeki jumpscout.lua): scout'la yerinde (yatay hiz < 10) ziplarken GameSense'in
 -- Air strafe'i kapatilir: havada fareyle nisan alirken auto strafe yana kaydirip isabeti bozmasin. Inene

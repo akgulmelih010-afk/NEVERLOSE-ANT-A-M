@@ -305,7 +305,9 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | Anti-brute **faz 8**: taraflar eşit sürmez (bir taraf 2 paket uzun, uzun taraf her 4 çevirmede değişir); öğrenme seçer | abyss lua'sının "Switch" body jitter'ı; "her N tick'te bir çeviriyor" diye brute eden resolver periyodu tutturamaz |
 | **In-air hit chance (snipers)** (Exploits → Defensive, varsayılan 40, 0 = kapalı): havada sniper tutarken Minimum hit chance geçici bu değer | abyss'in durum başına hit chance'i; 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55), havadan giden atışlar %67–89 tuttu |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.27 kuralları (49 kontrol).
+**V1.0.28:** Misc → Movement → **Left hand (cl_righthand 0, permanent)** (açık): lua yüklenir yüklenmez silah sol ele geçer ve açık kaldıkça öyle kalır (oyun / config geri çevirse de); kapatınca ya da script kaldırılınca eski değer geri gelir.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.28 kuralları (55 kontrol).
 
 ## Notlar
 

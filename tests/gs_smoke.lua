@@ -333,7 +333,11 @@ function plist.set(ent, field, value)
     plist_store[ent][field] = value
 end
 
-local cvar = { cl_clanid = { get_int = function() return 0 end, set_int = function() end } }
+local righthand = { value = 1 }
+local cvar = {
+    cl_clanid = { get_int = function() return 0 end, set_int = function() end },
+    cl_righthand = { get_int = function() return righthand.value end, set_int = function(_, v) righthand.value = v end },
+}
 
 -------------------------------------------------------------------------------
 -- Yukle
@@ -356,7 +360,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.27 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.27")
+check(printed("V1.0.28 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.28")
 
 local function errors_since(i)
     local found = {}
@@ -402,6 +406,20 @@ fire("round_start")
 tick(200)
 errs = errors_since(before)
 check(#errs == 0, "200 tick hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
+
+-- V1.0.28: kalici sol el: ilk paint'te cl_righthand 0; oyun geri cevirse de 0'a doner; secenek kapaninca eski deger.
+check(righthand.value == 0, "kalici sol el: cl_righthand 0 (" .. tostring(righthand.value) .. ")")
+righthand.value = 1
+tick(16)
+check(righthand.value == 0, "cl_righthand geri cevrilse de 0'a doner")
+local lh_ref = find_ref("Left hand (cl_righthand 0, permanent)")
+check(lh_ref ~= nil and lh_ref.value == true, "Left hand secenegi var ve varsayilan acik")
+lh_ref.value = false
+tick(16)
+check(righthand.value == 1, "secenek kapaninca senin degerin (1) geri gelir (" .. tostring(righthand.value) .. ")")
+lh_ref.value = true
+tick(16)
+check(righthand.value == 0, "secenek acilinca yine 0")
 
 -- Olaylar (sahte veriyle; hata vermeden donmeleri yeter).
 before = #prints + 1
@@ -619,6 +637,7 @@ fire("pre_config_save")
 fire("shutdown")
 errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
+check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 errs = errors_since(1)
 check(#errs == 0, "hic hata satiri yok" .. (#errs > 0 and (": " .. errs[1]) or ""))
 
