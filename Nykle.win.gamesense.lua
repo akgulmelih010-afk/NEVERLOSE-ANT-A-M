@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.25"
+local VERSION = "1.0.26"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -213,6 +213,7 @@ local K = {
     RECHARGE_HOLD_MAX = 0.5, -- sn; Safe recharge en fazla bu kadar bekletir (V1.0.22: 1.2'ydi)
     RECHARGE_MOVE_SPEED = 100, -- birim/sn; bundan hizli yururken Safe recharge beklemez (V1.0.22)
     DT_SHOT_GRACE = 1.0,     -- sn; atistan sonra DT istatistigi sayilmaz
+    DT_PAIR_MIN = 60,        -- hasar; DT ciftinin oldurucu sayilmasi icin tek govde mermisinin en azi (V1.0.26)
     MOVETYPE_LADDER = 9,
 }
 
@@ -1293,6 +1294,8 @@ menu.head_only      = grp.resolver:switch("Head unless body kills (snipers)", tr
 -- vurulabilirdi; 369 kafa olumunun 183'unde hic ates edilmemisti. Istek Min. damage 100 kalsin oldugu icin
 -- varsayilan KAPALI: acarsan biri kafani gorurken ve kafa olduremezken govde 70+ icin Min. damage gecici 70.
 menu.exposed_body   = grp.resolver:switch("  » Body 70+ while an enemy sees you", false, function() return on(menu.head_only) end)
+-- V1.0.26: scout DT iki mermi atar; govde 86 x 2 >= can ise cift oldurucudur, kafa beklenmez (bkz. apply_body_aim).
+menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", true, function() return on(menu.head_only) end)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -3790,18 +3793,28 @@ do
 
     -- Bir dusman icin Body Aim karari (Neverlose V1.0 kurallari). Donus: istenen ("Prefer" / "Force" /
     -- "Default" / nil), oldurucu mu, takilma izleniyor mu.
+    -- Donus: istenen body aim, oldurucu mu, takilma izleniyor mu, DT ciftiyle oldurucu govde hasari (yoksa nil).
     local function decide(lp, class, enemy, level, is_target, sniper_rule)
         local wanted, lethal, stalled = nil, false, false
         local info = WEAPONS[class]
         local health = prop(enemy, "m_iHealth")
         if sniper_rule then
             wanted = "Prefer"
-            lethal = finite(health) and health > 0 and health <= chest_damage(lp, enemy, info, is_target)
+            local chest = chest_damage(lp, enemy, info, is_target)
+            lethal = finite(health) and health > 0 and health <= chest
+            -- V1.0.26: scout DT iki mermi atar; govde 86 x 2 = 172 >= can ise cift oldurucu. Bes logda da en buyuk
+            -- olum kaynagi gövde 70-87 vurulabilirken kafa beklemekti (son oturum: 12 olumun 11'i); Min. damage
+            -- 100 sarti "sadece oldurecek atis" demek, DT cifti olduruyor.
+            local pair = nil
+            if not lethal and on(menu.dt_pair) and dt_ready() and finite(health) and health > 0 and finite(chest)
+                and chest >= K.DT_PAIR_MIN and health <= 2 * chest then
+                lethal, pair = true, chest
+            end
             local since = realtime() - resolver.aim_time
             if lethal and enemy == resolver.aim_target and since >= 0 and since <= K.AIM_TARGET_HOLD then
                 wanted, stalled = body_stall(enemy), true
             end
-            return wanted, lethal, stalled
+            return wanted, lethal, stalled, pair
         end
         if info ~= nil and finite(health) and health > 0 then
             local chest = chest_damage(lp, enemy, info, is_target)
@@ -3834,6 +3847,8 @@ do
     local KNIFE_MD = { dist = 320, value = 30, who = nil, seen = -1000 }
     -- V1.0.22: biri kafani gorurken kafa olduremiyorsa govde 70+ (scout zirhli gogse 85-87) icin gecici 70.
     local EXPOSED_BODY = { value = 70, who = nil, seen = -1000 }
+    -- V1.0.26: DT cifti govdeyi olduruyor: log hiz siniri.
+    local DT_PAIR = { who = nil, seen = -1000 }
 
     apply_body_aim = function(lp, class, target, level, present)
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
@@ -3842,7 +3857,7 @@ do
             and not resolver.head_relaxed(target)
         -- Senin baim tusun (Force body aim) basiliyken oyuncu ayarlarina dokunulmaz.
         local user_force = get("force_body") == true
-        local target_lethal, target_wanted = false, nil
+        local target_lethal, target_wanted, target_pair = false, nil, nil
 
         -- Sahte kayda kafa atisi yok (sniper): hedefin kaydi defensive'de ve govde olduruyorsa o hedefe
         -- "Force" body aim (Neverlose'da gogus + mide hitbox'lari). En fazla 12 tick, sonra 0.5 sn serbest.
@@ -3866,7 +3881,7 @@ do
                     end
                 end
             end
-            local wanted, lethal, stalled = nil, false, false
+            local wanted, lethal, stalled, pair = nil, false, false, nil
             if on(menu.smart_baim) then
                 -- Seviye 2 kurali her dusmanin kendi seviyesiyle (oyuncu basina karar).
                 local enemy_level = enemy == target and level or 0
@@ -3875,13 +3890,13 @@ do
                     local entry = key ~= nil and resolver.players[key] or nil
                     enemy_level = entry ~= nil and entry_level(entry, enemy_state(enemy)) or 0
                 end
-                wanted, lethal, stalled = decide(lp, class, enemy, enemy_level, enemy == target, sniper_rule)
+                wanted, lethal, stalled, pair = decide(lp, class, enemy, enemy_level, enemy == target, sniper_rule)
             end
             if not stalled then
                 resolver.body_stalls[enemy] = nil
             end
             if enemy == target then
-                target_lethal, target_wanted = lethal, wanted
+                target_lethal, target_wanted, target_pair = lethal, wanted, pair
                 local profile = enemy_watch.profile(enemy)
                 local cooling = now >= f.free_until - f.cooldown and now < f.free_until
                 local body_only = sniper_rule and profile ~= nil and profile.defensive_now and lethal
@@ -3933,6 +3948,21 @@ do
                 min_damage = nil
             end
         end
+        -- DT cifti olduruyor (V1.0.26): Min. damage gecici olarak govde hasarinin 1 altina iner ki aimbot ilk
+        -- mermiyi govdeye atsin; ikincisi DT ile hemen arkasindan gelir. Override tusun basiliysa dokunulmaz.
+        local pair_md = false
+        if sniper_rule and target_pair ~= nil and not md_override then
+            local value = max(1, floor(target_pair) - 1)
+            if not finite(user_md) or user_md > value then
+                pair_md, min_damage = true, value
+                local fresh = DT_PAIR.who ~= target or now < DT_PAIR.seen or now - DT_PAIR.seen > 5
+                DT_PAIR.who, DT_PAIR.seen = target, now
+                if on(menu.hit_log) and fresh then
+                    print(("[%s] %s: DT cifti olduruyor (govde %d x 2 >= can %d), Min. damage gecici %d"):format(
+                        SCRIPT, player_name(target), floor(target_pair + 0.5), prop(target, "m_iHealth") or 0, value))
+                end
+            end
+        end
         -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
         -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 30 + govde 75 = olu.
         local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
@@ -3962,7 +3992,7 @@ do
                 end
             end
         end
-        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not body_md
+        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not body_md and not pair_md
         override("min_damage", min_damage, scope)
     end
 end
@@ -4210,7 +4240,10 @@ end
 -- Ani peek icin: biri seni goruyorken (ya da birazdan gorecekken) iz her tick atilir (yoksa 2 tick'te bir),
 -- kafa / gogus / mide / ust gogus / kalca / uyluklara bakilir ve hareket ediyorsan 0.1 sn sonraki gozden de
 -- (kafa, gogus, mide): defensive atistan once kesilir, atis anina denk gelmez.
-local clean_shot = { every = 2, hold = 6, fire_hold = 14, checked = -1000, index = nil, until_tick = -1000,
+-- V1.0.26: fire_hold 14 -> 6. V1.0.25 logunda kafa mermilerinin 12'si kendi DT atisindan 0.4 sn icinde geldi;
+-- 14 tick, DT sarjinin geri gelmesi kadar surup defensive'i bir o kadar daha geciktiriyordu. DT'nin ikinci
+-- mermisi 1-2 tick sonra gider, 6 tick ona yeter.
+local clean_shot = { every = 2, hold = 6, fire_hold = 6, checked = -1000, index = nil, until_tick = -1000,
     from_tick = -1000, boxes = { 0, 5, 3, 6, 2, 7, 8 }, ahead = 0.1, ahead_boxes = 3, ahead_speed = 50,
     FLAG = 2048, flag_until = -1000, by = nil }
 

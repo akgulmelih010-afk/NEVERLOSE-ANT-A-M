@@ -76,7 +76,9 @@ Okuma: ölümlerin çoğu ekranda hiç görünmeyen, defensive'li, uzak scout'la
 | Sahte / gerçek kayda atış | 16/23 · 23/42 | 11/19 · 39/56 |
 | Teleport | 15, 2 vurulma | 3, 2 vurulma → haritada kapandı |
 
-Kalan kafa mermileri: 20/34 Peek'te; 17'sinde `DT %N` (şarj doluyor) ya da `DT dolu, DEF yok` ve 12'si **kendi atışından 0.4 sn içinde**: DT'yle ateş ettin, şarj boşaldı, karşılık geldi. Bu DT'nin kendi bedeli, script'ten azalmaz; peek'ten sonra geri çekilmek (AI peek bunu yapıyor) tek çözüm. `sikmadi` → ölüm 12, 11'inde gövde 70+ vardı (`Body 70+` hâlâ kapalı). Kod değişikliği yok. Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
+Kalan kafa mermileri: 20/34 Peek'te; 17'sinde `DT %N` (şarj doluyor) ya da `DT dolu, DEF yok` ve 12'si **kendi atışından 0.4 sn içinde**: DT'yle ateş ettin, şarj boşaldı, karşılık geldi. Bu DT'nin kendi bedeli; peek'ten sonra geri çekilmek (AI peek bunu yapıyor) tek çözüm. `sikmadi` → ölüm 12, 11'inde gövde 70+ vardı.
+
+→ **V1.0.26:** DT çifti öldürüyorsa (gövde × 2 ≥ can, DT dolu) gövde serbest: Min. damage 100 şartı "sadece öldürecek atış" demek, çift öldürüyor. Temiz atışın atış sonrası tutması 14 → 6 tick (defensive şarjla birlikte dönsün). Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
 
 ## Genel tablo
 

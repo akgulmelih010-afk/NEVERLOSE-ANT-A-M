@@ -356,7 +356,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.25 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.25")
+check(printed("V1.0.26 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.26")
 
 local function errors_since(i)
     local found = {}
@@ -540,14 +540,28 @@ tick(10)
 -------------------------------------------------------------------------------
 local md_ref = find_ref("Minimum damage")
 local body_ref = find_ref("  » Body 70+ while an enemy sees you")
+local pair_ref = find_ref("  » DT pair counts as lethal")
 check(body_ref ~= nil and body_ref.value == false, "Body 70+ secenegi var ve varsayilan kapali")
-W.sees[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 86
-tick(10)
-check(md_ref.value == 101, "secenek kapali: sniper kurali MD 101 (" .. tostring(md_ref.value) .. ")")
--- "Always use recommended settings" 64 tick'te bir secenegi varsayilana (kapali) dondurur: test icin kapatilir.
+check(pair_ref ~= nil and pair_ref.value == true, "DT pair secenegi var ve varsayilan acik")
+-- "Always use recommended settings" 64 tick'te bir secenekleri varsayilana dondurur: test icin kapatilir.
 local rec_ref = find_ref("Always use recommended settings")
 check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
 rec_ref.value = false
+-- V1.0.26: DT dolu, govde 86 x 2 >= 100: cift oldurucu, MD gecici 85.
+W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 86, 12
+tick(10)
+check(md_ref.value == 85, "DT cifti olduruyor (86 x 2 >= 100): MD 85 (" .. tostring(md_ref.value) .. ")")
+check(printed("DT cifti olduruyor (govde 86 x 2 >= can 100), Min. damage gecici 85") ~= nil, "DT cifti satiri yazildi")
+W.body_dmg[2] = 45 -- 45 x 2 < 100 ve 60'in altinda: kafa kurali
+tick(10)
+check(md_ref.value == 101, "govde 45: DT cifti olduremez, MD 101 (" .. tostring(md_ref.value) .. ")")
+W.body_dmg[2], W.lag = 86, 0 -- DT bos: cift yok
+tick(10)
+check(md_ref.value == 101, "DT bosken cift sayilmaz, MD 101 (" .. tostring(md_ref.value) .. ")")
+W.lag = 12
+pair_ref.value = false
+tick(10)
+check(md_ref.value == 101, "secenek kapali: sniper kurali MD 101 (" .. tostring(md_ref.value) .. ")")
 body_ref.value = true
 tick(10)
 check(md_ref.value == 70, "secenek acik, kafa kapali, govde 86: MD 70 (" .. tostring(md_ref.value) .. ")")
@@ -560,6 +574,7 @@ W.body_dmg[2] = 86
 tick(10)
 check(md_ref.value == 100, "gorulmuyorken sniper kurali yok, MD senin 100 (" .. tostring(md_ref.value) .. ")")
 body_ref.value = false
+pair_ref.value = true
 rec_ref.value = true
 
 -------------------------------------------------------------------------------

@@ -291,7 +291,14 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 |---|---|
 | **Smart** defensive 1800 birim içinde bir düşman varken de zorlanır (görünmesi beklenmez); Standing / Crouching / Freestanding / Manual varsayılanı `On peek` → `Smart` (hidden açı yine yok) | Kafa mermilerinin 36'sında saldıran `gormedi`, 32'sinde vurulma anında bile iz kapalı, 16'sında kaydı sahte: defensive'li düşman ekranda görünmeden ateş ediyor (245–1991 birimden, yarısı 1600+). Defensive açıkken kafa %38, kapalıyken %53–69. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.25 kuralları (41 kontrol).
+**V1.0.26** (V1.0.25'in logu: 10 dk, 68 isabet / 34 kafa, 41 / 46):
+
+| Değişiklik | Neden |
+|---|---|
+| **DT pair counts as lethal** (Ragebot → Resolver, açık): scout DT iki mermi atar; DT doluyken gövde × 2 ≥ can (ve tek mermi ≥ 60) ise atış "öldürücü" sayılır, Min. damage geçici olarak gövde hasarının 1 altına iner. DT boşken kural eskisi gibi (can + 1). | Beş logda da en büyük ölüm kaynağı: gövdeye 70–87 vurabilirken kafa beklemek (son oturumda 12 ölümün 11'i). "Min. damage 100 = sadece öldürecek atış" şartı korunur: çift öldürüyor. |
+| Temiz atışın atış sonrası tutması 14 → 6 tick | Kafa mermilerinin 12'si kendi DT atışından 0.4 sn içinde; 14 tick, DT şarjının geri gelişi kadar sürüp defensive'i geciktiriyordu. DT'nin ikinci mermisi 1–2 tick sonra gider. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.26 kuralları (46 kontrol).
 
 ## Notlar
 
