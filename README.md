@@ -256,6 +256,22 @@ Hiçbir anti-aim seni vurulmaz yapmaz. İyi resolver'lar ve baim yine vurur. Ama
 - **Daha iyi vurmak için:** Sihirli bir exploit yok. İşe yarayanlar: **AI peek** (Peek Assist tuşunu basılı tut, hareket tuşlarına basma: script öldürecek atışın olduğu en yakın noktaya yürür), Neverlose'un **Fake latency**'si (Misc; loglarda `bt 27t` gibi uzun backtrack'ler zaten var, yani açık), quick peek + defensive (önce sen görürsün, ateş edip geri çekilirsin), scout'ta sadece öldürecek atış (**Head unless body kills**) ve resolver'ın öğrenmesi (aynı düşmanlarla oynadıkça hafıza dolar).
 - **Fake duck'tan ateş etme** seni gören bir düşmana: fake duck'ta HS/DT çalışmaz, ateş anındaki açın açıkta kalır (loglarda FD atışından 0.06-0.21 sn sonra kafadan vurulma).
 
+## GameSense edition (`Nykle.win.gamesense.lua`)
+
+Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Nykle_win_gamesense.lua` adıyla yüklenir (GameSense script adındaki fazladan noktaları sevmez). Farklar ve kurulum dosyanın başındaki yorumda. Oyun logları (`nykle_log.txt`, Home → Console → Copy all logs) bu sürümün geliştirme verisi; V1.0.16–1.0.21 loglarının analizi `LOG_ANALIZI_GS_1.0.16-21.md`'de.
+
+**V1.0.22'de ne değişti** (10 961 satırlık logdan):
+
+| Değişiklik | Neden |
+|---|---|
+| **Safe recharge** Peek'te ve yürürken (> 100 birim/sn) beklemez; bekleme üst sınırı 1.2 → 0.5 sn | Beklerken DT kapalı ve defensive yok: `sarj bekle` ile 179 mermi / 70 kafa yendi, 57'si Peek'te, çoğu atıştan sonraki 0.3 sn içinde. |
+| **Wait for real record** varsayılan **açık**; ilk gerçek kayıttan sonra 3 tick daha beklenir | Sahte kayda giden 178 atış %57 tuttu (correction %25), gerçek kayda giden %75 (%9); defensive bittikten 0–2 tick sonra giden atış da %58. Kurallar aynı: düelloda / görülürken beklenmez, en fazla 14 tick, sonra 32 tick serbest. |
+| Yeni seçenek **Body 70+ while an enemy sees you** (Ragebot → Resolver, varsayılan **kapalı**) | 94 ölümün 2 sn öncesinde `sikmadi` vardı, 71'inde gövdeye 70+ vurulabilirdi; 369 kafa ölümünün 183'ünde hiç ateş edilmemişti. Min. damage 100 kalsın isteği için kapalı; açarsan biri kafanı görürken ve kafa öldüremezken gövde 70+ için Min. damage geçici 70. |
+| `vuruldun:` satırında `gormedi` yanına iz sonucu: `(iz: su an goruyor / duvardan goruyor / kapali)` | 85 kafa mermisi "gormedi" idi (50'si duvardan); görüş takibinin neyi kaçırdığı artık logdan okunur. |
+| `dbg sikmadi` yeni sebepler: `aimbot tehdidi baska`, `gercek kayit bekleniyor (whitelist)`, `safe point Force` | 22 `sebep bilinmiyor`. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22 kuralları (30 kontrol).
+
 ## Notlar
 
 - Neverlose'un **CS:GO** Lua API'sine göre yazıldı. CS2 Neverlose'un API'si farklı, orada çalışmaz.
