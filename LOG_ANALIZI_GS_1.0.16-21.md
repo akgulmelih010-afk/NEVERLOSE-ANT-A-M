@@ -159,6 +159,18 @@ Yargı için çok kısa: 7 atış / 7 isabet, 5 öldürme / 2 ölüm, hata yok. 
 - PACo'ya duvar kararı (`wall+`) dormant'ken 37 sn asılı kaldı, bırakıldı; sonra abs+ ile 2 isabet.
 - Ölümler 8: 6'sı Peek'te. Hata yok, `sikmadi` 2. Kod değişikliği gerekmedi.
 
+### Devamı: aynı oturumun tamamı (de_mirage 25 dk, 18:27–18:52)
+
+| | GS kolu | Kendi kollar (abs+ / abs−) |
+|---|---|---|
+| Atış / isabet | 38 / 28 (%74), 4 correction | 11 / 7 (%64), 3 correction, 1 spread |
+
+Düşman başına (isabet / atış): **Ayz** GS 5/8, abs+ **4/5**; **PACo** GS 2/3, abs+ 2/3, abs− 1/2; **furkan** GS **12/16**, abs− 0/1. Oturum toplamı 27 öldürme / 24 ölüm, 49 atış / 35 isabet; sana gelen 37 isabet / 14 kafa (Peek 16, Freestanding 8; faz 8 Freestanding'de 3 kafa).
+
+- UCB'nin deneme bedeli göründü: abs+ 3/3 olunca 3 karar abs−'ye gitti (furkan, Ayz, PACo); abs− 1/3. Artık abs−'nin genel sayımı dolduğu için (3 atış) primi düştü, Ayz'da abs+ (4/5) kalır, furkan'da GS kalır. Tasarım gereği, değişiklik yok.
+- Öğrenme hafızaya yazılıyor (`ABS+ 4/6 (1/2)`); sonraki oturumda Ayz / PACo tanınınca kol doğrudan skorla seçilir.
+- `sikmadi` 8: hepsi "hasar < MD 100" (87, 86, 85, 73, 52, 41) ve silah hazır değil; kural doğru.
+
 ## Genel tablo
 
 | | |
