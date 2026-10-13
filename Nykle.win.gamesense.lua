@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.28"
+local VERSION = "1.0.29"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1294,6 +1294,11 @@ menu.hyp_angle      = grp.resolver:slider("  » Hypothesis yaw limit", 10, 60, 5
     function() return on(menu.resolver) and on(menu.hypotheses) end)
 menu.hyp_chance     = grp.resolver:slider("  » Hypothesis min hit chance", 50, 100, 70, "%",
     function() return on(menu.resolver) and on(menu.hypotheses) end)
+-- V1.0.29: kendi resolver (bkz. hypothesis.own): LBY / duvar tarafindan aci, GameSense'e karsi olculur.
+menu.own_res        = grp.resolver:switch("  » Own resolver (LBY / cover side, measured vs GS)", true,
+    function() return on(menu.resolver) and on(menu.hypotheses) end)
+menu.own_explore    = grp.resolver:slider("  » Own resolver exploration", 0, 40, 15, "%",
+    function() return on(menu.resolver) and on(menu.hypotheses) and on(menu.own_res) end)
 menu.smart_baim     = grp.resolver:switch("Smart body aim", true)
 menu.head_only      = grp.resolver:switch("Head unless body kills (snipers)", true)
 -- V1.0.22 (V1.0.16-1.0.21 logu): 94 olumun 2 sn oncesinde "sikmadi" vardi, 71'inde govdeye 70+ (scout 85-87)
@@ -3220,13 +3225,14 @@ end
 -- bir tarafinda kafadan vuran aci, dusman siperin obur tarafina gecince aynalanmis haliyle kullanilir.
 hypothesis.wall = { cache = {}, radius = 24, every = 4, mirror = { 2, 1, 3, 5, 4 } }
 
+-- Ucuncu donus (V1.0.29): "lby" turunde goz yaw - LBY farkinin buyuklugu (derece), digerlerinde nil.
 hypothesis.wall_side = function(enemy)
     local wall, tick = hypothesis.wall, tickcount()
     local cached = wall.cache[enemy]
     if cached ~= nil and tick >= cached.tick and tick - cached.tick < wall.every then
-        return cached.side, cached.kind
+        return cached.side, cached.kind, cached.mag
     end
-    local side, kind = "open", "open"
+    local side, kind, mag = "open", "open", nil
     local lp = local_player()
     local eye, head = eye_of(lp), hitbox_of(enemy, 0)
     if eye ~= nil and head ~= nil then
@@ -3251,12 +3257,12 @@ hypothesis.wall_side = function(enemy)
         if finite(eye_yaw) and finite(lby) then
             local delta = (eye_yaw - lby + 180) % 360 - 180
             if abs(delta) >= 35 then
-                side, kind = delta > 0 and "L" or "R", "lby"
+                side, kind, mag = delta > 0 and "L" or "R", "lby", abs(delta)
             end
         end
     end
-    wall.cache[enemy] = { tick = tick, side = side, kind = kind }
-    return side, kind
+    wall.cache[enemy] = { tick = tick, side = side, kind = kind, mag = mag }
+    return side, kind, mag
 end
 
 -- Kanonik aday -> o anki duvar tarafindaki gercek aday.
@@ -3323,6 +3329,8 @@ hypothesis.advance = function(h, why, name, state)
     else
         h.candidate, h.visited[nxt], h.attempts = nxt, true, h.attempts + 1
     end
+    -- Brute siradaki adaya gecti: artik kendi resolver'in kolu degil (V1.0.29).
+    h.own_arm = nil
     h.feedback = now
     if on(menu.resolver_log) then
         local what = h.candidate == 0 and "GameSense resolver'ina donuldu (hepsi denendi)"
@@ -3341,7 +3349,8 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     if not on(menu.resolver) or not on(menu.hypotheses) or not plist_available(PL.FORCE) then
         return nil
     end
-    local h = hypothesis.get(key, state, raw >= 2)
+    -- Kendi resolver acikken kayit ilk gorusten itibaren tutulur (kol secimi iska beklemez).
+    local h = hypothesis.get(key, state, raw >= 2 or on(menu.own_res))
     if h == nil then
         return nil
     end
@@ -3385,10 +3394,35 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     -- Canli desen yoksa hafizadaki aliskanlik; o desen ve duvar durumunun kalici aci sonuclari yuklenir.
     local habit = resolver.habit(entry)
     local guess = pattern or (habit ~= nil and habit.pattern) or nil
-    h.side, h.kind = hypothesis.wall_side(enemy)
+    h.side, h.kind, h.mag = hypothesis.wall_side(enemy)
     local slot_key = (guess or "unknown") .. "|" .. h.kind
     if h.candidate == 0 and h.seeded ~= slot_key then
         hypothesis.seed(h, entry, state, slot_key)
+    end
+    -- Kendi resolver (V1.0.29): taraf bilgisi varsa (LBY ya da duvar) ilk atistan itibaren olculen kola gore
+    -- aci; GS'ye birakmak da bir koldur ("gs"). Karar bir kez verilir, o dusmana atis sonucu gelene (ya da
+    -- hold sn gecene) kadar tutulur. Jitter'li / kararsiz desende ve havada yok (orada Force safe point).
+    if on(menu.own_res) and h.candidate == 0 and h.kind ~= "open" and state ~= "Air" and now >= h.cooldown
+        and not enemy_watch.multi[guess] and now >= (h.unstable or -1000)
+        and now - (h.pattern_since or -1000) >= hypothesis.settle then
+        if h.arm == nil or h.arm_kind ~= h.kind or now < (h.arm_time or 0) or now - (h.arm_time or 0) > hypothesis.own.hold then
+            local arm, exploring = hypothesis.own.choose(entry, h.kind)
+            h.arm, h.arm_time, h.arm_kind = arm, now, h.kind
+            if arm ~= "gs" then
+                local c = hypothesis.own.candidate(arm, h.kind, h.mag)
+                h.candidate, h.visited, h.attempts, h.feedback, h.own_arm = c, { [c] = true }, 1, now, arm
+                if on(menu.resolver_log) then
+                    print(("[%s] resolver: %s %s | bizim %s (%s %s%s) body yaw %d%s%s | kollar: %s"):format(SCRIPT,
+                        entry ~= nil and entry.name or player_name(enemy), state, arm,
+                        h.kind == "lby" and "lby" or "duvar", h.side, h.mag ~= nil and (" %d%s"):format(floor(h.mag + 0.5), DEG) or "",
+                        hypothesis.yaw(hypothesis.actual(c, h.side)), DEG, exploring and " (deneme)" or "",
+                        hypothesis.own.summary(entry)))
+                end
+            elseif exploring and on(menu.resolver_log) then
+                print(("[%s] resolver: %s %s | GS resolver'i (deneme) | kollar: %s"):format(SCRIPT,
+                    entry ~= nil and entry.name or player_name(enemy), state, hypothesis.own.summary(entry)))
+            end
+        end
     end
     -- Baslama: Force'ta da 3+ resolver iskasi ya da Force ates engelliyor, ya da bu kiside bu durum ve desende
     -- daha once kafadan vuran bir aci var (hemen o aciyla). Jitter'li dusmanda degil.
@@ -3411,6 +3445,14 @@ end
 -- Atis sonucunu hipoteze yazar (sadece uygun atislar: kafaya nisan, backtrack yok, teleport /
 -- extrapolation / interpolation / oncelikli (ates eden) kayit yok, isabet sansi yeterli; ates aninda ayni
 -- aday oyuncu listesinde gercekten uygulaniyordu, bkz. aim_fire).
+-- Resolver olcumune uygun atis: kafaya nisan, backtrack yok, teleport / extrapolation / interpolation /
+-- oncelikli kayit yok, isabet sansi yeterli.
+hypothesis.eligible = function(shot)
+    return shot.hitgroup == 1 and (shot.backtrack or 0) == 0 and not shot.teleported and not shot.extrapolated
+        and not shot.interpolated and not shot.high_priority
+        and (shot.hitchance or 0) >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70)
+end
+
 hypothesis.result = function(shot, target, hit_head, miss)
     if shot == nil or shot.hyp_key == nil or shot.hyp_candidate == nil or shot.hyp_candidate == 0 then
         return
@@ -3419,10 +3461,7 @@ hypothesis.result = function(shot, target, hit_head, miss)
     if h == nil or h.candidate ~= shot.hyp_candidate then
         return
     end
-    local eligible = shot.hitgroup == 1 and (shot.backtrack or 0) == 0 and not shot.teleported and not shot.extrapolated
-        and not shot.interpolated and not shot.high_priority
-        and (shot.hitchance or 0) >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70)
-    if not eligible then
+    if not hypothesis.eligible(shot) then
         return
     end
     local o = h.outcomes[h.candidate] or { heads = 0, misses = 0 }
@@ -3464,6 +3503,146 @@ hypothesis.result = function(shot, target, hit_head, miss)
         hypothesis.advance(h, ("body yaw %d%s iskaladi"):format(shot.hyp_yaw or 0, DEG),
             player_name(target), shot.state)
     end
+end
+
+-------------------------------------------------------------------------------
+-- Kendi resolver (V1.0.29)
+-------------------------------------------------------------------------------
+-- GameSense Lua'da aciyi dogrudan belirleyen tek arac oyuncu listesindeki Force body yaw. Hipotezler onu
+-- ancak Force'ta 3+ iskadan sonra sirayla deniyordu; burada taraf bilgisi (LBY ya da duvar) olan dusmanda
+-- ILK atistan itibaren olculen bir "kol" secilir:
+--   gs     : GameSense'in resolver'i (aci yazilmaz)            - taban, her zaman aday
+--   lby+/- : duran dusmanda goz yaw ile LBY farki 35+ derece: gercek ayak yaw'i LBY'dedir (LBY guncellemesi
+--            ayak yaw'ini goz yaw'ina getirir, desync abuse eden bunu kirar ama yon kalir). "+" teoride dogru
+--            yon (kanonik aday 1 / 4), "-" tersi (2 / 5): GameSense'in isaret kurali belgesiz, iki kol olcer.
+--   wall+/-: duvarli dusman (anti-freestand): tek tarafi kapaliysa freestanding gercek kafayi oraya saklar.
+-- Olcum: her uygun atis (bkz. hypothesis.eligible) kolun hesabina yazilir: isabet = isabet, resolver iskasi
+-- ("correction", sahte kayit / LC haric) = iska. Oran (isabet + onbilgi * k) / (atis + k): genel sayim (k = 8,
+-- kalici hafiza) ve dusman basina sayim (k = 4, genel orana dogru cekilir). En iyi kol secilir; yuzde
+-- menu.own_explore ile en az denenmis kol denenir (deneme sayisi 30'u gecen kol artik denenmez). Kol kaybederse
+-- kendiliginden GS'ye doner: hicbir dusmanda GS'den kotu kalmaz.
+hypothesis.own = {
+    arms = { "gs", "lby+", "lby-", "wall+", "wall-" },
+    prior = { gs = 0.55, ["lby+"] = 0.62, ["lby-"] = 0.45, ["wall+"] = 0.60, ["wall-"] = 0.45 },
+    stats = {}, k_global = 8, k_enemy = 4, explore_max = 30, hold = 10, cap_global = 60, cap_enemy = 20,
+}
+
+hypothesis.own.reset = function()
+    hypothesis.own.stats = {}
+    for _, arm in ipairs(hypothesis.own.arms) do
+        hypothesis.own.stats[arm] = { shots = 0, hits = 0 }
+    end
+end
+hypothesis.own.reset()
+
+hypothesis.own.rate = function(stat, prior, k)
+    if stat == nil then
+        return prior
+    end
+    return (stat.hits + prior * k) / (stat.shots + k)
+end
+
+-- Kolun bu dusman icin skoru: genel oran on bilgi, dusman basina sayim ustune.
+hypothesis.own.score = function(entry, arm)
+    local own = hypothesis.own
+    local global = own.rate(own.stats[arm], own.prior[arm] or 0.5, own.k_global)
+    local mine = entry ~= nil and entry.arms ~= nil and entry.arms[arm] or nil
+    return own.rate(mine, global, own.k_enemy), global
+end
+
+hypothesis.own.applicable = function(kind)
+    if kind == "lby" then
+        return { "gs", "lby+", "lby-" }
+    elseif kind == "side" then
+        return { "gs", "wall+", "wall-" }
+    end
+    return { "gs" }
+end
+
+-- Donus: kol, deneme mi.
+hypothesis.own.choose = function(entry, kind)
+    local own = hypothesis.own
+    local list = own.applicable(kind)
+    local explore = menu.own_explore ~= nil and (menu.own_explore:get() or 0) / 100 or 0
+    if explore > 0 and random() < explore then
+        local least, least_shots = nil, nil
+        for _, arm in ipairs(list) do
+            local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
+            if shots < own.explore_max and (least == nil or shots < least_shots) then
+                least, least_shots = arm, shots
+            end
+        end
+        if least ~= nil then
+            return least, true
+        end
+    end
+    local best, best_score = "gs", -1
+    for _, arm in ipairs(list) do
+        local score = own.score(entry, arm)
+        if score > best_score + 1e-9 then
+            best, best_score = arm, score
+        end
+    end
+    return best, false
+end
+
+-- Kolun kanonik adayi: "+" taraf yonunde (tam aci; LBY farki 45 derecenin altindaysa yarim), "-" tersi.
+hypothesis.own.candidate = function(arm, kind, mag)
+    local full = kind ~= "lby" or mag == nil or mag >= 45
+    if arm:sub(-1) == "+" then
+        return full and 1 or 4
+    end
+    return full and 2 or 5
+end
+
+hypothesis.own.count = function(arm, entry, hit)
+    local own = hypothesis.own
+    local stat = own.stats[arm]
+    if stat == nil then
+        stat = { shots = 0, hits = 0 }
+        own.stats[arm] = stat
+    end
+    stat.shots, stat.hits = stat.shots + 1, stat.hits + (hit and 1 or 0)
+    if stat.shots > own.cap_global then
+        stat.shots, stat.hits = stat.shots / 2, stat.hits / 2
+    end
+    if entry ~= nil then
+        entry.arms = entry.arms or {}
+        local mine = entry.arms[arm] or { shots = 0, hits = 0 }
+        entry.arms[arm] = mine
+        mine.shots, mine.hits = mine.shots + 1, mine.hits + (hit and 1 or 0)
+        if mine.shots > own.cap_enemy then
+            mine.shots, mine.hits = mine.shots / 2, mine.hits / 2
+        end
+    end
+    persist.dirty = true
+end
+
+-- Atis sonucu: kol hesabina yazilir, o dusmanin kol karari serbest kalir (bir sonraki tick yeniden secilir).
+hypothesis.own.result = function(shot, target, hit, miss)
+    if shot == nil or shot.res_arm == nil or shot.hyp_key == nil then
+        return
+    end
+    local h = hypothesis.get(shot.hyp_key, shot.state, false)
+    if h ~= nil then
+        h.arm = nil
+    end
+    if not (hit or miss) or not hypothesis.eligible(shot) or hypothesis.own.stats[shot.res_arm] == nil then
+        return
+    end
+    hypothesis.own.count(shot.res_arm, resolver.players[shot.hyp_key], hit)
+end
+
+-- "GS 12/20 LBY+ 5/7 ..." (entry verilirse dusman basina sayimlar da).
+hypothesis.own.summary = function(entry)
+    local own, parts = hypothesis.own, {}
+    for _, arm in ipairs(own.arms) do
+        local s = own.stats[arm] or { shots = 0, hits = 0 }
+        local mine = entry ~= nil and entry.arms ~= nil and entry.arms[arm] or nil
+        parts[#parts + 1] = ("%s %d/%d%s"):format(arm:upper(), floor(s.hits + 0.5), floor(s.shots + 0.5),
+            mine ~= nil and (" (%d/%d)"):format(floor(mine.hits + 0.5), floor(mine.shots + 0.5)) or "")
+    end
+    return table.concat(parts, "  ")
 end
 
 -- Force body yaw'i oyuncu listesine yazar (yaw nil: birak). Senin kendi Force body yaw'in varsa ya da
@@ -6235,6 +6414,9 @@ local function shot_line(e, shot, target, reason)
     local profile = shot ~= nil and shot.profile or enemy_watch.profile(target)
     local hyp = (shot ~= nil and shot.hyp_candidate ~= nil and shot.hyp_candidate > 0)
         and (" | BY %d%s"):format(shot.hyp_yaw or 0, DEG) or ""
+    if shot ~= nil and shot.res_arm ~= nil and on(menu.own_res) then
+        hyp = (" | res %s"):format(shot.res_arm) .. hyp
+    end
     return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | MD %s | bt %s | hc %s | %s | %s%s"):format(SCRIPT, name,
         state, finite(health) and tostring(round(health)) or "?", aimed, result, tostring(safe), tostring(body),
         finite(min_damage) and tostring(round(min_damage)) or "?",
@@ -6273,7 +6455,13 @@ listen("aim_fire", protect("aim_fire", function(e)
             hyp_yaw = nil
         end
         local lp = local_player()
+        -- Kendi resolver kolu (V1.0.29): aci bizimse kolun adi, brute ise "brute", GS'ye birakildiysa "gs".
+        local res_arm = "gs"
+        if hyp_yaw ~= nil then
+            res_arm = h.own_arm or "brute"
+        end
         resolver.shots[e.id] = { target = target, state = state, time = now, safe = safe_label(target), body = body_label(target),
+            res_arm = res_arm,
             md = active_min_damage(), health = prop(target, "m_iHealth"),
             weapon = weapon_label() .. (lag ~= nil and " " .. lag or (current.clean and " temiz" or "")), lag = lag,
             profile = enemy_watch.profile(target), hitgroup = event_number(e, "hitgroup"),
@@ -6373,6 +6561,7 @@ local function aim_result(e, reason)
     -- Hipotez: kafa isabeti adayi tutar, resolver iskasi sonrakine gecirir.
     if not stray then
         hypothesis.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
+        hypothesis.own.result(shot, target, reason == nil, result == "c")
     end
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
     local lag = shot ~= nil and shot.lag or nil
@@ -6508,7 +6697,11 @@ persist.save = function(force)
     end
     local data = { version = 1, brute = {}, resolver = {}, phase_groups = {},
         sniper = { v = 2, hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
-            dt = { shots = sniper.stats.dt.shots, hits = sniper.stats.dt.hits } } }
+            dt = { shots = sniper.stats.dt.shots, hits = sniper.stats.dt.hits } },
+        own_res = { v = 1, arms = {} } }
+    for arm, stat in pairs(hypothesis.own.stats) do
+        data.own_res.arms[arm] = { shots = stat.shots, hits = stat.hits }
+    end
     for key, entry in pairs(brute.enemies) do
         if steam_key(key) and entry.learned then
             data.brute[key] = { base = entry.base, name = entry.name }
@@ -6532,10 +6725,17 @@ persist.save = function(force)
     for key, entry in pairs(resolver.players) do
         local p = entry.profile
         local has_profile = p ~= nil and p.n >= 1
-        if steam_key(key) and (#entry.results > 0 or has_profile or entry.angles ~= nil) then
+        if steam_key(key) and (#entry.results > 0 or has_profile or entry.angles ~= nil or entry.arms ~= nil) then
             local states = {}
             for state, list in pairs(entry.states) do
                 states[state] = copy(list)
+            end
+            local arms
+            if entry.arms ~= nil then
+                arms = {}
+                for arm, stat in pairs(entry.arms) do
+                    arms[arm] = { shots = stat.shots, hits = stat.hits }
+                end
             end
             local angles
             if entry.angles ~= nil then
@@ -6548,7 +6748,7 @@ persist.save = function(force)
                 end
             end
             data.resolver[key] = { name = entry.name, results = copy(entry.results), states = states,
-                hits = entry.hits, misses = entry.misses, angles = angles,
+                hits = entry.hits, misses = entry.misses, angles = angles, arms = arms,
                 profile = has_profile and { n = p.n, jitter = p.jitter, static = p.static, spin = p.spin,
                     xway = p.xway or 0, random = p.random or 0, def = p.def, fd = p.fd } or nil }
         end
@@ -6579,6 +6779,22 @@ persist.stored_profile = function(p)
 end
 
 persist.states = { "Standing", "Moving", "Slow walk", "Crouch", "Air", "Fakeduck" }
+
+-- Kendi resolver kol sayimlari (V1.0.29): { kol = { shots, hits } }, bozuk / bilinmeyen kol atlanir.
+persist.stored_arms = function(a, cap)
+    if type(a) ~= "table" then
+        return nil
+    end
+    local out, any = {}, false
+    for _, arm in ipairs(hypothesis.own.arms) do
+        local s = a[arm]
+        if type(s) == "table" and finite(s.shots) and finite(s.hits) and s.hits >= 0 and s.hits <= s.shots
+            and s.shots <= cap * 2 then
+            out[arm], any = { shots = s.shots, hits = s.hits }, true
+        end
+    end
+    return any and out or nil
+end
 
 persist.stored_angles = function(a)
     if type(a) ~= "table" then
@@ -6679,6 +6895,14 @@ persist.load = function()
             brute.default[grp_name] = brute_default(grp_name)
         end
     end
+    if type(data.own_res) == "table" and data.own_res.v == 1 then
+        local arms = persist.stored_arms(data.own_res.arms, hypothesis.own.cap_global)
+        if arms ~= nil then
+            for arm, s in pairs(arms) do
+                hypothesis.own.stats[arm] = s
+            end
+        end
+    end
     if type(data.resolver) == "table" then
         for key, e in pairs(data.resolver) do
             if (players[key] or count < K.MEMORY_LIMIT) and steam_key(key) and type(e) == "table" then
@@ -6698,7 +6922,8 @@ persist.load = function()
                     end
                 end
                 entry.profile, entry.angles = persist.stored_profile(e.profile), persist.stored_angles(e.angles)
-                if #entry.results > 0 or entry.profile ~= nil or entry.angles ~= nil then
+                entry.arms = persist.stored_arms(e.arms, hypothesis.own.cap_enemy)
+                if #entry.results > 0 or entry.profile ~= nil or entry.angles ~= nil or entry.arms ~= nil then
                     entry.remembered = true
                     resolver.players[key] = entry
                     add(key)
@@ -6712,6 +6937,7 @@ end
 forget_enemies = function()
     brute.enemies, brute.recent, brute.hurt = {}, nil, {}
     brute.reset_phases()
+    hypothesis.own.reset()
     sniper.stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }
     sniper.choice = "dt"
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
@@ -8005,6 +8231,10 @@ local function draw_stats(sw, sh)
         end
         y = y + 10
         text(x, y, COLOR.WHITE, FONT, table.concat(parts, "   "))
+    end
+    if on(menu.own_res) then
+        y = y + 10
+        text(x, y, COLOR.WHITE, FONT, "RESOLVER   " .. hypothesis.own.summary())
     end
     local hs, dt = sniper.stats.hs, sniper.stats.dt
     y = y + 10

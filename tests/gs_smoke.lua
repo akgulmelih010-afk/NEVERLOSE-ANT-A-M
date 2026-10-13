@@ -23,6 +23,7 @@ local W = {
     body_dmg = { [2] = 0, [3] = 0 },     -- bizim gozumuzden dusmanin govdesine
     sim_shift = { [2] = 0, [3] = 0 },    -- dusmanin simulasyon zamani kac tick geride (sahte kayit)
     evel = { [2] = 0, [3] = 0 },         -- dusmanin x hizi
+    elby = { [2] = 180, [3] = 180 },     -- dusmanin LBY'si (goz yaw 180)
     sees_ahead = { [2] = false, [3] = false }, -- 30+ birim ilerisinden (ileri bakis) kafamizi goruyor mu
     speed = 0, flags = 1, duck = 0,
     weapon_class = "CWeaponSSG08", next_attack = 0, clip = 5,
@@ -265,7 +266,7 @@ function entity.get_prop(ent, name, idx)
         if name == "m_flMaxspeed" then return 230 end
         if name == "m_angEyeAngles" then return 0, 180, 0 end
         if name == "m_angEyeAngles[1]" then return 180 end
-        if name == "m_flLowerBodyYawTarget" then return 180 end
+        if name == "m_flLowerBodyYawTarget" then return W.elby[ent] or 180 end
         if name == "m_vecViewOffset[2]" then return 64 end
         if name == "m_flPoseParameter" then return 0.5 end
         return nil
@@ -360,7 +361,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.28 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.28")
+check(printed("V1.0.29 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.29")
 
 local function errors_since(i)
     local found = {}
@@ -608,6 +609,34 @@ check(line ~= nil and line:find("aimbot tehdidi baska: dusman2", 1, true) ~= nil
 W.head_dmg[3], W.body_dmg[3] = 0, 0
 
 -------------------------------------------------------------------------------
+-- V1.0.29: kendi resolver: duran dusmanda goz yaw - LBY = 50 -> ilk atistan Force body yaw +58 (lby+ kolu)
+-------------------------------------------------------------------------------
+local own_ref, explore_ref = find_ref("  » Own resolver (LBY"), find_ref("  » Own resolver exploration")
+check(own_ref ~= nil and own_ref.value == true, "Own resolver secenegi var ve varsayilan acik")
+check(explore_ref ~= nil and explore_ref.value == 15, "deneme yuzdesi varsayilan 15")
+rec_ref.value = false -- onerilen ayarlar deneme yuzdesini geri yazmasin
+explore_ref.value = 0
+own_ref.value = false
+W.sees[2], W.speed, W.flags, W.elby[2] = true, 0, 1, 130 -- goz 180, LBY 130: fark 50, taraf L
+tick(20)
+check(plist.get(2, "Force body yaw") == false, "kendi resolver kapali: ilk atista Force body yaw yok")
+own_ref.value = true
+tick(10)
+check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58,
+    "kendi resolver acik: lby+ kolu, Force body yaw 58 (" .. tostring(plist.get(2, "Force body yaw")) .. " / "
+    .. tostring(plist.get(2, "Force body yaw value")) .. ")")
+check(printed("| bizim lby+ (lby L 50") ~= nil, "kol secimi loga yazildi")
+before = #prints + 1
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+fire("aim_fire", { id = 7, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+tick(2)
+fire("aim_hit", { id = 7, target = 2, hitgroup = 1, damage = 120 })
+line = printed("atis: dusman2", before)
+check(line ~= nil and line:find("| res lby+", 1, true) ~= nil, "atis satirinda kol: res lby+ (" .. tostring(line) .. ")")
+W.elby[2] = 180
+tick(10)
+
+-------------------------------------------------------------------------------
 -- V1.0.23: havada kotu bilinen faz 1 (hafiza: 15/20) dusman basina ilerlemede atlanir
 -------------------------------------------------------------------------------
 local hc_ref = find_ref("Minimum hit chance")
@@ -638,6 +667,10 @@ fire("shutdown")
 errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
+local saved = db.nykle_win_gs_memory
+local arms = type(saved) == "table" and type(saved.own_res) == "table" and saved.own_res.arms or nil
+check(arms ~= nil and arms["lby+"] ~= nil and arms["lby+"].shots == 1 and arms["lby+"].hits == 1,
+    "kol sayimi hafizaya yazildi (lby+ 1/1)")
 errs = errors_since(1)
 check(#errs == 0, "hic hata satiri yok" .. (#errs > 0 and (": " .. errs[1]) or ""))
 

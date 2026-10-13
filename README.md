@@ -305,9 +305,23 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | Anti-brute **faz 8**: taraflar eşit sürmez (bir taraf 2 paket uzun, uzun taraf her 4 çevirmede değişir); öğrenme seçer | abyss lua'sının "Switch" body jitter'ı; "her N tick'te bir çeviriyor" diye brute eden resolver periyodu tutturamaz |
 | **In-air hit chance (snipers)** (Exploits → Defensive, varsayılan 40, 0 = kapalı): havada sniper tutarken Minimum hit chance geçici bu değer | abyss'in durum başına hit chance'i; 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55), havadan giden atışlar %67–89 tuttu |
 
+**V1.0.29 — kendi resolver** (Ragebot → Resolver → **Own resolver (LBY / cover side, measured vs GS)**, açık):
+
+GameSense Lua'da açıyı doğrudan belirleyen tek araç oyuncu listesindeki Force body yaw. Eskiden hipotezler ancak Force'ta 3+ ıskadan sonra sırayla deneniyordu; şimdi taraf bilgisi olan düşmanda **ilk atıştan** itibaren ölçülen bir "kol" seçilir:
+
+| Kol | Ne yapar |
+|---|---|
+| `gs` | GameSense'in resolver'ı (açı yazılmaz) — taban, her zaman aday |
+| `lby+` / `lby-` | Duran düşmanda göz yaw ile LBY farkı ≥ 35°: gerçek ayak yaw'ı LBY tarafında. `+` teorik yön, `-` tersi (GameSense'in işaret kuralı belgesiz; iki kol da ölçülür, kazanan kalır) |
+| `wall+` / `wall-` | Duvarlı düşman: tek tarafı kapalıysa freestanding gerçek kafayı oraya saklar |
+
+Ölçüm: her uygun atış (kafaya nişan, backtrack / teleport / extrapolation yok, hit chance ≥ eşik) kolun hesabına yazılır: isabet = isabet, resolver ıskası (`correction`; sahte kayıt / LC hariç) = ıska. Skor `(isabet + önbilgi × k) / (atış + k)`: genel sayım (k = 8, kalıcı hafıza) ve düşman başına sayım (k = 4, genel orana çekilir). En iyi kol seçilir; **Own resolver exploration** (%15) oranında en az denenmiş kol denenir (30 atışı geçen kol artık denenmez). Kol kaybederse kendiliğinden `gs`'ye döner. Jitter'lı / kararsız desende ve havada kol yok (Force safe point). Karar düşman başına bir kez verilir, atış sonucu gelene (ya da 10 sn) kadar tutulur.
+
+Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 50°) body yaw 58° | kollar: GS 12/20 LBY+ 5/7 ...`; Stats panelinde `RESOLVER` satırı; hafızada kol sayımları.
+
 **V1.0.28:** Misc → Movement → **Left hand (cl_righthand 0, permanent)** (açık): lua yüklenir yüklenmez silah sol ele geçer ve açık kaldıkça öyle kalır (oyun / config geri çevirse de); kapatınca ya da script kaldırılınca eski değer geri gelir.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.28 kuralları (55 kontrol).
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.29 kuralları (62 kontrol).
 
 ## Notlar
 
