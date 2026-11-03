@@ -10,7 +10,7 @@ Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntıl�
 | Sürüm | V1.1 (eski adı ANT-A-M v2–v5.6; V1.1 = GameSense V1.0.22–1.0.33'ün Neverlose'a taşınması) |
 | Dal | `claude/loving-fermi-99v29v` (PR #2, taban `claude/csgo-hvh-anti-aim-kkh1vh`) |
 | Oyun içi test | **Yapılmadı.** Bütün doğrulama `tests/` altındaki sahte (mock) API ile. V1.0 davranışı kullanıcının attığı Neverlose konsol loglarıyla, V1.1 değişiklikleri GameSense sürümünün on oyun loguyla ayarlandı; V1.1 için henüz Neverlose logu yok. |
-| Testler | `tests/run_tests.sh`: 7 mod + strict, 999 kontrol, hepsi geçiyor (ana bölümde 195 local). `tests/mutate.py` 703 mutasyon V1.0'da yakalanıyordu; V1.1'den sonra yeniden çalıştırılmadı (~1 saat), değişen kod için desenler `SKIP` verebilir, güncellenmeli. |
+| Testler | `tests/run_tests.sh`: 7 mod + strict, 1002 kontrol, hepsi geçiyor (ana bölümde 195 local). `tests/mutate.py`: 723 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
 | Kalıcı hafıza | Neverlose `db` anahtarı `ant_a_m_memory` (eski adla; v5.x verisi aynen okunur) |
 
 ## Özelliklerin tam listesi

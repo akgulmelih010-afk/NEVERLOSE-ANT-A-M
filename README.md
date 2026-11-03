@@ -28,7 +28,7 @@ GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi (bkz. "G
 
 **V1.1.1** (ilk Neverlose logu, 4.5 dk; `LOG_ANALIZI_GS_1.0.16-21.md` sonunda): dosya kaydı çalıştı; gerçek kayıt bekleme logu düşman başına 15 sn'de bir (205 satırın 95'i o idi); `sikmadi` satırında SP / BA / hitbox durumu da (iki "sebep bilinmiyor"); zaman damgası oyun saati dakika:saniye (`os.date` yok).
 
-Test: `tests/run_tests.sh` 7 mod + strict, **999 kontrol** (V1.1 için 45 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). Oyun içi test: ilk log V1.1.1'e girdi.
+Test: `tests/run_tests.sh` 7 mod + strict, **1002 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **723 mutasyonun hepsi yakalanıyor** (V1.1 için 21 yeni mutasyon, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
 
 ## V1.0'da ne değişti
 

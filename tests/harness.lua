@@ -2704,12 +2704,23 @@ M("combo", "Snipers (SSG08/AWP/R8)"):set("Auto (learn)"); tick(0)
 check(ov("hs") == true, "auto again: the learned hide shots")
 handlers.level_init()
 check(db.ant_a_m_memory.sniper.dt.hits == 11 and db.ant_a_m_memory.sniper.hs.shots == 4, "sniper statistics are saved")
-for _ = 1, 19 do sniper_hit() end
-check(ov("hs") == true, "V1.1: 19 of 23 with hide shots: under 24 bullets no decision")
+for _ = 1, 12 do sniper_hit() end
+near_misses(8)
+check(ov("hs") == true, "V1.1: hide shots 12/24 (0.50) vs double tap 11/24 (0.46): not clearly worse by 0.15, stays")
+for _ = 1, 8 do sniper_hit() end
+check(ov("hs") == true, "V1.1: hide shots 20/32 (0.61): still inside the margin")
 sniper_hit()
 for i = lines_sn + 1, #printed do if printed[i]:find("sniper exploit:", 1, true) then switch_line = printed[i] end end
-check(ov("dt") == true and switch_line == "[Nykle.win] sniper exploit: Hide shots 20/24, Double tap 11/24 kafa isabeti -> Double tap",
+check(ov("dt") == true and switch_line == "[Nykle.win] sniper exploit: Hide shots 21/33, Double tap 11/24 kafa isabeti -> Double tap",
       "V1.1: hide shots clearly worse (0.15 margin): back to double tap")
+-- Double tap then takes head after head: once it is clearly worse than hide shots (0.15 margin) it goes back.
+do
+    local n = 0
+    while ov("dt") == true and n < 60 do sniper_hit(); n = n + 1 end
+    for i = lines_sn + 1, #printed do if printed[i]:find("sniper exploit:", 1, true) then switch_line = printed[i] end end
+    check(ov("hs") == true and n >= 20 and switch_line:find("-> Hide shots", 1, true) ~= nil,
+          "V1.1: double tap clearly worse after " .. n .. " more head hits: back to hide shots (" .. tostring(switch_line) .. ")")
+end
 forget(); tick(0); draw()
 check(ov("dt") == true and contains(texts, "SNIPER   HS 0/0   DT* 0/0"), "forget resets the sniper choice (double tap first)")
 M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots")
@@ -4049,6 +4060,12 @@ do
     lp.weapon_class = "CAK47"; tick(0); refs[SHORT.min_damage].spec.value = 30; tick(0); lp.weapon_class = "CWeaponSSG08"
     enemy.m_iHealth = 180; advance(2)
     check(ov("min_damage") == 101, "V1.1: 180 HP: two body bullets do not kill, head only")
+    -- A body bullet under 60 (traced: 55 through cover): two of them would kill 100 HP, but the pair rule needs a
+    -- solid body bullet (>= 60).
+    enemy.m_iHealth = 100; enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
+    lp.get_eye_position = function() return vector(0, 0, 64) end; world.trace = function() return 55 end; advance(2)
+    check(ov("min_damage") == 101, "V1.1: body bullet under 60: no pair rule, head only (MD " .. tostring(ov("min_damage")) .. ")")
+    enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = function() return 30 end
     enemy.m_iHealth, enemy.m_ArmorValue = nil, nil
     M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); lp.weapon_class = "CAK47"
 
