@@ -26,7 +26,9 @@ GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi (bkz. "G
 
 **Taşınamayanlar:** GameSense'teki *kendi resolver* (Force body yaw kolları: `lby± / wall± / abs±`, UCB ile düşman başına öğrenme) Neverlose'a taşınamaz: Neverlose Lua API'si düşman başına açı zorlamaya izin vermiyor (sadece safe point / body aim). Clan tag ve trash talk da GameSense'e özel kaldı. Neverlose API'si hakkında doğrulanamayan iki nokta güvenli yazıldı: `cvar.cl_righthand:int()` yoksa `utils.console_exec` denenir (o da yoksa konsola bir kez yazılır); `files.write` yoksa dosya yazılmaz, logları **Dump logs to console** ile al.
 
-Test: `tests/run_tests.sh` 7 mod + strict, **999 kontrol** (V1.1 için 45 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). Oyun içi test yapılmadı; ilk Neverlose logunu at, V1.1 oradan ayarlanır.
+**V1.1.1** (ilk Neverlose logu, 4.5 dk; `LOG_ANALIZI_GS_1.0.16-21.md` sonunda): dosya kaydı çalıştı; gerçek kayıt bekleme logu düşman başına 15 sn'de bir (205 satırın 95'i o idi); `sikmadi` satırında SP / BA / hitbox durumu da (iki "sebep bilinmiyor"); zaman damgası oyun saati dakika:saniye (`os.date` yok).
+
+Test: `tests/run_tests.sh` 7 mod + strict, **999 kontrol** (V1.1 için 45 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). Oyun içi test: ilk log V1.1.1'e girdi.
 
 ## V1.0'da ne değişti
 

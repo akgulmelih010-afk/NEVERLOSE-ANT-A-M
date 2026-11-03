@@ -299,3 +299,25 @@ Madde 1'deki gövde kuralı AI peek'i de kilitliyor (kafa görünmezse hiç peek
 5. Madde 2 + 6 (Peek ve hava AA).
 
 Her maddeyi ölçmek için gereken satırlar zaten logda var: `sikmadi` sebepleri, `vuruldun` exploit alanı, `atis-detay`'daki `DEF geri / once bitti`, `teleport sonucu`, Stats `AA FAZ / PEEK`.
+
+---
+
+# Neverlose V1.1: ilk log (4.5 dk, realtime 921–1188)
+
+Dosya kaydı çalıştı (`nykle_log.txt`, Neverlose'un `files` API'si var; `os.date` yok, damga oyun saati). 205 satır.
+
+| | |
+|---|---|
+| Senin atış / isabet | 12 / 8 (kafa 4, gövde 3, boyun 1); ıska: correction 1, prediction error 1, hedef öldü 2 |
+| Sana gelen isabet / kafa | 13 / 10: faz 7 ×4, faz 6 ×2, faz 8 ×2, faz 2 ×2, faz 3, faz 5 |
+| Teleport | 10, 1 vurulma (ilk; 1.24 sn sonra) |
+| DT çifti | 7 kez devreye girdi (gövde 65–74 → MD 64–73) |
+| Gerçek kayıt bekleme | 48 bekleme: 24 "sınır doldu", 24 "gerçek kayıt geldi" (3 düşman sürekli defensive) |
+| `sikmadi` | 12: "sen havadasın" 4, "hasar < MD" 4, "silah hazır değil" 2, **"sebep bilinmiyor" 2** |
+
+Okuma:
+- **Yeni fazlar 6–8 bu oturumda kafa yedi (10 kafanın 8'i).** Beklenen bedel: denenmemiş faz önce denenir, 12 mermiden sonra kötü işaretlenir ve atlanır. GS'de de 6–7 diğerleriyle aynı banda oturmuştu; karar Stats → `AA FAZ` verisine bırakıldı. Değişiklik yok.
+- **"sebep bilinmiyor" ×2:** kafa 292 / 74 açık, MD 72–73 (DT çifti), temiz atış, SP Prefer — yine de 0.44 sn atış yok. Neverlose'un kendi hit chance / multipoint kararı olabilir. → **V1.1.1:** `sikmadi` satırına SP / BA / hitbox durumu eklendi, bir sonraki logda ayrışsın.
+- **Bekleme logu çok:** 205 satırın 95'i "sahte kayıtta". → **V1.1.1:** düşman ve tür başına 15 sn'de bir.
+- Ölümlerin 4'ü `DT %0, DEF yok` (kendi atışından 0–1 sn sonra): DT'nin bilinen bedeli. 5'i `DEF acik` iken kafa: zorlanan defensive'e rağmen; düşman resolver'ları bunu çözüyor, faz öğrenmesi devrede.
+- Havada hit chance 40 ile 4 kez atış gelmedi ("sen havadasın"), biri 1047.2'de kafa 73 / gövde 92 açıkken; sonra havada kafadan vuruldun. GS'de havadan giden atışlar %67–89 tutmuştu; 40 değeri bir log daha izlenecek.

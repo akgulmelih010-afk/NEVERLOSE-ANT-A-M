@@ -322,7 +322,7 @@ check(handlers.createmove and handlers.render and handlers.bullet_impact and han
       and handlers.player_death and handlers.shutdown, "all event handlers registered")
 log("INFO menu elements: " .. element_count)
 for _, p in ipairs(printed) do log("INFO print: " .. p) end
-check(printed[#printed] ~= nil and printed[#printed]:match("^%[Nykle%.win%] V%d+%.%d+ yuklendi") ~= nil,
+check(printed[#printed] ~= nil and printed[#printed]:match("^%[Nykle%.win%] V[%d%.]+ yuklendi") ~= nil,
       "version printed on load")
 check(not full or printed[#printed]:match("yuklendi %(hafiza: 1 oyuncu%)$") ~= nil, "saved memory loaded: one valid player")
 if full then check(#printed == 1, "every ui.find path resolved") end
@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.1") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.1").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()

@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1"
+local VERSION = "1.1.1"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -66,8 +66,12 @@ nlog.stamp = function()
     if ok and type(text) == "string" then
         return text
     end
+    -- os.date yok (ilk Neverlose logu): oyun saati dakika:saniye.
     local ok_rt, t = pcall(function() return globals.realtime end)
-    return (ok_rt and type(t) == "number") and ("%.1f"):format(t) or "--"
+    if ok_rt and type(t) == "number" then
+        return ("%d:%02d.%d"):format(math.floor(t / 60), math.floor(t % 60), math.floor((t * 10) % 10))
+    end
+    return "--"
 end
 
 nlog.push = function(line)
@@ -2620,7 +2624,9 @@ do
     -- geldikten sonra after tick daha; her beklemeden sonra cooldown tick serbest (surekli defensive acana da duzenli
     -- sikilir). Duelloda beklenmez: Peek durumu, az once ates ettigin hedef ya da seni goren dusman. Beklemek sadece
     -- aciyi sen tutarken (dusman seni gormezken) bedava. Neverlose'da dusman basina whitelist yok, bekleme global.
-    resolver.wait = { max = 14, after = 3, cooldown = 32, md = 130, enemies = {}, log_every = 5 }
+    -- V1.1.1: ilk Neverlose logunda 205 satirin 95'i bu beklemelerdi (surekli defensive acan 3 dusman): dusman ve tur
+    -- basina 15 sn'de bir yazilir.
+    resolver.wait = { max = 14, after = 3, cooldown = 32, md = 130, enemies = {}, log_every = 15 }
 
     resolver.wait_hold = function(target, class)
         local wait, now = resolver.wait, globals.tickcount
@@ -3148,10 +3154,12 @@ clean_shot.diagnose = function(lp, target, class, armed)
         reasons[1] = "sebep bilinmiyor (hit chance / multipoint / Neverlose)"
     end
     local hp = prop(target, "m_iHealth")
-    print(("[%s] dbg sikmadi: %s %.2fs vurulabilir (kafa %d, govde %d hasar, can %s), ates yok | %s | MD %d | sen %s%s"):format(
+    -- V1.1.1: safe point / body aim / hitbox durumu da (ilk logda "sebep bilinmiyor" iki kez: kafa 292 acikken atis yok).
+    print(("[%s] dbg sikmadi: %s %.2fs vurulabilir (kafa %d, govde %d hasar, can %s), ates yok | %s | MD %d SP %s BA %s%s | sen %s%s"):format(
         SCRIPT, player_name(target), d.every / 64, floor(head + 0.5), floor(body + 0.5), tostring(hp or "?"),
-        table.concat(reasons, ", "), floor(need + 0.5), tostring(class):gsub("^CWeapon", ""):lower(),
-        current.clean and " temiz" or ""))
+        table.concat(reasons, ", "), floor(need + 0.5), tostring(effective("safe_points") or "?"),
+        tostring(effective("body_aim") or "?"), current.fake_body and " hitbox govde" or "",
+        tostring(class):gsub("^CWeapon", ""):lower(), current.clean and " temiz" or ""))
 end
 
 -- Defensive'i zorlamayi birakir. Kullanicinin kendi ayari "Always On" olsa bile
