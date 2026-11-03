@@ -129,6 +129,20 @@ Her şey tek dosyada, yukarıdan aşağı:
 - `tests/run_tests.sh mutate`: `tests/mutate.py` ile 703 mutasyon; her biri kodu bilerek bozar ve testlerin yakalaması beklenir. Yaklaşık 1 saat sürer.
 - Kural: her davranış değişikliğinde test ekle, yeni testin eski kodda kırıldığını kontrol et, değişen kod için mutasyon ekle. Eski desenler kodla eşleşmiyorsa (`SKIP`) güncelle.
 
+## Kullanıcıya rapor biçimi (istek)
+
+Her log sonrası rapor kısa ve şu biçimde olmalı (ayrıntı dosyalara, sohbete değil):
+
+```
+güncelleme
+----------
+AA GELİŞTİ: kafa oranı %77 -> %35, %15 daha iyileşmesi bekleniyor
+RESOLVER AYNI: kafa atışında correction %48, gövde %84; %10 daha iyileşmesi bekleniyor
+PEEK ÖLÜMLERİ: bolt cover yeni, etkisi bir sonraki logda
+```
+
+Satır = alan, durum (GELİŞTİ / AYNI / KÖTÜLEŞTİ), ölçülen rakam, beklenti. Rakamlar logdan; beklenti "bekleniyor" diye işaretli.
+
 ## Açık işler ve bekleyen kararlar
 
 - **Eğik peek ölümleri (kullanıcı isteği, V1.1.2):** "eğilerek peek atınca çok ölüyorum, ona da bir ayar çek". Karar sonraki Neverlose loglarıyla verilecek. Üçüncü logda (29 dk) `Peek (egik)` hiç çıkmadı; Peek ölümlerinin 10/13'ü kendi ıskasından sonra `DT %0` iken geldi → V1.1.3 DT çiftinde Body Aim Force (kafa %48 correction, gövde %16). Dördüncü logda (11 dk) eğik peek verisi geldi: 5 ölüm / 5 öldürme; ölümlerin 3'ü kendi ıskasından sonra `DT %0` iken (sürgü), biri teleport sonrası `DT %0`, biri `DEF acik`. → **V1.1.4 Bolt cover** (`cover_wanted` / `update_fd_guard`, `fd.why = "cover"`): sniper atışından sonra silah hazır olana kadar görülüyorsa fake duck zorlanır; varsayılan eğik peek, ayakta peek seçenekle (`menu.bolt_cover_stand`). Sonraki logda ölçülecek: `surgu korumasi` satırından sonra `vuruldun` geliyor mu, eğik peek ölümleri düştü mü. Düşmezse aday: kapalı tutup eğik peek'te ilk atışı DT çifti / gövdeye zorlamak (kafa %50 correction). Hazırlık yapıldı: Peek'te eğilmişken loglar ve KD paneli `Peek (egik)` etiketiyle ayrı sayar (`state_label()`; `vuruldun` / `iska` / `oldurdun` / `oldun` satırları, round özeti, Stats → `KD`). Bakılacaklar: eğik peek'teki ölümlerde faz, `DT %` / `DEF`, saldıranın `gordu` süresi, kafa mı gövde mi. Aday ayarlar: eğik peek'e ayrı AA durumu (Builder'da "Crouch peek": kendi yaw / desync / exploit), eğilirken Peek'te defensive zorlama / fake duck önerisi, ya da eğik peek'te Smart yerine Always on. Hangisi olacağı loga göre.
