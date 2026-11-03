@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -680,9 +680,13 @@ menu.air_hc         = style.tip(grp.defensive:slider(style.title("cloud-arrow-do
 -- V1.1.4 (dorduncu Neverlose logu): sniper'la ates ettikten sonra surgu cekilirken (1.25 sn) iskaladiysan ciplaksin;
 -- egik peek'te olumlerin 3/5'i, ayakta peek'te 10/13'u o anda geldi. Silah hazir olana kadar biri seni goruyorsa
 -- fake duck zorlanir (bkz. update_fd_guard).
-menu.bolt_cover     = style.tip(grp.defensive:switch(style.title("person-booth", "Bolt cover: fake duck after a sniper shot (crouched peek)"), true),
+-- V1.1.6: varsayilan KAPALI. Besinci Neverlose logunda (18 dk) fake duck'la kapanan surguye 14 mermi geldi (3'u kafaya,
+-- 7 olum "Fake duck" durumunda): fake duck'ta DT bosaliyor ve defensive yok, dusmanin resolver'i fake duck'i cozuyor.
+-- Dorduncu logda (kapali) surgude 3 olum / 10, besincide (acik) 11 / 19.
+menu.bolt_cover     = style.tip(grp.defensive:switch(style.title("person-booth", "Bolt cover: fake duck after a sniper shot (crouched peek)"), false),
     "Egik peek'te scout / AWP / R8 ile ates ettikten sonra surgu cekilirken biri seni goruyorsa fake duck zorlanir " ..
-    "(kafa asagida, kayit her pakette degisir). Silah hazir olunca birakilir.")
+    "(kafa asagida, kayit her pakette degisir). Silah hazir olunca birakilir. Logda ise yaramadi (fake duck'ta DT " ..
+    "bosaliyor, defensive yok; 14 mermi geldi), o yuzden kapali.")
 menu.bolt_cover_stand = style.tip(grp.defensive:switch(style.title("person-walking", "Bolt cover also in standing peek"), false),
     "Ayakta peek'te de; fake duck geri cekilmeyi yavaslatir, o yuzden varsayilan kapali.")
 -- Havadayken bir dusman kafani gorunce DT ile isinlanilir (sarj dolunca tekrar).
@@ -2129,6 +2133,18 @@ do
         return max(0, min(0.25, t.max_sim - t.sim))
     end
 
+    -- Dusmanin en yeni kaydi sunucu zamanindan kac tick geride (dusmanin pingi / fake latency'si; V1.1.6). Okunamazsa 0.
+    -- Besinci Neverlose logunda 8+ tick geride kalan kayda kafa atislari 5/7 iska (ucuncu logda 13/16), govde 0/6.
+    exposure.record_age = function(ent)
+        local index = ent ~= nil and index_of(ent) or nil
+        local t = index ~= nil and enemy_watch.list[index] or nil
+        local now = globals.curtime
+        if t == nil or type(now) ~= "number" or type(t.max_sim) ~= "number" then
+            return 0
+        end
+        return max(0, (now - t.max_sim) / tick_interval())
+    end
+
     enemy_watch.update = function()
         local now = globals.tickcount
         local present = {}
@@ -2642,7 +2658,9 @@ do
     -- ("uzakta ince yerlerden sikamiyor"). Iz yoksa her zaman gecerli.
     local HP_PLUS_ONE = 101
     -- DT cifti (V1.1): tek govde mermisinin en azi (hasar) ve log hiz siniri.
-    local DT_PAIR = { min = 60, who = nil, seen = -1000 }
+    -- V1.1.6: lag_ticks = dusmanin kaydi bu kadar geride ise "gecikmeli" (kafa atisi tutmaz, cift serbest); duel_logged
+    -- = duelloda cift yerine kafa logunun hiz siniri.
+    local DT_PAIR = { min = 60, who = nil, seen = -1000, lag_ticks = 8, duel_who = nil, duel_logged = -1000 }
 
     -- Sahte kayit beklemesi (V1.1, GameSense V1.0.7 / V1.0.22): dusman defensive acinca simulasyon zamani geri gider;
     -- sunucu o zamani dusmanin ESKI konumuyla eslestirir, o kayda giden mermi (DT'nin iki mermisi dahil) bosa gider.
@@ -2814,8 +2832,32 @@ do
             local chest = target ~= nil and chest_damage(lp, target, WEAPONS[class]) or nil
             lethal = type(health) == "number" and health > 0 and type(chest) == "number" and health <= chest
             -- DT cifti (V1.1): govde x 2 >= can ve DT dolu: cift oldurucu, Min. Damage asagida govde - 1'e iner.
-            if not lethal and menu.dt_pair:get() and dt_ready() and type(health) == "number" and health > 0
-                and type(chest) == "number" and chest >= DT_PAIR.min and health <= 2 * chest then
+            local pair_ok = not lethal and menu.dt_pair:get() and dt_ready() and type(health) == "number" and health > 0
+                and type(chest) == "number" and chest >= DT_PAIR.min and health <= 2 * chest
+            -- V1.1.6 (besinci Neverlose logu, 54 atis): scout'ta DT ikinci mermiyi atmiyor (130 atista 1 cift), "cift"
+            -- govde -91 ile dusman 9 canla kaliyor ve 1.25 sn surguyu bekliyorsun: 19 olumun 11'i atistan sonraki
+            -- surgude. Headshot priority acikken duelloda (Peek'tesin ya da biri seni goruyor) cift yok, kafa (kafa
+            -- %62 tuttu, oldururse surgu yok); gorulmuyorken cift serbest (ikinci atisa vakit var). Dusmanin kaydi
+            -- gecikmeliyse (lag_ticks+) kafa tutmuyor (5/7 iska), yine cift.
+            -- Duello = Peek'tesin ya da HEDEFIN KENDISI seni goruyor (baska bir dusmanin gormesi degil: gormeyen hedefe
+            -- govde + surgu sonrasi ikinci mermi guvenli).
+            local duel = false
+            if pair_ok and menu.head_first:get() and exposure.record_age(target) < DT_PAIR.lag_ticks then
+                local s = exposure.sight[index_of(target)]
+                local tick_now = globals.tickcount
+                duel = current.state == "Peek" or (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent)
+            end
+            if duel then
+                pair_ok = false
+                local now_rt = globals.realtime
+                if menu.resolver_log:get() and (DT_PAIR.duel_who ~= target or now_rt < DT_PAIR.duel_logged
+                    or now_rt - DT_PAIR.duel_logged > 5) then
+                    DT_PAIR.duel_who, DT_PAIR.duel_logged = target, now_rt
+                    print(("[%s] %s: duello, DT cifti yerine kafa (govde %d x 2 >= can %d ama ikinci mermi surguden sonra)"):format(
+                        SCRIPT, player_name(target), floor(chest + 0.5), health))
+                end
+            end
+            if pair_ok then
                 lethal, resolver.pair = true, chest
                 -- V1.1.3 (ucuncu Neverlose logu, 78 atis): kafaya giden atislarin 15/31'i correction iskasi, govdeye
                 -- gidenlerin 7/45'i. "Prefer" ile Neverlose kafa acikken yine kafaya gidiyordu (MD govde - 1 olsa da);

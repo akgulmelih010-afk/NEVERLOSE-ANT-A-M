@@ -746,6 +746,15 @@ M = [
  ('v115 fresh switch ignored', 'or not menu.resolver:get() or not menu.fresh_only:get() then', 'or not menu.resolver:get() then'),
  ('v115 fresh rifles too', 'if index == nil or not sniper or trace_bullet == nil', 'if index == nil or trace_bullet == nil'),
  ('v115 fresh stale trace', '        if now < f.tick or now - f.tick >= fresh.every then\n', '        if f.tick < 0 then\n'),
+ ('v116 pair in duel too', '            if duel then\n                pair_ok = false\n', '            if duel then\n'),
+ ('v116 duel ignores lag', 'if pair_ok and menu.head_first:get() and exposure.record_age(target) < DT_PAIR.lag_ticks then', 'if pair_ok and menu.head_first:get() then'),
+ ('v116 duel ignores head first', 'if pair_ok and menu.head_first:get() and exposure.record_age(target) < DT_PAIR.lag_ticks then', 'if pair_ok and exposure.record_age(target) < DT_PAIR.lag_ticks then'),
+ ('v116 duel ignores peek', 'duel = current.state == "Peek" or (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent)', 'duel = (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent)'),
+ ('v116 duel ignores sight', 'duel = current.state == "Peek" or (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent)', 'duel = current.state == "Peek"'),
+ ('v116 duel old sight', 'duel = current.state == "Peek" or (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent)', 'duel = current.state == "Peek" or (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent * 4)'),
+ ('v116 record age zero', '        return max(0, (now - t.max_sim) / tick_interval())\n', '        return 0\n'),
+ ('v116 cover default on', '"Bolt cover: fake duck after a sniper shot (crouched peek)"), false)', '"Bolt cover: fake duck after a sniper shot (crouched peek)"), true)'),
+ ('v116 duel log always', '(DT_PAIR.duel_who ~= target or now_rt < DT_PAIR.duel_logged\n                    or now_rt - DT_PAIR.duel_logged > 5)', 'true'),
 ]
 bad = 0
 ONLY = set(sys.argv[2:])

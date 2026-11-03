@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.5") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.6") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.5").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.6").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -4042,15 +4042,20 @@ do
     B("Standing", "combo", "Defensive"):set("Smart")
 
     -- DT pair (snipers): body x 2 >= HP with DT charged lowers Min. Damage to body - 1 (first bullet body, second by DT).
+    -- V1.1.6: the target itself does not see you (enemy2 does, so you are exposed; you just shot at the target, so the
+    -- aimbot stays on it): the pair is allowed.
     reset_world(); forget()
-    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end
+    v.unseen = function(_, from) if from == enemy then return 0 end return 30 end
+    v.shoot = function(id) handlers.aim_fire({ id = id, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = id, target = 5, hitgroup = 3, damage = 80 }) end
+    world.threat = enemy; world.enemies = { enemy, enemy2 }; world.trace = v.unseen
     lp.weapon_class = "CWeaponSSG08"; aa.charge = 1; enemy.m_iHealth, enemy.m_ArmorValue = 100, 0
-    M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); advance(3)
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); advance(36) -- the target's sight of you from the last test expires
+    v.shoot(899); advance(3)
     v.md = ov("min_damage")
     check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Prefer"
           and printed[#printed]:match("^%[Nykle%.win%] enemy5: DT cifti olduruyor %(govde %d+ x 2 >= can 100%), Min%. Damage gecici "
           .. tostring(v.md) .. "$") ~= nil,
-          "V1.1.5: DT pair with Headshot priority: Min. Damage lowered to body - 1, Body Aim stays Prefer (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
+          "V1.1.5: DT pair with Headshot priority, the target unaware: Min. Damage lowered to body - 1, Body Aim stays Prefer (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
     draw()
     check(not contains(texts, "HEAD"), "V1.1: DT pair: no HEAD indicator (the body shot is lethal with the pair)")
     M("switch", "Headshot priority"):set(false); advance(2)
@@ -4070,6 +4075,27 @@ do
     enemy.m_iHealth = 60; advance(2)
     check(ov("body_aim") == "Force", "V1.1.5: one body bullet kills 60 HP after a shot at the target: still forced with Headshot priority")
     enemy.m_iHealth = 100; advance(2)
+    -- V1.1.6: the target sees you (duel): the scout's DT does not fire a second bullet (1 pair in 130 logged shots), a
+    -- body hit leaves the enemy at 9 HP for the bolt: with Headshot priority no pair, head only, logged once per 5 s.
+    world.trace = function() return 30 end; advance(3)
+    check(ov("min_damage") == 101 and ov("body_aim") == "Prefer"
+          and printed[#printed]:match("^%[Nykle%.win%] enemy5: duello, DT cifti yerine kafa %(govde %d+ x 2 >= can 100 ama ikinci mermi surguden sonra%)$") ~= nil,
+          "V1.1.6: the target sees you: no pair, head only, logged (" .. tostring(printed[#printed]) .. ")")
+    v.lines = #printed; advance(4)
+    check(#printed == v.lines, "V1.1.6: the duel line is not repeated")
+    enemy.m_flSimulationTime = 70; tick(0); globals.curtime = 70 + 10 / 64; advance(2)
+    check(ov("min_damage") == v.md, "V1.1.6: the target's record 10 ticks behind the server (laggy): head will not hit, the pair is back")
+    globals.curtime = 70 + 4 / 64; advance(2)
+    check(ov("min_damage") == 101, "V1.1.6: the record 4 ticks behind: fresh, head only again")
+    globals.curtime, enemy.m_flSimulationTime = nil, nil
+    M("switch", "Headshot priority"):set(false); advance(2)
+    check(ov("min_damage") == v.md and ov("body_aim") == "Force", "V1.1.3: Headshot priority off: the pair also in a duel, body forced")
+    M("switch", "Headshot priority"):set(true); world.trace = v.unseen; advance(36); v.shoot(902); advance(4)
+    check(ov("min_damage") == v.md and ov("body_aim") == "Prefer", "V1.1.6: the target lost sight of you half a second ago: the pair again")
+    M("switch", "Auto peek"):set(true); lp.m_vecVelocity = vector(250, 0, 0); advance(4)
+    check(ov("min_damage") == 101, "V1.1.6: you are peeking (state Peek): a duel even if the target does not see you yet, head only")
+    M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); v.shoot(903); advance(4)
+    check(ov("min_damage") == v.md, "V1.1.6 setup: standing still again, the pair")
     aa.charge = 0.5; advance(2)
     check(ov("min_damage") == 101, "V1.1: DT pair needs a charged DT: back to HP + 1")
     aa.charge = 1; M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(false); advance(2)
@@ -4083,7 +4109,8 @@ do
     -- A body bullet under 60 (traced: 55 through cover): two of them would kill 100 HP, but the pair rule needs a
     -- solid body bullet (>= 60).
     enemy.m_iHealth = 100; enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
-    lp.get_eye_position = function() return vector(0, 0, 64) end; world.trace = function() return 55 end; advance(2)
+    lp.get_eye_position = function() return vector(0, 0, 64) end
+    world.trace = function(_, from) if from == enemy then return 0 end return 55 end; advance(2)
     check(ov("min_damage") == 101, "V1.1: body bullet under 60: no pair rule, head only (MD " .. tostring(ov("min_damage")) .. ")")
     enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = function() return 30 end
     enemy.m_iHealth, enemy.m_ArmorValue = nil, nil
@@ -4287,7 +4314,9 @@ do
     lp.m_vecVelocity = vector(250, 0, 0); lp.m_flDuckAmount = 1; advance(4)
     check(ov("fakeduck") == nil, "V1.1.4: crouched peek, no shot yet: fake duck untouched")
     globals.curtime, lp.next_attack = 50, 51.25
-    handlers.weapon_fire({ userid = 1 }); v.lines = #printed; advance(2)
+    handlers.weapon_fire({ userid = 1 }); advance(2)
+    check(ov("fakeduck") == nil, "V1.1.6: bolt cover is off by default (14 bullets came through the fake duck in the fifth log)")
+    M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(true); v.lines = #printed; advance(2)
     check(ov("fakeduck") == true and printed[v.lines + 1] ~= nil
           and printed[v.lines + 1]:match("^%[Nykle%.win%] surgu korumasi: fake duck %(Peek %(egik%), atistan 0%.%d%d sn sonra, silah hazir degil%)$") ~= nil,
           "V1.1.4: shot fired, bolt not ready, seen: fake duck forced and logged (" .. tostring(printed[v.lines + 1]) .. ")")
@@ -4309,7 +4338,6 @@ do
     check(ov("fakeduck") == true, "V1.1.4 setup: scout again, forced")
     M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(false); advance(2)
     check(ov("fakeduck") == nil, "V1.1.4: bolt cover can be turned off")
-    M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(true)
     globals.curtime, lp.next_attack = nil, nil
     M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); lp.m_flDuckAmount = 0
     reset_world()

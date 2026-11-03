@@ -394,3 +394,24 @@ Yani eğik peek'te de ölüm = ıska + 1.25 sn sürgü; eğik yürürken kaçam�
 - `bt` 13+ (200 ms üstü: 25, 25, 23, 19, 19, 18, 17, 17, 16) 9 atışın 7'si ıska: ya Neverlose fake latency'si açık ya düşmanın kaydı gecikmeli.
 
 → **V1.1.5 "Snipers: fresh record only":** şu anki kayda mermi geçmiyorsa (az önce geçiyorduysa) en fazla 24 tick bekle. Kaybedilen: `bt` ≥ 8'deki 8 isabet (bir kısmı bekleme sonrası taze kayda yine gelir). Kazanılan: 17 ıska → sürgü süresinde ölüm azalır. Kafa önceliği (Headshot priority) ile birlikte beklenen kafa isabeti: eski kayıtsız kafa atışları %81 tutuyordu.
+
+## Neverlose V1.1.6: beşinci log (18 dk, 129:51–148:14; meow :=, DUVARCI) — V1.1.5 ile
+
+| | |
+|---|---|
+| Öldürme / ölüm | 25 / 19 (11 headshot); eğik peek 15 öldürme (8 HS) / 6 ölüm |
+| Senin atış / isabet | 54 / 41 (%76); correction 8, death 2, prediction 2, unregistered 1 |
+| Kafaya giden | 21: 13 isabet (%62), 5 correction |
+| Gövdeye giden | 33: 28 isabet (%85) |
+| `bt` < 8 / ≥ 8 | 41 atış 8 ıska / 13 atış 5 ıska (kafa 5/7 ıska, gövde 0/6) |
+| Taze kayıt beklemesi | 17 (2–24 tick), 9'u "kayıt taze" ile bitti |
+| Duello kısa bekleme | 24 satır `(duello, kafa onceligi)` |
+| Bolt cover | 29 `surgu korumasi`; fake duck'a 14 mermi, 7 ölüm `Fake duck` |
+| Teleport | 10; haritada 3/3 vurulunca kapandı |
+
+- **DT ikinci mermiyi atmıyor.** Ardışık atış aralıkları: < 0.2 sn 1, 0.8–1.6 sn 12, > 1.6 sn 39 (3. logda 0/23/52). "DT cifti olduruyor" 24 kez yazıldı; gövde −91/−92'den sonra düşman 7–9 canla kaldı, ikinci atış 1.0–1.3 sn sonra (sürgü). Ölümlerin 11'i o sürgüde (130:49, 133:10, 135:43, 138:55, 141:24, 141:49, 142:19, 142:45, 143:16, 143:48, 144:24).
+- **Fake duck koruması ters tepti:** `vuruldun: head -138 ssg08 | Fake duck | FD, DT %0 (bind), DEF yok` tipinde 14 isabet; FD'de DT boşalıyor, defensive kapanıyor.
+- **Backtrack düşman kaynaklı:** DUVARCI 138:13'ten sonra `bt 13–26t` (fake latency / ping); meow := 8–14. Taze kayıt beklemesi bunu engelleyemez. Kafa gecikmeli kayıtta 5/7 ıska, gövde 0/6 → kayıt gecikmesi (`record_age`) ölçülüp çift kararına giriyor.
+- Kafa taze kayıtta 11/14 (%79; 3. logda %81) — kafa önceliği taze kayıtta çalışıyor.
+
+→ **V1.1.6:** duelloda çift yok (kafa, Min. Damage 101), gecikmeli kayıtta çift; bolt cover kapalı.
