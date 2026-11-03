@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.1") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.2") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.1").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.2").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -3047,10 +3047,12 @@ end
 do
     reset_world(); handlers.level_init(); forget(); E("button", "Reset stats"):click(); handlers.round_start({})
     world.threat = enemy; tick(0)
-    handlers.player_death({ userid = 5, attacker = 1 })
+    handlers.player_death({ userid = 5, attacker = 1, headshot = true })
+    check(printed[#printed] == "[Nykle.win] oldurdun: enemy5 | Standing | sen ak47 | headshot", "V1.1.2: a kill is logged with your state and weapon (" .. tostring(printed[#printed]) .. ")")
     refs[SHORT.fakeduck].spec.value = true; advance(2)
     handlers.player_death({ userid = 7, attacker = 1 })
     handlers.player_death({ userid = 1, attacker = 5 })
+    check(printed[#printed] == "[Nykle.win] oldun: enemy5 | Fake duck | sen ak47", "V1.1.2: a death is logged with the killer and your state (" .. tostring(printed[#printed]) .. ")")
     refs[SHORT.fakeduck].spec.value = false; advance(2)
     handlers.player_death({ userid = 6, attacker = 1 })
     handlers.player_death({ userid = 1, attacker = 1 })

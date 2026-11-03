@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -3105,7 +3105,10 @@ end
 -- "Sikmadi" teshisi (V1.1, GameSense V1.0.10'dan): hedefe mermi geciyor ama aimbot diag.every tick'tir ates etmediyse
 -- neden etmedigi tek satirda. Oyun loglarindan ayar yapmak icin: Min. Damage mi, sahte kayit beklemesi mi, silah
 -- hazir degil mi, havada hit chance mi, aimbot baska hedefte mi.
-clean_shot.diag = { every = 28, tick = -1000, index = nil }
+-- V1.1.2 (ikinci Neverlose logu): 0.44 sn'lik pencere aimbot'un normal gecikmesini de yakaliyordu (4 "sebep bilinmiyor"un
+-- 3'unde atis 0.1-0.2 sn sonra geldi) -> 0.63 sn; 20 hasarin altindaki "vurulabilir" (havada 3-9 hasar) ve tek sebebi
+-- "silah hazir degil" olan satirlar (surgu) yazilmaz.
+clean_shot.diag = { every = 40, tick = -1000, index = nil, min_damage = 20 }
 
 clean_shot.diagnose = function(lp, target, class, armed)
     local d, tick = clean_shot.diag, globals.tickcount
@@ -3126,7 +3129,10 @@ clean_shot.diagnose = function(lp, target, class, armed)
         return
     end
     local head, body = clean_shot.damages(lp, target)
-    if head < 1 and body < 1 then
+    if head < d.min_damage and body < d.min_damage then
+        return
+    end
+    if not armed and not current.waiting then
         return
     end
     local need = clean_shot.need(target)
@@ -5386,6 +5392,10 @@ events.player_death:set(protect("player_death", function(e)
     if victim == lp then
         if menu.enabled:get() and ok_enemy and enemy_attacker then
             count_kd("deaths")
+            -- V1.1.2: log analizinde K/D icin (GameSense'teki kill / olum satirlari gibi).
+            if menu.hit_log:get() then
+                print(("[%s] oldun: %s | %s | %s"):format(SCRIPT, player_name(attacker), current.state, weapon_label()))
+            end
         end
         reset_brute()
         set_charge(true)
@@ -5394,6 +5404,10 @@ events.player_death:set(protect("player_death", function(e)
         local ok_victim, enemy_victim = pcall(function() return victim:is_enemy() end)
         if ok_victim and enemy_victim then
             count_kd("kills")
+            if menu.hit_log:get() then
+                print(("[%s] oldurdun: %s | %s | %s%s"):format(SCRIPT, player_name(victim), current.state, weapon_label(),
+                    e.headshot == true and " | headshot" or ""))
+            end
         end
     end
 end))

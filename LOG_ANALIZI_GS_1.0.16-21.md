@@ -321,3 +321,20 @@ Okuma:
 - **Bekleme logu çok:** 205 satırın 95'i "sahte kayıtta". → **V1.1.1:** düşman ve tür başına 15 sn'de bir.
 - Ölümlerin 4'ü `DT %0, DEF yok` (kendi atışından 0–1 sn sonra): DT'nin bilinen bedeli. 5'i `DEF acik` iken kafa: zorlanan defensive'e rağmen; düşman resolver'ları bunu çözüyor, faz öğrenmesi devrede.
 - Havada hit chance 40 ile 4 kez atış gelmedi ("sen havadasın"), biri 1047.2'de kafa 73 / gövde 92 açıkken; sonra havada kafadan vuruldun. GS'de havadan giden atışlar %67–89 tutmuştu; 40 değeri bir log daha izlenecek.
+
+## Neverlose V1.1.1: ikinci log (13 dk, 34:51–47:57, iki düşman: aimlarp, KaslıZenci)
+
+| | İlk log (4.5 dk) | İkinci log (13 dk) |
+|---|---|---|
+| Senin atış / isabet | 12 / 8 | 18 / 8 (kafa 6), correction **6**, spread 3, hedef öldü 2 |
+| Sana gelen isabet / kafa | 13 / 10 (%77) | 26 / 5 (**%19**): faz 8 ×2, faz 0 (FD), faz 3, faz 6 |
+| Teleport | 10, 1 vurulma | 9, 4 vurulma (0.25 / 0.36 / 1.41 / 0.74 sn) → **haritada kapandı** (47:43.9) |
+| DT çifti | 7 | 6 (1 isabet, 2 correction, 1 spread) |
+| Gerçek kayıt bekleme | 48 | 54 (iki düşman da sürekli defensive) |
+
+Okuma:
+- **Kafa oranı %77 → %19.** Faz öğrenmesi oturdu: 6–8 fazları artık kafa yemiyor (8'de 2, 6'da 1); ölümlerin çoğu gövde / mide, 5'i fake duck'ta `DT %0 (bind)` ile.
+- **Correction ıskası 6/16:** iki düşman da jitter'lı (20–101°) ve sürekli defensive; 3 ıska sahte kayda gitti (öğrenilmez), adaptive resolver ikisini de Prefer'e çekti. Neverlose'un resolver'ı; lua'dan açı zorlanamıyor.
+- **Teleport haritada kapandı:** 4 vurulmanın 2'si ışınlandıktan 0.25–0.36 sn sonra kafadan. Kural tam bunun için var.
+- **`sikmadi` "sebep bilinmiyor" ×4:** üçünde atış 0.1–0.2 sn sonra geldi, yani aimbot'un normal gecikmesi. → **V1.1.2:** pencere 0.44 → 0.63 sn; 20 hasar altı "vurulabilir" (havada 3–9 hasar, 6 satır) ve tek sebebi "silah hazır değil" olan satırlar yazılmaz.
+- Neverlose logunda öldürme satırı yoktu (K/D sadece Stats panelinde). → **V1.1.2:** `oldurdun: X | durum | sen silah [| headshot]` ve `oldun: X | durum | sen silah`.
