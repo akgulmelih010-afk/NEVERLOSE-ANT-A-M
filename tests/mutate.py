@@ -728,6 +728,12 @@ M = [
  ('v11 nlog no file', '    local ok = pcall(function() files.write(nlog.file,', '    local ok = false and pcall(function() files.write(nlog.file,'),
  ('v11 sikmadi silent', '    if head < 1 and body < 1 then\n        return\n    end\n    local need', '    if true then\n        return\n    end\n    local need'),
  ('v11 explore never', 'if mine.shots >= sniper.explore_shots and mine.hits / mine.shots >= sniper.explore_rate then', 'if false then'),
+ ('v114 cover never', '        return seen_by_enemy() and knife_enemy(lp, KNIFE_NEAR) == nil\n', '        return false\n'),
+ ('v114 cover ignores sight', '        return seen_by_enemy() and knife_enemy(lp, KNIFE_NEAR) == nil\n', '        return knife_enemy(lp, KNIFE_NEAR) == nil\n'),
+ ('v114 cover standing too', '            if not exposure.ducked and not menu.bolt_cover_stand:get() then\n', '            if false then\n'),
+ ('v114 cover ignores bolt', 'if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then', 'if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 then'),
+ ('v114 cover rifles', 'if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then', 'if bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then'),
+ ('v114 cover switch ignored', '        if not menu.bolt_cover:get() then\n            return false\n        end\n', ''),
 ]
 bad = 0
 ONLY = set(sys.argv[2:])

@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.3") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.4") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.3").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.4").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -4216,6 +4216,39 @@ do
     for i = v.lines + 1, #printed do if printed[i]:find("round ozeti", 1, true) then v.summary = printed[i] end end
     check(v.summary ~= nil and v.summary:find("Peek (egik) 1/1", 1, true) ~= nil, "V1.1.2: round summary counts the crouched peek apart (" .. tostring(v.summary) .. ")")
     M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); E("button", "Reset stats"):click()
+
+    -- Bolt cover (V1.1.4): after a sniper shot while peeking crouched, seen and the bolt not ready: fake duck forced.
+    reset_world()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end
+    M("switch", "Auto peek"):set(true); lp.weapon_class = "CWeaponSSG08"
+    lp.m_vecVelocity = vector(250, 0, 0); lp.m_flDuckAmount = 1; advance(4)
+    check(ov("fakeduck") == nil, "V1.1.4: crouched peek, no shot yet: fake duck untouched")
+    globals.curtime, lp.next_attack = 50, 51.25
+    handlers.weapon_fire({ userid = 1 }); v.lines = #printed; advance(2)
+    check(ov("fakeduck") == true and printed[v.lines + 1] ~= nil
+          and printed[v.lines + 1]:match("^%[Nykle%.win%] surgu korumasi: fake duck %(Peek %(egik%), atistan 0%.%d%d sn sonra, silah hazir degil%)$") ~= nil,
+          "V1.1.4: shot fired, bolt not ready, seen: fake duck forced and logged (" .. tostring(printed[v.lines + 1]) .. ")")
+    world.trace = NO_TRACE; advance(40)
+    check(ov("fakeduck") == nil, "V1.1.4: nobody sees you any more: released")
+    world.trace = function() return 30 end; advance(4) -- peek state needs a tick to come back after the sight break
+    check(ov("fakeduck") == true, "V1.1.4: seen again within the bolt: forced again")
+    lp.next_attack = 50; advance(2)
+    check(ov("fakeduck") == nil, "V1.1.4: bolt ready: released")
+    lp.m_flDuckAmount = 0; advance(2)
+    globals.curtime, lp.next_attack = 50, 51.25; handlers.weapon_fire({ userid = 1 }); advance(4)
+    check(ov("fakeduck") == nil, "V1.1.4: standing peek: not forced by default")
+    M("switch", "Bolt cover also in standing peek"):set(true); advance(2)
+    check(ov("fakeduck") == true, "V1.1.4: standing peek with the option: forced")
+    M("switch", "Bolt cover also in standing peek"):set(false); advance(2)
+    lp.m_flDuckAmount = 1; lp.weapon_class = "CAK47"; handlers.weapon_fire({ userid = 1 }); advance(2)
+    check(ov("fakeduck") == nil, "V1.1.4: a rifle: no bolt cover")
+    lp.weapon_class = "CWeaponSSG08"; handlers.weapon_fire({ userid = 1 }); advance(2)
+    check(ov("fakeduck") == true, "V1.1.4 setup: scout again, forced")
+    M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(false); advance(2)
+    check(ov("fakeduck") == nil, "V1.1.4: bolt cover can be turned off")
+    M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(true)
+    globals.curtime, lp.next_attack = nil, nil
+    M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); lp.m_flDuckAmount = 0
     reset_world()
 end
 M("switch", "Enable"):set(false)

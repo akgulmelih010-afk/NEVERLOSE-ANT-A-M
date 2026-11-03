@@ -358,3 +358,23 @@ Okuma:
 - **Kafa atışı yazı-tura (%48 correction), gövde %84 tutuyor.** fluxx 15 correction (statik / jitter 16–76°). DT çifti 35 kez Min. Damage'ı düşürdü ama Body Aim `Prefer` ile Neverlose kafa açıkken yine kafaya gitti (`hedef head ... MD 73`). → **V1.1.3:** DT çifti öldürüyorsa Body Aim **Force** (ilk mermi gövdeye, ikincisi DT ile); gövde görünmüyorsa 0.5 sn sonra Prefer (takılma koruması).
 - Faz 2 Peek'te 5 kafa yedi (round özetlerinde `2:1` ×4); öğrenme onu bırakacak (12 mermi eşiği).
 - `sikmadi`: "sebep bilinmiyor" 8, havada hit chance 5, DT bekleme 2.
+
+## Neverlose V1.1.3: dördüncü log (11 dk, 88:21–99:43; meow :=, DUVARCI) — eğik peek verisi
+
+| | |
+|---|---|
+| Öldürme / ölüm | 8 / 10 (5 headshot) |
+| Senin atış / isabet | 27 / 15; correction 10, spread 3 |
+| Kafaya giden atış | 11: 5 isabet, 6 correction |
+| Gövdeye giden (BA Force, DT çifti) | 4: 3 isabet, 1 correction |
+| Ölümler | **Peek (egik) 5**, Peek 2, Crouching 1, Air 1, Air crouch 1 |
+| Öldürmeler | Peek (egik) **5**, Crouching 1, Air crouch 1, Peek 1 |
+| Teleport | 6, 1 vurulma |
+
+Eğik peek: 5 ölüm, 5 öldürme; kafana gelen 3 mermi, kafanın yanından geçen 7 (AA'nın işi iyi). Ölümlerin kaynağı:
+- 3/5 kendi ıskandan 0.24–0.74 sn sonra `DT %0, DEF yok` (91:16.9, 96:30.2, 97:29.1 — öncesinde correction ıskası).
+- 1/5 teleporttan 2 sn sonra `DT %0` ile peek (95:58.6).
+- 1/5 `DEF acik`, atış yok (94:16.1): defensive'e rağmen kafa.
+Yani eğik peek'te de ölüm = ıska + 1.25 sn sürgü; eğik yürürken kaçamıyorsun. → **V1.1.4 "Bolt cover":** sniper'la ateş ettikten sonra silah hazır olana kadar (sürgü) biri seni görüyorsa fake duck zorlanır (kafa aşağıda, kayıt her pakette değişir); varsayılan sadece eğik peek'te, ayakta peek için ayrı seçenek (geri çekilmeyi yavaşlatır). Bıçaklı düşman yakınsa / havada yok.
+- V1.1.3'ün gövde Force'u: 4 atışta 3 isabet (önceki logda kafa %48 correction).
+- Peek grubunda faz 2 "en az vurulan" seçildi (12/25 kafa): hâlâ yüksek ama diğerleri daha kötü; öğrenme sürüyor.

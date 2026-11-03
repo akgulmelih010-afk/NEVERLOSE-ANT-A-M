@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.3"
+local VERSION = "1.1.4"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -677,6 +677,14 @@ menu.smart_near     = style.tip(grp.defensive:switch(style.title("satellite-dish
 -- (0 = kapali). GS loglarinda 254 "sikmadi"nin 75'i "sen havadasin" (hepsi hc 55); havadan giden atislar %67-89 tuttu.
 menu.air_hc         = style.tip(grp.defensive:slider(style.title("cloud-arrow-down", "In-air hit chance (snipers)"), 0, 100, 40, nil, "%"),
     "Havada scout / AWP / R8 ile Hit Chance gecici bu deger (0 = kapali); yere inince senin degerin geri gelir.")
+-- V1.1.4 (dorduncu Neverlose logu): sniper'la ates ettikten sonra surgu cekilirken (1.25 sn) iskaladiysan ciplaksin;
+-- egik peek'te olumlerin 3/5'i, ayakta peek'te 10/13'u o anda geldi. Silah hazir olana kadar biri seni goruyorsa
+-- fake duck zorlanir (bkz. update_fd_guard).
+menu.bolt_cover     = style.tip(grp.defensive:switch(style.title("person-booth", "Bolt cover: fake duck after a sniper shot (crouched peek)"), true),
+    "Egik peek'te scout / AWP / R8 ile ates ettikten sonra surgu cekilirken biri seni goruyorsa fake duck zorlanir " ..
+    "(kafa asagida, kayit her pakette degisir). Silah hazir olunca birakilir.")
+menu.bolt_cover_stand = style.tip(grp.defensive:switch(style.title("person-walking", "Bolt cover also in standing peek"), false),
+    "Ayakta peek'te de; fake duck geri cekilmeyi yavaslatir, o yuzden varsayilan kapali.")
 -- Havadayken bir dusman kafani gorunce DT ile isinlanilir (sarj dolunca tekrar).
 menu.air_teleport   = grp.defensive:switch(style.title("person-running", "Teleport in air when seen"), true)
 -- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
@@ -3569,11 +3577,48 @@ do
         return best, best_dist
     end
 
+    -- Surgu korumasi (V1.1.4, dorduncu Neverlose logu): egik peek'te olumlerin 3/5'i, ayakta peek'te 10/13'u kendi
+    -- iskandan 0.05-0.7 sn sonra "DT %0, DEF yok" iken geldi: scout'un surgusu 1.25 sn, iskaladigin an ciplaksin ve
+    -- egik yururken kacamazsin. Sniper'la ates ettikten sonra silah hazir olana kadar (surgu), biri seni goruyorsa ve
+    -- yerdeysen fake duck zorlanir: kafa asagida, kayit her pakette degisir. Varsayilan sadece egik peek'te; ayakta
+    -- peek'te secenekle (geri cekilmeyi yavaslatir). Bicakli dusman yakinsa ve havada yok.
+    local cover = { logged = -1000 }
+
+    -- holding: koruma zaten acik; fake duck durumu "Fake duck" olur ve duck miktari her tick degisir, o yuzden
+    -- durum / egilme sarti sadece baslarken bakilir.
+    local function cover_wanted(lp, holding)
+        if not menu.bolt_cover:get() then
+            return false
+        end
+        if not holding then
+            if current.state ~= "Peek" then
+                return false
+            end
+            if not exposure.ducked and not menu.bolt_cover_stand:get() then
+                return false
+            end
+        end
+        local class = weapon_class(lp)
+        if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then
+            return false
+        end
+        local since = globals.realtime - own.last_shot
+        if since < 0 or since > 2 then
+            return false
+        end
+        return seen_by_enemy() and knife_enemy(lp, KNIFE_NEAR) == nil
+    end
+
     update_fd_guard = function(lp)
         local pointless = fd_pointless(lp)
         if overridden.fakeduck ~= nil then
             -- Biz biraktik: neden bitince (durdun / indin, bicak uzaklasti) tus yine senin.
-            if fd.why == "move" then
+            if fd.why == "cover" then
+                if not cover_wanted(lp, true) then
+                    override("fakeduck", nil)
+                    fd.why = nil
+                end
+            elseif fd.why == "move" then
                 if not pointless then
                     override("fakeduck", nil)
                     fd.why = nil
@@ -3586,6 +3631,18 @@ do
         end
         fd.why = nil
         if not get("fakeduck") then
+            if cover_wanted(lp) then
+                override("fakeduck", true)
+                if overridden.fakeduck ~= nil then
+                    fd.why = "cover"
+                    local now = globals.realtime
+                    if menu.hit_log:get() and (now < cover.logged or now - cover.logged > 2) then
+                        cover.logged = now
+                        print(("[%s] surgu korumasi: fake duck (%s, atistan %.2f sn sonra, silah hazir degil)"):format(
+                            SCRIPT, state_label(), now - own.last_shot))
+                    end
+                end
+            end
             return
         end
         if pointless then

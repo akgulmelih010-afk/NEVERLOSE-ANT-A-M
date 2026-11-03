@@ -32,7 +32,9 @@ GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi (bkz. "G
 
 **V1.1.3** (üçüncü Neverlose logu, 29 dk, 78 atış): kafaya giden atışların 15/31'i correction ıskası, gövdeye gidenlerin 7/45'i; Peek'teki 13 kafa mermisinin 10'u kendi ıskandan sonra `DT %0` iken geldi. DT çifti öldürüyorsa artık Body Aim **Force** (ilk mermi gövdeye, ikincisi DT ile; gövde görünmüyorsa 0.5 sn sonra Prefer). Eğik peek (`Peek (egik)`) bu logda hiç yok; ölümlerin 15'i ayakta Peek.
 
-Test: `tests/run_tests.sh` 7 mod + strict, **1011 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **723 mutasyonun hepsi yakalanıyor** (V1.1 için 21 yeni mutasyon, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
+**V1.1.4** (dördüncü Neverlose logu, 11 dk; ilk eğik peek verisi): eğik peek'te 5 ölüm / 5 öldürme; ölümlerin 3'ü kendi ıskandan 0.24–0.74 sn sonra `DT %0` iken, biri teleport sonrası `DT %0` ile, biri `DEF acik` iken. Eğik yürürken kaçamadığın için → **Bolt cover** (Exploits → Defensive, açık): scout / AWP / R8 ile ateş ettikten sonra sürgü çekilirken (silah hazır olana kadar) biri seni görüyorsa **fake duck zorlanır** (kafa aşağıda, kayıt her pakette değişir), silah hazır olunca bırakılır; bıçaklı düşman yakınsa / havada yok. Ayakta peek için ayrı seçenek (**Bolt cover also in standing peek**, kapalı: fake duck geri çekilmeyi yavaşlatır). Log: `surgu korumasi: fake duck (Peek (egik), atistan 0.12 sn sonra, silah hazir degil)`.
+
+Test: `tests/run_tests.sh` 7 mod + strict, **1021 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **729 mutasyonun hepsi yakalanıyor** (V1.1 için 27 yeni mutasyon, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
 
 ## V1.0'da ne değişti
 
