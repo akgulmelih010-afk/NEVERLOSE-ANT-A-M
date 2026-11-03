@@ -1,4 +1,4 @@
-# Nykle.win lua V1.0: devir notu
+# Nykle.win lua V1.1: devir notu
 
 Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntılı kullanıcı dokümanı ve her özelliğin "neden"i `README.md`'de. Bu not, kodun haritası, özelliklerin tam listesi, test düzeni ve açık işler.
 
@@ -7,10 +7,10 @@ Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntıl�
 | | |
 |---|---|
 | Dosya | `Nykle.win.lua`: tek dosya, Neverlose (CS:GO) Lua API'si |
-| Sürüm | V1.0 (eski adı ANT-A-M v2–v5.6) |
-| Dal | `claude/csgo-hvh-anti-aim-kkh1vh` (tek dal, PR yok) |
-| Oyun içi test | **Yapılmadı.** Bütün doğrulama `tests/` altındaki sahte (mock) API ile. Davranış kullanıcının attığı konsol loglarıyla ayarlandı. |
-| Testler | `tests/run_tests.sh`: 7 mod + strict, 939 kontrol, hepsi geçiyor. 703 mutasyonun hepsi yakalanıyor. |
+| Sürüm | V1.1 (eski adı ANT-A-M v2–v5.6; V1.1 = GameSense V1.0.22–1.0.33'ün Neverlose'a taşınması) |
+| Dal | `claude/loving-fermi-99v29v` (PR #2, taban `claude/csgo-hvh-anti-aim-kkh1vh`) |
+| Oyun içi test | **Yapılmadı.** Bütün doğrulama `tests/` altındaki sahte (mock) API ile. V1.0 davranışı kullanıcının attığı Neverlose konsol loglarıyla, V1.1 değişiklikleri GameSense sürümünün on oyun loguyla ayarlandı; V1.1 için henüz Neverlose logu yok. |
+| Testler | `tests/run_tests.sh`: 7 mod + strict, 999 kontrol, hepsi geçiyor (ana bölümde 195 local). `tests/mutate.py` 703 mutasyon V1.0'da yakalanıyordu; V1.1'den sonra yeniden çalıştırılmadı (~1 saat), değişen kod için desenler `SKIP` verebilir, güncellenmeli. |
 | Kalıcı hafıza | Neverlose `db` anahtarı `ant_a_m_memory` (eski adla; v5.x verisi aynen okunur) |
 
 ## Özelliklerin tam listesi
@@ -81,6 +81,24 @@ Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntıl�
   - `AA FAZ` ve `SNIPER`,
   - `AI PEEK`.
 
+### V1.1: GameSense sürümünden taşınanlar (loglarla kanıtlanmış; ayrıntı README → "V1.1'de ne değişti")
+- **Smart defensive** 1800 birim içinde düşman varken de zorlar (`menu.smart_near`); duran durumların varsayılanı Smart. Harness'ta eski bölümler bu anahtarı kapatır (düşman 500 birimde), kendi bölümü test eder.
+- **Safe recharge** 0.5 sn, Peek'te / yürürken yok (`recharge.exposed_anyway`).
+- **Anti-peek** silah hazırken de (`anti_window(now)`, sadece "On peek" modunda; Smart zaten görülünce zorlar).
+- **Anti-brute fazları 6–8** (`BRUTE_PHASES`, `update_flip` asimetri) ve **kötü faz atlama** (`brute.known_bad / skip_bad`, Stats'ta `x`).
+- **Sniper öğrenici** DT'den başlar, 24 / 16 / 0.15 eşikleri; varsayılan `Same as state`.
+- **Kayıt gecikmeli ileri bakış** (`exposure.record_lag`, `enemy_eye_ahead`).
+- **DT çifti** (`resolver.pair`, `DT_PAIR`, `menu.dt_pair`): Min. Damage gövde − 1; senin 100 üstü MD'n korunur.
+- **Gerçek kayıt bekleme** (`resolver.wait`, `resolver.wait_hold`, `menu.wait_real`): global (Neverlose'da düşman başına whitelist yok), Min. Damage 130 ile. Harness'ta eski bölümler kapatır.
+- **Havada hit chance** (`resolver.air_hitchance`, `refs.hit_chance` = Ragebot → Selection → Hit Chance; yol yoksa atlanır).
+- **Teleport sonucu** (`teleport.record / hurt`, `map_off`): haritada son 3'ün 2'si vurulduysa kapalı.
+- **Sol el** (`lefthand`, render'da): `cvar.cl_righthand:int()` → `:get_int/set_int` → `utils.console_exec`; hiçbiri yoksa bir kez konsola yazar.
+- **Log kaydı** (`nlog`, `local print` sarmalayıcı): hafıza + `files.write("nykle_log.txt")`; Home → Console düğmeleri.
+- **"Sıkmadı" teşhisi** (`clean_shot.damages / diagnose`): 0.44 sn'de bir, sebepler tek satırda.
+- `attacker_info`: `gormedi (iz: su an goruyor / kapali)`.
+- **Taşınamayan:** GameSense'in kendi resolver'ı (Force body yaw kolları) — Neverlose API'sinde düşman başına açı yok.
+- **Doğrulanamayan API varsayımları** (hepsi pcall ile güvenli): `cvar.*:int()`, `utils.console_exec`, `files.write`, `Ragebot > Selection > Hit Chance` menü yolu, Min. Damage 130'un kabul edilmesi.
+
 ## Kodun haritası
 
 Her şey tek dosyada, yukarıdan aşağı:
@@ -98,7 +116,7 @@ Her şey tek dosyada, yukarıdan aşağı:
 
 **createmove sırası:** öneri kontrolü → canlı mı → tickbase → FD guard → düşman takibi → görüş → durum → silah → bekleyen ıskalar → anti-brute fazı → resolver → body aim (MD, hitbox) → AI peek → ladder / legit / spin dalları → AA durumu → exploit → flip → açılar → temiz atış → defensive → teleport → recharge → istatistik.
 
-**Sınır:** ana bölümde en fazla 200 local olabilir (şu an 191). Yeni durum yeni local yerine mevcut tablolara alan olarak eklenmeli (`current`, `resolver`, `exposure`, `aim_stats`...).
+**Sınır:** ana bölümde en fazla 200 local olabilir (şu an 195). Yeni durum yeni local yerine mevcut tablolara alan olarak eklenmeli (`current`, `resolver`, `exposure`, `aim_stats`...). Aynı sınır `tests/harness.lua` için de geçerli: V1.1 bölümü local yerine `v` çalışma tablosunu kullanır.
 
 ## Testler
 
