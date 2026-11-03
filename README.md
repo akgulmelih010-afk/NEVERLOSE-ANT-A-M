@@ -30,7 +30,9 @@ GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi (bkz. "G
 
 **V1.1.2** (ikinci Neverlose logu, 13 dk): kafa oranı %77 → %19 (faz öğrenmesi oturdu), teleport haritada kapandı (4 vurulma). `sikmadi` penceresi 0.63 sn, 20 hasar altı ve sadece "silah hazır değil" satırları yazılmaz; `oldurdun: X | durum | sen silah [| headshot]` ve `oldun: ...` satırları (K/D log analizi için). **Eğik peek** (istek: "eğilerek peek atınca çok ölüyorum") loglarda ve Stats → `KD`'de `Peek (egik)` olarak ayrı sayılır; ayarı sonraki loglara göre gelecek (bkz. `DEVIR_NOTU.md` → Açık işler).
 
-Test: `tests/run_tests.sh` 7 mod + strict, **1009 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **723 mutasyonun hepsi yakalanıyor** (V1.1 için 21 yeni mutasyon, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
+**V1.1.3** (üçüncü Neverlose logu, 29 dk, 78 atış): kafaya giden atışların 15/31'i correction ıskası, gövdeye gidenlerin 7/45'i; Peek'teki 13 kafa mermisinin 10'u kendi ıskandan sonra `DT %0` iken geldi. DT çifti öldürüyorsa artık Body Aim **Force** (ilk mermi gövdeye, ikincisi DT ile; gövde görünmüyorsa 0.5 sn sonra Prefer). Eğik peek (`Peek (egik)`) bu logda hiç yok; ölümlerin 15'i ayakta Peek.
+
+Test: `tests/run_tests.sh` 7 mod + strict, **1011 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **723 mutasyonun hepsi yakalanıyor** (V1.1 için 21 yeni mutasyon, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
 
 ## V1.0'da ne değişti
 

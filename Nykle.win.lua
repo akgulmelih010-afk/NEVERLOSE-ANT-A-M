@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -2738,6 +2738,11 @@ do
             if not lethal and menu.dt_pair:get() and dt_ready() and type(health) == "number" and health > 0
                 and type(chest) == "number" and chest >= DT_PAIR.min and health <= 2 * chest then
                 lethal, resolver.pair = true, chest
+                -- V1.1.3 (ucuncu Neverlose logu, 78 atis): kafaya giden atislarin 15/31'i correction iskasi, govdeye
+                -- gidenlerin 7/45'i. "Prefer" ile Neverlose kafa acikken yine kafaya gidiyordu (MD govde - 1 olsa da);
+                -- cift olduruyorsa Body Aim "Force": ilk mermi govdeye, ikincisi DT ile. Takilma korumasi ayni
+                -- (govde gorunmuyorsa 0.5 sn sonra Prefer).
+                wanted, stalled = body_stall(target), true
             end
             -- Aimbot'un az once (AIM_TARGET_HOLD sn) ates ettigi hedefi govde olduruyorsa "Force" (V1.0):
             -- bu hedefle zaten catisiyorsun. Loglarda gogus -73 (100 -> 27) sonrasi "Prefer"de Neverlose

@@ -338,3 +338,23 @@ Okuma:
 - **Teleport haritada kapandı:** 4 vurulmanın 2'si ışınlandıktan 0.25–0.36 sn sonra kafadan. Kural tam bunun için var.
 - **`sikmadi` "sebep bilinmiyor" ×4:** üçünde atış 0.1–0.2 sn sonra geldi, yani aimbot'un normal gecikmesi. → **V1.1.2:** pencere 0.44 → 0.63 sn; 20 hasar altı "vurulabilir" (havada 3–9 hasar, 6 satır) ve tek sebebi "silah hazır değil" olan satırlar yazılmaz.
 - Neverlose logunda öldürme satırı yoktu (K/D sadece Stats panelinde). → **V1.1.2:** `oldurdun: X | durum | sen silah [| headshot]` ve `oldun: X | durum | sen silah`.
+
+## Neverlose V1.1.2: üçüncü log (29 dk, 52:26–81:42; DUVARCI, fluxx, aimlarp)
+
+| | |
+|---|---|
+| Öldürme / ölüm | 27 / 30 |
+| Senin atış / isabet | 78 / 55 (%71); correction **22**, prediction error 1 |
+| Kafaya giden atış | 32: 16 isabet, **15 correction** (%48) |
+| Gövdeye giden atış | 45: 38 isabet, 7 correction (%16) |
+| Sana gelen isabet / kafa | 52 / 20; Peek 24 isabet / 13 kafa |
+| Ölümler | Peek **15**, Standing 3, Air 3, Moving 2, Freestanding 2, Fake duck 2, Crouching 2, Crouch move 1 |
+| `Peek (egik)` | **0** (eğilerek yürüyen peek hiç olmadı) |
+| Teleport | 9, 3 vurulma → 58:39'da haritada kapandı |
+| DT çifti | 35 |
+
+Okuma:
+- **Peek ölümlerinin kaynağı kendi atışın:** 13 Peek kafa mermisinin 10'u kendi atışından 0.05–0.6 sn sonra, `DT %0, DEF yok` iken geldi. Scout'un sürgüsü 1.25 sn; ıska ettiğin an çıplaksın. Yani Peek'te ölüm = ıska. Ayakta peek; eğik peek (`Peek (egik)`) bu logda hiç yok, Crouching 2 ve Fake duck 2 ölüm var.
+- **Kafa atışı yazı-tura (%48 correction), gövde %84 tutuyor.** fluxx 15 correction (statik / jitter 16–76°). DT çifti 35 kez Min. Damage'ı düşürdü ama Body Aim `Prefer` ile Neverlose kafa açıkken yine kafaya gitti (`hedef head ... MD 73`). → **V1.1.3:** DT çifti öldürüyorsa Body Aim **Force** (ilk mermi gövdeye, ikincisi DT ile); gövde görünmüyorsa 0.5 sn sonra Prefer (takılma koruması).
+- Faz 2 Peek'te 5 kafa yedi (round özetlerinde `2:1` ×4); öğrenme onu bırakacak (12 mermi eşiği).
+- `sikmadi`: "sebep bilinmiyor" 8, havada hit chance 5, DT bekleme 2.

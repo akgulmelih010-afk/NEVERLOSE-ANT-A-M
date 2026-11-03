@@ -10,7 +10,7 @@ Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntıl�
 | Sürüm | V1.1 (eski adı ANT-A-M v2–v5.6; V1.1 = GameSense V1.0.22–1.0.33'ün Neverlose'a taşınması) |
 | Dal | `claude/loving-fermi-99v29v` (PR #2, taban `claude/csgo-hvh-anti-aim-kkh1vh`) |
 | Oyun içi test | **Yapılmadı.** Bütün doğrulama `tests/` altındaki sahte (mock) API ile. V1.0 davranışı kullanıcının attığı Neverlose konsol loglarıyla, V1.1 değişiklikleri GameSense sürümünün on oyun loguyla ayarlandı; V1.1 için henüz Neverlose logu yok. |
-| Testler | `tests/run_tests.sh`: 7 mod + strict, 1009 kontrol, hepsi geçiyor (ana bölümde 196 local). `tests/mutate.py`: 723 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
+| Testler | `tests/run_tests.sh`: 7 mod + strict, 1011 kontrol, hepsi geçiyor (ana bölümde 196 local). `tests/mutate.py`: 723 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
 | Kalıcı hafıza | Neverlose `db` anahtarı `ant_a_m_memory` (eski adla; v5.x verisi aynen okunur) |
 
 ## Özelliklerin tam listesi
@@ -131,7 +131,7 @@ Her şey tek dosyada, yukarıdan aşağı:
 
 ## Açık işler ve bekleyen kararlar
 
-- **Eğik peek ölümleri (kullanıcı isteği, V1.1.2):** "eğilerek peek atınca çok ölüyorum, ona da bir ayar çek". Karar sonraki Neverlose loglarıyla verilecek. Hazırlık yapıldı: Peek'te eğilmişken loglar ve KD paneli `Peek (egik)` etiketiyle ayrı sayar (`state_label()`; `vuruldun` / `iska` / `oldurdun` / `oldun` satırları, round özeti, Stats → `KD`). Bakılacaklar: eğik peek'teki ölümlerde faz, `DT %` / `DEF`, saldıranın `gordu` süresi, kafa mı gövde mi. Aday ayarlar: eğik peek'e ayrı AA durumu (Builder'da "Crouch peek": kendi yaw / desync / exploit), eğilirken Peek'te defensive zorlama / fake duck önerisi, ya da eğik peek'te Smart yerine Always on. Hangisi olacağı loga göre.
+- **Eğik peek ölümleri (kullanıcı isteği, V1.1.2):** "eğilerek peek atınca çok ölüyorum, ona da bir ayar çek". Karar sonraki Neverlose loglarıyla verilecek. Üçüncü logda (29 dk) `Peek (egik)` hiç çıkmadı; Peek ölümlerinin 10/13'ü kendi ıskasından sonra `DT %0` iken geldi → V1.1.3 DT çiftinde Body Aim Force (kafa %48 correction, gövde %16). Eğik peek verisi hâlâ bekleniyor; kullanıcı "eğilerek" ile fake duck'ı ya da köşede eğilip durmayı (Crouching) kastediyor olabilir, sonraki logda `Crouching` / `Fake duck` ölümleri de ayrıca okunmalı. Hazırlık yapıldı: Peek'te eğilmişken loglar ve KD paneli `Peek (egik)` etiketiyle ayrı sayar (`state_label()`; `vuruldun` / `iska` / `oldurdun` / `oldun` satırları, round özeti, Stats → `KD`). Bakılacaklar: eğik peek'teki ölümlerde faz, `DT %` / `DEF`, saldıranın `gordu` süresi, kafa mı gövde mi. Aday ayarlar: eğik peek'e ayrı AA durumu (Builder'da "Crouch peek": kendi yaw / desync / exploit), eğilirken Peek'te defensive zorlama / fake duck önerisi, ya da eğik peek'te Smart yerine Always on. Hangisi olacağı loga göre.
 
 - **Peek AA:** loglarda peek'te en iyi faz bile kafa mermilerinin yarısını yiyordu (16/33). Faz öğrenmesi yeni düzeltildi. Kararı Stats → `AA FAZ` / `PEEK` verisine göre ver.
 - **Fake duck:** kullanıcı FD'yi bilerek kullanıyor (bunny hop + ani peek). FD'deki kafa ölümleri kendi atışından hemen sonra geliyordu. Önce Stats → `KD` ile ölç.

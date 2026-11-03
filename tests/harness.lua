@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.2") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.3") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.2").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.3").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -2623,7 +2623,8 @@ check(ov("min_damage") == nil, "rifles are left alone")
 lp.weapon_class = "CWeaponSCAR20"; tick(0)
 check(ov("min_damage") == nil, "autos keep body shots (two of them kill with DT)")
 refs[SHORT.min_damage].spec.value = 110; tick(0); lp.weapon_class = "CWeaponSSG08"; tick(0)
-check(ov("min_damage") == nil and ov("body_aim") == "Prefer", "your own higher minimum damage is never lowered")
+-- V1.1.3: the DT pair now asks for Force (body); the minimum damage is still yours.
+check(ov("min_damage") == nil and (ov("body_aim") == "Prefer" or ov("body_aim") == "Force"), "your own higher minimum damage is never lowered")
 refs[SHORT.min_damage].spec.value = 30; lp.weapon_class = "CAK47"; tick(0); lp.weapon_class = "CWeaponAWP"; tick(0)
 check(ov("min_damage") == 101 and ov("body_aim") == "Prefer", "AWP: the same")
 lp.weapon_class, lp.weapon_index = "CDEagle", 64; tick(0)
@@ -4046,12 +4047,16 @@ do
     lp.weapon_class = "CWeaponSSG08"; aa.charge = 1; enemy.m_iHealth, enemy.m_ArmorValue = 100, 0
     M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); advance(3)
     v.md = ov("min_damage")
-    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Prefer"
+    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Force"
           and printed[#printed]:match("^%[Nykle%.win%] enemy5: DT cifti olduruyor %(govde %d+ x 2 >= can 100%), Min%. Damage gecici "
           .. tostring(v.md) .. "$") ~= nil,
-          "V1.1: DT pair: scout body x 2 kills a 100 HP enemy, Min. Damage lowered to body - 1 (" .. tostring(v.md) .. ")")
+          "V1.1.3: DT pair: scout body x 2 kills a 100 HP enemy, Min. Damage lowered to body - 1 and Body Aim Force (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
     draw()
     check(not contains(texts, "HEAD"), "V1.1: DT pair: no HEAD indicator (the body shot is lethal with the pair)")
+    advance(40)
+    check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.3: seen for 0.5 s without a shot: Force relaxes to Prefer, the pair Min. Damage stays")
+    handlers.aim_fire({ id = 901, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 901, target = 5, hitgroup = 3, damage = 80 }); advance(2)
+    check(ov("body_aim") == "Force", "V1.1.3: a shot at the target: Force again")
     aa.charge = 0.5; advance(2)
     check(ov("min_damage") == 101, "V1.1: DT pair needs a charged DT: back to HP + 1")
     aa.charge = 1; M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(false); advance(2)
