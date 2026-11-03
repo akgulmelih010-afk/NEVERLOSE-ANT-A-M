@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.6"
+local VERSION = "1.1.7"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -727,8 +727,13 @@ menu.fake_body      = style.tip(grp.resolver:switch(style.title("user-secret", "
     "eder (en fazla 12 tick). Govde oldurmuyorsa kafaya ates edilir.")
 -- V1.1 (GameSense V1.0.26): scout DT iki mermi atar; govde x 2 >= can ise cift oldurucu, Min. Damage gecici govde - 1.
 -- GS loglarinda en buyuk olum kaynagi govde 70-87 vurulabilirken kafa beklemekti (12 olumun 11'i).
+-- V1.1.7: kullanici dogruladi, Neverlose'da DT ikinci mermiyi sadece deagle'da atar; scout / AWP / R8'de "cift" diye bir
+-- sey yok, ikinci mermi surguden sonra (1.25 sn) gelir. Headshot priority acikken kural sadece hedefin kaydi gecikmeliyken
+-- (kafa tutmaz) calisir; kapaliyken eski davranis (govde ilk, ikinci atis surguden sonra).
 menu.dt_pair        = style.tip(grp.resolver:switch(style.title("clone", "Snipers: DT pair kills (body x 2 >= HP)"), true),
-    "DT dolu ve iki govde mermisi olduruyorsa (govde >= 60) Min. Damage gecici govde - 1: ilk mermi govdeye, ikincisi DT ile.")
+    "DT dolu ve iki govde mermisi olduruyorsa (govde >= 60) Min. Damage gecici govde - 1: ilk mermi govdeye. Scout / AWP'de " ..
+    "DT ikinci mermiyi atmaz (ikincisi surguden sonra); Headshot priority acikken sadece hedefin kaydi 8+ tick gecikmeliyken " ..
+    "(kafa tutmaz), kapaliyken her zaman.")
 -- V1.1 (GameSense V1.0.22): dusmanin kaydi sahteyken (defensive) ve seni goren yokken en fazla 14 tick ates
 -- bekletilir, gercek kayit geldikten 3 tick sonra serbest. GS logunda sahte kayda atis %57, gercek kayda %75 tuttu.
 menu.wait_real      = style.tip(grp.resolver:switch(style.title("hourglass-half", "Wait for real record (unseen)"), true),
@@ -2836,24 +2841,17 @@ do
                 and type(chest) == "number" and chest >= DT_PAIR.min and health <= 2 * chest
             -- V1.1.6 (besinci Neverlose logu, 54 atis): scout'ta DT ikinci mermiyi atmiyor (130 atista 1 cift), "cift"
             -- govde -91 ile dusman 9 canla kaliyor ve 1.25 sn surguyu bekliyorsun: 19 olumun 11'i atistan sonraki
-            -- surgude. Headshot priority acikken duelloda (Peek'tesin ya da biri seni goruyor) cift yok, kafa (kafa
-            -- %62 tuttu, oldururse surgu yok); gorulmuyorken cift serbest (ikinci atisa vakit var). Dusmanin kaydi
-            -- gecikmeliyse (lag_ticks+) kafa tutmuyor (5/7 iska), yine cift.
-            -- Duello = Peek'tesin ya da HEDEFIN KENDISI seni goruyor (baska bir dusmanin gormesi degil: gormeyen hedefe
-            -- govde + surgu sonrasi ikinci mermi guvenli).
-            local duel = false
-            if pair_ok and menu.head_first:get() and exposure.record_age(target) < DT_PAIR.lag_ticks then
-                local s = exposure.sight[index_of(target)]
-                local tick_now = globals.tickcount
-                duel = current.state == "Peek" or (s ~= nil and tick_now >= s.last and tick_now - s.last <= SIGHT.recent)
-            end
-            if duel then
+            -- surgude. V1.1.7 (kullanici dogruladi: DT ikinci mermiyi sadece deagle'da atar): Headshot priority acikken
+            -- cift sadece hedefin kaydi gecikmeliyken (lag_ticks+: kafa 5/7 iska, govde 0/6); yoksa kafa (taze kayitta
+            -- %79 tuttu, oldururse surgu yok). Kapaliyken eski davranis.
+            local head_instead = pair_ok and menu.head_first:get() and exposure.record_age(target) < DT_PAIR.lag_ticks
+            if head_instead then
                 pair_ok = false
                 local now_rt = globals.realtime
                 if menu.resolver_log:get() and (DT_PAIR.duel_who ~= target or now_rt < DT_PAIR.duel_logged
                     or now_rt - DT_PAIR.duel_logged > 5) then
                     DT_PAIR.duel_who, DT_PAIR.duel_logged = target, now_rt
-                    print(("[%s] %s: duello, DT cifti yerine kafa (govde %d x 2 >= can %d ama ikinci mermi surguden sonra)"):format(
+                    print(("[%s] %s: DT cifti yerine kafa (govde %d x 2 >= can %d ama scout'ta ikinci mermi surguden sonra)"):format(
                         SCRIPT, player_name(target), floor(chest + 0.5), health))
                 end
             end
