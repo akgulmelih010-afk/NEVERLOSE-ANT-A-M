@@ -734,6 +734,18 @@ M = [
  ('v114 cover ignores bolt', 'if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then', 'if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 then'),
  ('v114 cover rifles', 'if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then', 'if bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then'),
  ('v114 cover switch ignored', '        if not menu.bolt_cover:get() then\n            return false\n        end\n', ''),
+ ('v115 head first ignored', '                if not menu.head_first:get() then\n                    wanted, stalled = body_stall(target), true\n                end\n', '                wanted, stalled = body_stall(target), true\n'),
+ ('v115 pair never forces', '                if not menu.head_first:get() then\n                    wanted, stalled = body_stall(target), true\n                end\n', ''),
+ ('v115 aim target pair forces', 'if lethal and (resolver.pair == nil or not menu.head_first:get()) and target == resolver.aim_target', 'if lethal and target == resolver.aim_target'),
+ ('v115 duel cap ignored', 'local cap = (duel or sees) and (menu.head_first:get() and wait.duel_max or 0) or wait.max', 'local cap = wait.max'),
+ ('v115 duel no wait', 'local cap = (duel or sees) and (menu.head_first:get() and wait.duel_max or 0) or wait.max', 'local cap = (duel or sees) and 0 or wait.max'),
+ ('v115 duel waits when off', 'local cap = (duel or sees) and (menu.head_first:get() and wait.duel_max or 0) or wait.max', 'local cap = (duel or sees) and wait.duel_max or wait.max'),
+ ('v115 fresh never', 'local hold = not f.hittable and f.last_ok ~= nil and now > f.last_ok and now - f.last_ok <= fresh.window', 'local hold = false'),
+ ('v115 fresh no window', 'local hold = not f.hittable and f.last_ok ~= nil and now > f.last_ok and now - f.last_ok <= fresh.window', 'local hold = not f.hittable and f.last_ok ~= nil'),
+ ('v115 fresh never seen too', 'local hold = not f.hittable and f.last_ok ~= nil and now > f.last_ok and now - f.last_ok <= fresh.window', 'local hold = not f.hittable and (f.last_ok == nil or now - f.last_ok <= fresh.window)'),
+ ('v115 fresh switch ignored', 'or not menu.resolver:get() or not menu.fresh_only:get() then', 'or not menu.resolver:get() then'),
+ ('v115 fresh rifles too', 'if index == nil or not sniper or trace_bullet == nil', 'if index == nil or trace_bullet == nil'),
+ ('v115 fresh stale trace', '        if now < f.tick or now - f.tick >= fresh.every then\n', '        if f.tick < 0 then\n'),
 ]
 bad = 0
 ONLY = set(sys.argv[2:])

@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.4") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.5") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.4").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.5").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -4047,16 +4047,29 @@ do
     lp.weapon_class = "CWeaponSSG08"; aa.charge = 1; enemy.m_iHealth, enemy.m_ArmorValue = 100, 0
     M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); advance(3)
     v.md = ov("min_damage")
-    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Force"
+    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Prefer"
           and printed[#printed]:match("^%[Nykle%.win%] enemy5: DT cifti olduruyor %(govde %d+ x 2 >= can 100%), Min%. Damage gecici "
           .. tostring(v.md) .. "$") ~= nil,
-          "V1.1.3: DT pair: scout body x 2 kills a 100 HP enemy, Min. Damage lowered to body - 1 and Body Aim Force (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
+          "V1.1.5: DT pair with Headshot priority: Min. Damage lowered to body - 1, Body Aim stays Prefer (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
     draw()
     check(not contains(texts, "HEAD"), "V1.1: DT pair: no HEAD indicator (the body shot is lethal with the pair)")
+    M("switch", "Headshot priority"):set(false); advance(2)
+    check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.3: Headshot priority off, no shot yet: the DT pair forces the body")
+    M("switch", "Headshot priority"):set(true); advance(2)
+    check(ov("body_aim") == "Prefer", "V1.1.5: Headshot priority on again: Prefer")
+    handlers.aim_fire({ id = 900, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 900, target = 5, hitgroup = 3, damage = 80 }); advance(2)
+    check(ov("body_aim") == "Prefer", "V1.1.5: Headshot priority: a shot at the target with the pair does not force the body either")
+    M("switch", "Headshot priority"):set(false); advance(2)
+    check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.3: Headshot priority off: DT pair forces the body, the pair Min. Damage stays")
     advance(40)
     check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.3: seen for 0.5 s without a shot: Force relaxes to Prefer, the pair Min. Damage stays")
     handlers.aim_fire({ id = 901, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 901, target = 5, hitgroup = 3, damage = 80 }); advance(2)
     check(ov("body_aim") == "Force", "V1.1.3: a shot at the target: Force again")
+    M("switch", "Headshot priority"):set(true); advance(2)
+    check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.5: Headshot priority back on: Prefer at once, the pair Min. Damage stays")
+    enemy.m_iHealth = 60; advance(2)
+    check(ov("body_aim") == "Force", "V1.1.5: one body bullet kills 60 HP after a shot at the target: still forced with Headshot priority")
+    enemy.m_iHealth = 100; advance(2)
     aa.charge = 0.5; advance(2)
     check(ov("min_damage") == 101, "V1.1: DT pair needs a charged DT: back to HP + 1")
     aa.charge = 1; M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(false); advance(2)
@@ -4074,6 +4087,42 @@ do
     check(ov("min_damage") == 101, "V1.1: body bullet under 60: no pair rule, head only (MD " .. tostring(ov("min_damage")) .. ")")
     enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = function() return 30 end
     enemy.m_iHealth, enemy.m_ArmorValue = nil, nil
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); lp.weapon_class = "CAK47"
+
+    -- Fresh record only (V1.1.5): the target's current record cannot be hit (it was a moment ago): fire held so the
+    -- aimbot does not shoot an old (backtrack) record; free when the record is hittable again or the window passes.
+    reset_world(); forget()
+    world.threat = enemy; world.enemies = { enemy }; lp.weapon_class = "CWeaponSSG08"; aa.charge = 1
+    enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
+    lp.get_eye_position = function() return vector(0, 0, 64) end
+    v.seen = function(_, from) if from == enemy then return 30 end return 0 end -- the enemy sees you, your bullets pass nothing
+    world.trace = function() return 30 end; advance(4)
+    check(ov("min_damage") == 101, "V1.1.5 setup: scout, the target hittable: head only (MD 101)")
+    world.trace = v.seen; advance(2)
+    check(ov("min_damage") == 130, "V1.1.5: the current record cannot be hit any more: fire held (MD 130), no backtrack shot")
+    advance(20)
+    check(ov("min_damage") == 130, "V1.1.5: still held inside the 24-tick backtrack window")
+    advance(4)
+    check(ov("min_damage") == 101 and printed[#printed]:find("su anki kaydi vurulamiyordu: ", 1, true) ~= nil
+          and printed[#printed]:find("tick taze kayit beklendi, eski kayitlar gecti (backtrack yok)", 1, true) ~= nil,
+          "V1.1.5: the window passed: head only again, logged (" .. tostring(printed[#printed]) .. ")")
+    advance(10)
+    check(ov("min_damage") == 101, "V1.1.5: a target that stays unhittable is not held again (nothing to backtrack to)")
+    world.trace = function() return 30 end; advance(2); world.trace = v.seen; advance(3)
+    check(ov("min_damage") == 130, "V1.1.5: hittable again then gone: held again")
+    world.trace = function() return 30 end; advance(2)
+    check(ov("min_damage") == 101 and printed[#printed]:find("taze kayit beklendi, kayit taze, ates serbest", 1, true) ~= nil,
+          "V1.1.5: the record is hittable again: free at once, logged (" .. tostring(printed[#printed]) .. ")")
+    world.trace = v.seen; advance(3); M("switch", "Snipers: fresh record only"):set(false); advance(2)
+    check(ov("min_damage") == 101, "V1.1.5: fresh record only can be turned off")
+    M("switch", "Snipers: fresh record only"):set(true); world.trace = function() return 30 end; advance(2)
+    lp.weapon_class = "CAK47"; advance(2); world.trace = v.seen; advance(3)
+    check(ov("min_damage") == nil, "V1.1.5: a rifle: no fresh record hold")
+    lp.weapon_class = "CWeaponSSG08"; world.trace = function() return 30 end; advance(2)
+    M("switch", "Resolver log"):set(false); world.trace = v.seen; v.lines = #printed; advance(30)
+    check(ov("min_damage") == 101 and #printed == v.lines, "V1.1.5: Resolver log off: the hold still works, nothing printed")
+    M("switch", "Resolver log"):set(true)
+    enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = NO_TRACE
     M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); lp.weapon_class = "CAK47"
 
     -- Wait for real record: the aim target's record is fake (defensive) and nobody sees you: fire held up to 14 ticks.
@@ -4100,8 +4149,22 @@ do
           "V1.1: real record settled: fire free, logged")
     world.trace = function() return 30 end; advance(40)
     enemy.m_flSimulationTime = 69.7; tick(0)
-    check(ov("min_damage") == nil, "V1.1: the enemy sees you: no waiting (duel)")
-    world.trace = NO_TRACE; advance(40); enemy.m_flSimulationTime = 70.6; advance(4)
+    check(ov("min_damage") == 130, "V1.1.5: the enemy sees you, Headshot priority: fake record still held (short wait)")
+    advance(5)
+    check(ov("min_damage") == 130, "V1.1.5: still held at the 6th tick")
+    tick(0)
+    check(ov("min_damage") == nil and printed[#printed] ==
+          "[Nykle.win] resolver: enemy5 sahte kayitta (defensive): 6 tick gercek kayit beklendi, sinir doldu, ates serbest (duello, kafa onceligi)",
+          "V1.1.5: the 6-tick duel cap: fire free, logged (" .. tostring(printed[#printed]) .. ")")
+    enemy.m_flSimulationTime = 70.7; advance(40); enemy.m_flSimulationTime = 69.9; tick(0)
+    check(ov("min_damage") == 130, "V1.1.5 setup: held again after the cooldown")
+    enemy.m_flSimulationTime = 70.8; advance(4)
+    check(ov("min_damage") == nil and printed[#printed]:find("gercek kayit geldi (duello, kafa onceligi)", 1, true) ~= nil,
+          "V1.1.5: real record within the short wait: fire free, logged (" .. tostring(printed[#printed]) .. ")")
+    advance(40); M("switch", "Headshot priority"):set(false); enemy.m_flSimulationTime = 69.9; tick(0)
+    check(ov("min_damage") == nil, "V1.1: the enemy sees you, Headshot priority off: no waiting (duel)")
+    M("switch", "Headshot priority"):set(true)
+    world.trace = NO_TRACE; advance(40); enemy.m_flSimulationTime = 70.9; advance(4)
     M("switch", "Wait for real record (unseen)"):set(false); enemy.m_flSimulationTime = 69.6; tick(0)
     check(ov("min_damage") == nil, "V1.1: waiting can be turned off")
     enemy.m_flSimulationTime = nil

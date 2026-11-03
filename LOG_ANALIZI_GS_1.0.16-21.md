@@ -378,3 +378,19 @@ Eğik peek: 5 ölüm, 5 öldürme; kafana gelen 3 mermi, kafanın yanından geç
 Yani eğik peek'te de ölüm = ıska + 1.25 sn sürgü; eğik yürürken kaçamıyorsun. → **V1.1.4 "Bolt cover":** sniper'la ateş ettikten sonra silah hazır olana kadar (sürgü) biri seni görüyorsa fake duck zorlanır (kafa aşağıda, kayıt her pakette değişir); varsayılan sadece eğik peek'te, ayakta peek için ayrı seçenek (geri çekilmeyi yavaşlatır). Bıçaklı düşman yakınsa / havada yok.
 - V1.1.3'ün gövde Force'u: 4 atışta 3 isabet (önceki logda kafa %48 correction).
 - Peek grubunda faz 2 "en az vurulan" seçildi (12/25 kafa): hâlâ yüksek ama diğerleri daha kötü; öğrenme sürüyor.
+
+## Neverlose V1.1.5: üçüncü log yeniden (backtrack kesiti) — "çok missliyoruz"
+
+Üçüncü Neverlose logunun 77 çözümlenen `atis:` satırı backtrack tick'ine (`bt`) göre:
+
+| | atış | ıska | kafa | gövde |
+|---|---|---|---|---|
+| `bt` < 8 | 52 | 6 (%12) | 3/16 | 3/37 |
+| `bt` ≥ 8 | 25 | 17 (%68) | 13/16 | 4/9 |
+
+- Duruma göre `bt` ≥ 8 kafa: Moving 7/9, Air 2/4, Crouch 2/2, Standing 1/1, Fakeduck 1/1 ıska. `bt` < 8 kafa: Moving 0/3, Air 1/3, Crouch 1/4.
+- Düşmanın AA'sına göre: jitter'lı düşmanda `bt` < 8 → 4/43 ıska, `bt` ≥ 8 → 13/20. Resolver taze kayıtta iyi, eski kayıtta kötü.
+- Zaman sırası: uzun backtrack'ler hep bir düşmanla karşılaşmanın **ilk** atışında (71:35.1 `bt11` ıska, 71:38.7 `bt10` ıska, 71:40.4 `bt0` isabet; 76:02.3 `bt9` ıska, 76:03.6 / 76:04.9 `bt0` isabet). Düşman görünüp geri çekilince aimbot elindeki en iyi (eski) kayda ateş ediyor.
+- `bt` 13+ (200 ms üstü: 25, 25, 23, 19, 19, 18, 17, 17, 16) 9 atışın 7'si ıska: ya Neverlose fake latency'si açık ya düşmanın kaydı gecikmeli.
+
+→ **V1.1.5 "Snipers: fresh record only":** şu anki kayda mermi geçmiyorsa (az önce geçiyorduysa) en fazla 24 tick bekle. Kaybedilen: `bt` ≥ 8'deki 8 isabet (bir kısmı bekleme sonrası taze kayda yine gelir). Kazanılan: 17 ıska → sürgü süresinde ölüm azalır. Kafa önceliği (Headshot priority) ile birlikte beklenen kafa isabeti: eski kayıtsız kafa atışları %81 tutuyordu.

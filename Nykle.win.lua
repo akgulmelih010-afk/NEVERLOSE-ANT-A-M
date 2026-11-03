@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -729,7 +729,22 @@ menu.dt_pair        = style.tip(grp.resolver:switch(style.title("clone", "Sniper
 -- bekletilir, gercek kayit geldikten 3 tick sonra serbest. GS logunda sahte kayda atis %57, gercek kayda %75 tuttu.
 menu.wait_real      = style.tip(grp.resolver:switch(style.title("hourglass-half", "Wait for real record (unseen)"), true),
     "Hedefin kaydi defensive'deyken ve kimse seni gormuyorken en fazla 14 tick ates bekletilir (Min. Damage 130); " ..
-    "duelloda / goruluyorken beklenmez.")
+    "duelloda / goruluyorken beklenmez (Headshot priority acikken 6 tick beklenir).")
+-- V1.1.5 (istek: "daha fazla HS atmak istiyorum"): kafa onceligi. DT cifti olduruyorsa Body Aim Force yerine Prefer
+-- (kafa acikken kafaya), duelloda da sahte kayda kafa atilmaz (en fazla 6 tick gercek kayit beklenir; GS logunda
+-- sahte kayda atis %57, gercek kayda %75 tuttu). Bedeli: kafa atisinda correction iskasi gövdeden fazla (ucuncu
+-- Neverlose logunda kafa %48, govde %16); iskadan sonraki surgu suresini Bolt cover kapatir.
+menu.head_first     = style.tip(grp.resolver:switch(style.title("skull-crossbones", "Headshot priority"), true),
+    "Kafa acikken kafaya: DT cifti olduruyorsa gövde zorlanmaz (Prefer), duelloda sahte kayda kafa atilmaz (6 tick). " ..
+    "Kapaliyken DT cifti gövdeyi zorlar (daha az iska, daha az HS).")
+-- V1.1.5 (istek: "cok missliyoz"): ucuncu Neverlose logunda 8+ tick geriye (backtrack) atilan 25 atisin 17'si iska
+-- (kafa 13/16, govde 4/9), 8 tick altindakilerin 52'de 6'si (kafa 3/16). Uzun backtrack hep ilk atista: dusman gorunup
+-- geri cekilince / kose arkasina gecince aimbot eski kayda ates ediyor ve resolver o kayitta yaniliyor. Hedefin su anki
+-- kaydinda vurulacak yer yokken (az once vardi) ates bekletilir; kayit yine vurulabilir olunca ya da eski kayitlar
+-- backtrack penceresinden cikinca serbest.
+menu.fresh_only     = style.tip(grp.resolver:switch(style.title("clock", "Snipers: fresh record only"), true),
+    "Hedefin su anki kaydi vurulamiyorsa (geri cekildi, kose arkasinda) eski kayda (backtrack) ates edilmez: " ..
+    "en fazla 24 tick beklenir (Min. Damage 130). Logda 8+ tick backtrack'li atislarin %68'i iskaydi.")
 menu.resolver_info  = grp.resolver:label("Raises safe points per enemy after resolver misses.")
 
 menu.state = grp.angles_raw:combo(style.title("list", "State"), STATES)
@@ -2022,6 +2037,8 @@ local FORCE_STALL = 0.5
 -- shots[id] = { state, time }: ates anindaki dusman durumu
 -- prior_logged[id] = jitter on bilgisi bu dusman icin konsola yazildi
 -- jittery[id] = dusmanin AA'sinin en son jitter'li goruldugu zaman (sn)
+-- clean_shot asagida tanimlanir (V1.1.5: resolver.fresh_hold onu kullanir).
+local clean_shot
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {},
     body_stall = { key = nil, visible = 0, last = nil, relaxed = false },
@@ -2635,7 +2652,7 @@ do
     -- aciyi sen tutarken (dusman seni gormezken) bedava. Neverlose'da dusman basina whitelist yok, bekleme global.
     -- V1.1.1: ilk Neverlose logunda 205 satirin 95'i bu beklemelerdi (surekli defensive acan 3 dusman): dusman ve tur
     -- basina 15 sn'de bir yazilir.
-    resolver.wait = { max = 14, after = 3, cooldown = 32, md = 130, enemies = {}, log_every = 15 }
+    resolver.wait = { max = 14, duel_max = 6, after = 3, cooldown = 32, md = 130, enemies = {}, log_every = 15 }
 
     resolver.wait_hold = function(target, class)
         local wait, now = resolver.wait, globals.tickcount
@@ -2659,15 +2676,18 @@ do
                 and rt - exposure.duel.time <= exposure.duel_hold)
         local s = exposure.sight[index]
         local sees = s ~= nil and now >= s.last and now - s.last <= SIGHT.recent
-        local free = profile == nil or cooling or duel or sees
+        -- Duelloda / goruluyorken: Headshot priority acikken kisa bekleme (duel_max tick: sahte kayda kafa atisi
+        -- yazi-tura), kapaliyken hic (ilk ates eden kazanir).
+        local cap = (duel or sees) and (menu.head_first:get() and wait.duel_max or 0) or wait.max
+        local free = profile == nil or cooling or cap == 0
         local fake = profile ~= nil and profile.defensive_now
         local hold = not free and (fake or (w.ticks > 0 and w.after < wait.after))
         if hold then
             if not fake then
                 w.after = w.after + 1
             end
-            w.ticks = w.ticks + 1
-            if w.ticks > wait.max then
+            w.ticks, w.cap = w.ticks + 1, cap
+            if w.ticks > cap then
                 hold = false
             end
         end
@@ -2678,18 +2698,69 @@ do
         if w.ticks > 0 then
             w.free_until = now + wait.cooldown
             if menu.resolver_log:get() then
-                local capped = w.ticks > wait.max
-                local kind = capped and "cap" or "real"
+                local limit = w.cap or wait.max
+                local capped = w.ticks > limit
+                local duel_wait = limit == wait.duel_max
+                local kind = (capped and "cap" or "real") .. (duel_wait and "_duel" or "")
                 local last = w.logged[kind] or -1000
                 if rt < last or rt - last >= wait.log_every then
                     w.logged[kind] = rt
-                    print(("[%s] resolver: %s sahte kayitta (defensive): %d tick gercek kayit beklendi, %s"):format(
-                        SCRIPT, player_name(target), min(w.ticks, wait.max),
-                        capped and "sinir doldu, ates serbest" or "gercek kayit geldi"))
+                    print(("[%s] resolver: %s sahte kayitta (defensive): %d tick gercek kayit beklendi, %s%s"):format(
+                        SCRIPT, player_name(target), min(w.ticks, limit),
+                        capped and "sinir doldu, ates serbest" or "gercek kayit geldi",
+                        duel_wait and " (duello, kafa onceligi)" or ""))
                 end
             end
         end
         w.ticks, w.after = 0, 0
+        return false
+    end
+
+    -- Taze kayit (V1.1.5, backtrack disiplini): sniper'da hedefin su anki kaydina mermi gecmiyorsa (kafa ve govde izi 0)
+    -- ama window tick icinde geciyorduysa, aimbot'un elinde sadece eski kayitlar var (backtrack): ates bekletilir.
+    -- Kayit yine vurulabilir olunca hemen, eski kayitlar pencereden cikinca (window tick) serbest. Hic vurulabilir
+    -- olmamis hedefte (duvar arkasi, iz API'si yok) bekleme yok. Iz every tick'te bir alinir.
+    resolver.fresh = { window = 24, every = 2, enemies = {}, log_every = 15 }
+
+    resolver.fresh_hold = function(lp, target, sniper)
+        local fresh, now = resolver.fresh, globals.tickcount
+        current.fresh_wait = false
+        local index = target ~= nil and index_of(target) or nil
+        if index == nil or not sniper or trace_bullet == nil or not menu.resolver:get() or not menu.fresh_only:get() then
+            return false
+        end
+        local f = fresh.enemies[index]
+        if f == nil then
+            f = { ticks = 0, last_ok = nil, tick = -1000, hittable = false, logged = {} }
+            fresh.enemies[index] = f
+        end
+        if now < f.tick or now - f.tick >= fresh.every then
+            local head, body = clean_shot.damages(lp, target)
+            f.tick, f.hittable = now, head >= 1 or body >= 1
+        end
+        if f.hittable then
+            f.last_ok = now
+        end
+        local hold = not f.hittable and f.last_ok ~= nil and now > f.last_ok and now - f.last_ok <= fresh.window
+        if hold then
+            f.ticks = f.ticks + 1
+            current.fresh_wait = true
+            return true
+        end
+        if f.ticks > 0 then
+            if menu.resolver_log:get() then
+                local rt = globals.realtime
+                local kind = f.hittable and "ok" or "gone"
+                local last = f.logged[kind] or -1000
+                if rt < last or rt - last >= fresh.log_every then
+                    f.logged[kind] = rt
+                    print(("[%s] resolver: %s su anki kaydi vurulamiyordu: %d tick taze kayit beklendi, %s"):format(
+                        SCRIPT, player_name(target), f.ticks,
+                        f.hittable and "kayit taze, ates serbest" or "eski kayitlar gecti (backtrack yok)"))
+                end
+            end
+            f.ticks = 0
+        end
         return false
     end
 
@@ -2749,14 +2820,20 @@ do
                 -- V1.1.3 (ucuncu Neverlose logu, 78 atis): kafaya giden atislarin 15/31'i correction iskasi, govdeye
                 -- gidenlerin 7/45'i. "Prefer" ile Neverlose kafa acikken yine kafaya gidiyordu (MD govde - 1 olsa da);
                 -- cift olduruyorsa Body Aim "Force": ilk mermi govdeye, ikincisi DT ile. Takilma korumasi ayni
-                -- (govde gorunmuyorsa 0.5 sn sonra Prefer).
-                wanted, stalled = body_stall(target), true
+                -- (govde gorunmuyorsa 0.5 sn sonra Prefer). V1.1.5: Headshot priority acikken Prefer kalir (kafa
+                -- acikken kafaya), kapaliyken Force.
+                if not menu.head_first:get() then
+                    wanted, stalled = body_stall(target), true
+                end
             end
             -- Aimbot'un az once (AIM_TARGET_HOLD sn) ates ettigi hedefi govde olduruyorsa "Force" (V1.0):
             -- bu hedefle zaten catisiyorsun. Loglarda gogus -73 (100 -> 27) sonrasi "Prefer"de Neverlose
             -- kafaya gitti, iskaladi; surgu cekerken dusman tec9 ile vurdu ("sikmadi adama").
+            -- V1.1.5: Headshot priority acikken DT cifti bu kurali da tetiklemez (tek govde mermisi olduruyorsa yine
+            -- Force: olduren atis varken kafa denemesi yok).
             local since = globals.realtime - resolver.aim_time
-            if lethal and target == resolver.aim_target and since >= 0 and since <= AIM_TARGET_HOLD then
+            if lethal and (resolver.pair == nil or not menu.head_first:get()) and target == resolver.aim_target
+                and since >= 0 and since <= AIM_TARGET_HOLD then
                 wanted, stalled = body_stall(target), true
             end
         elseif target ~= nil and menu.smart_baim:get() then
@@ -2837,6 +2914,10 @@ do
         current.head_only = min_damage ~= nil and not pair_md
         -- Sahte kayit beklemesi (V1.1): hedefin kaydi defensive'deyken ve kimse seni gormuyorken ates bekletilir.
         if resolver.wait_hold(target, class) then
+            min_damage = resolver.wait.md
+        end
+        -- Taze kayit (V1.1.5): hedefin su anki kaydi vurulamiyorsa eski kayda (backtrack) ates bekletilir.
+        if resolver.fresh_hold(lp, target, sniper) then
             min_damage = resolver.wait.md
         end
         override("min_damage", min_damage)
@@ -3028,7 +3109,7 @@ end
 -- ("unregistered shot") ya da bir tick sonra baska bir goz noktasindan gider (kafaya nisan, gogse
 -- isabet). Iz every tick'te bir atilir; acilinca hold tick acik kalir, Break LC titremesin. Iz
 -- atilamazsa hic acilmaz (eski davranis).
-local clean_shot = { every = 2, hold = 6, checked = -1000, index = nil, until_tick = -1000, boxes = { 0, 5, 3 } }
+clean_shot = { every = 2, hold = 6, checked = -1000, index = nil, until_tick = -1000, boxes = { 0, 5, 3 } }
 
 -- Aimbot'un ates etmesi icin gereken hasar: Min. Damage; 100 ustu can + fark (101 = can + 1).
 clean_shot.need = function(target)

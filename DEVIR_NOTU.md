@@ -10,7 +10,7 @@ Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntıl�
 | Sürüm | V1.1 (eski adı ANT-A-M v2–v5.6; V1.1 = GameSense V1.0.22–1.0.33'ün Neverlose'a taşınması) |
 | Dal | `claude/loving-fermi-99v29v` (PR #2, taban `claude/csgo-hvh-anti-aim-kkh1vh`) |
 | Oyun içi test | **Yapılmadı.** Bütün doğrulama `tests/` altındaki sahte (mock) API ile. V1.0 davranışı kullanıcının attığı Neverlose konsol loglarıyla, V1.1 değişiklikleri GameSense sürümünün on oyun loguyla ayarlandı; V1.1 için henüz Neverlose logu yok. |
-| Testler | `tests/run_tests.sh`: 7 mod + strict, 1021 kontrol, hepsi geçiyor (ana bölümde 196 local). `tests/mutate.py`: 729 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
+| Testler | `tests/run_tests.sh`: 7 mod + strict, 1040 kontrol, hepsi geçiyor (ana bölümde 196 local). `tests/mutate.py`: 741 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
 | Kalıcı hafıza | Neverlose `db` anahtarı `ant_a_m_memory` (eski adla; v5.x verisi aynen okunur) |
 
 ## Özelliklerin tam listesi
@@ -142,6 +142,13 @@ PEEK ÖLÜMLERİ: bolt cover yeni, etkisi bir sonraki logda
 ```
 
 Satır = alan, durum (GELİŞTİ / AYNI / KÖTÜLEŞTİ), ölçülen rakam, beklenti. Rakamlar logdan; beklenti "bekleniyor" diye işaretli.
+
+## V1.1.5: kafa önceliği + taze kayıt (istek: "hs'ye yoğunlaş", "çok missliyoruz")
+
+- `menu.head_first` (açık): DT çiftinde Force yerine Prefer (`apply_body_aim`, sniper dalı), aim-target Force kuralı çiftte uygulanmaz (`resolver.pair == nil or not head_first`), `resolver.wait` duelloda `duel_max = 6` tick (kapalıyken 0). Log son eki ` (duello, kafa onceligi)`; log türleri `cap_duel` / `real_duel` ayrı sayılır.
+- `menu.fresh_only` (açık) + `resolver.fresh` / `resolver.fresh_hold(lp, target, sniper)`: `clean_shot.damages` ile hedefin şu anki kaydına kafa/gövde izi (2 tick'te bir); iz 0 ama son 24 tick içinde > 0 idiyse Min. Damage 130 (`current.fresh_wait`). Hiç vurulabilir olmamış hedef / `trace_bullet` yoksa bekleme yok. `clean_shot` artık `local resolver`'dan önce ileri bildirimli (`local clean_shot`, local sayısı değişmedi).
+- Veri (üçüncü Neverlose logu, 77 çözümlenen atış): `bt` ≥ 8 → 17/25 ıska (kafa 13/16, gövde 4/9, Moving kafa 7/9); `bt` < 8 → 6/52 (kafa 3/16, gövde 3/37). Jitter'lı düşmanda bt<8: 4/43 ıska. Uzun backtrack'ler ilk atışta, takip atışları `bt 0t` ile tutuyor (71:35 → 71:40, 76:02 → 76:04). Alternatifler elendi: "ıska hafızası" (bir correction ıskasından sonra 8 sn gövde) sadece 7 kafa atışını / 3 ıskayı etkilerdi; hareketli/havadaki düşmanda gövde kuralı HS'yi yarıya indirirdi.
+- Sonraki logda ölçülecek: `atis:` satırlarında `bt 9t`+ atış sayısı (hedef: ~0), `taze kayit beklendi` satırları ve ardından 1 sn içinde `atis:` geliyor mu (bekleme atışı öldürüyor mu), kafa isabet oranı (eski %50 → beklenen %70+), `(duello, kafa onceligi)` satırlarından sonra isabet. Neverlose Fake Latency / Backtrack menü yolu bilinmiyor; `bt` 13+ (200 ms üstü) atışlar sürerse düşmanın fake latency'si olabilir, o zaman pencereyi 32'ye çıkarmak aday.
 
 ## Açık işler ve bekleyen kararlar
 
