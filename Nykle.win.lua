@@ -1359,6 +1359,7 @@ do
         elseif duck < DUCK_LEAVE then
             motion.ducked = false
         end
+        exposure.ducked = motion.ducked -- log etiketi icin (state_label: "Peek (egik)")
 
         local crouching = motion.ducked or effective("fakeduck")
         if cmd.in_jump == true or motion.ground_ticks < LANDING_TICKS then
@@ -2426,7 +2427,7 @@ local function process_pending_misses()
                 sniper.record(miss.sniper, false)
                 if menu.hit_log:get() then
                     print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s)"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
+                        SCRIPT, miss.label or miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
                 end
             end
         end
@@ -2863,6 +2864,15 @@ do
                 SCRIPT, player_name(target)))
         end
     end
+end
+
+-- Log / KD etiketi (V1.1.2): Peek'te egilmis olmak ayri sayilir ("Peek (egik)"), istek: "egilerek peek atinca cok
+-- oluyorum". Sonraki loglarda egik peek'in olumleri, fazlari ve exploit durumu ayri okunsun; ayar ona gore gelecek.
+local function state_label()
+    if current.state == "Peek" and exposure.ducked then
+        return "Peek (egik)"
+    end
+    return current.state
 end
 
 local function update_flip(s, exploit, choked)
@@ -4720,7 +4730,7 @@ do
         local hurt = brute.hurt[e.userid]
         if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
             pending_misses[#pending_misses + 1] = {
-                userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
+                userid = e.userid, time = now, state = current.state, label = state_label(), stage = shot_stage, name = player_name(shooter),
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
                 applied = current.brute, group = brute.stat_group(), sniper = sniper.mode(current.weapon),
             }
@@ -4879,12 +4889,12 @@ events.player_hurt:set(protect("player_hurt", function(e)
         if e.hitgroup == 1 then
             entry.head = entry.head + 1
         end
-        own.count(current.state, phase, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
+        own.count(state_label(), phase, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
     end
     if menu.hit_log:get() then
         print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s)"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
-            current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
+            state_label(), phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
     end
 end))
 
@@ -5374,10 +5384,11 @@ end)
 -- Durum basina oldurdugun / oldugun (bkz. aim_stats.kd): olum aninda senin durumun (current.state).
 -- Olum sadece dusman oldurduyse (dusme, intihar, takim arkadasi sayilmaz).
 local function count_kd(field)
-    local entry = aim_stats.kd[current.state]
+    local label = state_label()
+    local entry = aim_stats.kd[label]
     if entry == nil then
         entry = { kills = 0, deaths = 0 }
-        aim_stats.kd[current.state] = entry
+        aim_stats.kd[label] = entry
     end
     entry[field] = entry[field] + 1
 end
@@ -5394,7 +5405,7 @@ events.player_death:set(protect("player_death", function(e)
             count_kd("deaths")
             -- V1.1.2: log analizinde K/D icin (GameSense'teki kill / olum satirlari gibi).
             if menu.hit_log:get() then
-                print(("[%s] oldun: %s | %s | %s"):format(SCRIPT, player_name(attacker), current.state, weapon_label()))
+                print(("[%s] oldun: %s | %s | %s"):format(SCRIPT, player_name(attacker), state_label(), weapon_label()))
             end
         end
         reset_brute()
@@ -5405,7 +5416,7 @@ events.player_death:set(protect("player_death", function(e)
         if ok_victim and enemy_victim then
             count_kd("kills")
             if menu.hit_log:get() then
-                print(("[%s] oldurdun: %s | %s | %s%s"):format(SCRIPT, player_name(victim), current.state, weapon_label(),
+                print(("[%s] oldurdun: %s | %s | %s%s"):format(SCRIPT, player_name(victim), state_label(), weapon_label(),
                     e.headshot == true and " | headshot" or ""))
             end
         end
@@ -5549,7 +5560,7 @@ local STAT_ORDER = {}
 for _, state in ipairs(STATES) do
     STAT_ORDER[#STAT_ORDER + 1] = state
 end
-for _, state in ipairs({ "Legit", "Spin", "Ladder" }) do
+for _, state in ipairs({ "Peek (egik)", "Legit", "Spin", "Ladder" }) do
     STAT_ORDER[#STAT_ORDER + 1] = state
 end
 

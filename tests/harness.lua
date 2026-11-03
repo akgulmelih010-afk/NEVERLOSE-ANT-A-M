@@ -4190,6 +4190,27 @@ do
     handlers.round_start({})
     check(saved_files["nykle_log.txt"] ~= nil and saved_files["nykle_log.txt"]:find("dbg sikmadi: enemy5", 1, true) ~= nil,
           "V1.1: round start writes the log file")
+
+    -- Crouched peek (V1.1.2): logs and the KD panel count "Peek (egik)" apart from Peek.
+    reset_world(); E("button", "Reset stats"):click()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end; lp.weapon_class = "CAK47"
+    M("switch", "Auto peek"):set(true)
+    lp.m_vecVelocity = vector(250, 0, 0); lp.m_flDuckAmount = 1; advance(4)
+    handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
+    check(printed[#printed]:find("| Peek (egik) | faz ", 1, true) ~= nil, "V1.1.2: hit while peeking crouched: logged as Peek (egik) (" .. tostring(printed[#printed]) .. ")")
+    handlers.player_death({ userid = 1, attacker = 5 })
+    check(printed[#printed] == "[Nykle.win] oldun: enemy5 | Peek (egik) | sen ak47", "V1.1.2: death while peeking crouched: Peek (egik)")
+    lp.m_flDuckAmount = 0; advance(4)
+    handlers.player_death({ userid = 5, attacker = 1 })
+    check(printed[#printed] == "[Nykle.win] oldurdun: enemy5 | Peek | sen ak47", "V1.1.2: standing peek stays Peek")
+    M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
+    check(contains(texts, "PEEK (EGIK)   0 / 1") and contains(texts, "PEEK   1 / 0"), "V1.1.2: KD panel: a Peek (egik) row next to Peek")
+    v.lines = #printed
+    handlers.round_start({})
+    v.summary = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("round ozeti", 1, true) then v.summary = printed[i] end end
+    check(v.summary ~= nil and v.summary:find("Peek (egik) 1/1", 1, true) ~= nil, "V1.1.2: round summary counts the crouched peek apart (" .. tostring(v.summary) .. ")")
+    M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); E("button", "Reset stats"):click()
     reset_world()
 end
 M("switch", "Enable"):set(false)
