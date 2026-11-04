@@ -10,7 +10,7 @@ Bu notu okuyan, işi kaldığı yerden devralabilsin diye yazıldı. Ayrıntıl�
 | Sürüm | V1.1 (eski adı ANT-A-M v2–v5.6; V1.1 = GameSense V1.0.22–1.0.33'ün Neverlose'a taşınması) |
 | Dal | `claude/loving-fermi-99v29v` (PR #2, taban `claude/csgo-hvh-anti-aim-kkh1vh`) |
 | Oyun içi test | **Yapılmadı.** Bütün doğrulama `tests/` altındaki sahte (mock) API ile. V1.0 davranışı kullanıcının attığı Neverlose konsol loglarıyla, V1.1 değişiklikleri GameSense sürümünün on oyun loguyla ayarlandı; V1.1 için henüz Neverlose logu yok. |
-| Testler | `tests/run_tests.sh`: 7 mod + strict, 1050 kontrol, hepsi geçiyor (ana bölümde 196 local). `tests/mutate.py`: 748 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
+| Testler | `tests/run_tests.sh`: 7 mod + strict, 1064 kontrol, hepsi geçiyor (ana bölümde 196 local). `tests/mutate.py`: 756 mutasyonun hepsi yakalanıyor (~1 saat; `python3 mutate.py harness.lua "ad1" "ad2"` ile alt küme çalıştırılabilir). |
 | Kalıcı hafıza | Neverlose `db` anahtarı `ant_a_m_memory` (eski adla; v5.x verisi aynen okunur) |
 
 ## Özelliklerin tam listesi
@@ -160,6 +160,17 @@ Satır = alan, durum (GELİŞTİ / AYNI / KÖTÜLEŞTİ), ölçülen rakam, bekl
 - Harness notu: aimbot hedefi `brute_target()` = seni gören düşman; "hedef seni görmüyor" testi için hedefe `aim_fire` verip `resolver.aim_target` tutulur (1.5 sn). `globals.curtime` ayarlanınca `weapon_ready` de `lp.next_attack`'e bakar (nil → hazır).
 - **V1.1.7 (kullanıcı cevabı: "iki mermi atmıyor, deagle olursa atar ancak"):** sniper'larda çift yok. `head_instead = pair_ok and head_first and record_age < lag_ticks` → çift sadece gecikmeli kayıtta; görüş / Peek şartı (V1.1.6 `duel`) kaldırıldı. Log: `X: DT cifti yerine kafa (... scout'ta ikinci mermi surguden sonra)`. Harness: hedef seni görüyor (trace 30), `globals.curtime = sim + 10/64` ile gecikmeli, `nil` ile taze; `enemy.m_flSimulationTime` blok sonuna kadar 70 kalmalı (nil olunca enemy_watch kaydı silinir, yaş 0).
 - Sonraki logda ölçülecek: sürgüde ölüm sayısı (hedef: 11/19 → <5), `DT cifti yerine kafa` satırlarından sonra `atis:` kafa isabeti, gecikmeli düşmanda (`bt` 13+) gövde atışı geliyor mu, toplam öldürme/ölüm, HS oranı (hedef %62 → %70+).
+
+## V1.1.8: hata taraması (istek: "bi hata tara, geliştirme fikri düşün")
+
+Yöntem: 4 avcı (çökme / mantık / API varsayımı / son üç sürüm) + her bulguya 2 bağımsız doğrulayıcı (refute + oyunda etkisi var mı). 22 aday, 5 gerçek:
+1. **MD 130 kilit değil** (`resolver.wait.md`): Neverlose'da 100 üstü = can + fark; `clean_shot.need` zaten böyle modelliyordu. Düzeltme: bekleme açıkken `override("hitboxes", resolver.hold_boxes)` (boş liste; `fake_body` ezmesiyle aynı yerde birleştirildi, öncelik beklemede). 5. logda `sahte kayitta sadece govde (hitbox)` satırları hitbox ezmesinin oyunda çalıştığını gösteriyor (kafa 302 varken atış yok), boş liste de aynı yoldan gider; Neverlose boş listeyi reddederse `hitboxes = table ayarlanamadi` satırı çıkar, o zaman aday: `Aimbot>Ragebot>Main>Enabled` ezmesi.
+2. **`fresh_hold` `sniper` (= görülme) şartına bağlıydı** → `bolt_gun` (silah) şartı; erken dönüşte `f.ticks = 0`.
+3. **Gecikmeli çiftte Prefer** → `if not head_first or laggy then body_stall`.
+4. **Teleport sonucu 0.02 sn'de vurulma** → `teleport.result_min = 0.12`.
+5. **`player_id` xuid tipi**: sayı → `%.0f`, cdata → `tostring():gsub("U?LL$","")`. 17 haneli steam id double'da tam değil ama tutarlı yuvarlanır (test 16 haneli kullanır).
+Reddedilen adaylar (kayıt için): `protect()` ilk hatadan sonra susar (bilinçli), `record_age` kendi ping'i de içerir (eşik bunu kapsıyor; `bt` ile aynı birim değil, kalibrasyon sonraki logda), duello 6 tick hep doluyor (bilinçli yazı-tura), `BAIM` göstergesi Prefer çiftinde, bolt cover eski config'de açık kalabilir (**kullanıcıya söylendi: menüde kapalı olduğunu kontrol etsin**), `sahte kayıtta sadece gövde` ezmesinin uygulanmadığı iddiası (log aksini gösteriyor).
+Fikir ajanları kullanım sınırına takıldı; fikir listesi sohbette verildi (aşağıdaki açık işlere de eklendi).
 
 ## Açık işler ve bekleyen kararlar
 

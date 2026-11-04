@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.7"
+local VERSION = "1.1.8"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -1941,8 +1941,15 @@ sniper.record = function(mode, hit)
 end
 
 -- Kalici oyuncu kimligi: Steam ID. Bot ya da okunamayan Steam ID'de isim, o da yoksa slot.
+-- V1.1.8: get_xuid string, sayi ya da 64 bit cdata ("...ULL") donebilir; hepsi ayni metne cevrilir ki kalici hafiza
+-- (s: anahtari) oyunda da calissin (iki logda da "yuklendi" satirinda hafiza yoktu).
 local function player_id(ent)
     local ok, xuid = pcall(function() return ent:get_xuid() end)
+    if ok and type(xuid) == "number" then
+        xuid = ("%.0f"):format(xuid)
+    elseif ok and xuid ~= nil and type(xuid) ~= "string" then
+        xuid = tostring(xuid):gsub("U?LL$", "")
+    end
     if ok and type(xuid) == "string" and #xuid > 4 and xuid ~= "0" and not xuid:find("BOT", 1, true) then
         return "s:" .. xuid
     end
@@ -2503,6 +2510,10 @@ end
 -- arkaya bekleme, max'tan sonra cooldown sn serbest; body = verilen hitbox listesi.
 resolver.fake = { ticks = 0, max = 12, cooldown = 0.5, free_until = -1000, logged = -1000, index = nil,
     body = { "Chest", "Stomach" } }
+-- V1.1.8: beklemeler (gercek kayit / taze kayit) Min. Damage 130 ile ates kesemiyordu: Neverlose'da 100 ustu = can +
+-- fark, 130 = can + 30; scout kafasi 150-290 vurdugu icin kafa atisi serbest kaliyordu (besinci logda "MD 130" ile 3
+-- atis, ikisi sahte kayda). Bekleme artik hitbox listesini bosaltir (hedef yok = atis yok); MD 130 yedek kalir.
+resolver.hold_boxes = {}
 
 -- Hedefin govdesine (gogus ya da mide) gozumuzden mermi gecer mi. Iz ya da hitbox okunamazsa evet.
 resolver.body_open = function(target)
@@ -2750,6 +2761,11 @@ do
         current.fresh_wait = false
         local index = target ~= nil and index_of(target) or nil
         if index == nil or not sniper or trace_bullet == nil or not menu.resolver:get() or not menu.fresh_only:get() then
+            -- Bekleme yarida kesildi (silah / hedef degisti): sayac sifirlanir, sonraki log sismesin.
+            local f = index ~= nil and fresh.enemies[index] or nil
+            if f ~= nil then
+                f.ticks = 0
+            end
             return false
         end
         local f = fresh.enemies[index]
@@ -2844,7 +2860,8 @@ do
             -- surgude. V1.1.7 (kullanici dogruladi: DT ikinci mermiyi sadece deagle'da atar): Headshot priority acikken
             -- cift sadece hedefin kaydi gecikmeliyken (lag_ticks+: kafa 5/7 iska, govde 0/6); yoksa kafa (taze kayitta
             -- %79 tuttu, oldururse surgu yok). Kapaliyken eski davranis.
-            local head_instead = pair_ok and menu.head_first:get() and exposure.record_age(target) < DT_PAIR.lag_ticks
+            local laggy = exposure.record_age(target) >= DT_PAIR.lag_ticks
+            local head_instead = pair_ok and menu.head_first:get() and not laggy
             if head_instead then
                 pair_ok = false
                 local now_rt = globals.realtime
@@ -2861,8 +2878,10 @@ do
                 -- gidenlerin 7/45'i. "Prefer" ile Neverlose kafa acikken yine kafaya gidiyordu (MD govde - 1 olsa da);
                 -- cift olduruyorsa Body Aim "Force": ilk mermi govdeye, ikincisi DT ile. Takilma korumasi ayni
                 -- (govde gorunmuyorsa 0.5 sn sonra Prefer). V1.1.5: Headshot priority acikken Prefer kalir (kafa
-                -- acikken kafaya), kapaliyken Force.
-                if not menu.head_first:get() then
+                -- acikken kafaya), kapaliyken Force. V1.1.8: gecikmeli kayitta (cift zaten "kafa tutmaz" diye kaldi)
+                -- kafa onceligi acikken de Force; Prefer'de Neverlose yine kafaya gidiyordu (besinci log 142:45:
+                -- "hedef head 188 | BA Prefer | MD 73 | bt 26t", iska).
+                if not menu.head_first:get() or laggy then
                     wanted, stalled = body_stall(target), true
                 end
             end
@@ -2956,8 +2975,11 @@ do
         if resolver.wait_hold(target, class) then
             min_damage = resolver.wait.md
         end
-        -- Taze kayit (V1.1.5): hedefin su anki kaydi vurulamiyorsa eski kayda (backtrack) ates bekletilir.
-        if resolver.fresh_hold(lp, target, sniper) then
+        -- Taze kayit (V1.1.5): hedefin su anki kaydi vurulamiyorsa eski kayda (backtrack) ates bekletilir. V1.1.8: sart
+        -- sadece silah (sniper + Head unless body kills), gorulme degil: hedef kose arkasina gecince gorulme de biter ve
+        -- bekleme tam o anda dusuyordu.
+        local bolt_gun = menu.head_only:get() and WEAPONS[class] ~= nil and WEAPONS[class][4]
+        if resolver.fresh_hold(lp, target, bolt_gun) then
             min_damage = resolver.wait.md
         end
         override("min_damage", min_damage)
@@ -2991,7 +3013,9 @@ do
             f.ticks = 0
         end
         current.fake_body = body_only
-        override("hitboxes", body_only and f.body or nil)
+        -- V1.1.8: bekleme (gercek / taze kayit) hitbox listesini bosaltir; MD 130 tek basina kafa atisini kesmiyordu.
+        local holding = current.waiting or current.fresh_wait
+        override("hitboxes", holding and resolver.hold_boxes or (body_only and f.body) or nil)
         if body_only and menu.resolver_log:get() and (now < f.logged or now - f.logged > 5) then
             f.logged = now
             print(("[%s] resolver: %s sahte kayitta (defensive): sniper oldurecek govdeye, kafa gercek kayda"):format(
@@ -3276,7 +3300,7 @@ clean_shot.diagnose = function(lp, target, class, armed)
     if head < d.min_damage and body < d.min_damage then
         return
     end
-    if not armed and not current.waiting then
+    if not armed and not current.waiting and not current.fresh_wait then
         return
     end
     local need = clean_shot.need(target)
@@ -3285,7 +3309,10 @@ clean_shot.diagnose = function(lp, target, class, armed)
         reasons[#reasons + 1] = ("hasar %d < MD %d"):format(floor(max(head, body) + 0.5), floor(need + 0.5))
     end
     if current.waiting then
-        reasons[#reasons + 1] = "gercek kayit bekleniyor"
+        reasons[#reasons + 1] = "gercek kayit bekleniyor (hitbox yok)"
+    end
+    if current.fresh_wait then
+        reasons[#reasons + 1] = "taze kayit bekleniyor (hitbox yok)"
     end
     if not armed then
         reasons[#reasons + 1] = "silah hazir degil"
@@ -3854,7 +3881,7 @@ local MOVETYPE_LADDER = 9
 -- bazi haritalarda 3 teleportun 2'si vuruldu: isinlanma kaydi gecersizlestirmiyor, sadece sarji harciyordu.
 local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_guard = 0.35,
     pending = nil, hs_ok = nil, refilled = false,
-    results = {}, result_at = nil, result_window = 1.5, result_last = 3, result_bad = 2, map_off = false }
+    results = {}, result_at = nil, result_window = 1.5, result_min = 0.12, result_last = 3, result_bad = 2, map_off = false }
 
 teleport.record = function(hit, now)
     local list = teleport.results
@@ -3883,8 +3910,11 @@ teleport.record = function(hit, now)
 end
 
 -- Vuruldun: son teleport result_window sn icindeyse o teleport "vuruldu" sayilir.
+-- V1.1.8: isinlandiktan result_min sn icinde gelen mermi isinlanmadan once atilmisti (besinci log 134:27.8: "0.02 sn
+-- sonra vuruldun" harita kapatma sayimina girdi); teleport hakkinda bir sey soylemez, sayilmaz.
 teleport.hurt = function(now)
-    if teleport.result_at ~= nil and now >= teleport.result_at and now - teleport.result_at <= teleport.result_window then
+    if teleport.result_at ~= nil and now >= teleport.result_at + teleport.result_min
+        and now - teleport.result_at <= teleport.result_window then
         teleport.record(true, now)
     end
 end

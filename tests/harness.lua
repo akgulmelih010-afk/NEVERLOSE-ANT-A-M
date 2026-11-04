@@ -1458,7 +1458,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.7") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.8") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1489,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.7").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.8").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -1812,6 +1812,19 @@ handlers.level_init(); tick(0)
 check(ov("safe") == "Force", "map change keeps resolver levels")
 forget(); tick(0)
 check(ov("safe") == nil, "forget button clears resolver levels")
+-- V1.1.8: get_xuid may return a number or a 64-bit cdata in the real game; all forms share one memory key.
+-- (a real 17-digit steam id is not exact as a double, so the numeric case uses a 16-digit value that is)
+enemy.xuid = "76561198000000005"; tick(0); ack(5, "correction")
+check(ov("safe") == "Prefer", "V1.1.8 setup: a miss against a steam id player")
+enemy.name, enemy.index, enemy.xuid = "cdata id", 10, setmetatable({}, { __tostring = function() return "76561198000000005ULL" end }); tick(0)
+check(ov("safe") == "Prefer", "V1.1.8: a 64-bit cdata-like steam id (tostring ...ULL) finds the same resolver memory")
+enemy.name, enemy.index, enemy.xuid = "enemy5", 5, "1000000000000005"; tick(0); ack(5, "correction")
+check(ov("safe") == "Prefer", "V1.1.8 setup: a miss against a second steam id player")
+enemy.name, enemy.index, enemy.xuid = "numeric id", 9, 1000000000000005; tick(0)
+check(ov("safe") == "Prefer", "V1.1.8: the same id as a number (new name and slot) finds it (no 1e+15 formatting)")
+enemy.name, enemy.index, enemy.xuid = "other id", 11, "76561198000000777"; tick(0)
+check(ov("safe") == nil, "V1.1.8: another steam id starts fresh")
+enemy.name, enemy.index, enemy.xuid = "enemy5", 5, nil; forget(); tick(0)
 -- Per-state learning
 handlers.level_init(); forget(); world.threat = enemy
 enemy.m_fFlags = 0; ack(5, "correction")
@@ -4057,10 +4070,10 @@ do
     check(contains(texts, "HEAD"), "V1.1.7: HEAD indicator (only the head kills)")
     enemy.m_flSimulationTime = 70; tick(0); globals.curtime = 70 + 10 / 64; advance(3)
     v.md = ov("min_damage")
-    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Prefer"
+    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Force"
           and printed[#printed]:match("^%[Nykle%.win%] enemy5: DT cifti olduruyor %(govde %d+ x 2 >= can 100%), Min%. Damage gecici "
           .. tostring(v.md) .. "$") ~= nil,
-          "V1.1.6: the target's record 10 ticks behind the server (laggy): head will not hit, Min. Damage lowered to body - 1, Body Aim stays Prefer (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
+          "V1.1.8: the target's record 10 ticks behind the server (laggy): head will not hit, Min. Damage lowered to body - 1 and the body forced (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
     draw()
     check(not contains(texts, "HEAD"), "V1.1: DT pair: no HEAD indicator (the body shot is lethal with the pair)")
     globals.curtime = 70 + 4 / 64; advance(2)
@@ -4069,9 +4082,9 @@ do
     M("switch", "Headshot priority"):set(false); advance(2)
     check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.3: Headshot priority off, no shot yet: the DT pair forces the body")
     M("switch", "Headshot priority"):set(true); advance(2)
-    check(ov("body_aim") == "Prefer", "V1.1.5: Headshot priority on again: Prefer")
+    check(ov("body_aim") == "Force", "V1.1.8: Headshot priority on again, laggy record: still forced")
     handlers.aim_fire({ id = 900, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 900, target = 5, hitgroup = 3, damage = 80 }); advance(2)
-    check(ov("body_aim") == "Prefer", "V1.1.5: Headshot priority: a shot at the target with the pair does not force the body either")
+    check(ov("body_aim") == "Force", "V1.1.8: a shot at the laggy target: forced")
     M("switch", "Headshot priority"):set(false); advance(2)
     check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.3: Headshot priority off: DT pair forces the body, the pair Min. Damage stays")
     advance(40)
@@ -4079,7 +4092,10 @@ do
     handlers.aim_fire({ id = 901, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 901, target = 5, hitgroup = 3, damage = 80 }); advance(2)
     check(ov("body_aim") == "Force", "V1.1.3: a shot at the target: Force again")
     M("switch", "Headshot priority"):set(true); advance(2)
-    check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.5: Headshot priority back on: Prefer at once, the pair Min. Damage stays")
+    check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.8: Headshot priority back on, laggy record: forced, the pair Min. Damage stays")
+    advance(40)
+    check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.8: laggy pair seen for 0.5 s without a shot: relaxes to Prefer too")
+    handlers.aim_fire({ id = 902, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 902, target = 5, hitgroup = 3, damage = 80 }); advance(2)
     enemy.m_iHealth = 60; advance(2)
     check(ov("body_aim") == "Force", "V1.1.5: one body bullet kills 60 HP after a shot at the target: still forced with Headshot priority")
     enemy.m_iHealth = 100; advance(2)
@@ -4089,7 +4105,7 @@ do
     M("switch", "Headshot priority"):set(false); globals.curtime = nil; advance(2)
     check(ov("min_damage") == v.md and ov("body_aim") == "Force", "V1.1.3: Headshot priority off: the pair on a fresh record too, body forced")
     M("switch", "Headshot priority"):set(true); globals.curtime = 70 + 10 / 64; advance(2)
-    check(ov("min_damage") == v.md and ov("body_aim") == "Prefer", "V1.1.7 setup: laggy pair again")
+    check(ov("min_damage") == v.md and ov("body_aim") == "Force", "V1.1.7 setup: laggy pair again")
     aa.charge = 0.5; advance(2)
     check(ov("min_damage") == 101, "V1.1: DT pair needs a charged DT: back to HP + 1")
     aa.charge = 1; M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(false); advance(2)
@@ -4111,7 +4127,7 @@ do
 
     -- Fresh record only (V1.1.5): the target's current record cannot be hit (it was a moment ago): fire held so the
     -- aimbot does not shoot an old (backtrack) record; free when the record is hittable again or the window passes.
-    reset_world(); forget()
+    reset_world(); forget(); M("switch", "Shot log"):set(false) -- no 'dbg sikmadi' lines between the checked log lines
     world.threat = enemy; world.enemies = { enemy }; lp.weapon_class = "CWeaponSSG08"; aa.charge = 1
     enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
     lp.get_eye_position = function() return vector(0, 0, 64) end
@@ -4120,16 +4136,29 @@ do
     check(ov("min_damage") == 101, "V1.1.5 setup: scout, the target hittable: head only (MD 101)")
     world.trace = v.seen; advance(2)
     check(ov("min_damage") == 130, "V1.1.5: the current record cannot be hit any more: fire held (MD 130), no backtrack shot")
-    advance(20)
+    check(type(ov("hitboxes")) == "table" and #ov("hitboxes") == 0, "V1.1.8: the hold empties the hitbox list (MD 130 alone did not stop a scout head shot)")
+    world.trace = NO_TRACE; advance(10)
+    check(ov("min_damage") == 130 and type(ov("hitboxes")) == "table" and #ov("hitboxes") == 0,
+          "V1.1.8: the enemy behind the corner sees you no more either: the hold stays (it used to drop with the exposure)")
+    world.trace = v.seen; advance(10)
     check(ov("min_damage") == 130, "V1.1.5: still held inside the 24-tick backtrack window")
     advance(4)
     check(ov("min_damage") == 101 and printed[#printed]:find("su anki kaydi vurulamiyordu: ", 1, true) ~= nil
           and printed[#printed]:find("tick taze kayit beklendi, eski kayitlar gecti (backtrack yok)", 1, true) ~= nil,
           "V1.1.5: the window passed: head only again, logged (" .. tostring(printed[#printed]) .. ")")
-    advance(10)
+    check(ov("hitboxes") == nil, "V1.1.8: the hitbox list is back")
+    world.trace = v.seen; advance(10)
     check(ov("min_damage") == 101, "V1.1.5: a target that stays unhittable is not held again (nothing to backtrack to)")
     world.trace = function() return 30 end; advance(2); world.trace = v.seen; advance(3)
     check(ov("min_damage") == 130, "V1.1.5: hittable again then gone: held again")
+    v.lines = #printed
+    lp.weapon_class = "CAK47"; advance(2); lp.weapon_class = "CWeaponSSG08"; world.trace = function() return 30 end; advance(2)
+    v.stale = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("taze kayit beklendi", 1, true) then v.stale = printed[i] end end
+    check(ov("min_damage") == 101 and v.stale == nil,
+          "V1.1.8: a weapon switch in the middle of a hold ends it quietly (no stale count logged) (" .. tostring(v.stale) .. ")")
+    world.trace = v.seen; advance(3)
+    check(ov("min_damage") == 130, "V1.1.8 setup: held again")
     world.trace = function() return 30 end; advance(2)
     check(ov("min_damage") == 101 and printed[#printed]:find("taze kayit beklendi, kayit taze, ates serbest", 1, true) ~= nil,
           "V1.1.5: the record is hittable again: free at once, logged (" .. tostring(printed[#printed]) .. ")")
@@ -4141,7 +4170,7 @@ do
     lp.weapon_class = "CWeaponSSG08"; world.trace = function() return 30 end; advance(2)
     M("switch", "Resolver log"):set(false); world.trace = v.seen; v.lines = #printed; advance(30)
     check(ov("min_damage") == 101 and #printed == v.lines, "V1.1.5: Resolver log off: the hold still works, nothing printed")
-    M("switch", "Resolver log"):set(true)
+    M("switch", "Resolver log"):set(true); M("switch", "Shot log"):set(true)
     enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = NO_TRACE
     M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); lp.weapon_class = "CAK47"
 
@@ -4153,12 +4182,14 @@ do
     check(ov("min_damage") == nil, "V1.1 setup: real record, nothing held")
     enemy.m_flSimulationTime = 69.9; tick(0)
     check(ov("min_damage") == 130, "V1.1: fake record, nobody sees you: fire held (Min. Damage 130)")
+    check(type(ov("hitboxes")) == "table" and #ov("hitboxes") == 0, "V1.1.8: the wait also empties the hitbox list")
     advance(13)
     check(ov("min_damage") == 130, "V1.1: still held at the 14th tick")
     tick(0)
     check(ov("min_damage") == nil and printed[#printed] ==
           "[Nykle.win] resolver: enemy5 sahte kayitta (defensive): 14 tick gercek kayit beklendi, sinir doldu, ates serbest",
           "V1.1: the 14-tick cap: fire free, logged")
+    check(ov("hitboxes") == nil, "V1.1.8: hitboxes back after the wait")
     advance(40)
     enemy.m_flSimulationTime = 69.8; tick(0)
     check(ov("min_damage") == 130, "V1.1: held again after the cooldown")
@@ -4233,6 +4264,11 @@ do
     v.lines = #printed
     handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 20, weapon = "ssg08" })
     v.tp_line = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("teleport sonucu", 1, true) then v.tp_line = printed[i] end end
+    check(v.tp_line == nil, "V1.1.8: a bullet 0.05 s after the teleport was fired before it: not a sample")
+    advance(8)
+    handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 20, weapon = "ssg08" })
+    v.tp_line = nil
     for i = v.lines + 1, #printed do
         if printed[i]:match("^%[Nykle%.win%] teleport sonucu: isinlandiktan 0%.%d%d sn sonra vuruldun %(son 1: 1 vurulma%)$") then v.tp_line = printed[i] end
     end
@@ -4242,7 +4278,7 @@ do
     advance(100)
     check(printed_from(v.lines, "[Nykle.win] teleport sonucu: vurulmadin (son 2: 1 vurulma)"), "V1.1: no hit for 1.5 s: counted as fine")
     check(v.jump() == 1, "V1.1 setup: teleport 3")
-    v.lines = #printed
+    v.lines = #printed; advance(8)
     handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 40, weapon = "ssg08" })
     check(printed_from(v.lines, "[Nykle.win] teleport: bu haritada son 3 teleportun 2'si vuruldu -> harita degisene kadar kapali"),
           "V1.1: 2 of the last 3 teleports hit: teleport off on this map (logged)")
