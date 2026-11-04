@@ -430,9 +430,11 @@ Elenenler (doğrulayıcı reddetti): `sikmadi` teşhisinin MD 100+ hesabı, duel
 | Kimse seni görmezken scout'ta **Body Aim Prefer** (senin Min. damage'in 90+ iken; daha düşükse eski Default) | — | Görülmezken kafa isabeti %55, görülürken %84; tek ayar farkı Body Aim. MD 100'de tam canlı düşmana gövde atışı zaten yapılmaz |
 | **Loglar ekranda değil:** satırlar `client.color_log` ile sadece konsola, CS:GO'nun sol üst bildirimi (`con_notifytime`) kapalı; `nykle_log.txt` dakikada bir yazılır (5 dk'ydı) | Home → Console → **Logs only in console + file** (açık) | İstek. Dosya CS:GO klasöründe |
 
+Gözden geçirmeden sonra düzeltilenler (aynı sürüm): AFK'da Peek tuşu her yerde "basılı" sayılıyordu, bu sahte kayıt beklemesini kapatıyor ve her yan adımı Peek yapıyordu; artık sadece AI peek için sayılır. Ölünce AFK çapası ve otomatik ateş bırakılır. Havada eğikken şarj bekletilmez (havada teleport için şarj lazım). AFK adımı basamak yüksekliği (18 birim) dışına inmez, kenardan düşmez. Okunamayan cvar'a dokunulmaz (yanlış "eski değer" geri yazılmasın), yazım geri okunarak doğrulanır. Prefer kuralı Min. damage override tuşunu da sayar.
+
 Fikir 1 (AI peek'in DT çiftiyle öldüren açıyı kabul etmesi) yapılmadı: V1.0.34'te sniper DT çifti kaldırıldı; AI peek tek gövde mermisiyle öldüren açıyı zaten kabul ediyor. Loglardaki retlerin hepsi "60 birime kadar öldürecek atış yok" (tam canlı, kafa görünmüyor).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.35 kuralları (96 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.35 kuralları (98 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

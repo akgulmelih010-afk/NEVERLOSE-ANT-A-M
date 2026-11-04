@@ -543,7 +543,16 @@ W.lag = 0
 tick(3)
 check(dt_ref.value == true, "V1.0.35: secenek kapaliyken egik yururken beklemez (V1.0.22)")
 crouch_ref.value = true
-W.speed, W.duck, W.lag = 0, 0, 12
+W.lag = 12
+tick(10)
+-- Havada egikken (Air crouch) bekleme yok: havada teleport / air lag icin sarj gerekir.
+W.flags, W.speed = 0, 200
+tick(5)
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+W.lag = 0
+tick(3)
+check(dt_ref.value == true, "V1.0.35: havada egikken sarj bekletilmez")
+W.flags, W.speed, W.duck, W.lag = 1, 0, 0, 12
 tick(40)
 
 -------------------------------------------------------------------------------
@@ -826,6 +835,16 @@ check(fire_ref.value == true and dt_ref.value == true, "V1.0.35: AFK'da otomatik
 ORIGIN[2], ORIGIN[3] = { 5000, 0, 0 }, { 0, 5000, 0 }
 tick(10)
 check(last_cmd.force_defensive == true, "V1.0.35: AFK'da DT doluyken defensive her tick zorlanir (dusman uzakta olsa da)")
+ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 500, 0 }
+tick(40)
+-- AFK'da kimse gormuyorken sahte kayit beklemesi yine calisir (Peek tusu "basili" sayilmaz).
+W.sim_shift[2] = 10
+tick(3)
+check(plist.get(2, "Add to whitelist") == true, "V1.0.35: AFK'da sahte kayitta bekleme (whitelist) calisir")
+W.sim_shift[2] = 0
+tick(40)
+ORIGIN[2], ORIGIN[3] = { 5000, 0, 0 }, { 0, 5000, 0 }
+tick(10)
 afk_ref.value = false
 tick(10)
 check(last_cmd.force_defensive ~= true, "V1.0.35 kurulum: AFK kapaliyken uzak dusmanda defensive zorlanmaz")

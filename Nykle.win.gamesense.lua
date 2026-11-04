@@ -35,7 +35,7 @@
 -- satirlar client.color_log ile sadece konsola yazilir (GameSense'in print'i ekranin sol ustune de dusuyordu) ve
 -- dosyaya dakikada bir yazilir (5 dk'ydi; oyun cokerse daha az kayip).
 local nlog = { print = print, lines = {}, cap = 12000, trim = 1000, file = "nykle_log.txt", old = "",
-    old_cap = 2000000, dirty = false, saved = -1000, save_every = 60, count = 0, quiet = true }
+    old_cap = 1000000, dirty = false, saved = -1000, save_every = 60, count = 0, quiet = true }
 
 -- Konsola yaz: quiet acikken ve client.color_log varsa sadece konsola (gri), yoksa GameSense print'i.
 nlog.raw = function(...)
@@ -751,14 +751,18 @@ local afk = { on = false, anchor = nil, side = 1, flip_at = -1000, blocked_at = 
 
 -- Peek Assist tusu basili mi. AI peek yururken Peek Assist'in kutusunu kapatiriz (hareketi ezmesin);
 -- tusun kendisi (basili / toggle) okunmaya devam eder, kutunun senin degeri ezmeden onceki degerdir.
-local function peek_key_held()
-    if afk.on then
-        return true
-    end
+-- Peek Assist tusu gercekten basili mi (AFK haric).
+afk.key = function()
     if refs.peek_assist_key == nil then
         return false
     end
     return user_value("peek_assist") == true and get("peek_assist_key")
+end
+
+-- AI peek icin: tus ya da AFK. Durum (Peek) ve sahte kayit beklemesi gercek tusa bakar (bkz. afk.key):
+-- AFK'da hep "basili" sayilsa bekleme hic calismazdi ve her yan adim Peek olurdu.
+local function peek_key_held()
+    return afk.on or afk.key()
 end
 
 -------------------------------------------------------------------------------
@@ -1975,7 +1979,7 @@ do
         end
         -- Peek Assist tusu basili: sadece gercekten peek atarken (hareket ediyorsun ya da AI peek yuruyor /
         -- noktada bekliyor) Peek. Dururken tus basili olsa da durusun AA'si kalir (V1.0).
-        if peek_key_held() and (motion.moving or exposure.peeking ~= nil) then
+        if (afk.key() and (motion.moving or exposure.peeking ~= nil)) or (afk.on and exposure.peeking ~= nil) then
             return "Peek"
         end
         -- Hareket ederken tehdidin gorus alanina girmek = peek.
@@ -3948,7 +3952,7 @@ resolver.wait_apply = function(class, present)
     local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
     local enabled = on(menu.resolver) and on(menu.wait_real) and gun and plist_available(PL.WHITELIST)
     local wait, now = resolver.wait, tickcount()
-    local duel = current.state == "Peek" or peek_key_held()
+    local duel = current.state == "Peek" or afk.key()
     current.waiting = nil
     for _, enemy in ipairs(enemy_list()) do
         present[enemy] = true
@@ -4134,6 +4138,11 @@ do
                 -- ise govde tam canliya zaten ates edilmez (oldurmeyen govde atisi olmaz): Prefer. Daha dusukse eski
                 -- davranis (Default: 87-93 govde vuruslarindan sonra dusman hayatta kaliyordu).
                 local user_md = user_value("min_damage")
+                if get("md_override") == true and get("md_override_key") == true then
+                    -- Min. damage override tusu basiliysa aimbot o degeri kullanir.
+                    local v = get("md_override_value")
+                    user_md = finite(v) and v or user_md
+                end
                 wanted = (finite(user_md) and user_md >= 90) and "Prefer" or "Default"
             end
         end
@@ -4470,7 +4479,7 @@ recharge.exposed_anyway = function()
     -- (%10-%90, sarj olurken sunucuda donuyorsun) gelen mermilerin %55'i kafa (11/20), DT dolu ya da 0'dayken %17
     -- (10/59). Defensive egikken kafayi korumuyor (26% / 29%). Egikken Peek'te ve egik yururken de sarj bekletilir
     -- (gorulurken, en fazla 0.5 sn); ayakta Peek'te V1.0.22 kurali kalir (orada bekleme 70 kafa yedirmisti).
-    if exposure.ducked and on(menu.crouch_recharge) then
+    if exposure.ducked and on(menu.crouch_recharge) and current.state ~= "Air crouch" and current.state ~= "Air" then
         return false
     end
     if current.state == "Peek" then
@@ -5672,8 +5681,8 @@ do
             afk.anchor, afk.flip_at = mine, now + afk.every
         else
             local ax, ay = mine.x - afk.anchor.x, mine.y - afk.anchor.y
-            if ax * ax + ay * ay > 160 * 160 then
-                -- dogdun / isinlandin: yeni capa
+            if ax * ax + ay * ay > 160 * 160 or abs(mine.z - afk.anchor.z) > 18 then
+                -- dogdun / isinlandin / basamaktan dustun: yeni capa
                 afk.anchor, afk.flip_at = mine, now + afk.every
             end
         end
@@ -5702,7 +5711,10 @@ do
         local r = math.rad(yaw)
         local px, py = -math.sin(r), math.cos(r)
         local dest = vector(afk.anchor.x + px * afk.step * afk.side, afk.anchor.y + py * afk.step * afk.side, afk.anchor.z)
-        if not walkable(lp, afk.anchor, dest) then
+        -- AI peek'in yurunebilir kontrolu 40 birim asagidaki zemini de kabul eder; AFK adimi basamak yuksekligi (18)
+        -- icinde kalir, kenardan dusmez.
+        local floor_hit = trace_line(lp, vector(dest.x, dest.y, dest.z + 18), vector(dest.x, dest.y, dest.z - 18))
+        if not walkable(lp, afk.anchor, dest) or floor_hit == nil or floor_hit >= 1 then
             dest = afk.anchor
         end
         if move_to(cmd, mine, dest) < 4 then
@@ -5977,12 +5989,18 @@ local function tick_prepare(cmd)
         apply_recommended()
     end
     if not on(menu.enabled) then
+        afk.on, afk.anchor, afk.blocked_at = false, nil, nil
         reset_overrides()
         plist_reset(false)
         return nil
     end
     local lp = local_player()
     if lp == nil or not alive(lp) then
+        -- AFK (V1.0.35): olukken capa birakilir (dogdugun yer yeni capa), otomatik ates / durbun geri verilir
+        -- (olukken AFK'yi kapatirsan da takili kalmasin).
+        afk.anchor, afk.blocked_at = nil, nil
+        override("auto_fire", nil)
+        override("auto_scope", nil)
         override("fakeduck", nil)
         recharge.held = false
         -- Olunce oyuncu listesi ezmeleri (safe point, body aim, hipotez, sahte kayit bekleme whitelist'i)
@@ -6245,11 +6263,17 @@ do
         return (ok and finite(v)) and v or nil
     end
 
+    -- Once normal yazim (degisim geri cagrisi calissin), tutmadiysa set_raw_* (sv_cheats korumali cvar'lar), o da
+    -- tutmadiysa konsol komutu. Her adimdan sonra geri okunur.
     local function write(name, value, float)
         local c = obj(name)
-        if c ~= nil then
-            for _, method in ipairs(float and { "set_raw_float", "set_float" } or { "set_raw_int", "set_int" }) do
-                if type(c[method]) == "function" and pcall(c[method], c, value) then
+        if c == nil then
+            return
+        end
+        for _, method in ipairs(float and { "set_float", "set_raw_float" } or { "set_int", "set_raw_int" }) do
+            if type(c[method]) == "function" and pcall(c[method], c, value) then
+                local v = read(name, float)
+                if v ~= nil and math.abs(v - value) <= 0.001 then
                     return
                 end
             end
@@ -6267,9 +6291,10 @@ do
             return
         end
         local v = read(name, float)
-        if v == nil or math.abs(v - want) > 0.001 then
+        -- Okunamayan cvar'a dokunulmaz: yanlis "eski deger" geri yazilmasin.
+        if v ~= nil and math.abs(v - want) > 0.001 then
             if saved[name] == nil then
-                saved[name] = v or (float and 0 or 1)
+                saved[name] = v
             end
             write(name, want, float)
         end
@@ -7748,8 +7773,10 @@ D.me = function(lp)
     if current.freestand then
         parts[#parts + 1] = "FS"
     end
-    if peek_key_held() then
+    if afk.key() then
         parts[#parts + 1] = "peek tusu"
+    elseif afk.on then
+        parts[#parts + 1] = "afk"
     end
     parts[#parts + 1] = exploit_status()
     -- V1.0.21: kendi choke'umuz (fake lag) ve temiz atisin kaynagi (iz / bayrak / atis).
