@@ -31,8 +31,26 @@
 -- dugmeler hepsini panoya kopyalar ya da konsola yeniden yazar. Ayrica nykle_log.txt'ye (CS:GO klasoru)
 -- round basinda, harita degisince, her 5 dakikada ve kapanista yazilir; onceki oturumlarin loglari
 -- dosyada kalir ("Clear saved logs" ile silinir). Sadece bu lua'nin satirlari tutulur.
-local nlog = { raw = print, lines = {}, cap = 12000, trim = 1000, file = "nykle_log.txt", old = "",
-    old_cap = 2000000, dirty = false, saved = -1000, save_every = 300, count = 0 }
+-- V1.0.35 (istek: "loglar ekranin ustunde gozukmesin, consolda yazsin, metin belgesine yazilsin"): quiet acikken
+-- satirlar client.color_log ile sadece konsola yazilir (GameSense'in print'i ekranin sol ustune de dusuyordu) ve
+-- dosyaya dakikada bir yazilir (5 dk'ydi; oyun cokerse daha az kayip).
+local nlog = { print = print, lines = {}, cap = 12000, trim = 1000, file = "nykle_log.txt", old = "",
+    old_cap = 2000000, dirty = false, saved = -1000, save_every = 60, count = 0, quiet = true }
+
+-- Konsola yaz: quiet acikken ve client.color_log varsa sadece konsola (gri), yoksa GameSense print'i.
+nlog.raw = function(...)
+    if nlog.quiet then
+        local parts = {}
+        for i = 1, select("#", ...) do
+            parts[i] = tostring((select(i, ...)))
+        end
+        local ok_c, color_log = pcall(function() return client.color_log end)
+        if ok_c and type(color_log) == "function" and pcall(color_log, 210, 210, 210, table.concat(parts, " ")) then
+            return
+        end
+    end
+    return nlog.print(...)
+end
 
 nlog.stamp = function()
     local ok, h, m, s = pcall(client.system_time)
@@ -167,8 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.34"
-local EDITION = "GameSense"
+local VERSION = "1.0.35"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -447,6 +464,9 @@ do
     refs.dt_fakelag = find({ { "RAGE", "Aimbot", "Double tap fake lag limit" }, { "RAGE", "Other", "Double tap fake lag limit" } }, true)
     refs.fakeduck = find({ { "RAGE", "Other", "Duck peek assist" } })
     refs.peek_assist, refs.peek_assist_key = find({ { "RAGE", "Other", "Quick peek assist" } })
+    -- V1.0.35 AFK: otomatik ates / durbun (yoksa atlanir).
+    refs.auto_fire = find({ { "RAGE", "Aimbot", "Automatic fire" } }, true)
+    refs.auto_scope = find({ { "RAGE", "Aimbot", "Automatic scope" } }, true)
     refs.prefer_safe = find({ { "RAGE", "Aimbot", "Prefer safe point" } })
     refs.force_safe = find({ { "RAGE", "Aimbot", "Force safe point" } }, true)
     refs.force_body = find({ { "RAGE", "Aimbot", "Force body aim" } }, true)
@@ -725,9 +745,16 @@ local function slowwalk_on()
     return get("slowwalk") == true and (refs.slowwalk_key == nil or get("slowwalk_key"))
 end
 
+-- AFK modu (V1.0.35): acikken Peek Assist tusu basili sayilir (AI peek durdugun yerden calisir), 3 sn'de bir
+-- sag / sol adim, exploit'ler tam acik. Durum asagida update_ai_peek'te guncellenir.
+local afk = { on = false, anchor = nil, side = 1, flip_at = -1000, blocked_at = nil, every = 3, step = 24 }
+
 -- Peek Assist tusu basili mi. AI peek yururken Peek Assist'in kutusunu kapatiriz (hareketi ezmesin);
 -- tusun kendisi (basili / toggle) okunmaya devam eder, kutunun senin degeri ezmeden onceki degerdir.
 local function peek_key_held()
+    if afk.on then
+        return true
+    end
     if refs.peek_assist_key == nil then
         return false
     end
@@ -1078,7 +1105,7 @@ local function group(tab, column, title, is_tracked)
 end
 
 -- Ust kisim (Enable kapaliyken de gorunur).
-menu.header  = create("A", "label", style.title(("%s  V%s  " .. DIM_HEX .. "| %s edition"):format(SCRIPT, VERSION, EDITION)))
+menu.header  = create("A", "label", style.title(("%s  V%s  " .. DIM_HEX .. "| GameSense edition"):format(SCRIPT, VERSION)))
 menu.enabled = create("A", "checkbox", "Enable Nykle.win")
 if menu.enabled ~= nil then
     menu.enabled:set(true)
@@ -1195,6 +1222,9 @@ menu.brute_log    = grp.console:switch("Anti-brute log", false)
 -- V1.0.10: oyun loglarindan gelistirmek icin detayli log (konum, mesafe, hiz, defensive, duello ozeti,
 -- "gordu ama sikmadi" sebebi). Varsayilan acik; satirlar "dbg" ile baslar.
 menu.debug_log    = grp.console:switch("Detailed log (for analysis)", true)
+-- V1.0.35: loglar ekranda gorunmez (sadece konsol + nykle_log.txt); CS:GO'nun sol ust bildirimi (con_notifytime) de
+-- kapanir, kapatinca eski degeri doner.
+menu.log_quiet    = grp.console:switch("Logs only in console + file (not on screen)", true)
 menu.log_copy     = grp.console:button("Copy all logs", function()
     local text = nlog.text(true)
     local count = select(2, text:gsub("\n", "\n")) + (text ~= "" and 1 or 0)
@@ -1267,11 +1297,14 @@ menu.auto_exploit   = grp.exploits:switch("Auto exploit", true)
 menu.sniper_exploit = grp.exploits:combo("Snipers (SSG08/AWP/R8)", { "Same as state", "Auto (learn)", "Hide shots" },
     function() return on(menu.auto_exploit) end)
 menu.safe_recharge  = grp.exploits:switch("Safe recharge", true)
+menu.crouch_recharge = grp.exploits:switch("  » Also while crouched (peek / crouch move)", true, function() return on(menu.safe_recharge) end)
 menu.hidden_spin    = grp.exploits:slider("Hidden spin speed", 1, 30, 10)
 menu.exploit_info   = grp.exploits:label(DIM_HEX .. "Per-state exploit settings are in the Builder.")
 menu.auto_peek      = grp.peek:switch("Auto peek", true)
 menu.ai_peek        = grp.peek:switch("AI peek (hold Quick peek assist)", true)
 menu.peek_defensive = grp.peek:switch("  » Defensive during AI peek", true, function() return on(menu.ai_peek) end)
+-- V1.0.35 (istek: "afk modu: oldugum yerde ai peek, 3 sn'de bir saga sola, exploit full, vurulma zor olsun").
+menu.afk            = grp.peek:switch("AFK mode (AI peek here + strafe, full exploits)", false)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
@@ -1423,6 +1456,11 @@ menu.jump_scout  = grp.movement:switch("Jump scout (no air strafe on standing ju
 -- V1.0.28: kalici sol el. Lua yuklenir yuklenmez cl_righthand 0 yazilir ve acik kaldikca oyle tutulur (oyun ya da
 -- config geri cevirse de); kapatinca / script kaldirilinca senin eski degerin geri gelir.
 menu.left_hand   = grp.movement:switch("Left hand (cl_righthand 0, permanent)", true)
+-- V1.0.35 (istek: "aspect ratio 4:3, fps artsin"): r_aspectratio goruntuyu 4:3'e ceker (modeller genis gorunur).
+-- Not: r_aspectratio tek basina FPS artirmaz (cozunurluk degismez); FPS'i "FPS boost" artirir (golgeler, 3D sky,
+-- post-process, kirilan parca ve namlu isigi kapali). Ikisi de kapatinca / script kaldirilinca eski degerine doner.
+menu.aspect      = grp.movement:combo("Aspect ratio", { "4:3", "Off", "5:4", "16:10" })
+menu.fps_boost   = grp.movement:switch("FPS boost (shadows / 3D sky / post-process off)", true)
 
 -- GameSense'in kendi AA ayarlari: lua acikken gizli (lua bunlari kendisi yaziyor, menusu de ayni kutuda),
 -- kapaliyken ve unload'da geri gorunur (angelwings'in yontemi).
@@ -1925,6 +1963,7 @@ do
         elseif duck < DUCK_LEAVE then
             motion.ducked = false
         end
+        exposure.ducked = motion.ducked
 
         local crouching = motion.ducked or fd_on()
         if pressed(cmd.in_jump) or motion.ground_ticks < LANDING_TICKS then
@@ -4090,7 +4129,12 @@ do
             elseif not info[4] and dt_ready() and health <= 2 * chest then
                 wanted = "Prefer"
             elseif info[4] then
-                wanted = "Default"
+                -- V1.0.35: kimse seni gormezken (sniper kurali yok) scout kafa isabeti %55 (48/88), gorulurken %84
+                -- (16/19); iki grup arasindaki tek ayar farki Body Aim (Prefer / Default). Senin Min. damage'in 90+
+                -- ise govde tam canliya zaten ates edilmez (oldurmeyen govde atisi olmaz): Prefer. Daha dusukse eski
+                -- davranis (Default: 87-93 govde vuruslarindan sonra dusman hayatta kaliyordu).
+                local user_md = user_value("min_damage")
+                wanted = (finite(user_md) and user_md >= 90) and "Prefer" or "Default"
             end
         end
         local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
@@ -4422,6 +4466,13 @@ local recharge = { held = false, fakeduck = false, released = -1000 }
 
 -- Beklemenin bir sey kazandirmadigi durumlar: Peek ve yurume (V1.0.22).
 recharge.exposed_anyway = function()
+    -- V1.0.35 (istek: "egilirken vurulmam daha zor olsun"; v30-v33b, egik 84 vurulma): egikken DT yarim sarjda
+    -- (%10-%90, sarj olurken sunucuda donuyorsun) gelen mermilerin %55'i kafa (11/20), DT dolu ya da 0'dayken %17
+    -- (10/59). Defensive egikken kafayi korumuyor (26% / 29%). Egikken Peek'te ve egik yururken de sarj bekletilir
+    -- (gorulurken, en fazla 0.5 sn); ayakta Peek'te V1.0.22 kurali kalir (orada bekleme 70 kafa yedirmisti).
+    if exposure.ducked and on(menu.crouch_recharge) then
+        return false
+    end
     if current.state == "Peek" then
         return true
     end
@@ -4473,7 +4524,11 @@ local function apply_exploit(s, class)
     if not on(menu.auto_exploit) then
         choice = "Binds"
     end
-    if choice ~= "Binds" then
+    -- V1.0.35 AFK: exploit tam acik, her silahta DT.
+    if afk.on then
+        choice = "Double tap"
+    end
+    if choice ~= "Binds" and not afk.on then
         local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
         local sniper_setting = menu.sniper_exploit:get()
         local sniper_hs = SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs"))
@@ -4847,6 +4902,9 @@ do
     apply_defensive = function(cmd, s, class, state, moving, armed, clean)
         local dt, hs = dt_on(), hs_on()
         local mode = s ~= nil and s.def_mode ~= nil and s.def_mode:get() or "Off"
+        if afk.on and (mode == "Off" or mode == "On peek") then
+            mode = "Smart"
+        end
         if not (dt or hs) or mode == "Off" or is_grenade(class) or fd_on() then
             return nil, nil
         end
@@ -4865,7 +4923,7 @@ do
         local peeking = on_peek and exposure.peeking ~= nil and on(menu.peek_defensive)
         local switching = on_peek and switch_window(cmd)
         local knife = on_peek and current.backstab ~= nil and on(menu.backstab_def)
-        local forced = (window or guard or peeking or switching or knife) and dt and exploit_active()
+        local forced = (window or guard or peeking or switching or knife or afk.on) and dt and exploit_active()
             and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
         current.forced = forced
@@ -5491,7 +5549,7 @@ do
     end
 
     local function allowed(lp, cmd, class)
-        if not ai_peek.available or not on(menu.ai_peek) or not peek_key_held() then
+        if not ai_peek.available or not (on(menu.ai_peek) or afk.on) or not peek_key_held() then
             return false
         end
         if not on_ground(lp) or pressed(cmd.in_jump) or pressed(cmd.in_use)
@@ -5599,8 +5657,79 @@ do
 
     local step
 
+    -- AFK sag / sol adim: AI peek bosken capanin (acildigi yer) iki yanina afk.step birim, afk.every sn'de bir yon
+    -- degisir. Yon dusmana (yoksa bakisa) dik. Duvar / ucurum varsa o yan atlanir. Sen tusa basinca durur, biraktigin
+    -- yer yeni capa olur.
+    local function afk_strafe(lp, cmd, user_input)
+        local mine = origin_of(lp)
+        local now = realtime()
+        if mine == nil or user_input or not on_ground(lp) or pressed(cmd.in_jump) or pressed(cmd.in_use)
+            or prop(lp, "m_MoveType") == K.MOVETYPE_LADDER then
+            afk.anchor = nil
+            return
+        end
+        if afk.anchor == nil then
+            afk.anchor, afk.flip_at = mine, now + afk.every
+        else
+            local ax, ay = mine.x - afk.anchor.x, mine.y - afk.anchor.y
+            if ax * ax + ay * ay > 160 * 160 then
+                -- dogdun / isinlandin: yeni capa
+                afk.anchor, afk.flip_at = mine, now + afk.every
+            end
+        end
+        -- 2 bos peek kilidi AFK'da tus yeniden basilmadigi icin 10 sn sonra kalkar.
+        if ai_peek.blocked ~= nil then
+            afk.blocked_at = afk.blocked_at or now
+            if now - afk.blocked_at > 10 then
+                ai_peek.blocked, ai_peek.fails, afk.blocked_at = nil, 0, nil
+            end
+        else
+            afk.blocked_at = nil
+        end
+        if ai_peek.mode ~= nil then
+            afk.flip_at = max(afk.flip_at, now + 0.5)
+            return
+        end
+        if now >= afk.flip_at or now < afk.flip_at - afk.every - 1 then
+            afk.side, afk.flip_at = -afk.side, now + afk.every
+        end
+        local threat = aa_threat()
+        local theirs = threat ~= nil and not dormant(threat) and origin_of(threat) or nil
+        local yaw = theirs ~= nil and yaw_to(afk.anchor, theirs) or view_yaw(cmd)
+        if yaw == nil then
+            return
+        end
+        local r = math.rad(yaw)
+        local px, py = -math.sin(r), math.cos(r)
+        local dest = vector(afk.anchor.x + px * afk.step * afk.side, afk.anchor.y + py * afk.step * afk.side, afk.anchor.z)
+        if not walkable(lp, afk.anchor, dest) then
+            dest = afk.anchor
+        end
+        if move_to(cmd, mine, dest) < 4 then
+            stand(cmd)
+        end
+    end
+
     update_ai_peek = function(lp, cmd, class)
+        local was = afk.on
+        afk.on = on(menu.enabled) and on(menu.afk) and alive(lp)
+        if afk.on ~= was then
+            afk.anchor, afk.blocked_at = nil, nil
+            if on(menu.hit_log) then
+                print(("[%s] afk modu %s"):format(SCRIPT, afk.on
+                    and "acik: AI peek burada, 3 sn'de bir sag / sol, DT + defensive tam" or "kapali"))
+            end
+        end
+        local user_input = user_moving(cmd)
         step(lp, cmd, class)
+        if afk.on then
+            afk_strafe(lp, cmd, user_input)
+            override("auto_fire", true)
+            override("auto_scope", true)
+        else
+            override("auto_fire", nil)
+            override("auto_scope", nil)
+        end
         if ai_peek.mode ~= nil then
             override("peek_assist", false)
         else
@@ -6088,6 +6217,86 @@ do
         if lefthand.applied then
             write(lefthand.original or 1)
             lefthand.applied = false
+        end
+    end))
+end
+
+-- V1.0.35: aspect ratio ve FPS boost. Deger farkliysa yazilir (ilk yazimda senin degerin saklanir), kapatinca /
+-- kaldirilinca geri yazilir. Saniyede bir kontrol (oyun ya da config geri cevirse de). set_raw_* sv_cheats
+-- korumasini atlar; yoksa set_*, o da yoksa client.exec.
+do
+    local ASPECT = { ["4:3"] = 4 / 3, ["5:4"] = 5 / 4, ["16:10"] = 16 / 10 }
+    local FPS_CVARS = { "r_3dsky", "r_shadows", "cl_csm_shadows", "cl_csm_rope_shadows", "cl_csm_sprite_shadows",
+        "cl_csm_static_prop_shadows", "cl_csm_viewmodel_shadows", "cl_csm_world_shadows", "cl_foot_contact_shadows",
+        "mat_postprocess_enable", "func_break_max_pieces", "muzzleflash_light", "r_dynamic" }
+    local saved, last = {}, -1000
+
+    local function obj(name)
+        local ok, c = pcall(function() return cvar[name] end)
+        return (ok and c ~= nil) and c or nil
+    end
+
+    local function read(name, float)
+        local c = obj(name)
+        if c == nil then
+            return nil
+        end
+        local ok, v = pcall(float and c.get_float or c.get_int, c)
+        return (ok and finite(v)) and v or nil
+    end
+
+    local function write(name, value, float)
+        local c = obj(name)
+        if c ~= nil then
+            for _, method in ipairs(float and { "set_raw_float", "set_float" } or { "set_raw_int", "set_int" }) do
+                if type(c[method]) == "function" and pcall(c[method], c, value) then
+                    return
+                end
+            end
+        end
+        pcall(client.exec, ("%s %s"):format(name, float and ("%.4f"):format(value) or tostring(value)))
+    end
+
+    -- want nil: senin degerine don.
+    local function hold(name, want, float)
+        if want == nil then
+            if saved[name] ~= nil then
+                write(name, saved[name], float)
+                saved[name] = nil
+            end
+            return
+        end
+        local v = read(name, float)
+        if v == nil or math.abs(v - want) > 0.001 then
+            if saved[name] == nil then
+                saved[name] = v or (float and 0 or 1)
+            end
+            write(name, want, float)
+        end
+    end
+
+    local function update()
+        local now = realtime()
+        if now >= last and now - last < 1 then
+            return
+        end
+        last = now
+        local enabled = on(menu.enabled)
+        hold("r_aspectratio", enabled and ASPECT[menu.aspect:get()] or nil, true)
+        local boost = enabled and on(menu.fps_boost)
+        for _, name in ipairs(FPS_CVARS) do
+            hold(name, boost and 0 or nil, false)
+        end
+        nlog.quiet = on(menu.log_quiet)
+        hold("con_notifytime", nlog.quiet and 0 or nil, true)
+    end
+
+    listen("paint", protect("aspect / fps", update))
+    listen("shutdown", protect("aspect / fps", function()
+        hold("r_aspectratio", nil, true)
+        hold("con_notifytime", nil, true)
+        for _, name in ipairs(FPS_CVARS) do
+            hold(name, nil, false)
         end
     end))
 end
@@ -8594,7 +8803,7 @@ end
 -- Kalici hafiza yuklenir; kac oyuncu hatirlandigi surum satirina eklenir.
 do
     local loaded = persist.load()
-    print(("[%s] V%s (%s edition) yuklendi%s"):format(SCRIPT, VERSION, EDITION,
+    print(("[%s] V%s (%s edition) yuklendi%s"):format(SCRIPT, VERSION, "GameSense",
         loaded > 0 and (" (hafiza: %d oyuncu)"):format(loaded) or ""))
 end
 

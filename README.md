@@ -6,7 +6,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim, exploit ve resolver lua's
 
 ## V1.1'de ne değişti (GameSense sürümünden taşınanlar)
 
-GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
+GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi, V1.0.35'te AFK modu, aspect ratio ve eğilme koruması geldi (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
 
 | Değişiklik | Nerede | Logdaki kanıt (GameSense) |
 |---|---|---|
@@ -419,7 +419,20 @@ Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 5
 
 Elenenler (doğrulayıcı reddetti): `sikmadi` teşhisinin MD 100+ hesabı, duelloda sahte kayıt beklemesi yok (bilinçli), sniper'da öldürücü gövdenin Prefer'de kalması.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.34 kuralları (75 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.35** (istekler: AFK modu, 4:3, eğilirken daha zor vurulma, loglar ekranda değil; tarama fikri 2):
+
+| Değişiklik | Menü | Neden |
+|---|---|---|
+| **AFK modu:** açınca durduğun yer çapa olur, AI peek Peek Assist tuşu olmadan oradan çalışır; AI peek boştayken **3 sn'de bir** düşmana dik 24 birim sağa / sola adım (duvar / uçurum varsa o yan atlanır); DT her silahta açık, DT doluyken defensive her tick zorlanır (temiz atış hariç), otomatik ateş ve otomatik dürbün açık. Tuşa basınca adım durur, bıraktığın yer yeni çapa olur; doğunca / ışınlanınca çapa yenilenir. 2 boş peek kilidi AFK'da 10 sn sonra kalkar. Log: `afk modu acik ...` | Exploits → Peek → **AFK mode** (kapalı) | İstek. Not: AFK'da da hareket ettiğin için durum Peek sayılır (Peek AA'sı ve exploit'i) |
+| **Aspect ratio** (`r_aspectratio`): 4:3 / 5:4 / 16:10 / Off | Misc → Movement → **Aspect ratio** (4:3) | İstek. `r_aspectratio` görüntüyü 4:3'e çeker ama **FPS'i tek başına artırmaz** (çözünürlük değişmez) |
+| **FPS boost:** gölgeler (`r_shadows`, `cl_csm_*`), 3D sky, post-process, kırılan parça, namlu ışığı, dinamik ışık kapalı | Misc → Movement → **FPS boost** (açık) | FPS artışı bundan gelir. Kapatınca / script kaldırılınca senin eski değerlerin geri yazılır |
+| **Eğilirken Safe recharge:** eğik Peek'te ve eğik yürürken de görülüyorsan atıştan sonra DT şarjı bekletilir (en fazla 0.5 sn) | Exploits → **Also while crouched** (açık) | v30–v33b'de eğikken 84 vurulma: DT yarım şarjdayken (%10–90, şarj olurken sunucuda donuyorsun) gelen mermilerin **%55'i kafa** (11/20), DT dolu / 0'dayken %17 (10/59). Defensive eğikken kafayı korumuyor (%26 / %29), o yüzden "defensive zorla" değil. Ayakta Peek'te V1.0.22 kuralı kalır |
+| Kimse seni görmezken scout'ta **Body Aim Prefer** (senin Min. damage'in 90+ iken; daha düşükse eski Default) | — | Görülmezken kafa isabeti %55, görülürken %84; tek ayar farkı Body Aim. MD 100'de tam canlı düşmana gövde atışı zaten yapılmaz |
+| **Loglar ekranda değil:** satırlar `client.color_log` ile sadece konsola, CS:GO'nun sol üst bildirimi (`con_notifytime`) kapalı; `nykle_log.txt` dakikada bir yazılır (5 dk'ydı) | Home → Console → **Logs only in console + file** (açık) | İstek. Dosya CS:GO klasöründe |
+
+Fikir 1 (AI peek'in DT çiftiyle öldüren açıyı kabul etmesi) yapılmadı: V1.0.34'te sniper DT çifti kaldırıldı; AI peek tek gövde mermisiyle öldüren açıyı zaten kabul ediyor. Loglardaki retlerin hepsi "60 birime kadar öldürecek atış yok" (tam canlı, kafa görünmüyor).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.35 kuralları (96 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

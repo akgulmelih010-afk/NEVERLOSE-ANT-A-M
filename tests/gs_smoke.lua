@@ -98,6 +98,7 @@ reference("RAGE", "Aimbot", "Double tap fake lag limit", newref("slider", "Doubl
 reference("RAGE", "Other", "Duck peek assist", newref("hotkey", "Duck peek assist", false))
 reference("RAGE", "Other", "Quick peek assist", newref("checkbox", "Quick peek assist", false), newref("hotkey", "Quick peek assist key", false))
 reference("RAGE", "Aimbot", "Prefer safe point", newref("checkbox", "Prefer safe point", false))
+reference("RAGE", "Aimbot", "Automatic fire", newref("checkbox", "Automatic fire", false))
 reference("RAGE", "Aimbot", "Force safe point", newref("hotkey", "Force safe point", false))
 reference("RAGE", "Aimbot", "Force body aim", newref("hotkey", "Force body aim", false))
 reference("RAGE", "Aimbot", "Minimum damage", newref("slider", "Minimum damage", 100))
@@ -190,6 +191,7 @@ function client.trace_bullet(from_ent, x1, y1, z1, x2, y2, z2)
 end
 function client.trace_line(skip, x1, y1, z1, x2, y2, z2)
     if z2 < z1 - 200 then return 0.02, -1 end -- zemin hemen altta
+    if x1 == x2 and y1 == y2 and z2 < z1 then return 0.3, -1 end -- V1.0.35: kisa dikey iz (yurunebilir mi): zemin var
     local target = who_at(x2, y2)
     if target == 1 and skip ~= 1 then
         return W.sees[skip] and 1 or 0.5, W.sees[skip] and 1 or -1
@@ -204,6 +206,12 @@ function client.userid_to_entindex(userid) return userid end
 function client.system_time() return 12, 0, 0 end
 function client.key_state() return false end
 function client.exec() end
+-- V1.0.35: sadece konsola yazan client.color_log; satirlar ayni listeye, ayrica sayilir.
+local color_logged = 0
+function client.color_log(_, _, _, msg)
+    color_logged = color_logged + 1
+    prints[#prints + 1] = msg
+end
 function client.delay_call() end
 function client.set_clan_tag() end
 function client.camera_angles() return 0, 0 end
@@ -337,9 +345,14 @@ function plist.set(ent, field, value)
 end
 
 local righthand = { value = 1 }
+-- V1.0.35: aspect ratio (float, set_raw_float) ve FPS boost'tan biri (int, set_raw_int).
+local aspect, sky, notify = { value = 0 }, { value = 1 }, { value = 8 }
 local cvar = {
     cl_clanid = { get_int = function() return 0 end, set_int = function() end },
     cl_righthand = { get_int = function() return righthand.value end, set_int = function(_, v) righthand.value = v end },
+    r_aspectratio = { get_float = function() return aspect.value end, set_raw_float = function(_, v) aspect.value = v end },
+    r_3dsky = { get_int = function() return sky.value end, set_raw_int = function(_, v) sky.value = v end },
+    con_notifytime = { get_float = function() return notify.value end, set_raw_float = function(_, v) notify.value = v end },
 }
 
 -------------------------------------------------------------------------------
@@ -363,7 +376,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.34 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.34")
+check(printed("V1.0.35 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.35")
 
 local function errors_since(i)
     local found = {}
@@ -509,6 +522,28 @@ W.lag = 0
 tick(3)
 check(dt_ref.value == true, "yururken Safe recharge beklemez")
 W.speed, W.lag = 0, 12
+tick(40)
+-- V1.0.35: egik yururken (ve egik Peek'te) goruluyorsan atistan sonra sarj bekletilir: egikken DT yarim sarjda
+-- gelen mermilerin %55'i kafaydi, dolu / 0'da %17.
+W.speed, W.duck = 150, 1
+tick(10)
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+W.lag = 0
+tick(3)
+check(dt_ref.value == false, "V1.0.35: egik yururken goruluyorken atistan sonra sarj bekletilir")
+tick(36)
+check(dt_ref.value == true, "V1.0.35: egikken de en fazla 0.5 sn")
+W.lag = 12
+tick(10)
+local crouch_ref = find_ref("  » Also while crouched (peek / crouch move)")
+check(crouch_ref ~= nil and crouch_ref.value == true, "V1.0.35: egik sarj bekleme secenegi var, varsayilan acik")
+crouch_ref.value = false
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+W.lag = 0
+tick(3)
+check(dt_ref.value == true, "V1.0.35: secenek kapaliyken egik yururken beklemez (V1.0.22)")
+crouch_ref.value = true
+W.speed, W.duck, W.lag = 0, 0, 12
 tick(40)
 
 -------------------------------------------------------------------------------
@@ -736,6 +771,83 @@ W.sees[2] = false
 tick(10)
 
 -------------------------------------------------------------------------------
+-- V1.0.35: kimse seni gormezken scout'ta Body Aim Prefer (senin Min. damage'in 90+ iken); daha dusukse Default
+-------------------------------------------------------------------------------
+check(md_ref.value == 100 and plist.get(2, "Override prefer body aim") == "On",
+    "V1.0.35: gorulmuyorken scout, MD 100: prefer body On (" .. tostring(plist.get(2, "Override prefer body aim")) .. ")")
+md_ref.value = 50
+tick(10)
+check(plist.get(2, "Override prefer body aim") == "Off",
+    "V1.0.35: senin MD 50: eski davranis Off (" .. tostring(plist.get(2, "Override prefer body aim")) .. ")")
+md_ref.value = 100
+tick(10)
+
+-------------------------------------------------------------------------------
+-- V1.0.35: aspect ratio 4:3 ve FPS boost varsayilan acik; kapatinca geri
+-------------------------------------------------------------------------------
+check(math.abs(aspect.value - 4 / 3) < 0.001 and sky.value == 0,
+    "V1.0.35: aspect ratio 4:3 ve r_3dsky 0 (" .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ")")
+local aspect_ref, boost_ref = find_ref("Aspect ratio"), find_ref("FPS boost (shadows / 3D sky / post-process off)")
+check(aspect_ref ~= nil and boost_ref ~= nil, "V1.0.35: Aspect ratio ve FPS boost menude")
+aspect_ref.value, boost_ref.value = "Off", false
+tick(70)
+check(aspect.value == 0 and sky.value == 1, "V1.0.35: kapatinca senin degerlerin geri (" .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ")")
+aspect_ref.value, boost_ref.value = "4:3", true
+tick(70)
+check(math.abs(aspect.value - 4 / 3) < 0.001 and sky.value == 0, "V1.0.35: yeniden acilinca 4:3 ve r_3dsky 0")
+-- V1.0.35: loglar sadece konsola (color_log), ekranin sol ust bildirimi kapali; kapatinca print ve eski deger.
+check(color_logged > 50 and notify.value == 0, "V1.0.35: satirlar color_log ile (" .. color_logged .. "), con_notifytime 0 (" .. tostring(notify.value) .. ")")
+local quiet_ref = find_ref("Logs only in console + file (not on screen)")
+check(quiet_ref ~= nil and quiet_ref.value == true, "V1.0.35: sessiz log secenegi var, varsayilan acik")
+quiet_ref.value = false
+tick(70)
+local before_color = color_logged
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+fire("aim_fire", { id = 30, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+tick(2)
+fire("aim_hit", { id = 30, target = 2, hitgroup = 1, damage = 120 })
+check(color_logged == before_color and notify.value == 8, "V1.0.35: kapatinca print ile yazilir, con_notifytime senin degerin (" .. tostring(notify.value) .. ")")
+quiet_ref.value = true
+tick(70)
+
+-------------------------------------------------------------------------------
+-- V1.0.35: AFK modu: AI peek burada, 3 sn'de bir sag / sol adim, DT + otomatik ates
+-------------------------------------------------------------------------------
+local afk_ref, fire_ref = find_ref("AFK mode (AI peek here + strafe, full exploits)"), find_ref("Automatic fire")
+check(afk_ref ~= nil and afk_ref.value == false, "V1.0.35: AFK modu var, varsayilan kapali")
+W.sees[2], W.sees[3], W.speed, W.lag = false, false, 0, 12
+before = #prints + 1
+afk_ref.value = true
+tick(10)
+check(printed("afk modu acik", before) ~= nil, "V1.0.35: AFK acilinca loga yazilir")
+check(fire_ref.value == true and dt_ref.value == true, "V1.0.35: AFK'da otomatik ates ve DT acik ("
+    .. tostring(fire_ref.value) .. ", " .. tostring(dt_ref.value) .. ")")
+-- Dusmanlar uzakta ve gormuyor (Smart'in "yakinda dusman" penceresi yok): AFK yine de defensive zorlar.
+ORIGIN[2], ORIGIN[3] = { 5000, 0, 0 }, { 0, 5000, 0 }
+tick(10)
+check(last_cmd.force_defensive == true, "V1.0.35: AFK'da DT doluyken defensive her tick zorlanir (dusman uzakta olsa da)")
+afk_ref.value = false
+tick(10)
+check(last_cmd.force_defensive ~= true, "V1.0.35 kurulum: AFK kapaliyken uzak dusmanda defensive zorlanmaz")
+afk_ref.value = true
+tick(10)
+ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 500, 0 }
+tick(5)
+local side1 = last_cmd.sidemove
+tick(200) -- 3 sn'den fazla
+local side2 = last_cmd.sidemove
+check(side1 ~= 0 and side2 ~= 0 and (side1 > 0) ~= (side2 > 0),
+    "V1.0.35: AFK'da dusmana dik sag / sol adim, 3 sn sonra yon degisir (" .. tostring(side1) .. " -> " .. tostring(side2) .. ")")
+W.speed = 150 -- sen tusa basinca AFK adimi durur
+tick(5)
+check(last_cmd.sidemove == 0, "V1.0.35: sen hareket edince AFK adimi karismaz (" .. tostring(last_cmd.sidemove) .. ")")
+W.speed = 0
+before = #prints + 1
+afk_ref.value = false
+tick(10)
+check(printed("afk modu kapali", before) ~= nil and fire_ref.value == false, "V1.0.35: AFK kapatinca otomatik ates senin degerine doner")
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -744,6 +856,8 @@ fire("shutdown")
 errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
+check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
+    .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
 local saved = db.nykle_win_gs_memory
 local arms = type(saved) == "table" and type(saved.own_res) == "table" and saved.own_res.arms or nil
 check(arms ~= nil and arms["lby+"] ~= nil and arms["lby+"].shots == 1 and arms["lby+"].hits == 1,
