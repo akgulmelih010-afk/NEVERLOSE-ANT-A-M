@@ -129,6 +129,10 @@ Her şey tek dosyada, yukarıdan aşağı:
 - `tests/run_tests.sh mutate`: `tests/mutate.py` ile 703 mutasyon; her biri kodu bilerek bozar ve testlerin yakalaması beklenir. Yaklaşık 1 saat sürer.
 - Kural: her davranış değişikliğinde test ekle, yeni testin eski kodda kırıldığını kontrol et, değişen kod için mutasyon ekle. Eski desenler kodla eşleşmiyorsa (`SKIP`) güncelle.
 
+## Odak (kullanıcı isteği)
+
+Şu an **sadece GameSense** (`Nykle.win.gamesense.lua`). Neverlose'a kullanıcı "Neverlose'a geç" diyene kadar dokunulmaz, fikir listelerinde de Neverlose önerilmez.
+
 ## Kullanıcıya rapor biçimi (istek)
 
 Her log sonrası rapor kısa ve şu biçimde olmalı (ayrıntı dosyalara, sohbete değil):
