@@ -434,7 +434,7 @@ Gözden geçirmeden sonra düzeltilenler (aynı sürüm): AFK'da Peek tuşu her 
 
 Fikir 1 (AI peek'in DT çiftiyle öldüren açıyı kabul etmesi) yapılmadı: V1.0.34'te sniper DT çifti kaldırıldı; AI peek tek gövde mermisiyle öldüren açıyı zaten kabul ediyor. Loglardaki retlerin hepsi "60 birime kadar öldürecek atış yok" (tam canlı, kafa görünmüyor).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.35 kuralları (98 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.35 kuralları (99 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
