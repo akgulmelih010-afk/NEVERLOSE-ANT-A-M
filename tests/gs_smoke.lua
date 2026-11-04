@@ -363,7 +363,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.33 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.33")
+check(printed("V1.0.34 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.34")
 
 local function errors_since(i)
     local found = {}
@@ -563,23 +563,18 @@ local md_ref = find_ref("Minimum damage")
 local body_ref = find_ref("  » Body 70+ while an enemy sees you")
 local pair_ref = find_ref("  » DT pair counts as lethal")
 check(body_ref ~= nil and body_ref.value == false, "Body 70+ secenegi var ve varsayilan kapali")
-check(pair_ref ~= nil and pair_ref.value == true, "DT pair secenegi var ve varsayilan acik")
+check(pair_ref ~= nil and pair_ref.value == false, "V1.0.34: DT pair secenegi etkisiz, varsayilan kapali")
 -- "Always use recommended settings" 64 tick'te bir secenekleri varsayilana dondurur: test icin kapatilir.
 local rec_ref = find_ref("Always use recommended settings")
 check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
 rec_ref.value = false
--- V1.0.26: DT dolu, govde 86 x 2 >= 100: cift oldurucu, MD gecici 85.
+-- V1.0.34: scout DT ikinci mermiyi atmiyor: govde 86 x 2 >= 100 olsa da cift yok, kafa (MD 101). Secenegi elle
+-- acmak da bir sey degistirmez.
 W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 86, 12
+pair_ref.value = true
 tick(10)
-check(md_ref.value == 85, "DT cifti olduruyor (86 x 2 >= 100): MD 85 (" .. tostring(md_ref.value) .. ")")
-check(printed("DT cifti olduruyor (govde 86 x 2 >= can 100), Min. damage gecici 85") ~= nil, "DT cifti satiri yazildi")
-W.body_dmg[2] = 45 -- 45 x 2 < 100 ve 60'in altinda: kafa kurali
-tick(10)
-check(md_ref.value == 101, "govde 45: DT cifti olduremez, MD 101 (" .. tostring(md_ref.value) .. ")")
-W.body_dmg[2], W.lag = 86, 0 -- DT bos: cift yok
-tick(10)
-check(md_ref.value == 101, "DT bosken cift sayilmaz, MD 101 (" .. tostring(md_ref.value) .. ")")
-W.lag = 12
+check(md_ref.value == 101, "V1.0.34: DT dolu, govde 86 x 2 >= 100: cift yok, MD 101 (" .. tostring(md_ref.value) .. ")")
+check(printed("DT cifti olduruyor") == nil, "V1.0.34: DT cifti satiri yazilmadi")
 pair_ref.value = false
 tick(10)
 check(md_ref.value == 101, "secenek kapali: sniper kurali MD 101 (" .. tostring(md_ref.value) .. ")")
@@ -666,6 +661,23 @@ tick(2)
 fire("aim_hit", { id = 8, target = 2, hitgroup = 1, damage = 120 })
 line = printed("atis: dusman2", before)
 check(line ~= nil and line:find("| res abs+", 1, true) ~= nil, "V1.0.33: atis satirinda res abs+ (" .. tostring(line) .. ")")
+-- V1.0.34: kafaya nisan alinip gogse giden isabet kolun basarisi sayilmaz (hafizada abs+ 1/1 kalmali, bkz. kapanis).
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+fire("aim_fire", { id = 9, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+tick(2)
+fire("aim_hit", { id = 9, target = 2, hitgroup = 3, damage = 72 })
+line = printed("atis: dusman2", before)
+tick(2)
+-- V1.0.34: kendi kolumuz resolver iskasi alirsa brute dongusu baslamaz (eskiden tek iskada "body yaw .. denenecek").
+before = #prints + 1
+fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+fire("aim_fire", { id = 10, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+tick(2)
+fire("aim_miss", { id = 10, target = 2, hitgroup = 1, reason = "?" })
+line = printed("atis: dusman2", before)
+check(line ~= nil and line:find("| res abs+", 1, true) ~= nil and line:find("iska", 1, true) ~= nil,
+    "V1.0.34 kurulum: abs+ kolunda resolver iskasi (" .. tostring(line) .. ")")
+check(printed("denenecek", before) == nil, "V1.0.34: kol iskasi brute dongusunu baslatmaz (" .. tostring(printed("denenecek", before)) .. ")")
 -- V1.0.31: sag taraf (dusman 3, LBY 230: fark -50 -> R, aci aynalanir: body yaw -58); anlik kayipta secilen taraf korunur.
 W.sees[3], W.elby[3] = true, 230
 tick(80) -- dusman 3 daha once statik + acikta gorulmustu (abs+ karari olabilir): 1 sn'de birakilir, lby+ secilir
@@ -710,6 +722,20 @@ tick(10)
 check(hc_ref.value == 55, "yere inince hit chance geri 55 (" .. tostring(hc_ref.value) .. ")")
 
 -------------------------------------------------------------------------------
+-- V1.0.34: senin Min. damage'in 100 iken kafa beklerken olum sniper kuralini gevsetmez
+-------------------------------------------------------------------------------
+W.sees[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 86
+tick(10)
+check(md_ref.value == 101, "V1.0.34 kurulum: sniper kurali, MD 101 (" .. tostring(md_ref.value) .. ")")
+before = #prints + 1
+fire("player_death", { userid = 1, attacker = 2, headshot = true, penetrated = 0, weapon = "ssg08" })
+tick(10)
+check(printed("ogrenildi:", before) == nil, "V1.0.34: MD 100 iken kafa-bekleme olumu ogrenilmez")
+check(md_ref.value == 101, "V1.0.34: sniper kurali acik kalir, MD 101 (" .. tostring(md_ref.value) .. ")")
+W.sees[2] = false
+tick(10)
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -722,6 +748,8 @@ local saved = db.nykle_win_gs_memory
 local arms = type(saved) == "table" and type(saved.own_res) == "table" and saved.own_res.arms or nil
 check(arms ~= nil and arms["lby+"] ~= nil and arms["lby+"].shots == 1 and arms["lby+"].hits == 1,
     "kol sayimi hafizaya yazildi (lby+ 1/1)")
+check(arms ~= nil and arms["abs+"] ~= nil and arms["abs+"].hits == 1,
+    "V1.0.34: abs+ kafa isabeti 1, gogse giden isabet sayilmadi (" .. (arms and arms["abs+"] and (arms["abs+"].hits .. "/" .. arms["abs+"].shots) or "?") .. ")")
 errs = errors_since(1)
 check(#errs == 0, "hic hata satiri yok" .. (#errs > 0 and (": " .. errs[1]) or ""))
 

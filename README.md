@@ -6,7 +6,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim, exploit ve resolver lua's
 
 ## V1.1'de ne değişti (GameSense sürümünden taşınanlar)
 
-GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
+GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
 
 | Değişiklik | Nerede | Logdaki kanıt (GameSense) |
 |---|---|---|
@@ -406,7 +406,20 @@ Logda: `atis: ... | res lby+` (kol), `resolver: X Standing | bizim lby+ (lby L 5
 | Own resolver kapatılınca bekleyen karar silinir | Kapalıyken eski karar Force body yaw'ı tutuyordu |
 | Log: `bizim abs+ (statik desync, taraf bilgisi yok) body yaw 58°`, atışta `res abs+` | |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.33 kuralları (71 kontrol). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.34** (hata taraması: 4 avcı, bulgu başına 1 doğrulayıcı; 22 adaydan 9 doğrulandı, birleşince 6 hata):
+
+| Değişiklik | Neden |
+|---|---|
+| **Sniper'da DT çifti kaldırıldı** (scout / AWP / R8: kafa, Min. damage HP + 1). Menüdeki seçenek etkisiz ve gizli | DT ikinci scout mermisini atmıyor: loglarda ~500 scout atışında ardışık iki atış arası hep 1.0–1.3 sn (sürgü). "Çift" gövde −90 ile düşmanı 8–15 canla bırakıyor, DT / defensive boşalıyor, dönüş atışında ölüyordun (v30 17:13:35, v32 18:00:44, v33b 18:30:12). Neverlose V1.1.7 ile aynı karar |
+| Sahte kayıtta "sadece gövde" kuralı DT çiftini öldürücü saymaz | Çift yüzünden öldürmeyen gövdeye Force veriliyordu, öldüren kafa kapanıyordu (v33b 18:29:09) |
+| **Kafa beklerken ölüm öğrenmesi** senin Min. damage'in 90+ iken sayılmaz | Gevşeme gövdeyi zaten açtırmıyor, sadece sniper kuralını haritanın geri kalanında kapatıyordu; v33b'de "0.00 sn vurulabilir" iki ölümle 20 dk kapalı kaldı |
+| Teleport sonucu: ışınlandıktan ilk **0.12 sn** içinde gelen mermi sayılmaz | Işınlanmadan önce atılmıştı (v31 17:24:21 `tp 0.13s`); 3'te 2 kuralı havada teleportu haritaya kapatıyordu. Neverlose V1.1.8 ile aynı |
+| Kendi resolver kolu: kafaya nişan alınıp göğse giden isabet kolun başarısı sayılmaz | v33b 18:33:58 `hedef head 288 \| isabet chest -72 \| res gs` GS koluna isabet yazılıyordu; resolver penceresi bunu zaten saymıyordu |
+| Kendi kolumuz ıskalarsa brute döngüsü başlamaz, kol yeniden seçilir (karşı kol dahil) | Tek ıskada brute başlıyor ("body yaw −58 denenecek"), 30 sn boyunca kol kararı engelleniyordu; Force + 3 ıska kapısı atlanıyordu |
+
+Elenenler (doğrulayıcı reddetti): `sikmadi` teşhisinin MD 100+ hesabı, duelloda sahte kayıt beklemesi yok (bilinçli), sniper'da öldürücü gövdenin Prefer'de kalması.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.34 kuralları (75 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

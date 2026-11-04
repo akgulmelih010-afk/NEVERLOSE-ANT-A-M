@@ -167,7 +167,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.33"
+local VERSION = "1.0.34"
 local EDITION = "GameSense"
 local DEG = "\194\176"
 
@@ -1306,7 +1306,8 @@ menu.head_only      = grp.resolver:switch("Head unless body kills (snipers)", tr
 -- varsayilan KAPALI: acarsan biri kafani gorurken ve kafa olduremezken govde 70+ icin Min. damage gecici 70.
 menu.exposed_body   = grp.resolver:switch("  » Body 70+ while an enemy sees you", false, function() return on(menu.head_only) end)
 -- V1.0.26: scout DT iki mermi atar; govde 86 x 2 >= can ise cift oldurucudur, kafa beklenmez (bkz. apply_body_aim).
-menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", true, function() return on(menu.head_only) end)
+-- V1.0.34: etkisiz (sniper DT'si ikinci mermiyi atmiyor); eski config'ler yuklenebilsin diye oge duruyor, gizli.
+menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", false, function() return false end)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -3547,8 +3548,16 @@ hypothesis.result = function(shot, target, hit_head, miss)
         if stored ~= nil then
             stored[h.candidate][2] = min(40, stored[h.candidate][2] + 1)
         end
-        hypothesis.advance(h, ("body yaw %d%s iskaladi"):format(shot.hyp_yaw or 0, DEG),
-            player_name(target), shot.state)
+        if h.own_arm ~= nil then
+            -- V1.0.34: kendi kolumuz iskaladi: brute dongusu (Force + 3 iska kapisi) baslamaz, aday birakilir ve kol
+            -- olcumune gore yeniden secilir (karsi kol dahil). Eskiden tek iskada brute baslayip 30 sn kol karari
+            -- engelleniyordu.
+            h.candidate, h.visited, h.attempts, h.own_arm = 0, {}, 0, nil
+            h.feedback = realtime()
+        else
+            hypothesis.advance(h, ("body yaw %d%s iskaladi"):format(shot.hyp_yaw or 0, DEG),
+                player_name(target), shot.state)
+        end
     end
 end
 
@@ -3980,11 +3989,7 @@ resolver.held_death = function(attacker)
     held.enemies[key] = (held.enemies[key] or 0) + 1
     held.total = held.total + 1
     if on(menu.resolver_log) then
-        -- Senin Min. damage'in govdeyi zaten atmiyorsa (scout zirhli gogse en fazla ~88) gevseme bir sey
-        -- degistirmez.
-        local user_md = user_value("min_damage")
-        local note = (finite(user_md) and user_md >= 90)
-            and (" (senin Min. damage'in %d: govde yine atilmaz)"):format(user_md) or ""
+        local note = ""
         print(("[%s] ogrenildi: %s seni sen kafa beklerken (sniper, ates etmeden) oldurdu -> bu haritada %s govde de atilacak%s"):format(
             SCRIPT, player_name(attacker), held.total >= 2 and "herkese karsi" or "ona karsi", note))
     end
@@ -4067,14 +4072,11 @@ do
             wanted = "Prefer"
             local chest = chest_damage(lp, enemy, info, is_target)
             lethal = finite(health) and health > 0 and health <= chest
-            -- V1.0.26: scout DT iki mermi atar; govde 86 x 2 = 172 >= can ise cift oldurucu. Bes logda da en buyuk
-            -- olum kaynagi gövde 70-87 vurulabilirken kafa beklemekti (son oturum: 12 olumun 11'i); Min. damage
-            -- 100 sarti "sadece oldurecek atis" demek, DT cifti olduruyor.
+            -- V1.0.26 "DT cifti" (govde x 2 >= can) V1.0.34'te kaldirildi: scout / AWP / R8'de DT ikinci mermiyi
+            -- atmiyor (loglarda ~500 scout atisinda ardisik iki atis arasi hep 1.0-1.3 sn, yani surgu). "Cift"
+            -- govde -90 ile dusmani 8-15 canla birakiyor, DT / defensive bosaliyor ve donus atisinda oluyordun
+            -- (v30 17:13:35, v32 18:00:44, v33b 18:30:12). Neverlose V1.1.7 ile ayni karar. Sniper'da kafa (HP + 1).
             local pair = nil
-            if not lethal and on(menu.dt_pair) and dt_ready() and finite(health) and health > 0 and finite(chest)
-                and chest >= K.DT_PAIR_MIN and health <= 2 * chest then
-                lethal, pair = true, chest
-            end
             local since = realtime() - resolver.aim_time
             if lethal and enemy == resolver.aim_target and since >= 0 and since <= K.AIM_TARGET_HOLD then
                 wanted, stalled = body_stall(enemy), true
@@ -4164,7 +4166,7 @@ do
                 target_lethal, target_wanted, target_pair = lethal, wanted, pair
                 local profile = enemy_watch.profile(enemy)
                 local cooling = now >= f.free_until - f.cooldown and now < f.free_until
-                local body_only = sniper_rule and profile ~= nil and profile.defensive_now and lethal
+                local body_only = sniper_rule and profile ~= nil and profile.defensive_now and lethal and pair == nil
                     and on(menu.fake_body) and not cooling
                 if body_only then
                     f.ticks = f.ticks + 1
@@ -5168,7 +5170,7 @@ end
 -- 2'si vurulmayla bittiyse o harita boyunca havada teleport kapanir: sarj havada air lag'e, inince DT'ye
 -- kalir (loglarda teleportlarin yarisi hemen vurulma ve %0 DT ile bitiyordu).
 local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_guard = 0.35, refilled = false,
-    pending = nil, watch = nil, window = 1.5, results = {}, keep = 3, limit = 2, off = false }
+    pending = nil, watch = nil, window = 1.5, result_min = 0.12, results = {}, keep = 3, limit = 2, off = false }
 
 -- Teleportun sonucunu yazar; son 3'te 2 vurulma olunca bu harita icin kapatir.
 teleport.judge = function(hit)
@@ -5193,9 +5195,10 @@ teleport.judge = function(hit)
     end
 end
 
--- player_hurt (dusman mermisi): teleporttan sonraki 1.5 sn icindeyse vurulma sayilir.
+-- player_hurt (dusman mermisi): teleporttan sonraki 1.5 sn icindeyse vurulma sayilir. V1.0.34: ilk 0.12 sn'de gelen
+-- mermi isinlanmadan once atilmisti, sayilmaz (Neverlose V1.1.8 ile ayni; v31 17:24:21 "tp 0.13s").
 teleport.hurt = function(now)
-    if teleport.watch ~= nil and now >= teleport.watch and now - teleport.watch <= teleport.window then
+    if teleport.watch ~= nil and now >= teleport.watch + teleport.result_min and now - teleport.watch <= teleport.window then
         teleport.judge(true)
     end
 end
@@ -6634,7 +6637,9 @@ local function aim_result(e, reason)
     -- Hipotez: kafa isabeti adayi tutar, resolver iskasi sonrakine gecirir.
     if not stray then
         hypothesis.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
-        hypothesis.own.result(shot, target, reason == nil, result == "c")
+        -- V1.0.34: kafaya nisan alinip gogse giden isabet kolun basarisi degil (v33b 18:33:58 "hedef head 288 |
+        -- isabet chest -72 | res gs"); resolver penceresiyle ayni kural.
+        hypothesis.own.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
     end
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
     local lag = shot ~= nil and shot.lag or nil
@@ -7076,8 +7081,12 @@ listen("player_death", protect("player_death", function(e)
         if on(menu.enabled) and attacker ~= nil and attacker ~= lp and is_enemy(attacker) then
             count_kd("deaths")
             -- Sniper "sadece kafa" kuraliyla ates etmeden beklerken olduysen ogrenilir (bkz. resolver.held).
+            -- V1.0.34: senin Min. damage'in 90+ ise (100 kalsin istegi) gevseme govdeyi zaten actirmaz, sadece sniper
+            -- kuralini (sahte kayitta govde, olduren govdeye Force) haritanin geri kalaninda kapatiyordu; v33b'de iki
+            -- "0.00 sn vurulabilir" olumle 20 dk kapali kaldi. O durumda sayilmaz.
             local since_shot = realtime() - own.last_shot
-            if current.head_only and (since_shot < 0 or since_shot > 1.5) then
+            local user_md = user_value("min_damage")
+            if current.head_only and (since_shot < 0 or since_shot > 1.5) and not (finite(user_md) and user_md >= 90) then
                 resolver.held_death(attacker)
             end
         end
