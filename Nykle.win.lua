@@ -2880,19 +2880,15 @@ do
                 -- (govde gorunmuyorsa 0.5 sn sonra Prefer). V1.1.5: Headshot priority acikken Prefer kalir (kafa
                 -- acikken kafaya), kapaliyken Force. V1.1.8: gecikmeli kayitta (cift zaten "kafa tutmaz" diye kaldi)
                 -- kafa onceligi acikken de Force; Prefer'de Neverlose yine kafaya gidiyordu (besinci log 142:45:
-                -- "hedef head 188 | BA Prefer | MD 73 | bt 26t", iska).
-                if not menu.head_first:get() or laggy then
-                    wanted, stalled = body_stall(target), true
-                end
+                -- "hedef head 188 | BA Prefer | MD 73 | bt 26t", iska). Kafa onceligi acikken cift zaten sadece gecikmeli
+                -- kayitta kalir (head_instead), yani cift varsa her zaman Force.
+                wanted, stalled = body_stall(target), true
             end
             -- Aimbot'un az once (AIM_TARGET_HOLD sn) ates ettigi hedefi govde olduruyorsa "Force" (V1.0):
             -- bu hedefle zaten catisiyorsun. Loglarda gogus -73 (100 -> 27) sonrasi "Prefer"de Neverlose
             -- kafaya gitti, iskaladi; surgu cekerken dusman tec9 ile vurdu ("sikmadi adama").
-            -- V1.1.5: Headshot priority acikken DT cifti bu kurali da tetiklemez (tek govde mermisi olduruyorsa yine
-            -- Force: olduren atis varken kafa denemesi yok).
             local since = globals.realtime - resolver.aim_time
-            if lethal and (resolver.pair == nil or not menu.head_first:get()) and target == resolver.aim_target
-                and since >= 0 and since <= AIM_TARGET_HOLD then
+            if lethal and target == resolver.aim_target and since >= 0 and since <= AIM_TARGET_HOLD then
                 wanted, stalled = body_stall(target), true
             end
         elseif target ~= nil and menu.smart_baim:get() then

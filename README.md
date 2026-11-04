@@ -55,7 +55,7 @@ GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi (bkz. "G
 - **Kalıcı hafıza:** `get_xuid` sayı ya da 64 bit cdata (`...ULL`) dönerse `s:` anahtarı üretilmiyordu; iki logda da `yuklendi` satırında hafıza yoktu. Hepsi aynı metne çevrilir. Sonraki logda `yuklendi (hafiza: N oyuncu)` görünmeli.
 - Elenen adaylar (doğrulayıcılar reddetti, DEVIR_NOTU'nda): `record_age`'in kendi ping'ini de ölçmesi (eşik 8 tick bunu kapsıyor), duello 6 tick beklemesinin çoğunlukla dolması (bilinçli), `sikmadi`'nin taze kayıt beklemesini yazmaması (eklendi), `ayarlanamadi` ağının hata fırlatmaya dayanması.
 
-Test: `tests/run_tests.sh` 7 mod + strict, **1064 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **756 mutasyonun hepsi yakalanıyor** (V1.1 için 27 yeni mutasyon, V1.1.5 için 12, V1.1.6–7 için 7, V1.1.8 için 8, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
+Test: `tests/run_tests.sh` 7 mod + strict, **1064 kontrol** (V1.1 için 48 yeni kontrol; yeni kontrollerin eski mantıkta kırıldığı doğrulandı). `tests/run_tests.sh mutate`: **754 mutasyonun hepsi yakalanıyor** (V1.1 için 27 yeni mutasyon, V1.1.5 için 12, V1.1.6–7 için 7, V1.1.8 için 8, 30 eskisi yeni koda göre güncellendi). Oyun içi test: ilk log V1.1.1'e girdi.
 
 ## V1.0'da ne değişti
 
