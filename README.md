@@ -658,7 +658,19 @@ Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek
 | Alt seçenekleri olan 6 anahtar (roll, head-only, crouch keeper, safe recharge, own resolver, backstab) değişince menü hemen güncellenir | Alt ayarlar ancak sekme değişince görünüyor / gizleniyordu. |
 | Performans: düşman listesi tick başına bir kez; detaylı log taraması tick'lere yayılır | Tick başına 7–10 düşman listesi kuruluyordu; log taraması 4 tick'te bir tüm düşmanlara 15 iz atıyordu (1% low'ları bozar). Kararlar değişmez. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.54 kuralları (212 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.55** (dosyanın tamamı altı parçada hata avı; her bulgu ayrı doğrulandı, 8 gerçek hata)
+
+| Düzeltme | Etkisi |
+|---|---|
+| DT çiftinin ikinci mermisi resolver ıskasıysa ve ilk mermi isabet ettiyse artık "damage rejection" değil **correction** sayılır | Bu ıskalar resolver'a hiç ulaşmıyordu: seri, hipotez, Force tırmanması o düşmana karşı ilerlemiyordu. |
+| Force safe point / gövde Force / düşük can sayaçları sadece **ateş edebiliyorken** sayar (şarjör, bıçak, bomba, silah değişimi sayılmaz) | Şarjör değiştirirken 0,5 sn görülünce Force "takıldı" diye bırakılıyordu. |
+| Düşük can Force'u ateş edildikçe sayacı sıfırlar | Ateş ederken 0,5 sn sonra kendini kapatıyordu. |
+| Log dosyasının sürümü veritabanında da tutulur | Çok uzun bir oturumda yükleme satırı dosyadan düşünce bir sonraki yüklemede en uzun oturum siliniyordu. |
+| Auto AFK taşıması bir kez çalışır | Oturum boyunca her config yüklemesinde Auto AFK'yi kapatıyordu. |
+| "Önerilen ayarlar kapalı" raporu kendi anahtarını fark saymıyor | Rapor hep bir fazla sayıyor ve örnek olarak kendini gösteriyordu. |
+| Temiz atış etiketi kaynağı doğru yazar: `bayrak`, `iz`, `bayrak+iz`, `atis` | "atis" hiç görünmüyordu, iz ve bayrak karışıyordu. Hava defensive kuralı değişmedi (bayrak açıkken sürer); `bayrak+iz` ile ikisinin birlikte ne sıklıkla olduğu ölçülecek. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.55 kuralları (215 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

@@ -264,7 +264,7 @@ function entity.get_prop(ent, name, idx)
         if name == "m_ArmorValue" then return 100 end
         if name == "m_flMaxspeed" then return 230 end
         if name == "m_angEyeAngles" then return 0, 0, 0 end
-        if name == "m_totalHitsOnServer" then return 0 end
+        if name == "m_totalHitsOnServer" then return W.total_hits or 0 end
         if name == "m_vecViewOffset[2]" then return 64 end
         return nil
     end
@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.54 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.54")
+check(printed("V1.0.55 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.55")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1560,6 +1560,36 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.55: DT ciftinin ikinci mermisi resolver iskasi sayilir; Auto AFK tasimasi bir kez; log surumu veritabaninda
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.lag, W.total_hits = false, 12, 0
+    tick(5)
+    fire("aim_fire", { id = 5501, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_fire", { id = 5502, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("player_hurt", { userid = 2, attacker = 1, dmg_health = 92, hitgroup = 3, weapon = "ssg08" })
+    W.total_hits = 1
+    fire("aim_hit", { id = 5501, target = 2, hitgroup = 3, damage = 92 })
+    before = #prints + 1
+    fire("aim_miss", { id = 5502, target = 2, hitgroup = 1, reason = "?" })
+    local l55 = printed("atis: dusman2", before)
+    check(l55 ~= nil and l55:find("iska correction", 1, true) ~= nil,
+        "V1.0.55: ilk mermi isabet edince ikinci merminin resolver iskasi 'damage rejection' degil (" .. tostring(l55) .. ")")
+    W.total_hits = 0
+    local aa = find_ref("  » Auto AFK (no input 8 s after spawn)")
+    if aa ~= nil then
+        aa.value = true
+        fire("post_config_load")
+        check(aa.value == true, "V1.0.55: Auto AFK tasimasi bir kez; sonra elle acilan kalir")
+        aa.value = false
+    else
+        check(false, "V1.0.55: Auto AFK secenegi bulunamadi")
+    end
+    check(db.nykle_win_gs_logver ~= nil and db.nykle_win_gs_logver:find("^1%.0%.") ~= nil, "V1.0.55: log surumu veritabaninda")
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
@@ -1599,7 +1629,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.54 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.55 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

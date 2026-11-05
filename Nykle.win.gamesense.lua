@@ -185,12 +185,17 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.54"
+local VERSION = "1.0.55"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
-if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
+-- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
+-- kirpmasiyla dosyadan dusebiliyor, o zaman bir sonraki yuklemede en uzun oturum siliniyordu). Kayit yoksa eski kural.
+nlog.ok_v, nlog.ver = pcall(database.read, "nykle_win_gs_logver")
+if nlog.old ~= "" and ((nlog.ok_v and type(nlog.ver) == "string" and nlog.ver ~= VERSION)
+    or ((not nlog.ok_v or nlog.ver == nil) and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true))) then
     nlog.old, nlog.dirty = "", true
 end
+pcall(database.write, "nykle_win_gs_logver", VERSION)
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1124,7 +1129,8 @@ end
 menu.tab     = create("A", "combo", "Nykle.win tab", TAB_NAMES)
 
 local grp = {}
-grp.info      = group("Home", "A", nil, true)
+-- V1.0.55: izlenmeyen grup ("onerilen ayarlar kapali" raporu kendi anahtarini fark diye sayiyordu).
+grp.info      = group("Home", "A", nil, false)
 grp.data      = group("Home", "B", "Memory", false)
 grp.console   = group("Home", "B", "Console", false)
 grp.aa        = group("Anti-Aim", "A", "Main", true)
@@ -3272,7 +3278,8 @@ local function stall_level(enemy, level, key, state, entry)
         resolver.stalls[enemy] = stall
     end
     local now = realtime()
-    if stall.last ~= nil and sees_me(enemy) and not stall.relaxed then
+    -- V1.0.55: sadece ates edebiliyorken sayilir (sarjor / bicak / bomba / silah degisimi Force'u "takildi" saymasin).
+    if stall.last ~= nil and sees_me(enemy) and not stall.relaxed and resolver.can_fire ~= false then
         stall.visible = stall.visible + max(0, min(0.1, now - stall.last))
         if stall.visible >= K.FORCE_STALL then
             stall.relaxed = true
@@ -4203,6 +4210,9 @@ end
 -- seviyesi "Prefer safe point" (silahin rage ayari) ve gostergeler icin dondurulur. Senin kendi safe point
 -- ayarin hic dusurulmez.
 local function apply_resolver(class, present)
+    local lp_r = local_player()
+    resolver.can_fire = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+        and lp_r ~= nil and weapon_ready(lp_r, 0)
     local target = resolver_target()
     local target_level, target_raw = 0, 0
     current.resolver, current.res_state, current.res_prior, current.hyp = 0, nil, false, nil
@@ -4237,7 +4247,7 @@ local function apply_resolver(class, present)
                 l = { hp = hp, visible = 0, last = now_rt, relaxed = false }
                 low[enemy] = l
             end
-            if sees_me(enemy) and not l.relaxed then
+            if sees_me(enemy) and not l.relaxed and resolver.can_fire ~= false then
                 l.visible = l.visible + max(0, min(0.1, now_rt - l.last))
                 l.relaxed = l.visible >= K.FORCE_STALL
             end
@@ -4468,7 +4478,7 @@ do
             resolver.body_stalls[target] = stall
         end
         local now = realtime()
-        if stall.last ~= nil and (exposure.now or exposure.any) and not stall.relaxed then
+        if stall.last ~= nil and (exposure.now or exposure.any) and not stall.relaxed and resolver.can_fire ~= false then
             stall.visible = stall.visible + max(0, min(0.1, now - stall.last))
             if stall.visible >= K.FORCE_STALL then
                 stall.relaxed = true
@@ -5076,6 +5086,7 @@ end
 clean_shot.fired = function(target)
     local tick = tickcount()
     clean_shot.by = clean_shot.by or "atis"
+    clean_shot.fire_until = tick + clean_shot.fire_hold
     clean_shot.index, clean_shot.checked = target, tick
     clean_shot.from_tick, clean_shot.until_tick = tick, max(clean_shot.until_tick, tick + clean_shot.fire_hold)
 end
@@ -5114,16 +5125,23 @@ clean_shot.update = function(lp, target, armed)
             clean_shot.until_tick = -1000
         end
         clean_shot.index, clean_shot.checked = index, tick
+        if index ~= clean_shot.trace_index then
+            clean_shot.trace_until, clean_shot.trace_index = -1000, index
+        end
         if clean_shot.shootable(lp, target) then
             if not (tick <= clean_shot.until_tick and tick >= clean_shot.from_tick) then
                 clean_shot.from_tick = tick
             end
             clean_shot.until_tick = max(clean_shot.until_tick, tick + clean_shot.hold)
+            clean_shot.trace_until = tick + clean_shot.hold
         end
     end
     local clean = tick <= clean_shot.until_tick and tick >= clean_shot.from_tick
     if clean then
-        clean_shot.by = tick <= clean_shot.flag_until and "bayrak" or "iz"
+        -- V1.0.55: kaynaklar ayri (eskiden bayrak izi, atis penceresi de "iz" yaziliyordu): bayrak / iz / ikisi / atis.
+        local flag, trace = tick <= clean_shot.flag_until, tick <= (clean_shot.trace_until or -1000)
+        clean_shot.by = (flag and trace and "bayrak+iz") or (flag and "bayrak") or (trace and "iz")
+            or (tick <= (clean_shot.fire_until or -1000) and "atis") or "iz"
     end
     return clean
 end
@@ -5325,7 +5343,10 @@ do
         -- DEF yok havada vurulmalarin 7/8'i "temiz (bayrak)"): scout / AWP ile havadayken GameSense'in "vurulabilir"
         -- bayragi tek basina hava defensive'ini kesmez (havada aimbot ancak hit chance tutarsa sikar). Iz ya da gercek
         -- atis (aim_fire) yine keser.
-        if clean and airborne and on(menu.air_lag) and SNIPERS[class] and class ~= "Revolver" and clean_shot.by == "bayrak" then
+        -- V1.0.55 notu: bayrak acikken iz de tutsa hava defensive'i surer (V1.0.52 incelemesi: izi one almak V1.0.51
+        -- duzeltmesini geri alirdi); "bayrak+iz" etiketiyle ikisinin birlikte ne siklikla oldugu olculecek.
+        if clean and airborne and on(menu.air_lag) and SNIPERS[class] and class ~= "Revolver"
+            and tickcount() <= clean_shot.flag_until then
             clean = false
             current.air_keep = true
         else
@@ -7416,6 +7437,7 @@ listen("player_hurt", protect("player_hurt", function(e)
     -- Senin verdigin hasar: "?" iskasinda sunucudaki isabet sayaci arttiysa hasar baska oyuncuya mi gitti.
     if lp ~= nil and hurt_index ~= nil and hurt_index ~= lp and userid_index(e.attacker) == lp then
         own.dealt = { time = realtime(), victim = hurt_index }
+        own.dealt_n = (own.dealt_n or 0) + 1
     end
     if lp == nil or hurt_index ~= lp then
         return
@@ -7660,7 +7682,7 @@ listen("aim_fire", protect("aim_fire", function(e)
             backtrack = event_number(e, "backtrack"), teleported = e.teleported == true,
             extrapolated = e.extrapolated == true, interpolated = e.interpolated == true,
             high_priority = e.high_priority == true,
-            total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil,
+            total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil, dealt_n = own.dealt_n or 0,
             exploit = not fd_on() and ((dt_on() and "dt") or (hs_on() and "hs")) or nil,
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw, side_on = resolver.streak.side_on(target),
             hyp_slot = h ~= nil and h.seeded or nil,
@@ -7684,6 +7706,11 @@ listen("aim_fire", protect("aim_fire", function(e)
     if body ~= nil then
         body.visible, body.relaxed = 0, false
     end
+    -- V1.0.55: dusuk can Force'u da atis gelince sayaci sifirlar (ates ederken 0.5 sn'de birakiliyordu).
+    local low = resolver.low and resolver.low[target]
+    if low ~= nil then
+        low.visible, low.last = 0, realtime()
+    end
 end))
 
 -- Atis sonucu (GameSense aim_hit / aim_miss). reason nil = isabet; "?" -> "correction" (resolver) ya da
@@ -7703,7 +7730,11 @@ local function aim_result(e, reason)
         reason = "correction"
         local lp = local_player()
         local total = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil
-        if shot ~= nil and finite(shot.total_hits) and finite(total) and total ~= shot.total_hits then
+        -- V1.0.55: sayactaki artis bu atistan sonra verilen hasarlarla (DT'nin ilk mermisi gibi) aciklaniyorsa iska
+        -- yine resolver'in (eskiden DT ciftinin ikinci mermisinin resolver iskasi "damage rejection" yaziliyordu).
+        local explained = (own.dealt_n or 0) - (shot ~= nil and shot.dealt_n or 0)
+        if shot ~= nil and finite(shot.total_hits) and finite(total) and total ~= shot.total_hits
+            and total - shot.total_hits > explained then
             -- Sayac artti: mermi sunucuda birine isabet etti. O sirada baska bir oyuncu senden hasar aldiysa
             -- isabet ona gitti; almadiysa sunucu hasari reddetti.
             local dealt = own.dealt
@@ -9892,12 +9923,10 @@ end
 -- Kalici hafiza yuklenir; kac oyuncu hatirlandigi surum satirina eklenir.
 do
     -- V1.0.45: Auto AFK varsayilani kapandi; V1.0.37-44'ten kayitli config'te acik kalmasin (bir kez kapatilir).
+    -- V1.0.55: bayrak ilk config yuklemesinde yazilir ve sonra birakilir (eskiden yuklemede yaziliyor, oturum boyunca
+    -- her config yuklemesinde Auto AFK'yi kapatiyordu).
     local ok_m, done = pcall(database.read, "nykle_win_gs_afkauto45")
-    if not (ok_m and done == true) then
-        afk.migrate = true
-        pcall(menu.afk_auto.set, menu.afk_auto, false)
-        pcall(database.write, "nykle_win_gs_afkauto45", true)
-    end
+    afk.migrate = not (ok_m and done == true)
     -- V1.0.47: In-air hit chance varsayilani 40 -> 0 (senin hc'n). Kayitli config'teki eski varsayilan 40 bir kez 0 olur;
     -- elle baska bir deger sectiysen dokunulmaz.
     -- Element olusurken varsayilan (0) yazilir; kayitli 40 ancak config yuklenince gelir. Bayrak ilk config yuklemesinde
@@ -9908,7 +9937,9 @@ do
     afk.tt_migrate = not (ok_t and done_t == true)
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
+            afk.migrate = false
             pcall(menu.afk_auto.set, menu.afk_auto, false)
+            pcall(database.write, "nykle_win_gs_afkauto45", true)
         end
         if resolver.air_migrate then
             resolver.air_migrate = false
