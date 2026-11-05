@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.39"
+local VERSION = "1.0.40"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1129,6 +1129,8 @@ grp.protect_raw = group("Anti-Aim", "B", "Protection", false)
 grp.protect   = group("Anti-Aim", "B", nil, true)
 grp.exploits  = group("Exploits", "A", "Exploits", true)
 grp.peek      = group("Exploits", "A", "Peek", true)
+-- V1.0.40: AFK secenekleri "onerilen ayarlar"in disinda (izlenen grupta AFK 1 sn sonra kendiliginden kapaniyordu).
+grp.peek_raw  = group("Exploits", "A", nil, false)
 grp.defensive = group("Exploits", "B", "Defensive", true)
 grp.angles_raw = group("Builder", "A", "Angles", false)
 grp.angles    = group("Builder", "A", nil, true)
@@ -1314,10 +1316,10 @@ menu.auto_peek      = grp.peek:switch("Auto peek", true)
 menu.ai_peek        = grp.peek:switch("AI peek (hold Quick peek assist)", true)
 menu.peek_defensive = grp.peek:switch("  » Defensive during AI peek", true, function() return on(menu.ai_peek) end)
 -- V1.0.35 (istek: "afk modu: oldugum yerde ai peek, 3 sn'de bir saga sola, exploit full, vurulma zor olsun").
-menu.afk            = grp.peek:switch("AFK mode (AI peek here + strafe, full exploits)", false)
+menu.afk            = grp.peek_raw:switch("AFK mode (AI peek here + strafe, full exploits)", false)
 -- V1.0.37 (istek: "afk oldugumu anlasin, kendi kendine aktiflessin"): dogduktan sonra hareket / ziplama / egilme tusuna
 -- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
-menu.afk_auto       = grp.peek:switch("  » Auto AFK (no input 8 s after spawn)", true)
+menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", true)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
@@ -5749,15 +5751,35 @@ do
         local was = afk.on
         -- Otomatik AFK: donma suresi bitince sayac baslar; tusa basinca sayac durur ve bu dogusta bir daha acilmaz.
         local now_rt = realtime()
-        local input = user_moving(cmd) or pressed(cmd.in_jump) or pressed(cmd.in_duck)
+        -- V1.0.40: hareket / ziplama / egilme disinda ates, durbun, E, R, silah secimi ve fare de girdi sayilir;
+        -- menu acikken ya da isinmada sayac ilerlemez; donma suresindeki tus sadece sayaci sifirlar.
+        local why = (user_moving(cmd) or pressed(cmd.in_jump) or pressed(cmd.in_duck)) and "tus"
+            or ((pressed(cmd.in_attack) or pressed(cmd.in_attack2)) and "ates / durbun")
+            or ((pressed(cmd.in_use) or pressed(cmd.in_reload) or (finite(cmd.weaponselect) and cmd.weaponselect ~= 0)) and "E / R / silah")
+            or nil
+        local cam_p, cam_y = try(client.camera_angles)
+        if finite(cam_y) and afk.cam_y ~= nil
+            and (abs((cam_y - afk.cam_y + 180) % 360 - 180) > 0.5 or abs((cam_p or 0) - (afk.cam_p or 0)) > 0.5) then
+            why = why or "fare"
+        end
+        afk.cam_p, afk.cam_y = cam_p, cam_y
         local rules = try(entity.get_game_rules)
         local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
-        if input then
+        local warmup = rules ~= nil and prop(rules, "m_bWarmupPeriod") or nil
+        local frozen_period = freeze == 1 or freeze == true
+        local paused_count = frozen_period or warmup == 1 or warmup == true or try(ui.is_menu_open) == true
+        if why ~= nil and frozen_period then
+            afk.idle_since = nil
+        elseif why ~= nil then
             if afk.auto and on(menu.hit_log) then
-                print(("[%s] otomatik afk kapandi: tusa bastin"):format(SCRIPT))
+                print(("[%s] otomatik afk kapandi: %s"):format(SCRIPT, why))
             end
             afk.auto, afk.armed, afk.idle_since = false, false, nil
-        elseif afk.armed and freeze ~= 1 and freeze ~= true then
+        elseif paused_count then
+            afk.idle_since = nil
+        elseif not on(menu.afk_auto) then
+            afk.idle_since = nil
+        elseif afk.armed then
             afk.idle_since = afk.idle_since or now_rt
             if not afk.auto and on(menu.afk_auto) and now_rt - afk.idle_since >= afk.idle then
                 afk.auto = true
@@ -6043,9 +6065,14 @@ local function tick_prepare(cmd)
     if lp == nil or not alive(lp) then
         -- AFK (V1.0.35): olukken capa birakilir (dogdugun yer yeni capa), otomatik ates / durbun geri verilir
         -- (olukken AFK'yi kapatirsan da takili kalmasin).
-        afk.anchor, afk.blocked_at = nil, nil
+        if afk.on and on(menu.hit_log) then
+            print(("[%s] afk modu kapali: oldun"):format(SCRIPT))
+        end
+        afk.on, afk.anchor, afk.blocked_at = false, nil, nil
         -- Otomatik AFK bir sonraki dogusta yeniden olculur.
         afk.auto, afk.armed, afk.idle_since = false, true, nil
+        -- V1.0.40: olukken defensive / DT gecisleri izlenmez; dogusta eski deger "defensive bitti" saymasin.
+        charge.def_was, charge.dt_was = false, false
         override("auto_fire", nil)
         override("auto_scope", nil)
         override("fakeduck", nil)
@@ -6167,15 +6194,49 @@ end
 
 -- Sarj pozu (V1.0.36): DT acik ama dolu degil ve son 1.5 sn'de ates ettin (aim_fire ya da weapon_fire) ya da son 1 sn'de
 -- isinlandin. Kendi AA'si olan durumlarda (Manual, Safe head, Fake duck) yok.
+-- V1.0.40: sarjin gercekten dolmakta oldugunun sebebi (son 1.5 sn'de atis / aimbot atisi, son 1 sn'de teleport,
+-- defensive bitisi ya da DT'nin acilmasi); yoksa nil. charge.value bir tahmin: sebep yokken %70-90'da durabiliyor
+-- (V1.0.36 logu: "DT %90, sh 9/14, atis yok, defbitti 3.41s").
+recharge.cause = function(now)
+    local shot = now - own.last_shot
+    local aim = now - resolver.aim_time
+    if (shot >= 0 and shot <= 1.5) then
+        return "atis"
+    end
+    if aim >= 0 and aim <= 1.5 then
+        return "aim"
+    end
+    local tp = now - teleport.last
+    if tp >= 0 and tp <= 1.0 then
+        return "tp"
+    end
+    local def = now - (charge.def_end or -1000)
+    if def >= 0 and def <= 1.0 then
+        return "def"
+    end
+    local on_for = now - (charge.dt_since or -1000)
+    if on_for >= 0 and on_for <= 1.0 then
+        return "dtac"
+    end
+    return nil
+end
+
+-- Sarj pozu (V1.0.36; V1.0.40: defensive bitisi ve DT acilisi da). Kendi AA'si olan durumlarda (Manual, Safe head,
+-- Fake duck) yok. Donus: sebep ya da nil.
 recharge.pose = function(state)
     if not on(menu.recharge_pose) or not dt_on() or charge.value >= 1 or state == "Manual" or state == "Safe head"
         or state == "Fake duck" then
-        return false
+        return nil
     end
-    local now = realtime()
-    local shot = now - max(own.last_shot, resolver.aim_time)
-    local tp = now - teleport.last
-    return (shot >= 0 and shot <= 1.5) or (tp >= 0 and tp <= 1.0)
+    return recharge.cause(realtime())
+end
+
+-- Faz ogrenmesine sayilmayan mermi (V1.0.40): DT gercekten sarj oluyordu ya da sarj pozu fazin yerine gecmisti.
+recharge.frozen = function()
+    if current.pose then
+        return true
+    end
+    return dt_on() and charge.value < 1 and recharge.cause(realtime()) ~= nil
 end
 
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
@@ -6227,7 +6288,8 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     if a.phase ~= nil and a.phase.freestand and not brute.unlearned[state] then
         body, body_fs = "Static", "On"
     end
-    current.pose = recharge.pose(state)
+    current.pose_reason = recharge.pose(state)
+    current.pose = current.pose_reason ~= nil
     if current.pose then
         body, body_fs = "Static", "On"
     end
@@ -6318,7 +6380,27 @@ do
     local FPS_CVARS = { "r_3dsky", "r_shadows", "cl_csm_shadows", "cl_csm_rope_shadows", "cl_csm_sprite_shadows",
         "cl_csm_static_prop_shadows", "cl_csm_viewmodel_shadows", "cl_csm_world_shadows", "cl_foot_contact_shadows",
         "mat_postprocess_enable", "func_break_max_pieces", "muzzleflash_light", "r_dynamic" }
+    -- V1.0.40: senin orijinal degerlerin veritabaninda da tutulur: oyun cokup shutdown calismazsa config.cfg'ye 4:3 /
+    -- golgesiz yazilmis olur, sonraki yuklemede "eski deger" artik bizimkiyle ayni gorunurdu. Geri yazilinca silinir.
+    local DB_KEY = "nykle_win_gs_cvars"
     local saved, last = {}, -1000
+    do
+        local ok, stored = pcall(database.read, DB_KEY)
+        if ok and type(stored) == "table" then
+            for k, v in pairs(stored) do
+                if type(k) == "string" and finite(v) then
+                    saved[k] = v
+                end
+            end
+        end
+    end
+    local function persist_saved()
+        local copy = {}
+        for k, v in pairs(saved) do
+            copy[k] = v
+        end
+        pcall(database.write, DB_KEY, next(copy) ~= nil and copy or nil)
+    end
 
     local function obj(name)
         local ok, c = pcall(function() return cvar[name] end)
@@ -6358,6 +6440,7 @@ do
             if saved[name] ~= nil then
                 write(name, saved[name], float)
                 saved[name] = nil
+                persist_saved()
             end
             return
         end
@@ -6366,6 +6449,7 @@ do
         if v ~= nil and math.abs(v - want) > 0.001 then
             if saved[name] == nil then
                 saved[name] = v
+                persist_saved()
             end
             write(name, want, float)
         end
@@ -6484,11 +6568,16 @@ local function exploit_status()
         parts[#parts + 1] = "sarj bekle"
     end
     if current.pose then
-        parts[#parts + 1] = "sarj pozu"
+        parts[#parts + 1] = "sarj pozu (" .. tostring(current.pose_reason) .. ")"
     end
     local now = realtime()
     local shot = now - own.last_shot
     parts[#parts + 1] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
+    -- V1.0.40: aimbot'un atisi istemcide hemen gelir, weapon_fire sunucudan gec (ya da olursen hic).
+    local aim = now - resolver.aim_time
+    if aim >= 0 and aim < 5 and (shot < 0 or shot >= 5 or aim < shot - 0.05) then
+        parts[#parts + 1] = ("aim %.2fs"):format(aim)
+    end
     -- V1.0.36: atissiz yarim sarjin kaynagi: DT ne zaman acildi, defensive ne zaman bitti, sarj kac tick.
     local c_now = dt_charge()
     if c_now ~= nil and c_now < 1 then
@@ -6594,7 +6683,7 @@ do
         entry.shot_applied, entry.shot_group, entry.shot_sniper = current.brute, brute.stat_group(),
             sniper.mode(current.weapon)
         -- V1.0.36: mermi geldiginde DT yarim sarjdaydi (sunucuda donuyordun): faz ogrenmesine sayilmaz.
-        entry.shot_frozen = dt_on() and charge.value > 0 and charge.value < 1
+        entry.shot_frozen = recharge.frozen()
 
         local hurt = brute.hurt[e.userid]
         if hurt == nil or now < hurt or now - hurt >= K.MISS_WINDOW then
@@ -6735,7 +6824,7 @@ listen("player_hurt", protect("player_hurt", function(e)
     else
         phase = on(menu.anti_brute) and threat_stage(current.phase_group) or 0
         grp_name = brute.stat_group()
-        frozen = dt_on() and charge.value > 0 and charge.value < 1
+        frozen = recharge.frozen()
     end
     local weapon = tostring(e.weapon or "?")
     local melee = weapon:find("knife", 1, true) ~= nil or weapon == "bayonet" or weapon == "taser"
@@ -8156,7 +8245,8 @@ D.mine = function()
     local m = D.my
     if m == nil then
         m = { ticks = 0, forced = 0, setup = 0, pred = 0, both = 0, net = 0, dt = 0, tp = 0, tp_hit = 0,
-            tp_last = teleport.last, switching = 0, knife = 0, partial = 0, partial_seen = 0, pose = 0, def_ends = 0 }
+            tp_last = teleport.last, switching = 0, knife = 0, partial = 0, partial_seen = 0, pose = 0, def_ends = 0,
+            def_end_at = charge.def_end }
         D.my = m
     end
     return m
@@ -8496,9 +8586,16 @@ listen("level_init", protect("detailed log level_init", function()
 end))
 
 -- Dosya: degisiklik varsa en gec save_every sn'de bir (menu kapaliyken de), kapanista hemen.
+-- V1.0.40: canliyken (round icinde) 5 dk'da bir; oluyken / donma suresinde dakikada bir (buyuk dosyayi her dakika
+-- yazmak oyun icinde takilma yapiyordu).
 listen("paint_ui", protect("log save", function()
     local now = realtime()
-    if nlog.dirty and (now < nlog.saved or now - nlog.saved >= nlog.save_every) then
+    local lp = local_player()
+    local rules = try(entity.get_game_rules)
+    local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
+    local live = lp ~= nil and alive(lp) and freeze ~= 1 and freeze ~= true
+    local every = live and 300 or nlog.save_every
+    if nlog.dirty and (now < nlog.saved or now - nlog.saved >= every) then
         nlog.save()
     end
 end))
@@ -8870,6 +8967,11 @@ do
         renderer.text(x + 1, y + 1, s.r, s.g, s.b, s.a, flags, 0, str)
         renderer.text(x, y, col.r, col.g, col.b, col.a, flags, 0, str)
     end
+
+    -- V1.0.40: config yuklenince eski varsayilan geri gelmis olabilir: tasima kontrolu yeniden yapilir.
+    listen("post_config_load", protect("panel migrate", function()
+        res_panel.migrated = false
+    end))
 
     res_panel.draw = function(sw, sh)
         -- V1.0.39: config'te eski varsayilan (12 / 330 / %100) kayitliysa bir kez yeni varsayilana tasinir; elle

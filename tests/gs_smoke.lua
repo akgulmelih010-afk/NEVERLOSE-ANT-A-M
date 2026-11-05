@@ -157,7 +157,7 @@ function ui.set(ref, a, b, c, d)
 end
 function ui.set_visible(ref, v) ref.visible = v end
 function ui.set_callback(ref, fn) ref.callback = fn end
-function ui.is_menu_open() return false end
+function ui.is_menu_open() return W.menu_open == true end
 function ui.mouse_position() return 0, 0 end
 
 -------------------------------------------------------------------------------
@@ -215,7 +215,7 @@ function client.color_log(_, _, _, msg)
 end
 function client.delay_call() end
 function client.set_clan_tag() end
-function client.camera_angles() return 0, 0 end
+function client.camera_angles() return 0, W.cam_yaw or 0 end
 function client.create_interface() return nil end
 
 local entity = {}
@@ -247,6 +247,10 @@ function entity.hitbox_position(ent, hb)
     return o[1], o[2], o[3] + (HITBOX_Z[hb] or 40)
 end
 function entity.get_prop(ent, name, idx)
+    if ent == 98 then -- gamerules (V1.0.40: donma suresi)
+        if name == "m_bFreezePeriod" then return W.freeze and 1 or 0 end
+        return nil
+    end
     if ent == 1 then
         if name == "m_iHealth" then return 100 end
         if name == "m_nTickBase" then return W.tick - W.lag end
@@ -378,7 +382,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.39 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.39")
+check(printed("V1.0.40 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.40")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -815,6 +819,8 @@ check(math.abs(aspect.value - 4 / 3) < 0.001 and sky.value == 0,
     "V1.0.35: aspect ratio 4:3 ve r_3dsky 0 (" .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ")")
 local aspect_ref, boost_ref = find_ref("Aspect ratio"), find_ref("FPS boost (shadows / 3D sky / post-process off)")
 check(aspect_ref ~= nil and boost_ref ~= nil, "V1.0.35: Aspect ratio ve FPS boost menude")
+check(type(db.nykle_win_gs_cvars) == "table" and db.nykle_win_gs_cvars.r_aspectratio == 0,
+    "V1.0.40: orijinal cvar degerleri veritabaninda (cokmede geri yazilabilsin)")
 aspect_ref.value, boost_ref.value = "Off", false
 tick(70)
 check(aspect.value == 0 and sky.value == 1, "V1.0.35: kapatinca senin degerlerin geri (" .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ")")
@@ -973,7 +979,7 @@ do
     tick(3)
     W.speed = 0
     tick(64 * 10)
-    check(printed("otomatik afk kapandi: tusa bastin", before) ~= nil and fire_ref.value ~= true,
+    check(printed("otomatik afk kapandi: tus", before) ~= nil and fire_ref.value ~= true,
         "V1.0.37: tusa basinca kapanir ve bu dogusta yeniden acilmaz")
     fire("round_start")
     tick(64 * 9)
@@ -981,6 +987,45 @@ do
     auto_ref.value = false
     tick(10)
     check(fire_ref.value ~= true, "V1.0.37: secenek kapatilinca otomatik AFK kapanir")
+    -- V1.0.40: fare (kamera) hareketi otomatik AFK'yi kapatir.
+    auto_ref.value = true
+    fire("round_start")
+    tick(64 * 9)
+    check(fire_ref.value == true, "V1.0.40 kurulum: otomatik AFK acik")
+    before = #prints + 1
+    W.cam_yaw = 30
+    tick(3)
+    check(printed("otomatik afk kapandi: fare", before) ~= nil and fire_ref.value ~= true, "V1.0.40: fareyi oynatinca otomatik AFK kapanir")
+    W.cam_yaw = 0
+    tick(3)
+    -- Donma suresindeki tus AFK'yi bozmaz: sadece sayac sifirlanir, donma bitince 8 sn sonra acilir.
+    fire("round_start")
+    W.freeze = true
+    tick(10)
+    W.speed = 150
+    tick(3)
+    W.speed = 0
+    tick(64)
+    W.freeze = false
+    tick(64 * 9)
+    check(fire_ref.value == true, "V1.0.40: donma suresinde tusa basmak otomatik AFK'yi bozmaz")
+    -- Menu acikken sayac ilerlemez.
+    fire("round_start")
+    W.menu_open = true
+    tick(64 * 10)
+    check(fire_ref.value ~= true, "V1.0.40: menu acikken otomatik AFK acilmaz")
+    W.menu_open = false
+    tick(64 * 9)
+    check(fire_ref.value == true, "V1.0.40: menu kapaninca 8 sn sonra acilir")
+    -- Onerilen ayarlar acikken elle acilan AFK kapanmaz (eskiden 1 sn icinde kapaniyordu).
+    auto_ref.value = false
+    afk_ref.value = true
+    rec_ref.value = true
+    tick(200)
+    check(afk_ref.value == true, "V1.0.40: 'Always use recommended settings' acikken AFK acik kalir")
+    rec_ref.value = false
+    afk_ref.value = false
+    tick(10)
 end
 
 -------------------------------------------------------------------------------

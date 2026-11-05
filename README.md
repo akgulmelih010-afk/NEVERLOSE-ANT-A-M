@@ -458,7 +458,21 @@ V1.0.36 oturumu (28 düşman mermisi, küçük örnek): şarj pozu 6 mermide 3 k
 
 **V1.0.39:** resolver paneli varsayılan **%160** boyutta, ekranın ortasının biraz sağ üstünde (binde 560 / 380); config'inde eski varsayılan (12 / 330 / %100) kayıtlıysa bir kez yeni yere taşınır, elle sürüklediğin yer korunur. Ayrıntılı log: `vurulma-detay` ve `olum-detay` satırlarında saldırana göre AA (`aa yon +12 dsy -41 body jit`: gönderdiğin yaw ile saldırana yön arası, modeldeki işaretli desync, body modu); `sen ozeti`nde `yarim sarj N tick (goruluyorken M), sarj pozu K, defensive bitisi D` (hayat boyunca DT'nin yarım şarjda, sunucuda donuk geçtiği süre).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.39 kuralları (121 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.40** (V1.0.35–1.0.39 kodunda hata taraması; 15 aday, 13 gerçek):
+
+| Düzeltme | Neden |
+|---|---|
+| **AFK seçenekleri "Always use recommended settings"in dışında** | Önerilen ayarlar açıkken (varsayılan) elle açılan AFK 1 sn içinde kendiliğinden kapanıyordu |
+| **Otomatik AFK girdileri:** ateş, dürbün, E, R, silah seçimi ve **fare** de girdi sayılır; menü açıkken ve ısınmada sayaç ilerlemez; donma süresinde tuşa basmak sadece sayacı sıfırlar (AFK'yı o doğuş için bozmaz). Log: `otomatik afk kapandi: fare / ates / tus ...` | Eskiden sadece WASD / zıplama / eğilme sayılıyordu: menüde ya da sadece fareyle nişan alırken 8 sn'de AFK açılıp seni yürütebiliyordu; donmada A/D'ye dokunmak AFK'yı o round tamamen kapatıyordu |
+| Ölünce AFK kapanır (`afk modu kapali: oldun`) | Ölüyken ve harita değişirken AFK "açık" kalıp kapanış satırı bir sonraki doğuşta yazılıyordu |
+| **Şarj pozu ve faz öğrenmesi gerçek şarj sebebine bakar:** son 1.5 sn'de atış / aimbot atışı, 1 sn'de teleport, **defensive bitişi** ya da DT'nin açılması. Satırda sebep yazılır: `sarj pozu (def)` | V1.0.36 logunda defensive bitişindeki yarım şarj kafaları pozsuz geçti; şarj tahmini sebepsizken de %70–90'da durabiliyor (`DT %90 ... defbitti 3.41s`), bu mermiler yanlışlıkla öğrenmeden çıkarılıyordu. Poz açıkken (faz yerine poz uygulanmışken) gelen mermi de faza yazılmaz |
+| Satırda `aim 0.05s` (aimbot atışı istemcide hemen) | `sarj pozu, atis yok` çelişkisi: weapon_fire sunucudan geç geliyor |
+| **cvar orijinalleri veritabanında** (`nykle_win_gs_cvars`) | Oyun çökerse 4:3 / gölgesiz `config.cfg`'ye yazılı kalıyordu ve sonraki yüklemede eski değer kayboluyordu |
+| Panel taşıması config yüklenince de yapılır | Sonradan yüklenen config paneli eski küçük yere geri koyuyordu |
+| `defensive bitisi` sayacı her round 1 fazla sayıyordu; ölüyken eski defensive durumu doğuşta "bitti" sayılıyordu | Sayaç düzeltildi |
+| Log dosyası canlıyken 5 dk'da bir, ölüyken / donmada dakikada bir yazılır | 1 MB'lık dosyayı round içinde her dakika yazmak takılma yapıyordu |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.40 kuralları (128 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
