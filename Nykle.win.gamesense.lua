@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.35"
+local VERSION = "1.0.36"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1302,6 +1302,10 @@ menu.sniper_exploit = grp.exploits:combo("Snipers (SSG08/AWP/R8)", { "Same as st
     function() return on(menu.auto_exploit) end)
 menu.safe_recharge  = grp.exploits:switch("Safe recharge", true)
 menu.crouch_recharge = grp.exploits:switch("  » Also while crouched (peek / crouch move)", true, function() return on(menu.safe_recharge) end)
+-- V1.0.36 (v30-v33b, 193 dusman mermisi): DT yarim sarjdayken (atistan / teleporttan sonra sunucuda donuyorsun) gelen
+-- mermilerin %50'si kafa (24/48), DT dolu / bosken %17. En az kafa yenen poz statik body + freestanding body yaw
+-- (Freestanding durumunda 2/25): sarj dolana kadar o poz.
+menu.recharge_pose  = grp.exploits:switch("Recharge pose (static + freestanding body while DT charges)", true)
 menu.hidden_spin    = grp.exploits:slider("Hidden spin speed", 1, 30, 10)
 menu.exploit_info   = grp.exploits:label(DIM_HEX .. "Per-state exploit settings are in the Builder.")
 menu.auto_peek      = grp.peek:switch("Auto peek", true)
@@ -1312,7 +1316,11 @@ menu.afk            = grp.peek:switch("AFK mode (AI peek here + strafe, full exp
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
-menu.clean_shot     = grp.defensive:switch("Clean shot (no lag while shooting)", true)
+-- V1.0.36: varsayilan KAPALI. v30-v33b: defensive (kendi lag'in) sirasinda attigin 15 atisin 2'si iska (%13), temiz
+-- atista 137'nin 36'si (%26): GameSense'te lag'de ates isabeti dusurmuyor. Temiz atis ise tam nisan alabildigin anda
+-- defensive'i kapatiyordu: DT doluyken defensive acikken dusman mermilerinin %45'i iska (17/38, kafa %16), kapaliyken
+-- %20 iska (9/46, kafa %20).
+menu.clean_shot     = grp.defensive:switch("Clean shot (no lag while shooting)", false)
 -- V1.0.18 (enderphobia "Weapon switch" tetigi, luasense defensive'i): silah cekilirken zaten ates edemiyorsun.
 menu.switch_def     = grp.defensive:switch("Defensive while switching weapons", true)
 menu.sniper_air_dt  = grp.defensive:switch("Snipers use DT in the air", false)
@@ -2185,6 +2193,12 @@ charge.update = function(lp)
     end
     charge.shift = max(0, shift)
     charge.value = dt_on() and max(0, min(1, charge.shift / max(1, min(10, charge.expected - 2)))) or 0
+    -- V1.0.36 log: DT ne zaman acildi (atissiz yarim sarjin kaynagi icin).
+    local dt = dt_on()
+    if dt and not charge.dt_was then
+        charge.dt_since = realtime()
+    end
+    charge.dt_was = dt
 end
 
 -- Neverlose'daki rage.exploit:get() karsiligi: DT acikken 0-1 sarj, kapaliyken nil.
@@ -3139,11 +3153,15 @@ local function process_pending_misses()
             if now >= miss.time then
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
-                record_phase(miss.group, miss.applied, false)
+                if not miss.frozen then
+                    record_phase(miss.group, miss.applied, false)
+                end
                 sniper.record(miss.sniper, false)
                 if on(menu.hit_log) then
-                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s)"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
+                    local w = miss.enemy_weapon
+                    w = w ~= nil and (w == "Revolver" and "r8" or w:gsub("^CWeapon", ""):gsub("^C", ""):lower()) or "?"
+                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s) | silah %s"):format(
+                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker, w))
                 end
             end
         end
@@ -6118,6 +6136,19 @@ local function builder_angles(s, choked)
         modifier = modifier, mod_offset = mod_offset, phase = phase }
 end
 
+-- Sarj pozu (V1.0.36): DT acik ama dolu degil ve son 1.5 sn'de ates ettin (aim_fire ya da weapon_fire) ya da son 1 sn'de
+-- isinlandin. Kendi AA'si olan durumlarda (Manual, Safe head, Fake duck) yok.
+recharge.pose = function(state)
+    if not on(menu.recharge_pose) or not dt_on() or charge.value >= 1 or state == "Manual" or state == "Safe head"
+        or state == "Fake duck" then
+        return false
+    end
+    local now = realtime()
+    local shot = now - max(own.last_shot, resolver.aim_time)
+    local tp = now - teleport.last
+    return (shot >= 0 and shot <= 1.5) or (tp >= 0 and tp <= 1.0)
+end
+
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     local manual_dir = manual.dir
     local freestand = freestanding_allowed(move_state)
@@ -6167,12 +6198,23 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     if a.phase ~= nil and a.phase.freestand and not brute.unlearned[state] then
         body, body_fs = "Static", "On"
     end
+    current.pose = recharge.pose(state)
+    if current.pose then
+        body, body_fs = "Static", "On"
+    end
+    current.body_mode = (body == "Static" and body_fs == "On") and "fs" or (body == "Static" and "sta")
+        or ((body == "Jitter" or body == "Random") and "jit") or nil
     local armed = weapon_ready(lp, 0.15)
     -- Fake duck senin tusun ve kendisi lag'dir: temiz atis o sirada yok.
     current.clean = clean_shot.update(lp, aim_target, armed and class ~= nil and not NON_GUNS[class]
         and not is_grenade(class) and not fd_on())
     local hidden_pitch, hidden_yaw = apply_defensive(cmd, builder[state], class, state,
         move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck", armed, current.clean)
+    local def = defensive_active()
+    if charge.def_was and not def then
+        charge.def_end = realtime()
+    end
+    charge.def_was = def
     apply({
         pitch = menu.pitch:get(), yaw_base = yaw_base, yaw_offset = yaw_offset,
         modifier = a.modifier, mod_offset = a.mod_offset,
@@ -6388,9 +6430,24 @@ local function exploit_status()
     if recharge.held then
         parts[#parts + 1] = "sarj bekle"
     end
+    if current.pose then
+        parts[#parts + 1] = "sarj pozu"
+    end
     local now = realtime()
     local shot = now - own.last_shot
     parts[#parts + 1] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
+    -- V1.0.36: atissiz yarim sarjin kaynagi: DT ne zaman acildi, defensive ne zaman bitti, sarj kac tick.
+    local c_now = dt_charge()
+    if c_now ~= nil and c_now < 1 then
+        local on_for, def_end = now - (charge.dt_since or -1000), now - (charge.def_end or -1000)
+        parts[#parts + 1] = ("sh %d/%d"):format(charge.shift, charge.expected)
+        if on_for >= 0 and on_for < 5 then
+            parts[#parts + 1] = ("dtac %.2fs"):format(on_for)
+        end
+        if def_end >= 0 and def_end < 5 then
+            parts[#parts + 1] = ("defbitti %.2fs"):format(def_end)
+        end
+    end
     local since_tp = now - teleport.last
     if since_tp >= 0 and since_tp < 2 then
         parts[#parts + 1] = ("tp %.2fs"):format(since_tp)
@@ -6398,8 +6455,22 @@ local function exploit_status()
     return table.concat(parts, ", ")
 end
 
+-- V1.0.36: ayarlanan desync'in yaninda modelde gercekten olusan aci (body yaw pose parametresi) ve body modu.
 local function aa_status()
-    return ("%s %d"):format(current.side and "sag" or "sol", current.limit)
+    local text = ("%s %d"):format(current.side and "sag" or "sol", current.limit)
+    local lp = local_player()
+    local pose = lp ~= nil and prop(lp, "m_flPoseParameter", 11) or nil
+    local extra = {}
+    if finite(pose) then
+        extra[#extra + 1] = ("gercek %d"):format(round(abs(pose * 120 - 60)))
+    end
+    if current.body_mode ~= nil then
+        extra[#extra + 1] = current.body_mode
+    end
+    if #extra > 0 then
+        text = text .. " (" .. table.concat(extra, ", ") .. ")"
+    end
+    return text
 end
 
 -- Log icin kendi silahin: "CWeaponSSG08" -> "ssg08", "CAK47" -> "ak47".
@@ -6469,6 +6540,8 @@ do
         entry.shot_stage = shot_stage
         entry.shot_applied, entry.shot_group, entry.shot_sniper = current.brute, brute.stat_group(),
             sniper.mode(current.weapon)
+        -- V1.0.36: mermi geldiginde DT yarim sarjdaydi (sunucuda donuyordun): faz ogrenmesine sayilmaz.
+        entry.shot_frozen = dt_on() and charge.value > 0 and charge.value < 1
 
         local hurt = brute.hurt[e.userid]
         if hurt == nil or now < hurt or now - hurt >= K.MISS_WINDOW then
@@ -6476,6 +6549,7 @@ do
                 userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
                 applied = current.brute, group = brute.stat_group(), sniper = sniper.mode(current.weapon),
+                frozen = entry.shot_frozen, enemy_weapon = weapon_class(shooter),
             }
         end
 
@@ -6602,18 +6676,22 @@ listen("player_hurt", protect("player_hurt", function(e)
     -- Vuruldugumuz faz: mermi geldiginde gercekten uygulanan faz (AA'nin dondugu dusmaninki).
     local _, enemy = brute_entry(attacker, "u" .. tostring(e.attacker))
     local phase, grp_name, shot_sniper = nil, nil, sniper.mode(current.weapon)
+    local frozen
     if enemy.shot_stage ~= nil and enemy.last ~= nil and now >= enemy.last and now - enemy.last < K.MISS_WINDOW then
-        phase, grp_name, shot_sniper = enemy.shot_applied, enemy.shot_group, enemy.shot_sniper
+        phase, grp_name, shot_sniper, frozen = enemy.shot_applied, enemy.shot_group, enemy.shot_sniper, enemy.shot_frozen
     else
         phase = on(menu.anti_brute) and threat_stage(current.phase_group) or 0
         grp_name = brute.stat_group()
+        frozen = dt_on() and charge.value > 0 and charge.value < 1
     end
     local weapon = tostring(e.weapon or "?")
     local melee = weapon:find("knife", 1, true) ~= nil or weapon == "bayonet" or weapon == "taser"
-    if e.hitgroup == 1 and not melee and on(menu.anti_brute) then
+    -- V1.0.36: yarim sarjda (donukken) yenen kafa fazin hatasi degil: kalici taban ve faz istatistigi degismez
+    -- (sira yine ilerler). Bu mermiler kafa kayitlarinin yarisiydi ve fazlari yanlis "kotu" gosteriyordu.
+    if e.hitgroup == 1 and not melee and on(menu.anti_brute) and not frozen then
         enemy.base, enemy.learned = (phase + 1) % (#BRUTE_PHASES + 1), true
     end
-    if e.hitgroup == 1 and not melee then
+    if e.hitgroup == 1 and not melee and not frozen then
         record_phase(grp_name, phase, true)
     end
     -- Sniper exploit: govde isabeti de mermi sayilir, kafa degil (V1.0.15; oyun logu: DT'de yenen 33 isabetin

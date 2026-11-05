@@ -376,7 +376,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.35 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.35")
+check(printed("V1.0.36 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.36")
 
 local function errors_since(i)
     local found = {}
@@ -572,7 +572,15 @@ check(last_cmd.force_defensive ~= true, "gorus bitince zorlama biter")
 W.head_dmg[2] = 300 -- temiz atis var: zorlama yok
 W.sees[2] = true
 tick(2)
-check(last_cmd.force_defensive ~= true, "temiz atis varken defensive zorlanmaz")
+-- V1.0.36: Clean shot varsayilan kapali: temiz atis varken de defensive acik kalir (lag'de atis isabeti dusmuyordu,
+-- dusman iskasi %20 -> %45). Secenek acilinca eski davranis.
+check(last_cmd.force_defensive == true, "V1.0.36: Clean shot kapali (varsayilan): temiz atis varken de defensive zorlanir")
+local clean_ref = find_ref("Clean shot (no lag while shooting)")
+check(clean_ref ~= nil and clean_ref.value == false, "V1.0.36: Clean shot varsayilan kapali")
+clean_ref.value = true
+tick(2)
+check(last_cmd.force_defensive ~= true, "Clean shot acikken temiz atis varken defensive zorlanmaz")
+clean_ref.value = false
 W.head_dmg[2], W.sees[2] = 0, false
 tick(40)
 ORIGIN[2] = { 500, 0, 0 } -- yakin ama gorunmuyor
@@ -865,6 +873,62 @@ before = #prints + 1
 afk_ref.value = false
 tick(10)
 check(printed("afk modu kapali", before) ~= nil and fire_ref.value == false, "V1.0.35: AFK kapatinca otomatik ates senin degerine doner")
+
+-------------------------------------------------------------------------------
+-- V1.0.36: sarj pozu (atistan sonra DT yarim sarjda statik + freestanding body), loglar, faz ogrenmesi
+-------------------------------------------------------------------------------
+do
+    local fs_ref, pose_ref = find_ref("Freestanding body yaw"), find_ref("Recharge pose (static + freestanding body while DT charges)")
+    check(pose_ref ~= nil and pose_ref.value == true, "V1.0.36: sarj pozu secenegi var, varsayilan acik")
+    W.sees[2], W.lag, W.speed = true, 12, 150 -- yururken (Safe recharge beklemez, DT hemen dolmaya baslar)
+    tick(200)
+    check(fs_ref.value == false, "V1.0.36 kurulum: DT dolu, freestanding body kapali")
+    fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+    W.lag = 5
+    tick(3)
+    check(fs_ref.value == true, "V1.0.36: atistan sonra DT yarim sarjda statik + freestanding body (sarj pozu)")
+    local line
+    before = #prints + 1
+    fire("bullet_impact", { userid = 2, x = 0, y = 0, z = 64 })
+    tick(70)
+    line = printed("iska:", before)
+    check(line ~= nil and line:find("sarj pozu", 1, true) ~= nil and line:find("| silah ", 1, true) ~= nil
+        and line:find("sh ", 1, true) ~= nil,
+        "V1.0.36: iska satirinda sarj pozu, sarj tick'i ve dusmanin silahi (" .. tostring(line) .. ")")
+    W.lag = 12
+    tick(10)
+    check(fs_ref.value == false, "V1.0.36: DT dolunca poz biter")
+    pose_ref.value = false
+    fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+    W.lag = 5
+    tick(3)
+    check(fs_ref.value == false, "V1.0.36: secenek kapaliyken poz yok")
+    pose_ref.value = true
+    W.lag = 12
+    tick(100)
+    -- Yarim sarjda yenen kafa faz ogrenmesine sayilmaz: round basindaki faz (dusmanin ogrenilmis tabani) degismez.
+    local function round_phase()
+        fire("round_start")
+        tick(10)
+        local b = #prints + 1
+        fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 1, hitgroup = 3, weapon = "ssg08" })
+        local l = printed("vuruldun:", b)
+        return l ~= nil and l:match("| faz (%d+) |") or nil
+    end
+    local base_before = round_phase()
+    tick(100)
+    W.lag = 5
+    fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+    tick(3)
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 1, hitgroup = 1, weapon = "ssg08" })
+    W.lag = 12
+    tick(100)
+    local base_after = round_phase()
+    check(base_before ~= nil and base_before == base_after,
+        "V1.0.36: yarim sarjda yenen kafa dusmanin faz tabanini degistirmez (" .. tostring(base_before) .. " -> " .. tostring(base_after) .. ")")
+    W.sees[2], W.speed = false, 0
+    tick(10)
+end
 
 -------------------------------------------------------------------------------
 -- Kapanis

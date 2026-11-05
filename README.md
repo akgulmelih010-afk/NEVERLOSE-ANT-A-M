@@ -6,7 +6,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim, exploit ve resolver lua's
 
 ## V1.1'de ne değişti (GameSense sürümünden taşınanlar)
 
-GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi, V1.0.35'te AFK modu, aspect ratio ve eğilme koruması geldi (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
+GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi, V1.0.35'te AFK modu, aspect ratio ve eğilme koruması geldi, V1.0.36'da AA şarj anına göre ayarlandı (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
 
 | Değişiklik | Nerede | Logdaki kanıt (GameSense) |
 |---|---|---|
@@ -434,7 +434,18 @@ Gözden geçirmeden sonra düzeltilenler (aynı sürüm): AFK'da Peek tuşu her 
 
 Fikir 1 (AI peek'in DT çiftiyle öldüren açıyı kabul etmesi) yapılmadı: V1.0.34'te sniper DT çifti kaldırıldı; AI peek tek gövde mermisiyle öldüren açıyı zaten kabul ediyor. Loglardaki retlerin hepsi "60 birime kadar öldürecek atış yok" (tam canlı, kafa görünmüyor).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.35 kuralları (99 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.36** (istek: "hem ıskayı hem kafayı korumayı artır"; v30–v33b'de sana gelen 193 mermi ölçüldü):
+
+| Değişiklik | Menü | Neden |
+|---|---|---|
+| **Şarj pozu:** atıştan sonraki 1.5 sn'de (ya da ışınlandıktan sonraki 1 sn'de) DT dolana kadar body yaw statik + GameSense freestanding body yaw (kafa siperin arkasında) | Exploits → **Recharge pose** (açık) | DT yarım şarjdayken (şarj olurken sunucuda donuyorsun) gelen mermilerin **%50'si kafa** (24/48), dolu / boşken %17. Statik + freestanding en az kafa yenen poz (Freestanding'de 2/25) |
+| **Clean shot varsayılan kapalı:** nişan alabildiğin anda da defensive açık kalır | Exploits → Defensive → Clean shot (kapalı) | Defensive sırasında attığın 15 atışın 2'si ıska (%13), temiz atışta 137'nin 36'sı (%26): GameSense'te lag'de ateş isabeti düşürmüyor. DT doluyken defensive açıkken düşman mermilerinin **%45'i ıska** (kafa %16), kapalıyken %20 ıska (kafa %20) |
+| **Faz öğrenmesi temizliği:** DT yarım şarjdayken yenen kafa düşmanın faz tabanını ve faz istatistiğini değiştirmez (sıra yine ilerler) | — | Bu mermiler kafa kayıtlarının yarısıydı ve fazları yanlış "kötü" gösteriyordu; onlar çıkınca Peek fazlarının hepsi %18–22 kafa |
+| **Log:** ıska satırında düşmanın silahı (`silah ssg08`), AA alanında modelde oluşan gerçek desync ve body modu (`sol 58 (gercek 41, jit)`), yarım şarjda `sh 5/14`, `dtac` (DT ne zaman açıldı), `defbitti` (defensive ne zaman bitti), poz açıkken `sarj pozu` | — | Atış olmadan gelen 30 yarım şarj mermisinin kaynağı logda yoktu; sonraki log bunu gösterecek |
+
+Verinin yapma dedikleri: desync 58 → 60 (fark durumdan geliyor, GameSense'e ikisi de 180 gidiyor), daha fazla faz / rastgele taraf (aynı faz + taraf 28 denemede 0 kez tekrar kafa yedi), düşmana özel AA (kafalar 16 kişiye dağılmış).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.36 kuralları (108 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
