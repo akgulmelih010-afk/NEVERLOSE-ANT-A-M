@@ -449,3 +449,16 @@ Bulgu: yarım / boş şarj satırlarının çoğunda `atis yok` ve `defbitti 0.0
 | B (zorlanmaz) | 22 | 6 (%27) | 7 (%32) | 7 |
 
 Peek'te A 7 mermide 3 kafa, B 11 mermide 1 kafa (6 ıska). Şarj tahmini bu sunucuda (ping ~30) dolu iken %60'ta takılıyordu (hayat başına 7500 tick "yarım şarj", 0 defensive). → V1.0.43: zorlama varsayılan kapalı, şarj tavanı gözlemden.
+
+## GameSense V1.0.44 oturumu (de_mirage, 22 dk) — V1.0.45'ten önceki son ölçüm
+
+| | |
+|---|---|
+| Düello | 16 öldürme / 30 ölüm (%35 kazanma; V1.0.30–33 %51) |
+| Sana gelen mermi | 63: 19 kafa (%30), 20 ıska |
+| DT dolu / dolu değil | 20 mermi 3 kafa (%15) / 43 mermi 16 kafa (%37) |
+| Dolu değilken sebep | atış 12, defensive bitişi 11, teleport 2, aim 1, **sebepsiz 17** (8 kafa; çoğu %50+ gösteriyor) |
+| Havada (Air duck açık) | Air crouch 17 mermi 8 kafa (%47): eğilme korumadı → V1.0.45'te kapalı |
+| Senin atışın | scout 24/33 (%73), R8 6/6 |
+
+Sebepsiz yarım şarj (hayat başına yüzlerce tick, ör. 1038 tickin 766'sı) büyük olasılıkla V1.0.43'ün 5 sn / en az 4 tavanının yanlış okuması; V1.0.45'te 30 sn / en az 6, round başında sıfır.
