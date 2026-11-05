@@ -595,7 +595,7 @@ V1.0.48 oturumu (~20 dk): 12 kill / 19 ölüm, sana gelen 32 isabette 9 kafa, 34
 | Düşük can safe point: sadece Adaptive resolver açıkken; açı seçiliyse (hipotez / seri) ya da sadece kafa açıksa Force yazılmaz | Force safe point seçilen açıyı gereksiz kılıyor, sadece kafa açıkken atışı kilitleyebilir (resolver.cap ile aynı gerekçe). Logda görülmüş bir olay yok, önleyici. |
 | Resolver serisi yeni haritada ve "Forget learned enemies"ta sıfırlanır | Tutarlılık. |
 | Şarj: tutulan shift öğrenilen "dolu" değerin üstüne çıkarsa o değer silinir | Yarım şarjın %100 okunmasını önleyen değişmez (önleyici). |
-| Loglar:  satırında MD 100+ için gerçek eşik (), sürgü (), R8'de "dürbün kapalı" yok; atış satırında ; her vurulmada  | Sıkılmayan atış incelemesi: hiçbir kapı atış kaçırmamış, ama sebepler yanlış etiketliydi. Duvardan kafa ölümleri en büyük ölüm türü; payda (açıktan vurulma) yoktu. Brute ayna: 4 karışık örnek; davranış değiştirilmedi, taraf loglanıyor. |
+| Loglar: `sikmadi` satırında MD 100+ için gerçek eşik (`hasar 74 < can+1 = 55 (hp54)`), sürgü (`silah hazir degil (surgu, son atis 0.40s once)`), R8'de "dürbün kapalı" yok; atış satırında `BY -58° (duvar L)`; her vurulmada `iz duvardan` / `iz acik` | Sıkılmayan atış incelemesi: hiçbir kapı atış kaçırmamış, ama sebepler yanlış etiketliydi. Duvardan kafa ölümleri en büyük ölüm türü; payda (açıktan vurulma) yoktu. Brute ayna: 4 karışık örnek; davranış değiştirilmedi, taraf loglanıyor. |
 
 Doğrulamada elenenler: brute açısını seçimde dondurmak (tek kafa örneği tersini gösteriyor), teleport kapatma eşiğini 2/5 yapmak, düello gecikme logu.
 
