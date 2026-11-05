@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.41"
+local VERSION = "1.0.42"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1328,6 +1328,10 @@ menu.afk            = grp.peek_raw:switch("AFK mode (AI peek here + strafe, full
 -- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
 menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", true)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
+-- V1.0.42 A/B testi: tek roundlarda (A) defensive normal; cift roundlarda (B) gorulme / yakin dusman / peek icin
+-- zorlanmaz (her defensive bitisinde DT yeniden sarj oluyor: bir hayatta 141 bitis; DEF'in kafa korumasi olculmedi).
+-- Her satirda "test A" / "test B". Sonuca gore kalici karar verilecek.
+menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no forced defensive)", true)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
 -- V1.0.36'da kapatilmisti, V1.0.37'de geri ACIK: V1.0.36 oturumunda defensive daha cok acilip kapandikca DT her
@@ -2177,7 +2181,7 @@ end
 -- (DT kapali ya da atistan hemen sonra) fark en yuksek; sarj doldukca fark azalir. base = sarjsiz fark
 -- (en yuksek gorulen; DT kapaliyken tam olarak olculur), shift = base - simdiki fark. Beklenen sarj:
 -- sv_maxusrcmdprocessticks - DT fake lag limit - 1 (varsayilan 14). value 0-1.
-local charge = { base = nil, shift = 0, value = 0, expected = 14, offset = 0 }
+local charge = { base = nil, shift = 0, value = 0, expected = 14, offset = 0, round_no = 1 }
 
 charge.update = function(lp)
     local tb = prop(lp, "m_nTickBase")
@@ -4964,6 +4968,9 @@ do
         local peeking = on_peek and exposure.peeking ~= nil and on(menu.peek_defensive)
         local switching = on_peek and switch_window(cmd)
         local knife = on_peek and current.backstab ~= nil and on(menu.backstab_def)
+        if on(menu.def_ab) and charge.round_no % 2 == 0 then
+            window, guard, peeking = false, false, false
+        end
         local forced = (window or guard or peeking or switching or knife or afk.on) and dt and exploit_active()
             and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
@@ -6577,6 +6584,9 @@ local function exploit_status()
     if current.pose then
         parts[#parts + 1] = "sarj pozu (" .. tostring(current.pose_reason) .. ")"
     end
+    if on(menu.def_ab) then
+        parts[#parts + 1] = charge.round_no % 2 == 0 and "test B" or "test A"
+    end
     local now = realtime()
     local shot = now - own.last_shot
     parts[#parts + 1] = (shot >= 0 and shot < 5) and ("atis %.2fs"):format(shot) or "atis yok"
@@ -7497,6 +7507,12 @@ listen("round_start", protect("round_start", function()
     ai_peek.reset()
     -- Yeni round = yeni dogus: otomatik AFK yeniden olculur, capa birakilir.
     afk.auto, afk.armed, afk.idle_since, afk.anchor = false, true, nil, nil
+    -- Defensive A/B testi (V1.0.42): round sayaci; satirlarda "test A" / "test B".
+    charge.round_no = charge.round_no + 1
+    if on(menu.def_ab) and on(menu.hit_log) then
+        print(("[%s] defensive testi: bu round %s"):format(SCRIPT,
+            charge.round_no % 2 == 0 and "B (zorlanan defensive yok)" or "A (defensive normal)"))
+    end
     pending_misses = {}
     recharge.held = false
     persist.save(false)

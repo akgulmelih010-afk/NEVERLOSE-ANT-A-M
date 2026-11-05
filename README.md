@@ -481,7 +481,9 @@ V1.0.36 oturumu (28 düşman mermisi, küçük örnek): şarj pozu 6 mermide 3 k
 
 Oturum notları: Clean shot açık olsa da yarım / boş şarjda gelen mermi payı yüksek kaldı (28/41); demek ki asıl sebep Clean shot değil, defensive'in sürekli açılıp kapanması (bir hayatta 141 defensive bitişi). Kafa oranı %34. Senin kafa atışın 8/19 (correction 6). Otomatik AFK doğru çalıştı (8 sn'de açıldı, tuşla kapandı). `aa yon` örnekleri: vurulduğunda yüzün saldırana çoğunlukla ±120–180° (arkası dönük), birkaçında ±90° (yan).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.41 kuralları (129 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.42 — defensive A/B testi** (Exploits → Defensive → **Defensive A/B test**, açık): tek roundlarda (A) defensive normal; çift roundlarda (B) görülme / yakın düşman / peek için defensive zorlanmaz (silah değişimi, bıçaklı yakın ve AFK aynı kalır). Round başında `defensive testi: bu round A / B` ve her `vuruldun` / `iska` satırında `test A` / `test B`. Neden: defensive her bittiğinde DT yeniden şarj oluyor (bir hayatta 141 bitiş) ve yarım şarjda gelen mermiler kafa yediriyor; defensive'in kendi kafa koruması ise ölçülemedi (%23–43 açık, %29–35 kapalı, küçük örnekler). Birkaç oturumluk logla hangi kolun daha az kafa yedirdiği ölçülüp kalıcı karar verilecek; o zamana kadar maçların yarısı B kolunda geçer.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.42 kuralları (133 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

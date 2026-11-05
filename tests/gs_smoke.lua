@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.41 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.41")
+check(printed("V1.0.42 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.42")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -437,6 +437,9 @@ fire("round_start")
 -- V1.0.37: otomatik AFK eski bolumleri bozmasin (8 sn tusa basilmiyor); kendi bolumunde acilir.
 local auto_ref = find_ref("  » Auto AFK (no input 8 s after spawn)")
 if auto_ref ~= nil then auto_ref.value = false end
+-- V1.0.42: defensive A/B testi eski bolumleri round sayisina bagli yapmasin; kendi bolumunde acilir.
+local ab_ref = find_ref("Defensive A/B test (even rounds: no forced defensive)")
+if ab_ref ~= nil then ab_ref.value = false end
 tick(200)
 errs = errors_since(before)
 check(#errs == 0, "200 tick hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
@@ -1058,6 +1061,36 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.42: defensive A/B testi (tek round A: normal, cift round B: zorlanan defensive yok)
+-------------------------------------------------------------------------------
+do
+    check(ab_ref ~= nil, "V1.0.42: defensive A/B testi secenegi var")
+    ab_ref.value = true
+    W.sees[2], W.speed, W.lag = true, 0, 12
+    local function round_arm()
+        local b = #prints + 1
+        fire("round_start")
+        tick(20)
+        local l = printed("defensive testi:", b)
+        return l ~= nil and (l:find("bu round B", 1, true) and "B" or "A") or nil
+    end
+    local arm1 = round_arm()
+    local forced1 = last_cmd.force_defensive == true
+    local arm2 = round_arm()
+    local forced2 = last_cmd.force_defensive == true
+    check(arm1 ~= nil and arm2 ~= nil and arm1 ~= arm2, "V1.0.42: kollar round round degisir (" .. tostring(arm1) .. ", " .. tostring(arm2) .. ")")
+    check((arm1 == "A") == forced1 and (arm2 == "A") == forced2,
+        "V1.0.42: A'da gorulurken defensive zorlanir, B'de zorlanmaz (" .. tostring(forced1) .. ", " .. tostring(forced2) .. ")")
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local line = printed("vuruldun:", before)
+    check(line ~= nil and line:find("test " .. arm2, 1, true) ~= nil, "V1.0.42: vuruldun satirinda test kolu (" .. tostring(line) .. ")")
+    ab_ref.value = false
+    W.sees[2] = false
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1067,7 +1100,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.41 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.42 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
