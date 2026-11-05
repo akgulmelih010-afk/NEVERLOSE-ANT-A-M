@@ -3943,12 +3943,51 @@ end
 -- body yaw: once -lim (loglarda kafaya -58 8/11, +58 1/6). GS'nin kafa isabeti seriyi kapatir; zorlanan aciyla kafa
 -- isabeti seriyi acik tutar. Correction kapali / senin Force body yaw'in varsa yazilmaz (apply). Kendi kol / brute
 -- once gelir (yalnizca GS'ye kalan atislar).
-resolver.streak = { list = {}, need = 3, window = 300 }
+-- V1.0.49b (tum loglar, 705 scout atisi): statik AA'li dusman yan duruyorken (|bak| 45-135) GS kafa correction %29,
+-- arkasi donukken %15; jitter / x-way / random'da yan durus fark etmiyor ve zorlanan aci hic denenmemis (GS %73 isabet).
+-- Bu yuzden: statik + yan durusta 2 iska seriyi acar (sadece hala yan dururken uygulanir); coklu desende seri ne sayar
+-- ne uygulanir (GS'ye birakilir).
+resolver.streak = { list = {}, need = 3, side_need = 2, window = 300 }
 
-resolver.streak.yaw = function(key)
-    local s = key ~= nil and resolver.streak.list[key] or nil
+-- Dusmanin bize gore bakisi (log'daki "bak" ile ayni), mutlak deger 0-180; okunamazsa nil.
+resolver.streak.bak = function(enemy)
+    local lp = local_player()
+    local mine, o = lp ~= nil and origin_of(lp) or nil, origin_of(enemy)
+    local _, yaw = prop(enemy, "m_angEyeAngles")
+    if mine == nil or o == nil or not finite(yaw) then
+        return nil
+    end
+    local rel = (yaw - math.deg(atan2(mine.y - o.y, mine.x - o.x)) + 180) % 360 - 180
+    return abs(rel)
+end
+
+resolver.streak.side_on = function(enemy)
+    local b = resolver.streak.bak(enemy)
+    return b ~= nil and b >= 45 and b <= 135
+end
+
+resolver.streak.armed = function(s)
+    return s ~= nil and (s.n >= resolver.streak.need or (s.side or 0) >= resolver.streak.side_need)
+end
+
+-- pattern: dusmanin canli AA deseni; enemy: yan durus kontrolu icin (sadece yandan acilmis seride).
+resolver.streak.yaw = function(key, pattern, enemy)
+    local S = resolver.streak
+    local s = key ~= nil and S.list[key] or nil
     local now = realtime()
-    if s == nil or s.n < resolver.streak.need or now < s.last or now - s.last > resolver.streak.window then
+    if not S.armed(s) or now < s.last or now - s.last > S.window then
+        return nil
+    end
+    if pattern ~= nil and enemy_watch.multi[pattern] then
+        if not s.held and on(menu.resolver_log) then
+            print(("[%s] resolver: %s seri: desen %s -> GS (seri bekliyor)"):format(SCRIPT,
+                enemy ~= nil and player_name(enemy) or "?", tostring(pattern)))
+        end
+        s.held = true
+        return nil
+    end
+    s.held = nil
+    if s.n < S.need and enemy ~= nil and not S.side_on(enemy) then
         return nil
     end
     return s.sign * (menu.hyp_angle ~= nil and menu.hyp_angle:get() or 58)
@@ -3957,6 +3996,11 @@ end
 resolver.streak.result = function(shot, head_hit, miss)
     local key = shot ~= nil and shot.hyp_key or nil
     if key == nil or not (head_hit or miss) then
+        return
+    end
+    -- Coklu desende atilan atis ne sayilir ne seriyi bitirir (o fazdaki isabet statik fazi anlatmaz).
+    local pattern = shot.profile ~= nil and shot.profile.pattern or nil
+    if pattern ~= nil and enemy_watch.multi[pattern] then
         return
     end
     local S, now = resolver.streak, realtime()
@@ -3970,44 +4014,55 @@ resolver.streak.result = function(shot, head_hit, miss)
     end
     if miss then
         if s == nil then
-            s = { n = 0, last = now, sign = -1, bad = 0 }
+            s = { n = 0, side = 0, last = now, sign = -1, bad = 0 }
             S.list[key] = s
         elseif now < s.last or now - s.last > S.window then
-            s.n, s.sign, s.bad = 0, -1, 0
+            s.n, s.side, s.sign, s.bad = 0, 0, -1, 0
         end
-        local was_on = s.n >= S.need
+        local was_on = S.armed(s)
         s.n, s.last = s.n + 1, now
-        -- Isaret sadece seri acisiyla atilan, kafaya nisanli, yeterli hit chance'li iskada degisir: -58'de 2 iska
-        -- ust uste -> +58; +58'de 1 iska -> -58 (tum zorlanan atislar: -58 13 isabet / 5 iska, +58 3 / 8).
+        if pattern == "static" and shot.side_on then
+            s.side = (s.side or 0) + 1
+        end
+        -- Isaret sadece zorlanan aciyla (seri ya da kendi kol / brute, serinin isaretinde) atilan, kafaya nisanli,
+        -- yeterli hit chance'li iskada degisir: -58'de 2 iska ust uste -> +58; +58'de 1 iska -> -58
+        -- (tum zorlanan atislar: -58 13 isabet / 5 iska, +58 3 / 8).
         local hc = shot.hitchance or 0
-        if shot.streak_yaw ~= nil and shot.hitgroup == 1 and hc >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
+        local forced = shot.streak_yaw or shot.hyp_yaw
+        if forced ~= nil and forced ~= 0 and (forced > 0) == (s.sign > 0) and shot.hitgroup == 1
+            and hc >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
             if s.sign < 0 then
                 s.bad = s.bad + 1
                 if s.bad >= 2 then
                     s.sign, s.bad = 1, 0
-                    say(("-%d iki kez iskaladi -> body yaw +%d"):format(lim, lim))
+                    if was_on then
+                        say(("-%d iki kez iskaladi -> body yaw +%d"):format(lim, lim))
+                    end
                 end
             else
                 s.sign, s.bad = -1, 0
-                say(("+%d iskaladi -> body yaw -%d"):format(lim, lim))
+                if was_on then
+                    say(("+%d iskaladi -> body yaw -%d"):format(lim, lim))
+                end
             end
         end
-        if not was_on and s.n >= S.need then
-            say(("%d resolver iskasi (durumdan bagimsiz) -> GS yerine body yaw %s%d"):format(s.n, s.sign < 0 and "-" or "+", lim))
+        if not was_on and S.armed(s) then
+            say((s.n >= S.need and "%d resolver iskasi (durumdan bagimsiz)" or "%d iska, yan duruyor (statik)")
+                :format(s.n) .. (" -> GS yerine body yaw %s%d"):format(s.sign < 0 and "-" or "+", lim))
         end
     elseif s ~= nil then
         local forced = shot.streak_yaw or shot.hyp_yaw
         if forced ~= nil and forced ~= 0 then
             -- Zorlanan aciyla kafa: o aci dogru; seri kapanmaz, isaret o aciya gecer.
             s.sign, s.bad = forced > 0 and 1 or -1, 0
-            if s.n >= S.need then
+            if S.armed(s) then
                 s.last = now
             end
         else
-            if s.n >= S.need then
+            if S.armed(s) then
                 say("bitti (GS kafadan vurdu)")
             end
-            s.n, s.bad = 0, 0
+            s.n, s.side, s.bad = 0, 0, 0
         end
     end
 end
@@ -4124,7 +4179,8 @@ local function apply_resolver(class, present)
         end
         local yaw = hypothesis.update(enemy, key, state, raw, misses, stalled, entry)
         if yaw == nil and on(menu.resolver) and on(menu.hypotheses) and plist_available(PL.FORCE) then
-            yaw = resolver.streak.yaw(key)
+            local prof = enemy_watch.profile(enemy)
+            yaw = resolver.streak.yaw(key, prof ~= nil and prof.pattern or nil, enemy)
         end
         if not hypothesis.apply(enemy, yaw) then
             yaw = nil
@@ -7302,7 +7358,8 @@ listen("aim_fire", protect("aim_fire", function(e)
         if hyp_yaw ~= nil then
             res_arm = h.own_arm or "brute"
         end
-        local streak_yaw = hyp_yaw == nil and resolver.streak.yaw(key) or nil
+        local prof_now = enemy_watch.profile(target)
+        local streak_yaw = hyp_yaw == nil and resolver.streak.yaw(key, prof_now ~= nil and prof_now.pattern or nil, target) or nil
         if streak_yaw ~= nil and not (plist_get(target, PL.FORCE) == true and plist_get(target, PL.VALUE) == streak_yaw) then
             streak_yaw = nil
         end
@@ -7320,7 +7377,7 @@ listen("aim_fire", protect("aim_fire", function(e)
             high_priority = e.high_priority == true,
             total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil,
             exploit = not fd_on() and ((dt_on() and "dt") or (hs_on() and "hs")) or nil,
-            hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw,
+            hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw, side_on = resolver.streak.side_on(target),
             hyp_slot = h ~= nil and h.seeded or nil }
         -- V1.0.47: sahte kayda giden atista gercek kayit beklemesi neden yoktu (ates aninda).
         local shot = resolver.shots[e.id]

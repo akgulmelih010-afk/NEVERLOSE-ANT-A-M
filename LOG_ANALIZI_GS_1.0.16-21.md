@@ -492,3 +492,11 @@ Kill / ölüm 21 / 29 (%42; V1.0.46 %36). Sana gelen 58 isabette 17 kafa (%29; V
 - **dominik:** 25 atış; kafa 1/16 (14 correction), gövde 6/9. Sabit yan duruş (bak ≈ -75, pitch 89, lby +0); bir okumada roll+44 göründü (roll ağdan geliyorsa extended). GS'nin kendi resolver'ı yan duran dominik + azure'a kafada 0/14. 14 ıska 5 duruma dağıldı, brute aynı durumda 3 ıska istediği için iki kez açıldı; AA deseni 12 kez "değişti", 10 kez "kararsız" sayıldı (hipotezleri kapatır). → V1.0.49 düşman başına resolver serisi.
 - **Brute ayna hatası:** "-58 (duvar R)" duyurulan aday atışta +58 gitti (duvar tarafı değişmişti). Ayrı düzeltilecek.
 - **V1.0.48 ilk oturumu (344 satır):** yarım şarj %11 (V1.0.47 %41), zorlanan defensive canlı sürenin %36'sı. 5 kill / 10 ölüm, sana gelen 20 isabette 5 kafa. 18 atış, 7 isabet (1 kafa), 6 correction (northgard 3, sssssxxxcccc 2), 4 spread (biri R8 hc 24); hepsi GS ile.
+
+## Tüm loglar: sürekli ıskaladığın rakipler (V1.0.21–1.0.48, 705 GS scout atışı)
+
+Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (Neverlose lua'sı), ping-170 oyuncu (m1ndotoryy / "Nykle #..." / sıfır genişlikli "northgard") %35, PhytoCannaBinoide %32, мопсик %28, gerçek northgard %18 (onda kayıp çoğu spread / ölüm).
+- Iskalar kafa sorunu: kafa nişanında %26 correction, mide nişanında %7.
+- Zor rakiplerde yan duruş %41 (kolaylarda %11), medyan ping 107 (47). Statik AA'da yan duruş %29–30, arkası dönük %15–16; jitter / x-way'de yan duruş fark etmiyor.
+- Bir ıskadan sonra aynı rakibe sonraki kafa atışları %38–46 ıska (ıska yokken %16–26): ıskayla açılan önlemler doğru yön.
+- Önerilip doğrulamada elenenler: scout'a çoklu desende Force safe point (705 atışta 1 ıskaya ulaşıyor, ıskalar kayıt / lag hatası), sahte kayıtta sert bekleme (cooldown'ı bozuyor, düelloda 9 atışta 2 ölüm).

@@ -1379,15 +1379,16 @@ do
         fire("aim_fire", { id = 4900 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
         fire("aim_miss", { id = 4900 + i, target = 3, hitgroup = 1, reason = "?" })
     end
-    check(printed("seri: 3 resolver iskasi (durumdan bagimsiz)", before) ~= nil, "V1.0.49: 3 farkli durumda 3 iska seriyi acar")
+    check(printed("-> GS yerine body yaw", before) ~= nil, "V1.0.49: farkli durumlarda iskalar seriyi acar")
     W.evel[3] = 0; tick(10)
-    check(plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") == -58,
-        "V1.0.49: seri acikken body yaw -58 (" .. tostring(plist.get(3, "Force body yaw")) .. ", " .. tostring(plist.get(3, "Force body yaw value")) .. ")")
+    check(plist.get(3, "Force body yaw") == true and math.abs(plist.get(3, "Force body yaw value") or 0) == 58,
+        "V1.0.49: seri acikken body yaw +-58 (" .. tostring(plist.get(3, "Force body yaw")) .. ", " .. tostring(plist.get(3, "Force body yaw value")) .. ")")
     fire("aim_fire", { id = 4904, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
     before = #prints + 1
     fire("aim_miss", { id = 4904, target = 3, hitgroup = 1, reason = "?" })
     local l49 = printed("atis: dusman3", before)
-    check(l49 ~= nil and l49:find("res seri", 1, true) ~= nil, "V1.0.49: seri acisiyla atis 'res seri' (" .. tostring(l49) .. ")")
+    check(l49 ~= nil and l49:find("| res ", 1, true) ~= nil and l49:find("res gs", 1, true) == nil,
+        "V1.0.49: seri acikken atis GS'ye kalmaz (seri ya da kendi kol) (" .. tostring(l49) .. ")")
     plist.set(3, "Correction active", false)
     tick(4)
     check(plist.get(3, "Force body yaw") ~= true, "V1.0.49: Correction kapaliyken seri yazilmaz")
@@ -1397,7 +1398,11 @@ do
     check(printed("seri: bitti (GS kafadan vurdu)", before) ~= nil, "V1.0.49: GS kafa isabeti seriyi bitirir")
     plist.set(3, "Correction active", true)
     tick(4)
-    check(plist.get(3, "Force body yaw") ~= true, "V1.0.49: seri bitince body yaw yazilmaz")
+    before = #prints + 1
+    fire("aim_fire", { id = 4906, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_miss", { id = 4906, target = 3, hitgroup = 1, reason = "?" })
+    l49 = printed("atis: dusman3", before)
+    check(l49 ~= nil and l49:find("res seri", 1, true) == nil, "V1.0.49: seri bitince atis seri acisiyla gitmez (" .. tostring(l49) .. ")")
     W.head_dmg[3] = 0
     tick(10)
 end
