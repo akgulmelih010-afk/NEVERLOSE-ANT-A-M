@@ -1265,9 +1265,12 @@ end
 do
     local roll_ref = find_ref("Roll")
     local roll_menu = find_ref("Extended desync (roll)")
-    check(roll_menu ~= nil and roll_menu.value == true, "V1.0.47: Extended desync (roll) secenegi var, varsayilan acik")
-    roll_menu = roll_menu or { value = true }
+    check(roll_menu ~= nil and roll_menu.value == false, "V1.0.47: Extended desync (roll) secenegi var, varsayilan kapali (sunucuda roll yasak)")
     W.flags, W.speed, W.sees[2] = 1, 0, false
+    tick(4)
+    check(roll_ref ~= nil and roll_ref.value == 0, "V1.0.47: roll kapaliyken Roll'a dokunulmaz (" .. tostring(roll_ref and roll_ref.value) .. ")")
+    roll_menu = roll_menu or { value = true }
+    roll_menu.value = true
     tick(4)
     check(roll_ref ~= nil and (roll_ref.value == 45 or roll_ref.value == -45), "V1.0.47: dururken roll 45 (" .. tostring(roll_ref and roll_ref.value) .. ")")
     W.sees[2] = true; tick(2)
@@ -1281,9 +1284,9 @@ do
     W.flags = 0; W.speed = 0; tick(4)
     check(roll_ref.value == 0, "V1.0.47: havada roll 0 (" .. tostring(roll_ref.value) .. ")")
     W.flags = 1
+    W.speed = 0; tick(4)
     roll_menu.value = false; tick(4)
-    check(roll_ref.value == 0, "V1.0.47: kapaliyken senin Roll degerin (0) geri gelir (" .. tostring(roll_ref.value) .. ")")
-    roll_menu.value = true; tick(4)
+    check(roll_ref.value == 0, "V1.0.47: kapatinca senin Roll degerin (0) geri gelir (" .. tostring(roll_ref.value) .. ")")
 end
 
 -------------------------------------------------------------------------------

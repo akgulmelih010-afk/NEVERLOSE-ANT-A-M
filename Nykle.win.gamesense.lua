@@ -1297,7 +1297,8 @@ menu.brute_random   = grp.protect:switch("  » Random anti-brute order", true, f
 -- AA > Roll ayari lua acikken gizliydi ve hic yazilmiyordu. Yerde ve yavasken (duran / egik / slow walk, hiz < 100)
 -- govde desync tarafina gore +-roll yazilir; kosarken, havada, merdivende 0 (roll hareketi bozar). Valve
 -- sunucularinda kullanma (untrusted). Vurulma satirlarinda "roll N" yazar: kafa orani roll acik / kapali karsilastirilir.
-menu.roll           = grp.protect:switch("Extended desync (roll)", true)
+-- Varsayilan KAPALI: kullanici "sunucuda roll yasak, extended degil" dedi; roll'a izin veren sunucuda elle ac.
+menu.roll           = grp.protect:switch("Extended desync (roll)", false)
 menu.roll_value     = grp.protect:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
