@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.42 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.42")
+check(printed("V1.0.43 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.43")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -439,7 +439,15 @@ local auto_ref = find_ref("  » Auto AFK (no input 8 s after spawn)")
 if auto_ref ~= nil then auto_ref.value = false end
 -- V1.0.42: defensive A/B testi eski bolumleri round sayisina bagli yapmasin; kendi bolumunde acilir.
 local ab_ref = find_ref("Defensive A/B test (even rounds: no forced defensive)")
-if ab_ref ~= nil then ab_ref.value = false end
+check(ab_ref ~= nil and ab_ref.value == false, "V1.0.43: A/B testi varsayilan kapali")
+-- V1.0.43: gorulunce zorlanan defensive varsayilan kapali (A/B sonucu); eski Smart bolumleri icin acilir.
+local force_ref = find_ref("Force defensive when seen / near (Smart)")
+check(force_ref ~= nil and force_ref.value == false, "V1.0.43: gorulunce defensive zorlama varsayilan kapali")
+-- "Always use recommended settings" (64 tick'te bir varsayilana dondurur) eski bolumlerde kapali.
+local rec_ref = find_ref("Always use recommended settings")
+check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
+rec_ref.value = false
+if force_ref ~= nil then force_ref.value = true end
 tick(200)
 errs = errors_since(before)
 check(#errs == 0, "200 tick hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
@@ -637,9 +645,6 @@ local pair_ref = find_ref("  » DT pair counts as lethal")
 check(body_ref ~= nil and body_ref.value == false, "Body 70+ secenegi var ve varsayilan kapali")
 check(pair_ref ~= nil and pair_ref.value == false, "V1.0.34: DT pair secenegi etkisiz, varsayilan kapali")
 -- "Always use recommended settings" 64 tick'te bir secenekleri varsayilana dondurur: test icin kapatilir.
-local rec_ref = find_ref("Always use recommended settings")
-check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
-rec_ref.value = false
 -- V1.0.34: scout DT ikinci mermiyi atmiyor: govde 86 x 2 >= 100 olsa da cift yok, kafa (MD 101). Secenegi elle
 -- acmak da bir sey degistirmez.
 W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 86, 12
@@ -1091,6 +1096,35 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.43: varsayilan (zorlama yok) ve sunucu sarj tavani
+-------------------------------------------------------------------------------
+do
+    force_ref.value = false
+    W.sees[2], W.speed, W.lag = true, 0, 12
+    tick(40)
+    check(last_cmd.force_defensive ~= true, "V1.0.43: varsayilan: gorulunce defensive zorlanmaz")
+    force_ref.value = true
+    tick(5)
+    check(last_cmd.force_defensive == true, "V1.0.43: secenek acikken eski Smart zorlamasi")
+    force_ref.value = false
+    -- Sunucu tavani 6 tick: bir sure sonra "DT dolu" sayilir (eskiden hep "DT %60").
+    W.sees[2], W.lag = false, 6
+    tick(64 * 25)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local line = printed("vuruldun:", before)
+    check(line ~= nil and line:find("DT dolu", 1, true) ~= nil, "V1.0.43: tavani 6 olan sunucuda sarj dolu sayilir (" .. tostring(line) .. ")")
+    W.lag = 3
+    tick(2)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    line = printed("vuruldun:", before)
+    check(line ~= nil and line:find("DT %50", 1, true) ~= nil, "V1.0.43: tavanin yarisi DT %50 (" .. tostring(line) .. ")")
+    W.lag = 12
+    tick(20)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1100,7 +1134,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.42 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.43 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

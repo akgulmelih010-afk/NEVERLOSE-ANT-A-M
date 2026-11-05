@@ -483,7 +483,16 @@ Oturum notları: Clean shot açık olsa da yarım / boş şarjda gelen mermi pay
 
 **V1.0.42 — defensive A/B testi** (Exploits → Defensive → **Defensive A/B test**, açık): tek roundlarda (A) defensive normal; çift roundlarda (B) görülme / yakın düşman / peek için defensive zorlanmaz (silah değişimi, bıçaklı yakın ve AFK aynı kalır). Round başında `defensive testi: bu round A / B` ve her `vuruldun` / `iska` satırında `test A` / `test B`. Neden: defensive her bittiğinde DT yeniden şarj oluyor (bir hayatta 141 bitiş) ve yarım şarjda gelen mermiler kafa yediriyor; defensive'in kendi kafa koruması ise ölçülemedi (%23–43 açık, %29–35 kapalı, küçük örnekler). Birkaç oturumluk logla hangi kolun daha az kafa yedirdiği ölçülüp kalıcı karar verilecek; o zamana kadar maçların yarısı B kolunda geçer.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.42 kuralları (133 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.43** (V1.0.42 oturumu, de_mirage 40 dk, 43 round, 40 düşman mermisi):
+
+| Değişiklik | Neden |
+|---|---|
+| **Görülünce / yakın düşmanda / peek'te / havada zorlanan defensive varsayılan kapalı** (Exploits → Defensive → **Force defensive when seen / near (Smart)**; A/B testi de kapalı, istenirse açılır) | A/B: A (zorlanan) 18 mermi **7 kafa (%39)**, %17 ıska, 10 ölüm; B (zorlanmaz) 22 mermi **6 kafa (%27)**, %32 ıska, 7 ölüm. Peek'te B 11 mermide 1 kafa, 6 ıska. V1.0.36'da da daha çok defensive → daha çok kafa. Silah değişimi, bıçaklı yakın ve AFK zorlaması kalır |
+| **Şarj tavanı gözlemden:** son 5 sn'deki en yüksek shift (en az 4) dolu sayılır | Bu sunucuda (ping ~30) DT doluyken bile `DT %60` görünüyordu: hayat boyu 7500 tick "yarım şarj"; AI peek "DT şarj oluyor" diye bekliyor, Safe recharge ve öğrenme filtresi yanlış çalışıyordu |
+
+Oturum notları: kafa oranı %32 (13/40); senin göğüs / mide ıskalarının hepsi R8 (Min. damage 11, BA Force, hc %39–84 — senin R8 ayarların). Log sıfırlaması çalıştı (dosya V1.0.42 ile başlıyor), hafıza 25 oyuncu.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.43 kuralları (139 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

@@ -440,3 +440,12 @@ Bulgu: yarım / boş şarj satırlarının çoğunda `atis yok` ve `defbitti 0.0
 | Otomatik AFK | 8 sn'de açıldı, tuşla kapandı (V1.0.37 mesajı) |
 
 `sen ozeti` (V1.0.39): bir hayatta 141'e kadar defensive bitişi, yarım şarj 17–2075 tick, görülürken 0–192 tick. → V1.0.41'de şarj pozu kapalı. Sıradaki aday: defensive'in sık açılıp kapanması.
+
+## GameSense V1.0.42 oturumu (de_mirage, 40 dk, 43 round) — defensive A/B
+
+| Kol | Mermi | Kafa | Iska | Ölüm |
+|---|---|---|---|---|
+| A (zorlanan defensive) | 18 | 7 (%39) | 3 (%17) | 10 |
+| B (zorlanmaz) | 22 | 6 (%27) | 7 (%32) | 7 |
+
+Peek'te A 7 mermide 3 kafa, B 11 mermide 1 kafa (6 ıska). Şarj tahmini bu sunucuda (ping ~30) dolu iken %60'ta takılıyordu (hayat başına 7500 tick "yarım şarj", 0 defensive). → V1.0.43: zorlama varsayılan kapalı, şarj tavanı gözlemden.

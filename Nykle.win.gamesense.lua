@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.42"
+local VERSION = "1.0.43"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1328,10 +1328,12 @@ menu.afk            = grp.peek_raw:switch("AFK mode (AI peek here + strafe, full
 -- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
 menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", true)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
--- V1.0.42 A/B testi: tek roundlarda (A) defensive normal; cift roundlarda (B) gorulme / yakin dusman / peek icin
--- zorlanmaz (her defensive bitisinde DT yeniden sarj oluyor: bir hayatta 141 bitis; DEF'in kafa korumasi olculmedi).
--- Her satirda "test A" / "test B". Sonuca gore kalici karar verilecek.
-menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no forced defensive)", true)
+-- V1.0.43: A/B sonucu (V1.0.42, 40 dusman mermisi): A (zorlanan defensive) 18 mermi 7 kafa (%39), %17 iska, 10 olum;
+-- B (zorlanmaz) 22 mermi 6 kafa (%27), %32 iska, 7 olum. V1.0.36'da da daha cok defensive -> daha cok kafa. Varsayilan
+-- artik B: gorulme / yakin dusman / peek / havada icin defensive zorlanmaz (silah degisimi, bicakli yakin, AFK kalir).
+menu.smart_force    = grp.defensive:switch("Force defensive when seen / near (Smart)", false)
+-- A/B testi yeniden acilabilir: tek roundlarda zorlar, cift roundlarda zorlamaz; satirlarda "test A" / "test B".
+menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no forced defensive)", false)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
 -- V1.0.36'da kapatilmisti, V1.0.37'de geri ACIK: V1.0.36 oturumunda defensive daha cok acilip kapandikca DT her
@@ -2210,7 +2212,26 @@ charge.update = function(lp)
         shift = charge.expected
     end
     charge.shift = max(0, shift)
-    charge.value = dt_on() and max(0, min(1, charge.shift / max(1, min(10, charge.expected - 2)))) or 0
+    -- V1.0.43: sunucunun gercek sarj tavani gozlemden ogrenilir (son 5 sn'deki en yuksek shift, en az 4). V1.0.42 logunda (ping ~30) DT doluyken bile "DT %60" gorunuyordu: hayat boyu 7500 tick "yarim sarj",
+    -- AI peek "DT sarj oluyor" diye bekliyordu.
+    -- Saniye basina en yuksek shift tutulur, tavan son 5 saniyenin en yuksegi (sunucu degisince 5 sn'de uyar).
+    if dt_on() then
+        local sec = floor(realtime())
+        local hist = charge.hist or {}
+        charge.hist = hist
+        hist[sec] = max(hist[sec] or 0, charge.shift)
+        local peak = 0
+        for k, v in pairs(hist) do
+            if k < sec - 4 or k > sec then
+                hist[k] = nil
+            elseif v > peak then
+                peak = v
+            end
+        end
+        charge.peak = peak
+    end
+    local full = max(1, min(10, charge.expected - 2, max(4, charge.peak or 10)))
+    charge.value = dt_on() and max(0, min(1, charge.shift / full)) or 0
     -- V1.0.36 log: DT ne zaman acildi (atissiz yarim sarjin kaynagi icin).
     local dt = dt_on()
     if dt and not charge.dt_was then
@@ -4968,7 +4989,11 @@ do
         local peeking = on_peek and exposure.peeking ~= nil and on(menu.peek_defensive)
         local switching = on_peek and switch_window(cmd)
         local knife = on_peek and current.backstab ~= nil and on(menu.backstab_def)
-        if on(menu.def_ab) and charge.round_no % 2 == 0 then
+        local use_force = on(menu.smart_force)
+        if on(menu.def_ab) then
+            use_force = charge.round_no % 2 == 1
+        end
+        if not use_force then
             window, guard, peeking = false, false, false
         end
         local forced = (window or guard or peeking or switching or knife or afk.on) and dt and exploit_active()
