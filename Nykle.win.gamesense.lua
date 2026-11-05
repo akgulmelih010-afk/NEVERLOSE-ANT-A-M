@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.43"
+local VERSION = "1.0.44"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1335,6 +1335,9 @@ menu.smart_force    = grp.defensive:switch("Force defensive when seen / near (Sm
 -- A/B testi yeniden acilabilir: tek roundlarda zorlar, cift roundlarda zorlamaz; satirlarda "test A" / "test B".
 menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no forced defensive)", false)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
+-- V1.0.44: havadayken biri seni goruyorsa (ya da birazdan gorecekse) egil. Tum GameSense loglarinda havada
+-- egikken %33 kafa (6/18), duz havada %58 (18/31); egik + teleport 1/9.
+menu.air_duck       = grp.defensive:switch("Air duck when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
 -- V1.0.36'da kapatilmisti, V1.0.37'de geri ACIK: V1.0.36 oturumunda defensive daha cok acilip kapandikca DT her
 -- bitiste yeniden sarj oldu ("DT %0, defbitti 0.00s"): sana gelen mermilerin 16/28'i yarim / bos sarjda (onceki 48/193),
@@ -5319,7 +5322,8 @@ teleport.judge = function(hit)
         print(("[%s] teleport sonucu: %s (son %d: %d vurulma)"):format(SCRIPT,
             hit and "1.5 sn icinde vuruldun" or "vurulmadin", #results, hits))
     end
-    if hits >= teleport.limit and not teleport.off then
+    -- V1.0.44: en az keep (3) sonuc olmadan kapanmaz (eskiden 2 sonucun 2'si yetiyordu).
+    if #results >= teleport.keep and hits >= teleport.limit and not teleport.off then
         teleport.off = true
         print(("[%s] teleport: son %d isinlanmanin %d'sinde hemen vuruldun, bu harita boyunca havada teleport kapali (sarj air lag / DT icin kalir)"):format(
             SCRIPT, #results, hits))
@@ -5328,7 +5332,12 @@ end
 
 -- player_hurt (dusman mermisi): teleporttan sonraki 1.5 sn icindeyse vurulma sayilir. V1.0.34: ilk 0.12 sn'de gelen
 -- mermi isinlanmadan once atilmisti, sayilmaz (Neverlose V1.1.8 ile ayni; v31 17:24:21 "tp 0.13s").
-teleport.hurt = function(now)
+-- V1.0.44: sadece KAFA vurusu teleport'un basarisizligi sayilir (teleport kafayi korumak icin). Tum GameSense
+-- loglarinda havada teleporttan sonra %33 kafa, teleportsuz %58; "kapat" kurali 6 kez, cogu govde vurusuyla tetiklendi.
+teleport.hurt = function(now, hitgroup)
+    if hitgroup ~= nil and hitgroup ~= 1 then
+        return
+    end
     if teleport.watch ~= nil and now >= teleport.watch + teleport.result_min and now - teleport.watch <= teleport.window then
         teleport.judge(true)
     end
@@ -6352,6 +6361,9 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
         hidden_pitch = hidden_pitch, hidden_yaw = hidden_yaw,
     }, lp)
     teleport.update(cmd, lp, move_state)
+    if on(menu.air_duck) and not on_ground(lp) and seen_by_enemy() and prop(lp, "m_MoveType") ~= K.MOVETYPE_LADDER then
+        pcall(function() cmd.in_duck = 1 end)
+    end
     sample_exploit(state)
 end
 
@@ -6845,7 +6857,7 @@ listen("player_hurt", protect("player_hurt", function(e)
 
     local now = realtime()
     brute.hurt[e.attacker] = now
-    teleport.hurt(now)
+    teleport.hurt(now, e.hitgroup)
     -- Fake duck'tayken sniper mermisi: fake duck korumasi bir sure birakir (bkz. update_fd_guard).
     if fd_on() and (e.weapon == "ssg08" or e.weapon == "awp") then
         own.fd_hit = { attacker = attacker, time = now, name = player_name(attacker) }

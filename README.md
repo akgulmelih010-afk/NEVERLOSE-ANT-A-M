@@ -492,7 +492,15 @@ Oturum notları: Clean shot açık olsa da yarım / boş şarjda gelen mermi pay
 
 Oturum notları: kafa oranı %32 (13/40); senin göğüs / mide ıskalarının hepsi R8 (Min. damage 11, BA Force, hc %39–84 — senin R8 ayarların). Log sıfırlaması çalıştı (dosya V1.0.42 ile başlıyor), hafıza 25 oyuncu.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.43 kuralları (139 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.44** (V1.0.43 oturumu, 2 dk: 9 düşman mermisinin 6'sı sen havadayken; tüm GameSense loglarında havada **%49 kafa**, yerde %26):
+
+| Değişiklik | Menü | Neden |
+|---|---|---|
+| **Havada görülünce eğil** | Exploits → Defensive → **Air duck when seen** (açık) | Havada eğikken %33 kafa (6/18), düz havada %58 (18/31); eğik + teleport 1/9 |
+| **Teleport sadece kafa vuruşuyla "başarısız" sayılır**, haritada kapanması için en az 3 sonuç | Teleport in air when seen | Havada teleporttan sonra %33 kafa, teleportsuz %58. "Kapat" kuralı 6 kez tetiklendi, çoğu göğüs / mide vuruşuyla (bu oturumda 2 sonuçta kapandı) |
+| Havada defensive (Air lag) kapalı kalır (V1.0.43'ten beri, Smart zorlamasıyla birlikte) | — | Havada defensive açıkken %58 kafa, kapalıyken %46: korumuyor |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.44 kuralları (144 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
