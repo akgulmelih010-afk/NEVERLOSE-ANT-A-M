@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.49 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.49")
+check(printed("V1.0.50 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.50")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1214,12 +1214,19 @@ end
 do
     local low_ref = find_ref("  » Finish low HP (<=30) with safe point")
     check(low_ref ~= nil and low_ref.value == true, "V1.0.46: dusuk can safe point secenegi var, varsayilan acik")
+    -- V1.0.50: aci secili dusmanda (onceki testlerin hipotezi) dusuk can Force yazmaz; burada Correction kapatilarak
+    -- aci uygulanmaz, kural tek basina sinanir.
+    plist.set(2, "Correction active", false)
     W.ehp = { [2] = 100 }
     W.sees[2], W.speed = false, 0
     tick(10)
     check(plist.get(2, "Override safe point") ~= "On", "V1.0.46 kurulum: tam canli dusmanda Force safe point yok")
+    W.body_dmg[2] = 0
     W.ehp[2] = 8
     tick(3)
+    check(plist.get(2, "Override safe point") ~= "On", "V1.0.50: sadece kafa acikken dusuk canda Force yok (atis kilitlenmesin)")
+    W.body_dmg[2] = 60
+    tick(6)
     check(plist.get(2, "Override safe point") == "On", "V1.0.46: 8 canli dusmana Force safe point")
     W.sees[2] = true
     tick(64)
@@ -1230,6 +1237,8 @@ do
     tick(3)
     check(plist.get(2, "Override safe point") ~= "On", "V1.0.46: secenek kapaliyken yok")
     low_ref.value = true
+    W.body_dmg[2] = 0
+    plist.set(2, "Correction active", true)
     W.ehp = nil
     tick(10)
 end
@@ -1447,7 +1456,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.49 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.50 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

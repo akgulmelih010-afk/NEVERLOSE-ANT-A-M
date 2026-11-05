@@ -586,7 +586,20 @@ Ayrıca: **Trash talk varsayılan kapalı** (istek); kayıtlı config'te açık 
 |---|---|
 | **Resolver serisi** (düşman başına, durumdan ve AA deseninden bağımsız): aynı düşmana 3 resolver ıskası (her biri bir öncekinden ≤ 300 sn) → GameSense'e kalacak atışlarda Force body yaw **-58**; -58 iki kez üst üste kafayı ıskalarsa +58, +58 bir kez ıskalarsa -58. GameSense kafadan vurursa seri biter; zorlanan açıyla kafa isabeti seriyi açık tutar. Kendi kol / brute önce gelir. Correction kapalıysa ya da senin Force body yaw'ın varsa yazılmaz. Logda `res seri` ve `seri: ...` satırları **Tüm loglar taraması** (705 scout atışı) ile iki ince ayar: statik AA'lı düşman yan dururken (\|bak\| 45–135) seri **2 ıskada** açılır (yalnızca hâlâ yan dururken uygulanır; statik yan duruşta GS kafa correction %29, arkası dönükken %15); düşman jitter / x-way / random'dayken seri ne sayar ne uygulanır (`seri: desen ... -> GS`), çünkü orada GS %73 tutuyor ve zorlanan açı hiç denenmemiş. | dominik'e kafa 1/16; ıskalar durumlara dağıldığı için brute ve kendi kollar devreye girmedi. Sürekli ıskaladığın rakipler (tüm loglar): dominik %65, aimlarp %44 (Neverlose), azure %50, ping-170 oyuncu %35, PhytoCannaBinoide %32 resolver ıskası; ortak noktaları yan duruş (%41'e karşı %11), yüksek ping (medyan 107 / 47) ve statik AA'da yan duruş. Replay: dominik'in 14 correction ıskasının 9'u seri açısıyla atılırdı; diğer rakiplerde 3 ıska, 0 kafa isabeti etkilenir. Beklenen kazanç küçük örnekten: dominik'e ~2–3 kafa. Rakibin roll / extended'ı yüzünden hiç işe yaramayabilir; bir sonraki logda `res seri` atışları ölçülecek. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.49 kuralları (188 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.50** (geliştirme turu: brute ayna, ölümler, sıkılmayan atışlar, V1.0.47–1.0.49 hata taraması; V1.0.48 oturumunun tamamı)
+
+V1.0.48 oturumu (~20 dk): 12 kill / 19 ölüm, sana gelen 32 isabette 9 kafa, 34 atışta 16 isabet (11 correction, 5 spread), atışların **hepsi GS ile** (seri kuralı V1.0.49'da). Yarım şarj ~%11 kaldı.
+
+| Değişiklik | Neden |
+|---|---|
+| Düşük can safe point: sadece Adaptive resolver açıkken; açı seçiliyse (hipotez / seri) ya da sadece kafa açıksa Force yazılmaz | Force safe point seçilen açıyı gereksiz kılıyor, sadece kafa açıkken atışı kilitleyebilir (resolver.cap ile aynı gerekçe). Logda görülmüş bir olay yok, önleyici. |
+| Resolver serisi yeni haritada ve "Forget learned enemies"ta sıfırlanır | Tutarlılık. |
+| Şarj: tutulan shift öğrenilen "dolu" değerin üstüne çıkarsa o değer silinir | Yarım şarjın %100 okunmasını önleyen değişmez (önleyici). |
+| Loglar:  satırında MD 100+ için gerçek eşik (), sürgü (), R8'de "dürbün kapalı" yok; atış satırında ; her vurulmada  | Sıkılmayan atış incelemesi: hiçbir kapı atış kaçırmamış, ama sebepler yanlış etiketliydi. Duvardan kafa ölümleri en büyük ölüm türü; payda (açıktan vurulma) yoktu. Brute ayna: 4 karışık örnek; davranış değiştirilmedi, taraf loglanıyor. |
+
+Doğrulamada elenenler: brute açısını seçimde dondurmak (tek kafa örneği tersini gösteriyor), teleport kapatma eşiğini 2/5 yapmak, düello gecikme logu.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.50 kuralları (189 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

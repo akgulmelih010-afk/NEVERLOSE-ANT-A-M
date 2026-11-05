@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.49"
+local VERSION = "1.0.50"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -2275,6 +2275,11 @@ charge.update = function(lp, quiet)
             if charge.flat_at ~= nil and abs(held - charge.flat_at) <= 1 then
                 charge.flat_n = charge.flat_n + 1
             else
+                -- V1.0.50: tutulan shift ogrenilen "dolu"nun ustune ciktiysa o deger dolu degildi.
+                if charge.flat_full ~= nil and held > charge.flat_full + 1 then
+                    charge.flat_full = nil
+                    charge.flat_clears = (charge.flat_clears or 0) + 1
+                end
                 charge.flat_at, charge.flat_n = held, 1
             end
             if charge.flat_n >= 32 then
@@ -4193,7 +4198,7 @@ local function apply_resolver(class, present)
         local hp = prop(enemy, "m_iHealth")
         local low = resolver.low or {}
         resolver.low = low
-        if on(menu.low_hp_safe) and finite(hp) and hp > 0 and hp <= 30 and level < 2 then
+        if on(menu.resolver) and on(menu.low_hp_safe) and finite(hp) and hp > 0 and hp <= 30 and level < 2 then
             local l = low[enemy]
             local now_rt = realtime()
             if l == nil or l.hp ~= hp then
@@ -4205,7 +4210,9 @@ local function apply_resolver(class, present)
                 l.relaxed = l.visible >= K.FORCE_STALL
             end
             l.last = now_rt
-            if not l.relaxed then
+            -- V1.0.50: aci secildiyse (hipotez / seri) ya da sadece kafa aciksa Force yazilmaz: Force safe point o
+            -- aciyi gereksiz kilar, sadece kafa acikken atisi kilitleyebilir (resolver.cap ile ayni gerekce).
+            if not l.relaxed and yaw == nil and resolver.body_open(enemy) then
                 level = 2
             end
         else
@@ -7307,7 +7314,8 @@ local function shot_line(e, shot, target, reason)
     local hitchance = shot ~= nil and shot.hitchance or event_number(e, "hit_chance")
     local profile = shot ~= nil and shot.profile or enemy_watch.profile(target)
     local hyp = (shot ~= nil and shot.hyp_candidate ~= nil and shot.hyp_candidate > 0)
-        and (" | BY %d%s"):format(shot.hyp_yaw or 0, DEG)
+        and (" | BY %d%s%s"):format(shot.hyp_yaw or 0, DEG, (shot.hyp_side ~= nil and shot.hyp_side ~= "open")
+            and (" (%s %s)"):format(shot.hyp_kind == "lby" and "lby" or "duvar", shot.hyp_side) or "")
         or (shot ~= nil and shot.streak_yaw ~= nil and (" | BY %d%s"):format(shot.streak_yaw, DEG)) or ""
     if shot ~= nil and shot.res_arm ~= nil and on(menu.own_res) then
         hyp = (" | res %s"):format(shot.res_arm) .. hyp
@@ -7378,7 +7386,9 @@ listen("aim_fire", protect("aim_fire", function(e)
             total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil,
             exploit = not fd_on() and ((dt_on() and "dt") or (hs_on() and "hs")) or nil,
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw, side_on = resolver.streak.side_on(target),
-            hyp_slot = h ~= nil and h.seeded or nil }
+            hyp_slot = h ~= nil and h.seeded or nil,
+            -- V1.0.50: ates anindaki canli taraf (brute acisi duvar tarafina gore aynalanir; log icin).
+            hyp_side = hyp_yaw ~= nil and h.side or nil, hyp_kind = hyp_yaw ~= nil and h.kind or nil }
         -- V1.0.47: sahte kayda giden atista gercek kayit beklemesi neden yoktu (ates aninda).
         local shot = resolver.shots[e.id]
         if shot.profile ~= nil and shot.profile.defensive_now then
@@ -7864,6 +7874,7 @@ forget_enemies = function()
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     resolver.jittery, resolver.stalls = {}, {}
     hypothesis.store = {}
+    resolver.streak.list = {}
     pending_misses = {}
     if type(database) == "table" then
         pcall(database.write, persist.key, nil)
@@ -7906,6 +7917,8 @@ listen("level_init", protect("level_init", function()
     hypothesis.wall.cache = {}
     resolver.shots, resolver.aim_target, resolver.prior_logged, resolver.jittery = {}, nil, {}, {}
     resolver.stalls, resolver.body_stalls, resolver.open_cache = {}, {}, {}
+    -- V1.0.50: resolver serisi yeni haritada sifirdan (forget_enemies'te de).
+    resolver.streak.list = {}
     exposure.shot, exposure.duel = nil, nil
     ai_peek.reset()
     teleport.reset()
@@ -8459,7 +8472,8 @@ D.ready = function(lp)
         return ("silah %.2fs sonra hazir"):format(wait)
     end
     local scoped = prop(lp, "m_bIsScoped")
-    return "silah hazir" .. ((SNIPERS[current.weapon] and (scoped == 0 or scoped == false)) and " (durbun kapali)" or "")
+    return "silah hazir" .. ((SNIPERS[current.weapon] and current.weapon ~= "Revolver" and (scoped == 0 or scoped == false))
+        and " (durbun kapali)" or "")
 end
 
 -- Ates aninda (aim_fire): sonuc satirinin altina yazilir.
@@ -8501,8 +8515,15 @@ D.no_shot = function(enemy, v, lp, now)
     if current.head_only then
         reasons[#reasons + 1] = "sniper kurali: sadece oldurecek atis"
     end
-    if finite(md) and best < md then
-        reasons[#reasons + 1] = ("hasar %d < MD %d"):format(round(best), round(md))
+    -- V1.0.50: MD 100 ustu "can + fazlasi" demek; gercek esik canla yazilir (logda "hasar 74 < MD 101" denip
+    -- 54 canli dusman oldurulebilirdi).
+    local need, hp = md, prop(enemy, "m_iHealth")
+    if finite(md) and md > 100 and finite(hp) and hp > 0 then
+        need = min(md, hp + md - 100)
+    end
+    if finite(need) and best < need then
+        reasons[#reasons + 1] = need ~= md and ("hasar %d < can+%d = %d (hp%d)"):format(round(best), round(md - 100), round(need), round(hp))
+            or ("hasar %d < MD %d"):format(round(best), round(md))
     end
     if (v.dh or 0) <= 0 then
         reasons[#reasons + 1] = "kafa kapali"
@@ -8527,7 +8548,9 @@ D.no_shot = function(enemy, v, lp, now)
         reasons[#reasons + 1] = ("sen hareketlisin v%d (isabet sansi)"):format(round(speed2d(lp)))
     end
     if not weapon_ready(lp, 0) then
-        reasons[#reasons + 1] = "silah hazir degil"
+        local since = realtime() - own.last_shot
+        reasons[#reasons + 1] = (since >= 0 and since < 1.5) and ("silah hazir degil (surgu, son atis %.2fs once)"):format(since)
+            or "silah hazir degil"
     end
     -- V1.0.22: logda 22 "sebep bilinmiyor" vardi. Aimbot'un tehdidi baska biri, gercek kayit bekleniyor
     -- (whitelist) ya da Force safe point guvenli nokta bulamiyor olabilir.
@@ -8883,8 +8906,20 @@ listen("player_hurt", protect("detailed log player_hurt", function(e)
     if v ~= nil and now >= v.last and now - v.last <= D.vis_gap then
         mine = ("sen onu %.2fs vurulabilir gordun, %d ates"):format((v.last - v.first) * tick_interval(), v.fired)
     end
-    print(("[%s] dbg vurulma-detay: %s %s -%d %s | %s | %s%s | %s | %s"):format(SCRIPT, player_name(attacker),
-        HITGROUPS[e.hitgroup] or "?", round(damage), tostring(e.weapon or "?"), D.where(attacker, lp), D.rec(attacker), gap,
+    -- V1.0.50: her vurulmada duvardan mi geldi (iz): duvardan kafa olumlerinin payini olcmek icin payda (acik / duvar).
+    local wall = ""
+    if trace_available then
+        local eye = eye_of(attacker)
+        local spot = hitbox_of(lp, e.hitgroup == 1 and 0 or (e.hitgroup == 3 and 2 or 5))
+        if eye ~= nil and spot ~= nil then
+            local fraction, hit = trace_line(attacker, eye, spot)
+            if finite(fraction) then
+                wall = (fraction < 0.97 and hit ~= lp) and " | iz duvardan" or " | iz acik"
+            end
+        end
+    end
+    print(("[%s] dbg vurulma-detay: %s %s -%d %s%s | %s | %s%s | %s | %s"):format(SCRIPT, player_name(attacker),
+        HITGROUPS[e.hitgroup] or "?", round(damage), tostring(e.weapon or "?"), wall, D.where(attacker, lp), D.rec(attacker), gap,
         mine, D.me(lp, attacker)))
 end))
 
