@@ -205,7 +205,8 @@ function client.screen_size() return 1920, 1080 end
 function client.userid_to_entindex(userid) return userid end
 function client.system_time() return 12, 0, 0 end
 function client.key_state() return false end
-function client.exec() end
+local execs = {}
+function client.exec(cmd) execs[#execs + 1] = cmd end
 -- V1.0.35: sadece konsola yazan client.color_log; satirlar ayni listeye, ayrica sayilir.
 local color_logged = 0
 function client.color_log(_, _, _, msg)
@@ -346,13 +347,14 @@ end
 
 local righthand = { value = 1 }
 -- V1.0.35: aspect ratio (float, set_raw_float) ve FPS boost'tan biri (int, set_raw_int).
-local aspect, sky, notify = { value = 0 }, { value = 1 }, { value = 8 }
+local aspect, sky, notify, dev = { value = 0 }, { value = 1 }, { value = 8 }, { value = 1 }
 local cvar = {
     cl_clanid = { get_int = function() return 0 end, set_int = function() end },
     cl_righthand = { get_int = function() return righthand.value end, set_int = function(_, v) righthand.value = v end },
     r_aspectratio = { get_float = function() return aspect.value end, set_raw_float = function(_, v) aspect.value = v end },
     r_3dsky = { get_int = function() return sky.value end, set_raw_int = function(_, v) sky.value = v end },
     con_notifytime = { get_float = function() return notify.value end, set_raw_float = function(_, v) notify.value = v end },
+    developer = { get_int = function() return dev.value end, set_int = function(_, v) dev.value = v end },
 }
 
 -------------------------------------------------------------------------------
@@ -376,7 +378,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.37 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.37")
+check(printed("V1.0.38 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.38")
 
 local function errors_since(i)
     local found = {}
@@ -816,6 +818,7 @@ tick(70)
 check(math.abs(aspect.value - 4 / 3) < 0.001 and sky.value == 0, "V1.0.35: yeniden acilinca 4:3 ve r_3dsky 0")
 -- V1.0.35: loglar sadece konsola (color_log), ekranin sol ust bildirimi kapali; kapatinca print ve eski deger.
 check(color_logged > 50 and notify.value == 0, "V1.0.35: satirlar color_log ile (" .. color_logged .. "), con_notifytime 0 (" .. tostring(notify.value) .. ")")
+check(dev.value == 0, "V1.0.38: sessiz logda developer 0 (sol ust bildirim alani cizilmez) (" .. tostring(dev.value) .. ")")
 local quiet_ref = find_ref("Logs only in console + file (not on screen)")
 check(quiet_ref ~= nil and quiet_ref.value == true, "V1.0.35: sessiz log secenegi var, varsayilan acik")
 quiet_ref.value = false
@@ -826,6 +829,18 @@ fire("aim_fire", { id = 30, target = 2, hitgroup = 1, damage = 120, hit_chance =
 tick(2)
 fire("aim_hit", { id = 30, target = 2, hitgroup = 1, damage = 120 })
 check(color_logged == before_color and notify.value == 8, "V1.0.35: kapatinca print ile yazilir, con_notifytime senin degerin (" .. tostring(notify.value) .. ")")
+check(dev.value == 1, "V1.0.38: kapatinca developer senin degerin (" .. tostring(dev.value) .. ")")
+-- Oyundaki durum: con_notifytime Lua'dan okunamiyor (gelistirici cvar'i): konsol komutuyla 0, kapatinca 8.
+local notify_cvar = cvar.con_notifytime
+cvar.con_notifytime = nil
+local function exec_seen(text) for _, c in ipairs(execs) do if c == text then return true end end return false end
+quiet_ref.value = true
+tick(70)
+check(exec_seen("con_notifytime 0"), "V1.0.38: okunamayan con_notifytime konsol komutuyla 0")
+quiet_ref.value = false
+tick(70)
+check(exec_seen("con_notifytime 8"), "V1.0.38: kapatinca con_notifytime 8 (varsayilan)")
+cvar.con_notifytime = notify_cvar
 quiet_ref.value = true
 tick(70)
 

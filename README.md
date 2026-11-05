@@ -454,7 +454,9 @@ Verinin yapma dedikleri: desync 58 → 60 (fark durumdan geliyor, GameSense'e ik
 
 V1.0.36 oturumu (28 düşman mermisi, küçük örnek): şarj pozu 6 mermide 3 kafa (henüz etkisi görülmedi, kalıyor); atışsız yarım şarjın kaynağı bulundu: defensive bitişi (`defbitti` 0.00–0.6 sn, 18 yarım / boş şarj satırının 10'unda). Ayarlanan 58° desync jitter'da modelde 12–34° görünüyor (`gercek`), statik / freestanding'de 56–57°. Kalıcı hafıza bu oturumda yüklenmedi; V1.0.33 de dün 20:45'te hafızasız yüklenmiş, yani GameSense veritabanı silinmiş (sürümle ilgisi yok), oynadıkça yeniden dolar.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.37 kuralları (114 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.38:** loglar hâlâ ekranın sol üstünde görünüyordu. O alan CS:GO'nun konsol bildirimi; `developer 1` iken konsola düşen her satırı çiziyor. V1.0.35'teki `con_notifytime 0` hiç yazılmıyordu: geliştirici cvar'ı olduğu için Lua okuyamıyor, "okunamayan cvar'a dokunma" kuralı da yazımı atlıyordu. Şimdi "Logs only in console + file" açıkken `developer 0` yapılıyor, `con_notifytime` da okunamazsa konsol komutuyla 0'a çekiliyor. Kapatınca ikisi de eski değerine döner (`con_notifytime` okunamadıysa 8).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.38 kuralları (118 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.37"
+local VERSION = "1.0.38"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -6370,6 +6370,27 @@ do
         end
     end
 
+    -- Okunamayan (gelistirici) cvar icin konsol komutu; bilinen varsayilan geri yazilir. V1.0.38: con_notifytime
+    -- GameSense'te okunamadigi icin hold hic yazmiyordu, loglar ekranin sol ustunde kaliyordu.
+    local blind = {}
+    local function hold_blind(name, want, default)
+        if want == nil then
+            if blind[name] then
+                pcall(client.exec, ("%s %s"):format(name, tostring(default)))
+                blind[name] = nil
+            else
+                hold(name, nil, true)
+            end
+            return
+        end
+        if read(name, true) ~= nil then
+            hold(name, want, true)
+        elseif not blind[name] then
+            pcall(client.exec, ("%s %s"):format(name, tostring(want)))
+            blind[name] = true
+        end
+    end
+
     local function update()
         local now = realtime()
         if now >= last and now - last < 1 then
@@ -6383,13 +6404,16 @@ do
             hold(name, boost and 0 or nil, false)
         end
         nlog.quiet = on(menu.log_quiet)
-        hold("con_notifytime", nlog.quiet and 0 or nil, true)
+        -- Sol ust bildirim alani sadece developer 1 iken konsol satirlarini cizer: sessiz modda developer 0.
+        hold("developer", nlog.quiet and 0 or nil, false)
+        hold_blind("con_notifytime", nlog.quiet and 0 or nil, 8)
     end
 
     listen("paint", protect("aspect / fps", update))
     listen("shutdown", protect("aspect / fps", function()
         hold("r_aspectratio", nil, true)
-        hold("con_notifytime", nil, true)
+        hold_blind("con_notifytime", nil, 8)
+        hold("developer", nil, false)
         for _, name in ipairs(FPS_CVARS) do
             hold(name, nil, false)
         end
