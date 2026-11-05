@@ -476,4 +476,4 @@ Rakipler northgard, iha, Serpent1337, azure (rakipler roll / "extended" kullanı
 - **R8:** 82 gövde hasarı varken HP+1 kuralıyla 0.45 sn beklendi (deagle'a ölüm); R8 ölümleri iki kez "kafa beklerken öldü" öğrenmesi yaptı (bir kez "herkese karşı"). → V1.0.47 R8 kuraldan çıktı.
 - **Düşük can safe point:** 2 atış: 26 canlı iha'ya mide (öldürme), 24 canlı northgard'a sahte kayıtta kafa ıskası (beklemeden sonra). Örnek az, değişmedi.
 - **Sahte kayıt beklemesi:** 47 bekleme 14 tick sınırıyla, 25 "gercek kayit geldi"; görülünce / peek'te bırakılanlar da "gercek kayit geldi" yazıyordu. → V1.0.47 etiketler ve atışta `bekleme yok: <sebep>`.
-- **Roll:** rakibin roll'u ağdan gelmiyor; V1.0.47 `bas yan` ile kafanın yana kaymasını yazar, bizim tarafa Extended desync (roll) eklendi (yerde yavaşken ±45).
+- **Rakibin extended'ı:** roll ağdan gelmiyor, istemci hitbox'ları roll'suz; ancak ıskalardan anlaşılır. Kendi tarafımıza Extended desync (roll) eklendi ama kullanıcının sunucusunda roll yasak, varsayılan kapalı.

@@ -1332,6 +1332,22 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.47: kayitli config'teki In-air hit chance 40 ilk config yuklemesinde 0 olur, sonra elle 40'a dokunulmaz
+-------------------------------------------------------------------------------
+do
+    local air_ref = find_ref("In-air hit chance (snipers, 0 = off)")
+    check(db.nykle_win_gs_airhc47 == nil, "V1.0.47: config yuklenmeden tasima bayragi yazilmaz")
+    air_ref.value = 40 -- eski config yuklendi
+    fire("post_config_load")
+    check(air_ref.value == 0 and db.nykle_win_gs_airhc47 == true, "V1.0.47: eski config'teki 40 bir kez 0 (" .. tostring(air_ref.value) .. ")")
+    air_ref.value = 40 -- sonra elle 40 secildi
+    fire("post_config_load")
+    check(air_ref.value == 40, "V1.0.47: elle secilen 40'a sonra dokunulmaz")
+    air_ref.value = 0
+    tick(4)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1

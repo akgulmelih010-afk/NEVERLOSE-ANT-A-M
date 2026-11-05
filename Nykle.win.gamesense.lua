@@ -3329,7 +3329,8 @@ end
 -- "Force" sadece govdenin guvenli noktalarina ates edilebiliyorsa; yoksa en fazla "Prefer" (sniper sadece
 -- oldurecek atis yaparken ya da sadece kafa gorunuyorken Force atisi tamamen keserdi).
 resolver.cap = function(level, target)
-    if level > 1 and ((on(menu.head_only) and SNIPERS[current.weapon]) or not resolver.body_open(target)) then
+    if level > 1 and ((on(menu.head_only) and SNIPERS[current.weapon] and current.weapon ~= "Revolver")
+        or not resolver.body_open(target)) then
         return 1
     end
     return level
@@ -4094,6 +4095,7 @@ resolver.wait_apply = function(class, present)
     local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
     local enabled = on(menu.resolver) and on(menu.wait_real) and gun and plist_available(PL.WHITELIST)
     local wait, now = resolver.wait, tickcount()
+    wait.enabled = enabled
     local duel = current.state == "Peek" or afk.key()
     current.waiting = nil
     for _, enemy in ipairs(enemy_list()) do
@@ -4112,7 +4114,7 @@ resolver.wait_apply = function(class, present)
         -- V1.0.47 (v46: sahte kayda giden atislar "bekleme yok" sebebi bilinmeden gitti): kayit sahteyken beklenmiyorsa
         -- sebebi tutulur; atis satirina "bekleme yok: <sebep>" yazilir.
         if fake and free then
-            w.why = (profile == nil and "veri yok") or (cooling and "cooldown") or (duel and "duello / peek")
+            w.why = (cooling and "cooldown") or (duel and "duello / peek")
                 or (seen and "seni goruyor") or (mine and "senin whitelist") or "?"
             w.why_tick = now
         elseif not fake then
@@ -4214,7 +4216,8 @@ do
     local WEAPONS = {
         CWeaponSSG08  = { 88, 1.7, 0.98, true },
         CWeaponAWP    = { 115, 1.95, 0.99, true },
-        Revolver      = { 86, 1.864, 0.94, true },
+        -- V1.0.47: R8 "tek atis" (sniper kurali / scout Body Aim dallari) sayilmaz: R8'de senin ayarlarin gecer.
+        Revolver      = { 86, 1.864, 0.94, false },
         CWeaponSCAR20 = { 80, 1.65, 0.98, false },
         CWeaponG3SG1  = { 80, 1.65, 0.98, false },
         CDEagle       = { 63, 1.864, 0.81, false },
@@ -4347,7 +4350,7 @@ do
         local info = WEAPONS[class]
         -- V1.0.47: R8 bu kurala girmez (v46: R8 82 govde hasariyla 0.45 sn bekledi, deagle'a oldun; R8 olumleri scout
         -- kuralini "ogrenildi" diye kapatiyordu). R8'de senin kendi Min. damage'in gecer. Kural SSG08 / AWP.
-        local sniper_rule = on(menu.head_only) and info ~= nil and info[4] and class ~= "Revolver" and exposed
+        local sniper_rule = on(menu.head_only) and info ~= nil and info[4] and exposed
             and not resolver.head_relaxed(target)
         -- Senin baim tusun (Force body aim) basiliyken oyuncu ayarlarina dokunulmaz.
         local user_force = get("force_body") == true
@@ -5634,7 +5637,7 @@ do
         if not finite(health) or health <= 0 then
             health = 100
         end
-        if on(menu.head_only) and SNIPERS[current.weapon] then
+        if on(menu.head_only) and SNIPERS[current.weapon] and current.weapon ~= "Revolver" then
             return health + 1
         end
         local md = active_min_damage()
@@ -7201,7 +7204,7 @@ listen("aim_fire", protect("aim_fire", function(e)
         local shot = resolver.shots[e.id]
         if shot.profile ~= nil and shot.profile.defensive_now then
             local w = resolver.wait.enemies[target]
-            shot.wait_why = not on(menu.wait_real) and "kapali" or (w ~= nil and w.why) or "?"
+            shot.wait_why = not resolver.wait.enabled and "kapali" or (w ~= nil and w.why) or "?"
         end
     end
     local stall = resolver.stalls[target]
@@ -8113,20 +8116,10 @@ D.where = function(ent, lp)
     end
     if mine ~= nil then
         local pitch, yaw, eye_roll = prop(ent, "m_angEyeAngles")
-        -- V1.0.47: rakip z ekseninde extended (roll) basiyorsa gorunsun (aglar roll'u gonderiyorsa).
+        -- V1.0.47: rakibin roll'u ag uzerinden gelirse yazilir. CS:GO normalde sadece pitch / yaw gonderir; istemcideki
+        -- hitbox'lar da roll'suz kurulur, yani roll'lu rakip ancak iskalardan (duran hedefe kafa "?" / correction) anlasilir.
         if finite(eye_roll) and abs(eye_roll) >= 1 then
             parts[#parts + 1] = ("roll%+d"):format(round(eye_roll))
-        end
-        -- V1.0.47 ("karsi taraf roll aciyo vuramiyorum"): roll aglarda gelmiyor; yatma kafanin ayaklara gore yana
-        -- kaymasindan olculur. "bas yan": bize gore kafanin yana kaymasi (birim, + sag); normal durusta ~0-10.
-        local head = hitbox_of(ent, 0)
-        if head ~= nil then
-            local dx, dy = mine.x - o.x, mine.y - o.y
-            local len = sqrt(dx * dx + dy * dy)
-            if len > 1 then
-                local side_off = ((head.x - o.x) * dy - (head.y - o.y) * dx) / len
-                parts[#parts + 1] = ("bas yan%+d"):format(round(side_off))
-            end
         end
         if finite(yaw) then
             local to_me = math.deg(atan2(mine.y - o.y, mine.x - o.x))
@@ -9345,20 +9338,20 @@ do
     end
     -- V1.0.47: In-air hit chance varsayilani 40 -> 0 (senin hc'n). Kayitli config'teki eski varsayilan 40 bir kez 0 olur;
     -- elle baska bir deger sectiysen dokunulmaz.
+    -- Element olusurken varsayilan (0) yazilir; kayitli 40 ancak config yuklenince gelir. Bayrak ilk config yuklemesinde
+    -- deger gorulunce yazilir (yuklenmeden yazilirsa sonraki oturumda 40 geri gelirdi); sonra elle secilen 40'a dokunulmaz.
     local ok_a, done_a = pcall(database.read, "nykle_win_gs_airhc47")
-    if not (ok_a and done_a == true) then
-        resolver.air_migrate = true
-        if menu.air_hc:get() == 40 then
-            pcall(menu.air_hc.set, menu.air_hc, 0)
-        end
-        pcall(database.write, "nykle_win_gs_airhc47", true)
-    end
+    resolver.air_migrate = not (ok_a and done_a == true)
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             pcall(menu.afk_auto.set, menu.afk_auto, false)
         end
-        if resolver.air_migrate and menu.air_hc:get() == 40 then
-            pcall(menu.air_hc.set, menu.air_hc, 0)
+        if resolver.air_migrate then
+            resolver.air_migrate = false
+            if menu.air_hc:get() == 40 then
+                pcall(menu.air_hc.set, menu.air_hc, 0)
+            end
+            pcall(database.write, "nykle_win_gs_airhc47", true)
         end
     end))
     local loaded = persist.load()
