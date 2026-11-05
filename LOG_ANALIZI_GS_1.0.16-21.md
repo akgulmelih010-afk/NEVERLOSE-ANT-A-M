@@ -486,3 +486,9 @@ Kill / ölüm 21 / 29 (%42; V1.0.46 %36). Sana gelen 58 isabette 17 kafa (%29; V
 - **Şarj hâlâ yarım okunuyor:** canlı sürenin %41'i. Sebep taban kayması: roundun ilk atışından önce sebepsiz okumalar (v42–47) 63 dolu / 133 yarım, sonra 54 / 9; yarım süre ≈ roundun başından ilk atışa kadar geçen süre. → V1.0.48 sebepsiz düz shift dolu.
 - **Force safe point scout'ta hiç uygulanmıyor:** resolver.cap sniper kafa kuralında seviyeyi 1'e indiriyor, log "Force" yazıyordu. Iskadan sonraki atış (10 sn, aynı düşman): GS 21/37, brute 1/4, kendi kol 0/1, Force 0. Davranış değiştirilmedi, log düzeltildi.
 - **Yan dönük düşman:** v47'de |bak| 61–120 iken kafa atışlarının 13/16'sı correction (dominik, azure); diğer loglarda %28 vs %22. İki oyuncu, örnek az.
+
+## dominik (V1.0.47) ve V1.0.48 ilk oturumu
+
+- **dominik:** 25 atış; kafa 1/16 (14 correction), gövde 6/9. Sabit yan duruş (bak ≈ -75, pitch 89, lby +0); bir okumada roll+44 göründü (roll ağdan geliyorsa extended). GS'nin kendi resolver'ı yan duran dominik + azure'a kafada 0/14. 14 ıska 5 duruma dağıldı, brute aynı durumda 3 ıska istediği için iki kez açıldı; AA deseni 12 kez "değişti", 10 kez "kararsız" sayıldı (hipotezleri kapatır). → V1.0.49 düşman başına resolver serisi.
+- **Brute ayna hatası:** "-58 (duvar R)" duyurulan aday atışta +58 gitti (duvar tarafı değişmişti). Ayrı düzeltilecek.
+- **V1.0.48 ilk oturumu (344 satır):** yarım şarj %11 (V1.0.47 %41), zorlanan defensive canlı sürenin %36'sı. 5 kill / 10 ölüm, sana gelen 20 isabette 5 kafa. 18 atış, 7 isabet (1 kafa), 6 correction (northgard 3, sssssxxxcccc 2), 4 spread (biri R8 hc 24); hepsi GS ile.

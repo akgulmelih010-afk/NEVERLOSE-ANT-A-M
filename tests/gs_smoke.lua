@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.48 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.48")
+check(printed("V1.0.49 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.49")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1365,6 +1365,44 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.49: dusman basina resolver iskasi serisi (durumdan bagimsiz): 3 iskadan sonra GS yerine body yaw -58;
+-- Correction kapaliyken yazilmaz; GS kafa isabeti seriyi bitirir
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.sees[3], W.speed, W.lag = false, false, 0, 12
+    W.head_dmg[3] = 100
+    tick(10)
+    before = #prints + 1
+    local vels = { 0, 130, 250 }
+    for i = 1, 3 do
+        W.evel[3] = vels[i]; tick(40)
+        fire("aim_fire", { id = 4900 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        fire("aim_miss", { id = 4900 + i, target = 3, hitgroup = 1, reason = "?" })
+    end
+    check(printed("seri: 3 resolver iskasi (durumdan bagimsiz)", before) ~= nil, "V1.0.49: 3 farkli durumda 3 iska seriyi acar")
+    W.evel[3] = 0; tick(10)
+    check(plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") == -58,
+        "V1.0.49: seri acikken body yaw -58 (" .. tostring(plist.get(3, "Force body yaw")) .. ", " .. tostring(plist.get(3, "Force body yaw value")) .. ")")
+    fire("aim_fire", { id = 4904, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    before = #prints + 1
+    fire("aim_miss", { id = 4904, target = 3, hitgroup = 1, reason = "?" })
+    local l49 = printed("atis: dusman3", before)
+    check(l49 ~= nil and l49:find("res seri", 1, true) ~= nil, "V1.0.49: seri acisiyla atis 'res seri' (" .. tostring(l49) .. ")")
+    plist.set(3, "Correction active", false)
+    tick(4)
+    check(plist.get(3, "Force body yaw") ~= true, "V1.0.49: Correction kapaliyken seri yazilmaz")
+    before = #prints + 1
+    fire("aim_fire", { id = 4905, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_hit", { id = 4905, target = 3, hitgroup = 1, damage = 120 })
+    check(printed("seri: bitti (GS kafadan vurdu)", before) ~= nil, "V1.0.49: GS kafa isabeti seriyi bitirir")
+    plist.set(3, "Correction active", true)
+    tick(4)
+    check(plist.get(3, "Force body yaw") ~= true, "V1.0.49: seri bitince body yaw yazilmaz")
+    W.head_dmg[3] = 0
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
@@ -1404,7 +1442,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.48 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.49 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

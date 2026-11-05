@@ -573,7 +573,20 @@ Ayrıca: **Trash talk varsayılan kapalı** (istek); kayıtlı config'te açık 
 
 İncelenip değiştirilmeyen: ıskaları düşman başına (durum yerine) saymak (15 atışı erkene alırdı, bunların 10'u zaten isabetti), yan dönük düşmana kural (sadece v47'de iki oyuncuda görülüyor).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.48 kuralları (182 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.49** (dominik incelemesi, V1.0.47 oturumu + V1.0.48 ilk oturumu):
+
+| | Ölçüm |
+|---|---|
+| dominik'e atış | 25 atış: kafaya 16'da 1 isabet (14 correction), gövdeye 9'da 6 |
+| Iskalardan sonra ne oldu | 14 resolver ıskası 5 duruma dağıldı (duran 5, yavaş 3, hava 3, koşu 2, eğik 1); brute aynı durumda 3 ıska istiyor, iki kez açıldı. 10 kafa ıskası GameSense'in kendi resolver'ıyla |
+| Zorlanan body yaw ile kafa (tüm loglar, 7 rakip) | -58: 8/11, +58: 1/6 |
+| V1.0.48 ilk oturumu | yarım şarj %41 → %11 (şarj düzeltmesi tuttu); 5 kill / 10 ölüm; 18 atışın hepsi GS ile, 6 correction |
+
+| Değişiklik | Neden |
+|---|---|
+| **Resolver serisi** (düşman başına, durumdan ve AA deseninden bağımsız): aynı düşmana 3 resolver ıskası (her biri bir öncekinden ≤ 300 sn) → GameSense'e kalacak atışlarda Force body yaw **-58**; -58 iki kez üst üste kafayı ıskalarsa +58, +58 bir kez ıskalarsa -58. GameSense kafadan vurursa seri biter; zorlanan açıyla kafa isabeti seriyi açık tutar. Kendi kol / brute önce gelir. Correction kapalıysa ya da senin Force body yaw'ın varsa yazılmaz. Logda `res seri` ve `seri: ...` satırları | dominik'e kafa 1/16; ıskalar durumlara dağıldığı için brute ve kendi kollar devreye girmedi. Replay: dominik'in 14 correction ıskasının 9'u seri açısıyla atılırdı; diğer rakiplerde 3 ıska, 0 kafa isabeti etkilenir. Beklenen kazanç küçük örnekten: dominik'e ~2–3 kafa. Rakibin roll / extended'ı yüzünden hiç işe yaramayabilir; bir sonraki logda `res seri` atışları ölçülecek. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.49 kuralları (188 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
