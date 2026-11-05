@@ -462,3 +462,7 @@ Peek'te A 7 mermide 3 kafa, B 11 mermide 1 kafa (6 ıska). Şarj tahmini bu sunu
 | Senin atışın | scout 24/33 (%73), R8 6/6 |
 
 Sebepsiz yarım şarj (hayat başına yüzlerce tick, ör. 1038 tickin 766'sı) büyük olasılıkla V1.0.43'ün 5 sn / en az 4 tavanının yanlış okuması; V1.0.45'te 30 sn / en az 6, round başında sıfır.
+
+## GameSense V1.0.45 ilk oturumu (de_mirage, 12 dk, scout + MD 100)
+
+Düello 9 / 11 (%45; V1.0.44 %35), sana gelen 34 mermide 5 kafa (%15; V1.0.44 %30), 16 ıska (%47). Scout 16/27 (8 correction). DT çifti 5 karar: 3 öldürme, 1 ölüm (ilk atış kafa ıskası), 1 iki takip ıskası (8 canlı çömelik düşmana mide, correction). → V1.0.46: can ≤ 30 hedefe Force safe point. Rakipler: northgard (19 düello), m1ndotoryy (9).

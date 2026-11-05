@@ -269,7 +269,7 @@ function entity.get_prop(ent, name, idx)
         return nil
     end
     if ent == 2 or ent == 3 then
-        if name == "m_iHealth" then return 100 end
+        if name == "m_iHealth" then return (W.ehp and W.ehp[ent]) or 100 end
         if name == "m_fFlags" then return 1 end
         if name == "m_vecVelocity" then return W.evel[ent] or 0, 0, 0 end
         if name == "m_flDuckAmount" then return 0 end
@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.45 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.45")
+check(printed("V1.0.46 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.46")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1201,6 +1201,32 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.46: cani 30 ve altindaki dusmana Force safe point; takilirsa 0.5 sn sonra birakilir
+-------------------------------------------------------------------------------
+do
+    local low_ref = find_ref("  » Finish low HP (<=30) with safe point")
+    check(low_ref ~= nil and low_ref.value == true, "V1.0.46: dusuk can safe point secenegi var, varsayilan acik")
+    W.ehp = { [2] = 100 }
+    W.sees[2], W.speed = false, 0
+    tick(10)
+    check(plist.get(2, "Override safe point") ~= "On", "V1.0.46 kurulum: tam canli dusmanda Force safe point yok")
+    W.ehp[2] = 8
+    tick(3)
+    check(plist.get(2, "Override safe point") == "On", "V1.0.46: 8 canli dusmana Force safe point")
+    W.sees[2] = true
+    tick(64)
+    check(plist.get(2, "Override safe point") ~= "On", "V1.0.46: goruluyorken 0.5 sn ates yoksa birakilir")
+    W.sees[2] = false
+    low_ref.value = false
+    W.ehp[2] = 7
+    tick(3)
+    check(plist.get(2, "Override safe point") ~= "On", "V1.0.46: secenek kapaliyken yok")
+    low_ref.value = true
+    W.ehp = nil
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1210,7 +1236,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.45 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.46 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

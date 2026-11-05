@@ -524,7 +524,19 @@ Yenilikler:
 - **Random anti-brute order** (Anti-Aim → Protection, açık): kafa yiyince sıradaki faz sabit +1 değil, rastgele (kötü bilinen fazlar yine atlanır). Rakip "anti brute Claude'a bağlı, randomize" diyordu; sabit sıra öğrenen bir resolver'a tahmin edilebilir.
 Kalanlar: sahte kayıt / teleport 0.12 sn / kol muhasebesi düzeltmeleri, Clean shot açık, şarj pozu kapalı, görülmezken sniper Prefer, loglar, AFK (elle), 4:3 / FPS boost.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.45 kuralları (149 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.46** (V1.0.45'in ilk oturumu, 12 dk, scout + MD 100):
+
+| | V1.0.44 | V1.0.45 |
+|---|---|---|
+| Düello kazanma | %35 (16/46) | **%45** (9/20) |
+| Sana gelen mermide kafa | %30 (19/63) | **%15** (5/34) |
+| Düşman ıskası | %32 | **%47** |
+| Senin scout isabetin | %73 (24/33) | %59 (16/27; 8 correction) |
+| DT çifti | — | 5 karar: 3 öldürme, 1 ölüm |
+
+Örnek küçük (20 düello) ama yön V1.0.33'e doğru. Yeni: **Finish low HP with safe point** (Ragebot → Resolver, açık): canı 30 ve altındaki düşmana Force safe point; her isabet öldürür, resolver tahminine gerek yok. Bu oturumda 8 canlı düşmana 3 takip atışı "correction" ile ıskaladı (tüm loglarda 40 atışta 6). Safe point bulunamazsa 0.5 sn sonra bırakılır.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.46 kuralları (154 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.45"
+local VERSION = "1.0.46"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1366,6 +1366,10 @@ menu.air_hc         = grp.defensive:slider("In-air hit chance (snipers, 0 = off)
 -- Ragebot. GameSense'in kendi resolver'i acilari cozmeye devam eder; bu katman bir dusmana resolver
 -- yuzunden ("?" iskasi) iska gectikce sadece o dusmana karsi safe point'i yukseltir.
 menu.resolver       = grp.resolver:switch("Adaptive resolver", true)
+-- V1.0.46: cani 30 ve alti dusmana Force safe point (her cozumde gecerli nokta): her isabet olduruyor, resolver tahminine
+-- gerek yok. V1.0.45 logunda 8 canli dusmana 3 takip atisi "correction" ile iskaladi (tum loglarda 40 atista 6).
+-- Safe point bulunamazsa 0.5 sn sonra birakilir (ates kilitlenmez).
+menu.low_hp_safe    = grp.resolver:switch("  » Finish low HP (<=30) with safe point", true, function() return on(menu.resolver) end)
 -- GameSense'e ozel (NYKLE Resolver 2.5): Force safe point'in de cozemedigi dusmanda Force body yaw ile
 -- aci hipotezleri denenir.
 menu.hypotheses     = grp.resolver:switch("  » Body yaw hypotheses (Force body yaw)", true, function() return on(menu.resolver) end)
@@ -3998,6 +4002,28 @@ local function apply_resolver(class, present)
         if yaw ~= nil then
             -- Aci secildi: Force safe point o aciyi gereksiz kilar, Prefer yeter.
             level = 1
+        end
+        -- Dusuk can: Force safe point (V1.0.46), takilirsa (gorulurken 0.5 sn ates yok) birakilir.
+        local hp = prop(enemy, "m_iHealth")
+        local low = resolver.low or {}
+        resolver.low = low
+        if on(menu.low_hp_safe) and finite(hp) and hp > 0 and hp <= 30 and level < 2 then
+            local l = low[enemy]
+            local now_rt = realtime()
+            if l == nil or l.hp ~= hp then
+                l = { hp = hp, visible = 0, last = now_rt, relaxed = false }
+                low[enemy] = l
+            end
+            if sees_me(enemy) and not l.relaxed then
+                l.visible = l.visible + max(0, min(0.1, now_rt - l.last))
+                l.relaxed = l.visible >= K.FORCE_STALL
+            end
+            l.last = now_rt
+            if not l.relaxed then
+                level = 2
+            end
+        else
+            low[enemy] = nil
         end
         local user_sp = plist_user(enemy, PL.SAFE)
         if level >= 2 and user_sp ~= "On" then
