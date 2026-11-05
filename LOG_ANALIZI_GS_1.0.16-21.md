@@ -415,3 +415,15 @@ Yani eğik peek'te de ölüm = ıska + 1.25 sn sürgü; eğik yürürken kaçam�
 - Kafa taze kayıtta 11/14 (%79; 3. logda %81) — kafa önceliği taze kayıtta çalışıyor.
 
 → **V1.1.6:** duelloda çift yok (kafa, Min. Damage 101), gecikmeli kayıtta çift; bolt cover kapalı.
+
+## GameSense V1.0.36 oturumu (de_mirage, 23 dk, 13:17–13:40)
+
+| | |
+|---|---|
+| Sana gelen mermi | 28: 10 kafa (%36), 7 ıska |
+| DT dolu | 12 mermi: 2 kafa (%17), 3 ıska |
+| DT yarım / boş | 16 mermi: 8 kafa (%50) — önceki oturumlarda yarım şarj 48/193 mermiydi, burada 16/28 |
+| Şarj pozu açıkken | 6 mermi: 3 kafa |
+| Senin atışın | 29: 18 isabet, 11 ıska (8 death, 3 correction); kafaya nişan 21: 16 isabet |
+
+Bulgu: yarım / boş şarj satırlarının çoğunda `atis yok` ve `defbitti 0.00–0.6s`: DT, defensive bittiği anda yeniden şarj oluyor ve o sırada kafa yeniyor. V1.0.36'da Clean shot kapatılınca defensive daha sık açılıp kapandı, bu pencere çoğaldı. → V1.0.37'de Clean shot yine açık. Ayarlanan 58° jitter'da modelde 12–34° (`gercek`), statik / fs'de 56–57°.

@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.36"
+local VERSION = "1.0.37"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -747,7 +747,9 @@ end
 
 -- AFK modu (V1.0.35): acikken Peek Assist tusu basili sayilir (AI peek durdugun yerden calisir), 3 sn'de bir
 -- sag / sol adim, exploit'ler tam acik. Durum asagida update_ai_peek'te guncellenir.
-local afk = { on = false, anchor = nil, side = 1, flip_at = -1000, blocked_at = nil, every = 3, step = 24 }
+local afk = { on = false, anchor = nil, side = 1, flip_at = -1000, blocked_at = nil, every = 3, step = 24,
+    -- V1.0.37 otomatik AFK: dogduktan (donma suresinden) sonra idle sn hic tusa basmazsan acilir, basinca kapanir.
+    auto = false, idle_since = nil, armed = false, idle = 8 }
 
 -- Peek Assist tusu basili mi. AI peek yururken Peek Assist'in kutusunu kapatiriz (hareketi ezmesin);
 -- tusun kendisi (basili / toggle) okunmaya devam eder, kutunun senin degeri ezmeden onceki degerdir.
@@ -1313,14 +1315,16 @@ menu.ai_peek        = grp.peek:switch("AI peek (hold Quick peek assist)", true)
 menu.peek_defensive = grp.peek:switch("  » Defensive during AI peek", true, function() return on(menu.ai_peek) end)
 -- V1.0.35 (istek: "afk modu: oldugum yerde ai peek, 3 sn'de bir saga sola, exploit full, vurulma zor olsun").
 menu.afk            = grp.peek:switch("AFK mode (AI peek here + strafe, full exploits)", false)
+-- V1.0.37 (istek: "afk oldugumu anlasin, kendi kendine aktiflessin"): dogduktan sonra hareket / ziplama / egilme tusuna
+-- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
+menu.afk_auto       = grp.peek:switch("  » Auto AFK (no input 8 s after spawn)", true)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
--- V1.0.36: varsayilan KAPALI. v30-v33b: defensive (kendi lag'in) sirasinda attigin 15 atisin 2'si iska (%13), temiz
--- atista 137'nin 36'si (%26): GameSense'te lag'de ates isabeti dusurmuyor. Temiz atis ise tam nisan alabildigin anda
--- defensive'i kapatiyordu: DT doluyken defensive acikken dusman mermilerinin %45'i iska (17/38, kafa %16), kapaliyken
--- %20 iska (9/46, kafa %20).
-menu.clean_shot     = grp.defensive:switch("Clean shot (no lag while shooting)", false)
+-- V1.0.36'da kapatilmisti, V1.0.37'de geri ACIK: V1.0.36 oturumunda defensive daha cok acilip kapandikca DT her
+-- bitiste yeniden sarj oldu ("DT %0, defbitti 0.00s"): sana gelen mermilerin 16/28'i yarim / bos sarjda (onceki 48/193),
+-- kafa orani %26 -> %36.
+menu.clean_shot     = grp.defensive:switch("Clean shot (no lag while shooting)", true)
 -- V1.0.18 (enderphobia "Weapon switch" tetigi, luasense defensive'i): silah cekilirken zaten ates edemiyorsun.
 menu.switch_def     = grp.defensive:switch("Defensive while switching weapons", true)
 menu.sniper_air_dt  = grp.defensive:switch("Snipers use DT in the air", false)
@@ -5742,7 +5746,29 @@ do
 
     update_ai_peek = function(lp, cmd, class)
         local was = afk.on
-        afk.on = on(menu.enabled) and on(menu.afk) and alive(lp)
+        -- Otomatik AFK: donma suresi bitince sayac baslar; tusa basinca sayac durur ve bu dogusta bir daha acilmaz.
+        local now_rt = realtime()
+        local input = user_moving(cmd) or pressed(cmd.in_jump) or pressed(cmd.in_duck)
+        local rules = try(entity.get_game_rules)
+        local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
+        if input then
+            if afk.auto and on(menu.hit_log) then
+                print(("[%s] otomatik afk kapandi: tusa bastin"):format(SCRIPT))
+            end
+            afk.auto, afk.armed, afk.idle_since = false, false, nil
+        elseif afk.armed and freeze ~= 1 and freeze ~= true then
+            afk.idle_since = afk.idle_since or now_rt
+            if not afk.auto and on(menu.afk_auto) and now_rt - afk.idle_since >= afk.idle then
+                afk.auto = true
+                if on(menu.hit_log) then
+                    print(("[%s] otomatik afk: dogduktan sonra %d sn tusa basmadin"):format(SCRIPT, afk.idle))
+                end
+            end
+        end
+        if not on(menu.afk_auto) then
+            afk.auto = false
+        end
+        afk.on = on(menu.enabled) and (on(menu.afk) or afk.auto) and alive(lp)
         if afk.on ~= was then
             afk.anchor, afk.blocked_at = nil, nil
             if on(menu.hit_log) then
@@ -6007,7 +6033,7 @@ local function tick_prepare(cmd)
         apply_recommended()
     end
     if not on(menu.enabled) then
-        afk.on, afk.anchor, afk.blocked_at = false, nil, nil
+        afk.on, afk.anchor, afk.blocked_at, afk.auto = false, nil, nil, false
         reset_overrides()
         plist_reset(false)
         return nil
@@ -6017,6 +6043,8 @@ local function tick_prepare(cmd)
         -- AFK (V1.0.35): olukken capa birakilir (dogdugun yer yeni capa), otomatik ates / durbun geri verilir
         -- (olukken AFK'yi kapatirsan da takili kalmasin).
         afk.anchor, afk.blocked_at = nil, nil
+        -- Otomatik AFK bir sonraki dogusta yeniden olculur.
+        afk.auto, afk.armed, afk.idle_since = false, true, nil
         override("auto_fire", nil)
         override("auto_scope", nil)
         override("fakeduck", nil)
@@ -7346,6 +7374,8 @@ listen("round_start", protect("round_start", function()
     reset_brute()
     exposure.shot = nil
     ai_peek.reset()
+    -- Yeni round = yeni dogus: otomatik AFK yeniden olculur, capa birakilir.
+    afk.auto, afk.armed, afk.idle_since, afk.anchor = false, true, nil, nil
     pending_misses = {}
     recharge.held = false
     persist.save(false)

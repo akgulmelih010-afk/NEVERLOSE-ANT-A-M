@@ -376,7 +376,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.36 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.36")
+check(printed("V1.0.37 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.37")
 
 local function errors_since(i)
     local found = {}
@@ -419,6 +419,9 @@ end
 local before = #prints + 1
 fire("level_init")
 fire("round_start")
+-- V1.0.37: otomatik AFK eski bolumleri bozmasin (8 sn tusa basilmiyor); kendi bolumunde acilir.
+local auto_ref = find_ref("  » Auto AFK (no input 8 s after spawn)")
+if auto_ref ~= nil then auto_ref.value = false end
 tick(200)
 errs = errors_since(before)
 check(#errs == 0, "200 tick hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
@@ -572,15 +575,14 @@ check(last_cmd.force_defensive ~= true, "gorus bitince zorlama biter")
 W.head_dmg[2] = 300 -- temiz atis var: zorlama yok
 W.sees[2] = true
 tick(2)
--- V1.0.36: Clean shot varsayilan kapali: temiz atis varken de defensive acik kalir (lag'de atis isabeti dusmuyordu,
--- dusman iskasi %20 -> %45). Secenek acilinca eski davranis.
-check(last_cmd.force_defensive == true, "V1.0.36: Clean shot kapali (varsayilan): temiz atis varken de defensive zorlanir")
+-- V1.0.37: Clean shot yine varsayilan acik (V1.0.36'da kapaliyken defensive bitislerinde DT yeniden sarj oldu).
+check(last_cmd.force_defensive ~= true, "temiz atis varken defensive zorlanmaz")
 local clean_ref = find_ref("Clean shot (no lag while shooting)")
-check(clean_ref ~= nil and clean_ref.value == false, "V1.0.36: Clean shot varsayilan kapali")
-clean_ref.value = true
-tick(2)
-check(last_cmd.force_defensive ~= true, "Clean shot acikken temiz atis varken defensive zorlanmaz")
+check(clean_ref ~= nil and clean_ref.value == true, "V1.0.37: Clean shot varsayilan acik")
 clean_ref.value = false
+tick(2)
+check(last_cmd.force_defensive == true, "Clean shot kapaliyken temiz atis varken de defensive zorlanir")
+clean_ref.value = true
 W.head_dmg[2], W.sees[2] = 0, false
 tick(40)
 ORIGIN[2] = { 500, 0, 0 } -- yakin ama gorunmuyor
@@ -928,6 +930,37 @@ do
         "V1.0.36: yarim sarjda yenen kafa dusmanin faz tabanini degistirmez (" .. tostring(base_before) .. " -> " .. tostring(base_after) .. ")")
     W.sees[2], W.speed = false, 0
     tick(10)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.37: otomatik AFK (dogduktan / round basindan sonra 8 sn tusa basmazsan)
+-------------------------------------------------------------------------------
+do
+    local afk_ref = find_ref("AFK mode (AI peek here + strafe, full exploits)")
+    local fire_ref = find_ref("Automatic fire")
+    check(auto_ref ~= nil, "V1.0.37: otomatik AFK secenegi var")
+    auto_ref.value = true
+    afk_ref.value = false
+    W.sees[2], W.sees[3], W.speed = false, false, 0
+    before = #prints + 1
+    fire("round_start")
+    tick(64 * 7)
+    check(fire_ref.value ~= true, "V1.0.37: 7 sn hareketsiz: henuz AFK degil")
+    tick(64 * 2)
+    check(printed("otomatik afk: dogduktan sonra 8 sn", before) ~= nil and fire_ref.value == true,
+        "V1.0.37: 8 sn hareketsiz: AFK kendiliginden acildi (otomatik ates " .. tostring(fire_ref.value) .. ")")
+    W.speed = 150 -- tusa bastin
+    tick(3)
+    W.speed = 0
+    tick(64 * 10)
+    check(printed("otomatik afk kapandi: tusa bastin", before) ~= nil and fire_ref.value ~= true,
+        "V1.0.37: tusa basinca kapanir ve bu dogusta yeniden acilmaz")
+    fire("round_start")
+    tick(64 * 9)
+    check(fire_ref.value == true, "V1.0.37: yeni roundda yine 8 sn hareketsiz: AFK acik")
+    auto_ref.value = false
+    tick(10)
+    check(fire_ref.value ~= true, "V1.0.37: secenek kapatilinca otomatik AFK kapanir")
 end
 
 -------------------------------------------------------------------------------

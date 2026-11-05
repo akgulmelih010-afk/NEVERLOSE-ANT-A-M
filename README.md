@@ -6,7 +6,7 @@ Neverlose (CS:GO) için durum (state) bazlı anti-aim, exploit ve resolver lua's
 
 ## V1.1'de ne değişti (GameSense sürümünden taşınanlar)
 
-GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi, V1.0.35'te AFK modu, aspect ratio ve eğilme koruması geldi, V1.0.36'da AA şarj anına göre ayarlandı (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
+GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34'te hata taramasıyla düzeltildi, V1.0.35'te AFK modu, aspect ratio ve eğilme koruması geldi, V1.0.36'da AA şarj anına göre ayarlandı, V1.0.37'de otomatik AFK geldi (bkz. "GameSense edition" ve `LOG_ANALIZI_GS_1.0.16-21.md`). Orada loglarla kanıtlanan ve Neverlose API'siyle yapılabilen her şey buraya taşındı. Varsayılanlar GameSense'teki en iyi ayarlar; hepsi menüden kapatılabilir.
 
 | Değişiklik | Nerede | Logdaki kanıt (GameSense) |
 |---|---|---|
@@ -445,7 +445,16 @@ Fikir 1 (AI peek'in DT çiftiyle öldüren açıyı kabul etmesi) yapılmadı: V
 
 Verinin yapma dedikleri: desync 58 → 60 (fark durumdan geliyor, GameSense'e ikisi de 180 gidiyor), daha fazla faz / rastgele taraf (aynı faz + taraf 28 denemede 0 kez tekrar kafa yedi), düşmana özel AA (kafalar 16 kişiye dağılmış).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.36 kuralları (108 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.37** (V1.0.36 oturumu, de_mirage 23 dk; istek: "AFK olduğumu anlasın, kendiliğinden açılsın"):
+
+| Değişiklik | Menü | Neden |
+|---|---|---|
+| **Otomatik AFK:** doğduktan ya da round başladıktan sonra (donma süresi bitince) **8 sn** hareket / zıplama / eğilme tuşuna basmazsan AFK modu kendiliğinden açılır; bir tuşa basınca kapanır ve o doğuşta bir daha açılmaz. Log: `otomatik afk: dogduktan sonra 8 sn tusa basmadin` / `otomatik afk kapandi: tusa bastin` | Exploits → Peek → **Auto AFK** (açık) | İstek |
+| **Clean shot yine varsayılan açık** (V1.0.36'da kapatılmıştı) | Exploits → Defensive → Clean shot | V1.0.36 oturumunda defensive daha çok açılıp kapandıkça DT her bitişte yeniden şarj oldu: `DT %0, defbitti 0.00s` satırları. Sana gelen mermilerin 16/28'i yarım / boş şarjda (önceki oturumlarda 48/193), kafa oranı %26 → %36. Örnek küçük ama yön net; "lag'de atış isabeti düşmüyor" bulgusu doğru kaldı, sorun defensive bitişindeki şarj |
+
+V1.0.36 oturumu (28 düşman mermisi, küçük örnek): şarj pozu 6 mermide 3 kafa (henüz etkisi görülmedi, kalıyor); atışsız yarım şarjın kaynağı bulundu: defensive bitişi (`defbitti` 0.00–0.6 sn, 18 yarım / boş şarj satırının 10'unda). Ayarlanan 58° desync jitter'da modelde 12–34° görünüyor (`gercek`), statik / freestanding'de 56–57°. Kalıcı hafıza bu oturumda yüklenmedi; V1.0.33 de dün 20:45'te hafızasız yüklenmiş, yani GameSense veritabanı silinmiş (sürümle ilgisi yok), oynadıkça yeniden dolar.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.37 kuralları (114 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
