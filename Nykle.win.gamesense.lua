@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.52"
+local VERSION = "1.0.53"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1300,6 +1300,14 @@ menu.brute_random   = grp.protect:switch("  » Random anti-brute order", true, f
 -- Varsayilan KAPALI: kullanici "sunucuda roll yasak, extended degil" dedi; roll'a izin veren sunucuda elle ac.
 menu.roll           = grp.protect:switch("Extended desync (roll)", false)
 menu.roll_value     = grp.protect:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
+-- V1.0.53 (internet arastirmasi + Valve animstate formulu): desync hiz ve egilmeyle kuculur (tam hizda egik yurume
+-- ~29°, logda <=30° desync'te kafa %27, ustunde %17). Hepsi varsayilan KAPALI: logda "maxdsy" ile olculecek.
+menu.crouch_cap     = grp.protect:switch("Desync keeper: slow crouch-walk when seen", false)
+menu.crouch_speed   = grp.protect:slider("  » Crouch speed", 20, 78, 38, " u/s", function() return on(menu.crouch_cap) end)
+menu.walk_cap       = grp.protect:switch("Desync keeper: slow walk when seen (<=115 u/s)", false)
+menu.contact_stop   = grp.protect:switch("Stop before contact when decelerating", false)
+menu.fs_contact     = grp.protect:switch("Invert freestanding side at first contact", false)
+menu.no_jump_seen   = grp.protect:switch("Block jump while seen (not jump-scout)", false)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
 -- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
@@ -6633,7 +6641,141 @@ recharge.discharged = function(now)
         or (on_for >= 0 and on_for <= 1.0) or weapon_switching(local_player(), 0)
 end
 
+-- V1.0.53: AA arastirmasi. own.aa: tahmini en buyuk desync (Valve CCSGOPlayerAnimState: yaw modifier =
+-- ((walk_to_run * -0.3 - 0.2) * kosu orani) + 1, egikken += duck * egik orani * (0.5 - modifier); x 58), havada
+-- gonderilen kayitlar arasi mesafe (LC 64 birim), ilk temas penceresi ve kendi LBY'nin tarafi ele verip vermedigi.
+own.aa = { wtr = 0, max_dsy = 58, sent = nil, last_choked = 0, lc = 0, seen_was = false, contact_at = -1000,
+    stop_until = -1000, lby_n = 0, lby_same = 0, lby_at = -1000 }
+
+own.aa.update = function(cmd, lp, choked)
+    local A = own.aa
+    local dt = tick_interval()
+    local speed = speed2d(lp)
+    local maxspeed = prop(lp, "m_flMaxspeed")
+    maxspeed = (finite(maxspeed) and maxspeed > 1) and maxspeed or 250
+    if on_ground(lp) and speed > maxspeed * 0.52 then
+        A.wtr = min(1, A.wtr + dt * 2)
+    elseif on_ground(lp) then
+        A.wtr = max(0, A.wtr - dt * 2)
+    end
+    local run = clamp(speed / (maxspeed * 0.52), 0, 1)
+    local crouch = clamp(speed / (maxspeed * 0.34), 0, 1)
+    local mod = ((A.wtr * -0.3) - 0.2) * run + 1
+    local duck = prop(lp, "m_flDuckAmount")
+    if finite(duck) and duck > 0 then
+        mod = mod + duck * crouch * (0.5 - mod)
+    end
+    A.max_dsy = 58 * clamp(mod, 0, 1)
+    -- Gonderilen paket: choke sayaci dustu (onceki komut gitti). Ardisik gonderilen kayitlar arasi mesafe.
+    if choked < (A.last_choked or 0) or choked == 0 then
+        local o = origin_of(lp)
+        if o ~= nil then
+            if A.sent ~= nil then
+                local dx, dy, dz = o.x - A.sent.x, o.y - A.sent.y, o.z - A.sent.z
+                A.lc = sqrt(dx * dx + dy * dy + dz * dz)
+            end
+            A.sent = o
+        end
+    end
+    A.last_choked = choked
+    -- Ilk temas: gorulmeye basladigi an.
+    local seen = seen_by_enemy()
+    if seen and not A.seen_was then
+        A.contact_at = realtime()
+    end
+    A.seen_was = seen
+    -- Kendi LBY'mizin tarafi gercek desync tarafiyla ayni mi (dururken, 0.25 sn'de bir ornek).
+    local now = realtime()
+    if on_ground(lp) and speed < 1.1 and now - A.lby_at >= 0.25 then
+        local _, eye = prop(lp, "m_angEyeAngles")
+        local lby = prop(lp, "m_flLowerBodyYawTarget")
+        local pose = prop(lp, "m_flPoseParameter", 11)
+        if finite(eye) and finite(lby) and finite(pose) then
+            local d = (lby - eye + 180) % 360 - 180
+            local dsy = pose * 120 - 60
+            if abs(d) > 20 and abs(dsy) > 15 then
+                A.lby_at = now
+                A.lby_n = A.lby_n + 1
+                if (d > 0) == (dsy > 0) then
+                    A.lby_same = A.lby_same + 1
+                end
+            end
+        end
+    end
+end
+
+-- Log eki: tahmini en buyuk desync, kosudan yuruyuse gecis, havadaysa son gonderilen iki kayit arasi mesafe.
+own.aa.text = function(lp)
+    local A = own.aa
+    local parts = { (" | maxdsy %d wtr %d%%"):format(round(A.max_dsy), round(A.wtr * 100)) }
+    if lp ~= nil and not on_ground(lp) then
+        parts[#parts + 1] = (" lc %d%s"):format(round(A.lc), A.lc > 64 and " kirik" or "")
+    end
+    return table.concat(parts)
+end
+
+-- Hareket: egik / yuruyus hiz siniri, temastan once durma, gorulurken ziplama engeli. Hepsi menuden.
+own.aa.move = function(cmd, lp, class)
+    local A = own.aa
+    A.slowed, A.stopped, A.nojump = nil, nil, nil
+    if not on_ground(lp) or fd_on() or ai_peek.mode ~= nil or afk.on or afk.key()
+        or prop(lp, "m_MoveType") == K.MOVETYPE_LADDER then
+        return
+    end
+    local now = realtime()
+    local seen = exposure.now or exposure.soon or exposure.any
+    local f, sd = cmd.forwardmove, cmd.sidemove
+    if not finite(f) or not finite(sd) then
+        return
+    end
+    -- Gorulurken ziplama: scout / AWP ates etmeye hazirsa (jump scout) engellenmez.
+    if on(menu.no_jump_seen) and pressed(cmd.in_jump) and seen
+        and not ((class == "CWeaponSSG08" or class == "CWeaponAWP") and weapon_ready(lp, 0)) then
+        pcall(function() cmd.in_jump = 0 end)
+        A.nojump = true
+    end
+    local m = sqrt(f * f + sd * sd)
+    if m < 1 then
+        return
+    end
+    -- Geri cekilmeyi yavaslatma: hiz tehdide dogru ya da yanlamasina ise sinirla.
+    local toward = true
+    local threat = current_threat()
+    local mine, theirs = origin_of(lp), threat ~= nil and origin_of(threat) or nil
+    if mine ~= nil and theirs ~= nil then
+        local v = velocity_of(lp)
+        toward = v.x * (theirs.x - mine.x) + v.y * (theirs.y - mine.y) >= 0
+    end
+    local after_shot = now - own.last_shot >= 0 and now - own.last_shot < 0.6
+    if not seen or after_shot or not toward then
+        -- Temastan once durma: birazdan gorulecek, kosudan yavasliyorsun (dar desync), hala hareketlisin.
+        if on(menu.contact_stop) and exposure.soon and not exposure.now and A.wtr > 0.3 and speed2d(lp) > 20
+            and toward and not after_shot and current.state ~= "Peek" then
+            A.stop_until = max(A.stop_until, now + 0.3)
+        end
+        if on(menu.contact_stop) and now < A.stop_until then
+            pcall(function() cmd.forwardmove, cmd.sidemove = 0, 0 end)
+            A.stopped = true
+        end
+        return
+    end
+    local duck = prop(lp, "m_flDuckAmount")
+    local lim = nil
+    if on(menu.crouch_cap) and finite(duck) and duck >= 0.9 then
+        local target = menu.crouch_speed ~= nil and menu.crouch_speed:get() or 38
+        lim = (finite(target) and target or 38) / 0.34
+    elseif on(menu.walk_cap) and (not finite(duck) or duck < 0.1) and not pressed(cmd.in_speed) then
+        lim = 115
+    end
+    if lim ~= nil and m > lim then
+        local k = lim / m
+        pcall(function() cmd.forwardmove, cmd.sidemove = f * k, sd * k end)
+        A.slowed = true
+    end
+end
+
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
+    own.aa.update(cmd, lp, choked)
     local manual_dir = manual.dir
     local freestand = freestanding_allowed(move_state)
     local state
@@ -6687,6 +6829,18 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     if current.pose then
         body, body_fs = "Static", "On"
     end
+    -- V1.0.53: ilk temasta (gorulmenin ilk 0.4 sn'si) freestanding tarafinin tersi (resolver ilk atista iz tabanli
+    -- freestand tahmini yapar). Varsayilan kapali.
+    own.aa.inverted = nil
+    if on(menu.fs_contact) and body == "Static" and body_fs == "On" and exposure.now
+        and realtime() - own.aa.contact_at >= 0 and realtime() - own.aa.contact_at < 0.4 then
+        local actual = pose_side(lp)
+        if actual ~= nil then
+            body_fs = "Off"
+            a.side = not actual
+            own.aa.inverted = true
+        end
+    end
     current.body_mode = (body == "Static" and body_fs == "On") and "fs" or (body == "Static" and "sta")
         or ((body == "Jitter" or body == "Random") and "jit") or nil
     local armed = weapon_ready(lp, 0.15)
@@ -6710,6 +6864,7 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     if on(menu.air_duck) and not on_ground(lp) and seen_by_enemy() and prop(lp, "m_MoveType") ~= K.MOVETYPE_LADDER then
         pcall(function() cmd.in_duck = 1 end)
     end
+    own.aa.move(cmd, lp, class)
     sample_exploit(state)
 end
 
@@ -6964,6 +7119,8 @@ local function exploit_status()
     parts[#parts + 1] = (defensive_active() and "DEF acik" or "DEF yok") .. (current.forced and " (zorla)" or "")
         .. ((hid_age ~= nil and hid_age >= 0 and hid_age <= 16) and (" gizli %dt"):format(hid_age) or "")
         .. (current.air_keep and " (hava, bayrak)" or "")
+        .. (own.aa.slowed and " yavas" or "") .. (own.aa.stopped and " dur" or "") .. (own.aa.inverted and " fs ters" or "")
+        .. (own.aa.nojump and " zipla yok" or "")
     if recharge.held then
         parts[#parts + 1] = "sarj bekle"
     end
@@ -7097,7 +7254,8 @@ do
                 applied = current.brute, group = brute.stat_group(), sniper = sniper.mode(current.weapon),
                 frozen = entry.shot_frozen, enemy_weapon = weapon_class(shooter),
                 -- V1.0.51: mermi anindaki hizin ve egilme (iska satiri sonra yazilir).
-                move = (" | v%d duck%d"):format(round(speed2d(lp)), round((finite(prop(lp, "m_flDuckAmount")) and prop(lp, "m_flDuckAmount") or 0) * 100)),
+                move = (" | v%d duck%d"):format(round(speed2d(lp)), round((finite(prop(lp, "m_flDuckAmount")) and prop(lp, "m_flDuckAmount") or 0) * 100))
+                    .. own.aa.text(lp),
             }
         end
 
@@ -7274,10 +7432,11 @@ listen("player_hurt", protect("player_hurt", function(e)
     if on(menu.hit_log) then
         local lp_now = local_player()
         local duck = lp_now ~= nil and prop(lp_now, "m_flDuckAmount") or nil
-        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d"):format(
+        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d%s"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
             current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info,
-            lp_now ~= nil and round(speed2d(lp_now)) or 0, round((finite(duck) and duck or 0) * 100)))
+            lp_now ~= nil and round(speed2d(lp_now)) or 0, round((finite(duck) and duck or 0) * 100),
+            lp_now ~= nil and own.aa.text(lp_now) or ""))
     end
 end))
 
@@ -9067,10 +9226,13 @@ listen("round_start", protect("detailed log round_start", function()
             if m.switching > 0 or m.knife > 0 then
                 extra = (" (silah degisirken %d, bicakli yakinken %d)"):format(m.switching, m.knife)
             end
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d | sarj tavani %d, taban farki %d"):format(
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d | sarj tavani %d, taban farki %d | lby taraf %d/%d"):format(
                 SCRIPT, m.ticks, m.dt, m.forced, extra, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
                 teleport.off and " (teleport bu harita kapali)" or "", m.partial, m.partial_seen, m.pose, m.def_ends,
-                charge.full or 0, (charge.base or charge.offset or 0) - (charge.offset or 0)))
+                charge.full or 0, (charge.base or charge.offset or 0) - (charge.offset or 0),
+                own.aa.lby_same, own.aa.lby_n))
+            -- V1.0.53: LBY taraf uyumu round basina (yakin %50 = sizinti yok; %90+ ya da %10- = LBY tarafi ele veriyor).
+            own.aa.lby_same, own.aa.lby_n = 0, 0
         end
         -- V1.0.20: harita basinda round_start arka arkaya iki kez geliyor; arada satir yoksa ayni baslik
         -- ikinci kez yazilmaz.

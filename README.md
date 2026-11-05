@@ -631,7 +631,21 @@ Doğrulamada elenenler: eğik peek'te hızı 50'ye kesmek (yazılan haliyle CS:G
 
 Araştırmanın sonucu (dürüst): **yerde faz seçimi kafa oranını değiştirmiyor** (fazlar arası ki-kare p≈0,86; aileler %19–30). Daha fazla faz eklemek veriyle desteklenmedi; önce öğrenme düzeltildi. AA'da gerçek sızıntılar: hareket ederken desync'in çökmesi (eğik yürüyüş ~29°, ≤30° desync'te kafa %27 / üstünde %17) ve hava (V1.0.51'de bayrak düzeltildi). GameSense'in kullanmadığımız AA ayarları (Yaw 180 Z, Opposite body yaw, edge yaw, fake lag, bacak / animasyon kırıcı, fake peek) bu sızıntılara etki etmiyor. Elenenler: 16 fazlık tablo (nötr), eğik peek'te hız sınırı (mekanizma ıskalarla doğrulanmadı; V1.0.51'den beri ıska satırlarında hız var, sonraki loglarla yeniden bakılacak), havada iz sinyalini bayrağın önüne koymak (V1.0.51 düzeltmesini geri alırdı).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.52 kuralları (195 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.53** (internet araştırması: Valve animstate kodu, açık GameSense lua'ları, sızmış resolver'lar)
+
+Desync hız ve eğilmeyle küçülüyor (Valve formülü: tam hız eğik yürüme ~29°, koşudan yavaşlarken ~34°, dururken 58°); logda ≤30° desync'te kafa %27, üstünde %17. Yeni seçenekler (Anti-Aim → Protection) **hepsi varsayılan kapalı**; önce loglarla ölçülecek:
+
+| Seçenek | Ne yapar |
+|---|---|
+| **Desync keeper: slow crouch-walk when seen** (+ hız, varsayılan 38 u/s) | Biri seni görürken eğik yürüyüş hızını sınırlar (desync ~29° yerine ~41°). Geri çekilirken, atıştan sonraki 0,6 sn, AI peek / AFK / quick peek tuşunda, merdivende, fake duck'ta çalışmaz. |
+| **Desync keeper: slow walk when seen (≤115 u/s)** | Görülürken ayakta hızı 115'e sınırlar (koşuda ~29° yerine ~47°). Walk tuşuna basılıyken dokunmaz. |
+| **Stop before contact when decelerating** | Birazdan görüleceksin ve koşudan yavaşlıyorsan (dar desync) 0,3 sn hareketi keser; tam durunca 58° geri gelir. Peek'te çalışmaz. |
+| **Invert freestanding side at first contact** | Görülmenin ilk 0,4 sn'sinde body freestanding'in seçtiği tarafın tersi (resolver ilk atışta freestand tahminiyle başlar). |
+| **Block jump while seen (not jump-scout)** | Görülürken zıplamayı engeller; scout / AWP ateşe hazırsa (jump scout) engellemez. |
+
+Yeni loglar: `iska` / `vuruldun` sonunda `maxdsy N wtr N%` (o anki tahmini en büyük desync ve koşu→yürüyüş geçişi), havadayken `lc N` (gönderilen iki kayıt arası mesafe, 64'ten büyükse `kirik`), etiketler `yavas` / `dur` / `fs ters` / `zipla yok`; round özetinde `lby taraf N/M` (kendi LBY'nin desync tarafıyla uyumu; ~%50 = sızıntı yok).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.53 kuralları (203 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

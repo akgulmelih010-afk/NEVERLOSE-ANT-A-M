@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.52 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.52")
+check(printed("V1.0.53 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.53")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -416,7 +416,7 @@ local function tick(n)
     for _ = 1, n or 1 do
         W.tick = W.tick + 1
         cmdno = cmdno + 1
-        local cmd = { command_number = cmdno, chokedcommands = 0, in_jump = 0, in_duck = 0, in_use = 0,
+        local cmd = { command_number = cmdno, chokedcommands = 0, in_jump = W.jump and 1 or 0, in_duck = 0, in_use = 0,
             in_forward = W.speed > 0 and 1 or 0, in_back = 0, in_moveleft = 0, in_moveright = 0,
             forwardmove = W.speed > 0 and 450 or 0, sidemove = 0, yaw = 0, pitch = 0, weaponselect = 0 }
         last_cmd = cmd
@@ -1442,7 +1442,7 @@ do
     before = #prints + 1
     fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
     local l51 = printed("vuruldun:", before)
-    check(l51 ~= nil and l51:find("(hava, bayrak)", 1, true) ~= nil and l51:find(" | v%d+ duck%d+$") ~= nil,
+    check(l51 ~= nil and l51:find("(hava, bayrak)", 1, true) ~= nil and l51:find(" | v%d+ duck%d+") ~= nil,
         "V1.0.51: vuruldun satirinda hava bayragi ve hiz / egilme (" .. tostring(l51) .. ")")
     -- V1.0.52: bomba cekince (defensive erken doner) etiket takili kalmaz.
     W.weapon_class = "CHEGrenade"
@@ -1459,6 +1459,49 @@ do
 
     W.esp, W.sees[2] = 0, false
     tick(40)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.53: desync koruyucu hareket (varsayilan kapali) ve "maxdsy" logu
+-------------------------------------------------------------------------------
+do
+    local cc = find_ref("Desync keeper: slow crouch-walk when seen")
+    local wc = find_ref("Desync keeper: slow walk when seen (<=115 u/s)")
+    local nj = find_ref("Block jump while seen (not jump-scout)")
+    check(cc ~= nil and cc.value == false and wc ~= nil and wc.value == false and nj ~= nil and nj.value == false,
+        "V1.0.53: hareket secenekleri var, varsayilan kapali")
+    W.flags, W.speed, W.duck, W.sees[2] = 1, 78, 1, true
+    tick(5)
+    check(last_cmd.forwardmove == 450, "V1.0.53: kapaliyken egik yuruyuse dokunulmaz (" .. tostring(last_cmd.forwardmove) .. ")")
+    cc.value = true
+    tick(5)
+    check(last_cmd.forwardmove < 120 and last_cmd.forwardmove > 100,
+        "V1.0.53: goruluyorken egik hiz 38 u/s'ye (girdi ~112) sinirlanir (" .. tostring(last_cmd.forwardmove) .. ")")
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local l53 = printed("vuruldun:", before)
+    check(l53 ~= nil and l53:find(" yavas", 1, true) ~= nil and l53:find("| maxdsy %d+ wtr %d+%%") ~= nil,
+        "V1.0.53: vuruldun satirinda 'yavas' ve 'maxdsy' (" .. tostring(l53) .. ")")
+    W.sees[2] = false
+    tick(5)
+    check(last_cmd.forwardmove == 450, "V1.0.53: gorulmuyorken egik hiza dokunulmaz")
+    cc.value = false
+    W.duck, W.speed, W.sees[2] = 0, 200, true
+    wc.value = true
+    tick(5)
+    check(math.abs(last_cmd.forwardmove - 115) < 0.5, "V1.0.53: goruluyorken yuruyus 115 ile sinirli (" .. tostring(last_cmd.forwardmove) .. ")")
+    wc.value = false
+    W.next_attack = 1e9 -- silah hazir degil: jump scout degil
+    W.jump = true
+    nj.value = true
+    tick(3)
+    check(last_cmd.in_jump == 0, "V1.0.53: goruluyorken (jump scout degil) ziplama engellenir")
+    nj.value = false
+    tick(3)
+    check(last_cmd.in_jump == 1, "V1.0.53: secenek kapaliyken ziplamaya dokunulmaz")
+    W.jump, W.next_attack = nil, 0
+    W.speed, W.sees[2] = 0, false
+    tick(20)
 end
 
 -------------------------------------------------------------------------------
@@ -1501,7 +1544,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.52 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.53 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
