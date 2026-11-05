@@ -1502,7 +1502,8 @@ menu.panel_y     = grp.panel:slider("  » Panel position Y", 0, 1000, 380, nil, 
 -- Ingilizcesi). Tercih: onerilen ayarlara girmez (kapatirsan kapali kalir); ikisi de varsayilan acik.
 menu.clantag     = grp.clantag:switch("Clan tag: Nykle.win (animated)", true)
 local function tt_on() return on(menu.trash_talk) end
-menu.trash_talk  = grp.trash:switch("Trash talk", true)
+-- V1.0.48: varsayilan KAPALI (istek). Kayitli config'te acik kaldiysa ilk config yuklemesinde bir kez kapatilir.
+menu.trash_talk  = grp.trash:switch("Trash talk", false)
 menu.tt_kill     = grp.trash:switch("  » On kill", true, tt_on)
 menu.tt_headshot = grp.trash:switch("  » Kills: headshots only", false, function() return tt_on() and on(menu.tt_kill) end)
 menu.tt_death    = grp.trash:switch("  » On death", true, tt_on)
@@ -9384,6 +9385,8 @@ do
     -- deger gorulunce yazilir (yuklenmeden yazilirsa sonraki oturumda 40 geri gelirdi); sonra elle secilen 40'a dokunulmaz.
     local ok_a, done_a = pcall(database.read, "nykle_win_gs_airhc47")
     resolver.air_migrate = not (ok_a and done_a == true)
+    local ok_t, done_t = pcall(database.read, "nykle_win_gs_tt48")
+    afk.tt_migrate = not (ok_t and done_t == true)
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             pcall(menu.afk_auto.set, menu.afk_auto, false)
@@ -9394,6 +9397,11 @@ do
                 pcall(menu.air_hc.set, menu.air_hc, 0)
             end
             pcall(database.write, "nykle_win_gs_airhc47", true)
+        end
+        if afk.tt_migrate then
+            afk.tt_migrate = false
+            pcall(menu.trash_talk.set, menu.trash_talk, false)
+            pcall(database.write, "nykle_win_gs_tt48", true)
         end
     end))
     local loaded = persist.load()

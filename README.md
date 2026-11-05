@@ -569,9 +569,11 @@ Kalanlar: sahte kayıt / teleport 0.12 sn / kol muhasebesi düzeltmeleri, Clean 
 | **DT şarjı: sebepsiz düz kalan shift dolu sayılır** (atış / aimbot atışı 1.5 sn, teleport / DT açılışı 1 sn, silah çekme yokken 24 tick tutulan shift 32 tick ±1 düz → tavan o değer) | V1.0.42–47'de roundun ilk atışından önce sebepsiz okumalar 63 dolu / 133 yarım (sh 4–9, 10–20 sn düz); ilk atıştan sonra 54 dolu / 9 yarım. Şarjsız fark (taban) sadece şarj harcanınca düzeliyor, doğuşta kayınca dolu DT "%60" okunuyordu ve forced defensive, havada teleport, DT çifti, AI peek kapalı kalıyordu. Sadece tavanı düşürür; sebep penceresinde, taban düzelince ve her round silinir. |
 | Resolver logu uygulanan safe point'i yazar (`seviye 2 -> safe points Prefer (sniper kafa kurali: Prefer uygulanir)`) | Scout / AWP'de "Head unless body kills" açıkken Force safe point hiç uygulanmıyor (resolver.cap), log "Force" yazıyordu. Davranış değişmedi: ıskadan sonraki atış GS ile 21/37, brute 1/4, kendi kol 0/1; Force verisi yok. |
 
+Ayrıca: **Trash talk varsayılan kapalı** (istek); kayıtlı config'te açık kaldıysa ilk config yüklemesinde bir kez kapatılır, sonra elle açarsan dokunulmaz.
+
 İncelenip değiştirilmeyen: ıskaları düşman başına (durum yerine) saymak (15 atışı erkene alırdı, bunların 10'u zaten isabetti), yan dönük düşmana kural (sadece v47'de iki oyuncuda görülüyor).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.48 kuralları (179 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.48 kuralları (182 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

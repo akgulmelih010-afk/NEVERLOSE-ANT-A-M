@@ -1350,6 +1350,21 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.48: trash talk varsayilan kapali; kayitli config'te acik kaldiysa ilk yuklemede bir kez kapatilir
+-------------------------------------------------------------------------------
+do
+    local tt = find_ref("Trash talk")
+    check(tt ~= nil, "V1.0.48: trash talk secenegi var")
+    if tt ~= nil then
+        check(db.nykle_win_gs_tt48 == true and tt.value == false, "V1.0.48: trash talk ilk config yuklemesinde kapatildi (" .. tostring(tt.value) .. ")")
+        tt.value = true
+        fire("post_config_load")
+        check(tt.value == true, "V1.0.48: sonra elle acilan trash talk'a dokunulmaz")
+        tt.value = false
+    end
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
