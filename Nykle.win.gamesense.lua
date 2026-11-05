@@ -6441,6 +6441,7 @@ end
 local function tick_prepare(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     current.switching, current.knife_def, current.backstab, current.air_keep = false, false, nil, nil
+    own.aa.slowed, own.aa.stopped, own.aa.nojump, own.aa.inverted = nil, nil, nil, nil
     local rec, tick = recommended_state, tickcount()
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
@@ -6645,17 +6646,26 @@ end
 -- ((walk_to_run * -0.3 - 0.2) * kosu orani) + 1, egikken += duck * egik orani * (0.5 - modifier); x 58), havada
 -- gonderilen kayitlar arasi mesafe (LC 64 birim), ilk temas penceresi ve kendi LBY'nin tarafi ele verip vermedigi.
 own.aa = { wtr = 0, max_dsy = 58, sent = nil, last_choked = 0, lc = 0, seen_was = false, contact_at = -1000,
-    stop_until = -1000, lby_n = 0, lby_same = 0, lby_at = -1000 }
+    stop_until = -1000, lby_n = 0, lby_same = 0, lby_at = -1000, now_was = false, now_off = -1000, inv_side = nil,
+    -- Silahin en buyuk hizi (animstate kosu / egik oranlari buna bolunur; oyuncunun m_flMaxspeed'i degil).
+    speed = { CWeaponSSG08 = 230, CWeaponAWP = 200, Revolver = 220, CDEagle = 230, CWeaponG3SG1 = 215,
+        CWeaponSCAR20 = 215, CAK47 = 215, CWeaponM4A1 = 225, CWeaponAug = 220, CWeaponSG556 = 210,
+        CWeaponTaser = 220, CKnife = 250, CC4 = 250 } }
 
 own.aa.update = function(cmd, lp, choked)
     local A = own.aa
     local dt = tick_interval()
     local speed = speed2d(lp)
-    local maxspeed = prop(lp, "m_flMaxspeed")
-    maxspeed = (finite(maxspeed) and maxspeed > 1) and maxspeed or 250
-    if on_ground(lp) and speed > maxspeed * 0.52 then
+    -- V1.0.53b: kosu / egik oranlari silah hizina bolunur (AWP durbunluyken 100); kosu->yuruyus gecisi Valve'da sabit
+    -- 260 x 0.52 = 135.2 ve havada da ilerler.
+    local class = weapon_class(lp)
+    local maxspeed = class ~= nil and A.speed[class] or 250
+    if class == "CWeaponAWP" and (prop(lp, "m_bIsScoped") == true or prop(lp, "m_bIsScoped") == 1) then
+        maxspeed = 100
+    end
+    if speed > 135.2 then
         A.wtr = min(1, A.wtr + dt * 2)
-    elseif on_ground(lp) then
+    else
         A.wtr = max(0, A.wtr - dt * 2)
     end
     local run = clamp(speed / (maxspeed * 0.52), 0, 1)
@@ -6671,8 +6681,9 @@ own.aa.update = function(cmd, lp, choked)
         local o = origin_of(lp)
         if o ~= nil then
             if A.sent ~= nil then
-                local dx, dy, dz = o.x - A.sent.x, o.y - A.sent.y, o.z - A.sent.z
-                A.lc = sqrt(dx * dx + dy * dy + dz * dz)
+                -- Valve LC isinlanma kontrolu 2D (Length2DSqr > 64^2).
+                local dx, dy = o.x - A.sent.x, o.y - A.sent.y
+                A.lc = sqrt(dx * dx + dy * dy)
             end
             A.sent = o
         end
@@ -6684,6 +6695,16 @@ own.aa.update = function(cmd, lp, choked)
         A.contact_at = realtime()
     end
     A.seen_was = seen
+    -- Freestanding ters cevirme icin ilk temas: tehdidin kafani gercekten gordugu an (exposure.now yukselen kenari,
+    -- 0.5 sn gorulmeden sonra yeni temas sayilir).
+    local rt = realtime()
+    if exposure.now and not A.now_was and rt - A.now_off >= 0.5 then
+        A.now_at, A.inv_side = rt, nil
+    end
+    if not exposure.now and A.now_was then
+        A.now_off = rt
+    end
+    A.now_was = exposure.now
     -- Kendi LBY'mizin tarafi gercek desync tarafiyla ayni mi (dururken, 0.25 sn'de bir ornek).
     local now = realtime()
     if on_ground(lp) and speed < 1.1 and now - A.lby_at >= 0.25 then
@@ -6734,29 +6755,42 @@ own.aa.move = function(cmd, lp, class)
         pcall(function() cmd.in_jump = 0 end)
         A.nojump = true
     end
-    local m = sqrt(f * f + sd * sd)
-    if m < 1 then
-        return
-    end
-    -- Geri cekilmeyi yavaslatma: hiz tehdide dogru ya da yanlamasina ise sinirla.
-    local toward = true
-    local threat = current_threat()
+    -- Girdinin (istenen yonun) dunyadaki yonu ve tehdide gore: geri cekilme / karsi strafe yavaslatilmaz.
+    local yaw = view_yaw(cmd)
+    local threat = current_threat() or (aa_threat ~= nil and aa_threat()) or nil
     local mine, theirs = origin_of(lp), threat ~= nil and origin_of(threat) or nil
-    if mine ~= nil and theirs ~= nil then
-        local v = velocity_of(lp)
-        toward = v.x * (theirs.x - mine.x) + v.y * (theirs.y - mine.y) >= 0
+    local toward = nil
+    if yaw ~= nil and mine ~= nil and theirs ~= nil then
+        local r = math.rad(yaw)
+        local wx = f * math.cos(r) + sd * math.sin(r)
+        local wy = f * math.sin(r) - sd * math.cos(r)
+        toward = wx * (theirs.x - mine.x) + wy * (theirs.y - mine.y) >= 0
     end
     local after_shot = now - own.last_shot >= 0 and now - own.last_shot < 0.6
-    if not seen or after_shot or not toward then
-        -- Temastan once durma: birazdan gorulecek, kosudan yavasliyorsun (dar desync), hala hareketlisin.
-        if on(menu.contact_stop) and exposure.soon and not exposure.now and A.wtr > 0.3 and speed2d(lp) > 20
-            and toward and not after_shot and current.state ~= "Peek" then
+    local v = velocity_of(lp)
+    local speed = sqrt(v.x * v.x + v.y * v.y)
+    -- Temastan once durma: birazdan gorulecek (henuz gormuyor), kosudan yavasliyorsun (dar desync), tehdide dogru
+    -- gidiyorsun. 0.3 sn hizin tersine girdi (surtunmeden hizli durur); tam durunca 58° geri gelir.
+    if on(menu.contact_stop) then
+        -- (Gorus alanina yuruyunce durum "Peek" olur; kasitli peek tusu yukarida afk.key() ile zaten haric.)
+        if exposure.soon and not exposure.now and A.wtr > 0.3 and speed > 20 and toward == true and not after_shot then
             A.stop_until = max(A.stop_until, now + 0.3)
         end
-        if on(menu.contact_stop) and now < A.stop_until then
-            pcall(function() cmd.forwardmove, cmd.sidemove = 0, 0 end)
+        if now < A.stop_until and yaw ~= nil then
+            if speed > 15 then
+                local r = math.rad(yaw)
+                local vf = v.x * math.cos(r) + v.y * math.sin(r)
+                local vs = v.x * math.sin(r) - v.y * math.cos(r)
+                pcall(function() cmd.forwardmove, cmd.sidemove = -vf / speed * 450, -vs / speed * 450 end)
+            else
+                pcall(function() cmd.forwardmove, cmd.sidemove = 0, 0 end)
+            end
             A.stopped = true
+            return
         end
+    end
+    local m = sqrt(f * f + sd * sd)
+    if not seen or after_shot or toward ~= true or m < 1 then
         return
     end
     local duck = prop(lp, "m_flDuckAmount")
@@ -6832,12 +6866,18 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
     -- V1.0.53: ilk temasta (gorulmenin ilk 0.4 sn'si) freestanding tarafinin tersi (resolver ilk atista iz tabanli
     -- freestand tahmini yapar). Varsayilan kapali.
     own.aa.inverted = nil
-    if on(menu.fs_contact) and body == "Static" and body_fs == "On" and exposure.now
-        and realtime() - own.aa.contact_at >= 0 and realtime() - own.aa.contact_at < 0.4 then
-        local actual = pose_side(lp)
-        if actual ~= nil then
+    local since_now = realtime() - (own.aa.now_at or -1000)
+    if on(menu.fs_contact) and body == "Static" and body_fs == "On" and exposure.now and since_now >= 0 and since_now < 0.4 then
+        -- Taraf pencerenin basinda bir kez kilitlenir (her tick okunursa uygulanan taraf geri okunup sallanirdi).
+        if own.aa.inv_side == nil then
+            local actual = pose_side(lp)
+            if actual ~= nil then
+                own.aa.inv_side = not actual
+            end
+        end
+        if own.aa.inv_side ~= nil then
             body_fs = "Off"
-            a.side = not actual
+            a.side = own.aa.inv_side
             own.aa.inverted = true
         end
     end

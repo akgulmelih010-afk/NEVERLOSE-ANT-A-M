@@ -639,13 +639,13 @@ Desync hız ve eğilmeyle küçülüyor (Valve formülü: tam hız eğik yürüm
 |---|---|
 | **Desync keeper: slow crouch-walk when seen** (+ hız, varsayılan 38 u/s) | Biri seni görürken eğik yürüyüş hızını sınırlar (desync ~29° yerine ~41°). Geri çekilirken, atıştan sonraki 0,6 sn, AI peek / AFK / quick peek tuşunda, merdivende, fake duck'ta çalışmaz. |
 | **Desync keeper: slow walk when seen (≤115 u/s)** | Görülürken ayakta hızı 115'e sınırlar (koşuda ~29° yerine ~47°). Walk tuşuna basılıyken dokunmaz. |
-| **Stop before contact when decelerating** | Birazdan görüleceksin ve koşudan yavaşlıyorsan (dar desync) 0,3 sn hareketi keser; tam durunca 58° geri gelir. Peek'te çalışmaz. |
-| **Invert freestanding side at first contact** | Görülmenin ilk 0,4 sn'sinde body freestanding'in seçtiği tarafın tersi (resolver ilk atışta freestand tahminiyle başlar). |
+| **Stop before contact when decelerating** | Birazdan görüleceksin (henüz görmüyor), koşudan yavaşlıyorsan (dar desync) ve tehdide doğru gidiyorsan 0,3 sn hızın tersine girdi verir (sürtünmeden hızlı durur); tam durunca 58° geri gelir. Quick peek tuşu / AI peek'te çalışmaz. |
+| **Invert freestanding side at first contact** | Tehdidin kafanı ilk gördüğü anın (0,5 sn görülmeden sonra yeni temas) ilk 0,4 sn'sinde body freestanding'in seçtiği tarafın tersi; taraf pencere başında kilitlenir. |
 | **Block jump while seen (not jump-scout)** | Görülürken zıplamayı engeller; scout / AWP ateşe hazırsa (jump scout) engellemez. |
 
-Yeni loglar: `iska` / `vuruldun` sonunda `maxdsy N wtr N%` (o anki tahmini en büyük desync ve koşu→yürüyüş geçişi), havadayken `lc N` (gönderilen iki kayıt arası mesafe, 64'ten büyükse `kirik`), etiketler `yavas` / `dur` / `fs ters` / `zipla yok`; round özetinde `lby taraf N/M` (kendi LBY'nin desync tarafıyla uyumu; ~%50 = sızıntı yok).
+Yeni loglar (bağımsız incelemeden sonra: silahın hızı, sabit 135,2 geçiş eşiği, 2D LC mesafesi; geri çekilme / karşı strafe girdinin yönüyle ayırt ediliyor): `iska` / `vuruldun` sonunda `maxdsy N wtr N%` (o anki tahmini en büyük desync ve koşu→yürüyüş geçişi), havadayken `lc N` (gönderilen iki kayıt arası mesafe, 64'ten büyükse `kirik`), etiketler `yavas` / `dur` / `fs ters` / `zipla yok`; round özetinde `lby taraf N/M` (kendi LBY'nin desync tarafıyla uyumu; ~%50 = sızıntı yok).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.53 kuralları (203 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.53 kuralları (205 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

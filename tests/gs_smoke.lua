@@ -1500,8 +1500,24 @@ do
     tick(3)
     check(last_cmd.in_jump == 1, "V1.0.53: secenek kapaliyken ziplamaya dokunulmaz")
     W.jump, W.next_attack = nil, 0
+    -- Temastan once durma: kosuyorsun, birazdan gorulecek (ileri bakis), henuz gormuyor.
+    local cs = find_ref("Stop before contact when decelerating")
+    check(cs ~= nil and cs.value == false, "V1.0.53: temastan once durma secenegi var, varsayilan kapali")
+    W.sees[2], W.sees_ahead[2], W.speed = false, false, 200
+    tick(30)
+    cs.value = true
+    -- Ileri bakis: dusman 2 yuruyor, kaydi 10 tick geride, ilerisinden kafani gorur (exposure.soon).
+    W.evel[2], W.sees_ahead[2], W.sim_shift[2] = 100, true, 10
+    tick(3)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 3, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local l53c = printed("vuruldun:", before)
+    check(last_cmd.forwardmove < 0 and l53c ~= nil and l53c:find(" dur", 1, true) ~= nil,
+        "V1.0.53: birazdan gorulecekken kosudan durma (ters girdi) (" .. tostring(last_cmd.forwardmove) .. " / " .. tostring(l53c) .. ")")
+    cs.value = false
+    W.evel[2], W.sees_ahead[2], W.sim_shift[2] = 0, false, 0
     W.speed, W.sees[2] = 0, false
-    tick(20)
+    tick(30)
 end
 
 -------------------------------------------------------------------------------
