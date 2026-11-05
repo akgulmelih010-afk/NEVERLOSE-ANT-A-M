@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.47 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.47")
+check(printed("V1.0.48 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.48")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1350,6 +1350,36 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
+-- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
+-------------------------------------------------------------------------------
+do
+    force_ref.value, cooldown_ref.value, rec_ref.value = true, false, false
+    W.sees[2], W.speed, W.flags = false, 0, 1
+    W.lag = 0; tick(4)
+    fire("round_start", {})
+    W.head_dmg[2], W.body_dmg[2], W.sim_shift[2], W.sees[3] = 0, 0, 0, false
+    W.lag = 12; tick(64)          -- dolu; tutulan shift tavani 10 yapar
+    W.lag = 6; tick(64 * 2)       -- sarjsiz fark 6 tick kaydi: dolu sarj sh 6 okunur, sebep yok
+    W.sees[2] = true; tick(5)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local l48 = printed("vuruldun:", before)
+    check(l48 ~= nil and l48:find("DT dolu", 1, true) ~= nil,
+        "V1.0.48: sebepsiz duz sh 6 (taban kaymasi) DT dolu okunur (" .. tostring(l48) .. ")")
+    check(last_cmd.force_defensive == true, "V1.0.48: kaymis tabanda goruluyorken defensive zorlanir")
+    -- Atis penceresinde (1.5 sn) duzluk ogrenilmez: atistan sonraki gercek dusus yarim kalir.
+    fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+    W.lag = 1; tick(60)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    l48 = printed("vuruldun:", before)
+    check(l48 ~= nil and l48:find("DT %", 1, true) ~= nil,
+        "V1.0.48: atistan sonra 1.5 sn icinde duz dusuk shift yine yarim sarj (" .. tostring(l48) .. ")")
+    W.sees[2], W.lag = false, 12; tick(64 * 2)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1359,7 +1389,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.47 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.48 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

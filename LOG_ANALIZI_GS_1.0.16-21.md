@@ -478,3 +478,11 @@ Rakipler northgard, iha, Serpent1337, azure (rakipler roll / "extended" kullanı
 - **Sahte kayıt beklemesi:** 47 bekleme 14 tick sınırıyla, 25 "gercek kayit geldi"; görülünce / peek'te bırakılanlar da "gercek kayit geldi" yazıyordu. → V1.0.47 etiketler ve atışta `bekleme yok: <sebep>`.
 - **Rakibin extended'ı:** roll ağdan gelmiyor, istemci hitbox'ları roll'suz; ancak ıskalardan anlaşılır. Kendi tarafımıza Extended desync (roll) eklendi ama kullanıcının sunucusunda roll yasak, varsayılan kapalı.
 - **Extended yaw (rakip):** ağdan görünmüyor. Düşman LBY'si yaw'dan 60°+ uzakken atış çok az (v42–46: 7 atış), açıklamıyor. Tüm loglarda kafa atışı SP Prefer %76 (144), SP Default %63 (19) → V1.0.47 scout / AWP ile Prefer tabanı.
+
+## GameSense V1.0.47 oturumu (de_mirage, ~30 dk, scout + MD 100)
+
+Kill / ölüm 21 / 29 (%42; V1.0.46 %36). Sana gelen 58 isabette 17 kafa (%29; V1.0.46 %36). Scout 30 / 61 (14 kafa); 24 correction (dominik'e 25 atış, azure 11), 3 spread (hepsi hc ≥ 55). Havada hc < 55 spread 0 (V1.0.46'da 4).
+
+- **Şarj hâlâ yarım okunuyor:** canlı sürenin %41'i. Sebep taban kayması: roundun ilk atışından önce sebepsiz okumalar (v42–47) 63 dolu / 133 yarım, sonra 54 / 9; yarım süre ≈ roundun başından ilk atışa kadar geçen süre. → V1.0.48 sebepsiz düz shift dolu.
+- **Force safe point scout'ta hiç uygulanmıyor:** resolver.cap sniper kafa kuralında seviyeyi 1'e indiriyor, log "Force" yazıyordu. Iskadan sonraki atış (10 sn, aynı düşman): GS 21/37, brute 1/4, kendi kol 0/1, Force 0. Davranış değiştirilmedi, log düzeltildi.
+- **Yan dönük düşman:** v47'de |bak| 61–120 iken kafa atışlarının 13/16'sı correction (dominik, azure); diğer loglarda %28 vs %22. İki oyuncu, örnek az.

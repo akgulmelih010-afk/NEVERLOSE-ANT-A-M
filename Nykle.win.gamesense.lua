@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.47"
+local VERSION = "1.0.48"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -2215,7 +2215,7 @@ end
 -- sv_maxusrcmdprocessticks - DT fake lag limit - 1 (varsayilan 14). value 0-1.
 local charge = { base = nil, shift = 0, value = 0, expected = 14, offset = 0, round_no = 1 }
 
-charge.update = function(lp)
+charge.update = function(lp, quiet)
     local tb = prop(lp, "m_nTickBase")
     if not finite(tb) then
         return
@@ -2234,12 +2234,14 @@ charge.update = function(lp)
     charge.expected = max(6, min(16, maxshift - fakelag - 1))
     if not dt_on() or offset > charge.base then
         charge.base = offset
+        charge.flat_full = nil
     end
     local shift = charge.base - offset
     -- Ping dustuyse base eskidi: sarj beklenenden fazla gorunmesin.
     if shift > charge.expected + 3 then
         charge.base = offset + charge.expected
         shift = charge.expected
+        charge.flat_full = nil
     end
     charge.shift = max(0, shift)
     -- V1.0.43: sunucunun gercek sarj tavani gozlemden ogrenilir. V1.0.45: son 30 sn'deki en yuksek shift, en az 6
@@ -2261,6 +2263,25 @@ charge.update = function(lp)
                 held = v
             end
         end
+        -- V1.0.48 (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9'da 10-20 sn
+        -- duz; atistan sonra 54 dolu / 9 yarim): taban (sarjsiz fark) yalnizca sarj harcaninca yukari duzeliyor,
+        -- dogusta kayinca dolu DT "%60" okunuyordu. Sarj olan DT tick basina 1 artar: bosaltma sebebi (atis / aim
+        -- 1.5 sn, teleport / DT acilisi 1 sn) yokken tutulan shift 32 tick +-1 duz kaldiysa o deger doludur.
+        -- Sadece tavani dusurur; sebep penceresinde, taban yukari duzelince ve her round silinir.
+        if not quiet then
+            charge.flat_full, charge.flat_at, charge.flat_n = nil, nil, 0
+        elseif held >= 3 then
+            if charge.flat_at ~= nil and abs(held - charge.flat_at) <= 1 then
+                charge.flat_n = charge.flat_n + 1
+            else
+                charge.flat_at, charge.flat_n = held, 1
+            end
+            if charge.flat_n >= 32 then
+                charge.flat_full = min(held, charge.flat_at)
+            end
+        else
+            charge.flat_at, charge.flat_n = nil, 0
+        end
         local sec = floor(realtime())
         local hist = charge.hist or {}
         charge.hist = hist
@@ -2278,6 +2299,9 @@ charge.update = function(lp)
         charge.ring = nil
     end
     local full = max(1, min(10, charge.expected - 2, max(6, charge.peak or 10)))
+    if charge.flat_full ~= nil then
+        full = max(1, min(full, charge.flat_full))
+    end
     charge.full = full
     charge.value = dt_on() and max(0, min(1, charge.shift / full)) or 0
     -- V1.0.36 log: DT ne zaman acildi (atissiz yarim sarjin kaynagi icin).
@@ -6269,7 +6293,7 @@ local function tick_prepare(cmd)
     end
     local choked = finite(cmd.chokedcommands) and cmd.chokedcommands or 0
     exposure.facing = nil
-    charge.update(lp)
+    charge.update(lp, not recharge.discharged(realtime()))
     update_tickbase(lp, choked)
     update_fd_guard(lp)
     enemy_watch.update()
@@ -6426,6 +6450,14 @@ recharge.frozen = function()
         return true
     end
     return dt_on() and charge.value < 1 and recharge.cause(realtime()) ~= nil
+end
+
+-- V1.0.48: sarji gercekten bosaltan / dolduran sebep (defensive bitisi haric): atis, aimbot atisi, teleport, DT acilisi.
+recharge.discharged = function(now)
+    local shot, aim, tp = now - own.last_shot, now - resolver.aim_time, now - teleport.last
+    local on_for = now - (charge.dt_since or -1000)
+    return (shot >= 0 and shot <= 1.5) or (aim >= 0 and aim <= 1.5) or (tp >= 0 and tp <= 1.0)
+        or (on_for >= 0 and on_for <= 1.0) or weapon_switching(local_player(), 0)
 end
 
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
@@ -7398,8 +7430,14 @@ local function aim_result(e, reason)
     if on(menu.resolver_log) and level ~= before then
         local what = result == "c" and "iska (correction)"
             or ("isabet %s -%d"):format(HITGROUPS[event_number(e, "hitgroup")] or "?", tonumber(event_number(e, "damage")) or 0)
-        print(("[%s] resolver: %s %s %s | seviye %d -> safe points %s"):format(
-            SCRIPT, entry.name, enemy, what, level, SAFE_POINT_LEVELS[level]))
+        -- V1.0.48: scout / AWP'de "Head unless body kills" acikken resolver.cap (~3331) Force'u 1'e indirir; log
+        -- uygulanani yazsin (v47'de "safe points Force" yazip atis Prefer gidiyordu). cap'in body_open yarisi
+        -- (iz atar) burada bilerek yok; cap degisirse burasi da degismeli.
+        local applied = (level > 1 and on(menu.head_only) and SNIPERS[current.weapon]
+            and current.weapon ~= "Revolver") and 1 or level
+        print(("[%s] resolver: %s %s %s | seviye %d -> safe points %s%s"):format(
+            SCRIPT, entry.name, enemy, what, level, SAFE_POINT_LEVELS[applied],
+            applied ~= level and " (sniper kafa kurali: Prefer uygulanir)" or ""))
     end
 end
 
@@ -7699,6 +7737,7 @@ listen("round_start", protect("round_start", function()
     -- Defensive A/B testi (V1.0.42): round sayaci; satirlarda "test A" / "test B".
     charge.round_no = charge.round_no + 1
     charge.hist, charge.peak, charge.ring = {}, nil, nil
+    charge.flat_full, charge.flat_at, charge.flat_n = nil, nil, 0
     if on(menu.def_ab) and on(menu.hit_log) then
         print(("[%s] defensive testi: bu round %s"):format(SCRIPT,
             charge.round_no % 2 == 0 and "B (zorlanan defensive yok)" or "A (defensive normal)"))

@@ -554,7 +554,24 @@ Kalanlar: sahte kayıt / teleport 0.12 sn / kol muhasebesi düzeltmeleri, Clean 
 | **Scout / AWP ile safe point en az Prefer** (resolver seviyesi 0'da da) | Rakipler "extended yaw" kullanıyor; bilinmeyen desync'e karşı safe point. Tüm loglarda kafa atışı SP Prefer 110/144 (%76), SP Default 12/19 (%63). Prefer atışı engellemez, safe nokta varsa onu seçer. Aynı düşmana correction ıskasından sonra aynı roundda kafa atışları 8/9 tuttu (mevcut tırmanma çalışıyor). Senin Prefer safe point ayarın açıksa dokunulmaz. |
 | Loglar: sahte kayıt beklemesi neden bitti (`serbest birakildi (seni goruyor / duello / cooldown)`, `sinir doldu, kayit hala sahte`), atış satırında `bekleme yok: <sebep>` | Bu oturumda 47 bekleme 14 tick sınırıyla, 25'i "gercek kayit geldi" diye bitti; ama görüldüğü / peek attığın için bırakılanlar da "gercek kayit geldi" yazıyordu ve sahte kayda giden atışların sebebi bilinmiyordu. Rakibin roll'u ağdan gelmiyor ve istemcideki hitbox'lar roll'suz kurulur; roll'lu rakip ancak ıskalardan (duran hedefe kafa correction) anlaşılır. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.47 kuralları (176 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.48** (V1.0.47 oturumu, ~30 dk, de_mirage, scout + MD 100; rakipler dominik, azure, northgard, Serpent1337):
+
+| | V1.0.46 | V1.0.47 |
+|---|---|---|
+| Kill / ölüm | 10 / 18 (%36) | 21 / 29 (%42) |
+| Sana gelen isabette kafa | %36 (13/36) | **%29** (17/58) |
+| Senin scout isabetin | %42 (11/26) | %49 (30/61); 24 correction (dominik 25 atış), 3 spread |
+| Havada hc < 55 spread | 4 | **0** |
+| Yarım şarj okunan canlı süre | — | %41 (58 293 tickin 24 147'si) |
+
+| Değişiklik | Neden |
+|---|---|
+| **DT şarjı: sebepsiz düz kalan shift dolu sayılır** (atış / aimbot atışı 1.5 sn, teleport / DT açılışı 1 sn, silah çekme yokken 24 tick tutulan shift 32 tick ±1 düz → tavan o değer) | V1.0.42–47'de roundun ilk atışından önce sebepsiz okumalar 63 dolu / 133 yarım (sh 4–9, 10–20 sn düz); ilk atıştan sonra 54 dolu / 9 yarım. Şarjsız fark (taban) sadece şarj harcanınca düzeliyor, doğuşta kayınca dolu DT "%60" okunuyordu ve forced defensive, havada teleport, DT çifti, AI peek kapalı kalıyordu. Sadece tavanı düşürür; sebep penceresinde, taban düzelince ve her round silinir. |
+| Resolver logu uygulanan safe point'i yazar (`seviye 2 -> safe points Prefer (sniper kafa kurali: Prefer uygulanir)`) | Scout / AWP'de "Head unless body kills" açıkken Force safe point hiç uygulanmıyor (resolver.cap), log "Force" yazıyordu. Davranış değişmedi: ıskadan sonraki atış GS ile 21/37, brute 1/4, kendi kol 0/1; Force verisi yok. |
+
+İncelenip değiştirilmeyen: ıskaları düşman başına (durum yerine) saymak (15 atışı erkene alırdı, bunların 10'u zaten isabetti), yan dönük düşmana kural (sadece v47'de iki oyuncuda görülüyor).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.48 kuralları (179 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
