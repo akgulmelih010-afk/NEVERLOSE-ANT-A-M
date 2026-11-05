@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.51"
+local VERSION = "1.0.52"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -2548,6 +2548,8 @@ end
 -- faz 0: %35) dusman basina ilerlemede ve ogrenilen baslangicta atlanir, bir sonrakine gecilir. Grup
 -- varsayilani zaten en az vurulan fazdir.
 brute.bad_shots, brute.bad_rate = 12, 0.55
+-- V1.0.52: faz istatistigi olcusu surumu (2 = kafa / tum kafa yakini mermiler, govde dahil).
+brute.phase_v = 2
 
 brute.known_bad = function(grp_name, phase)
     local list = brute.phases[grp_name]
@@ -2562,9 +2564,12 @@ brute.next = function(current_phase, allow_zero)
     if menu.brute_random == nil or not on(menu.brute_random) then
         return allow_zero and (current_phase + 1) % (n + 1) or current_phase % n + 1
     end
+    -- V1.0.52: 0'dan (allow_zero kapali) adimda son faz hic secilemiyordu (random(1, n-1), +1 kaymasi yok):
+    -- V1.0.45-50 loglarinda faz 8 258 mermide 17 kez. Su anki faz aralik disindaysa tum aralik.
     local low = allow_zero and 0 or 1
-    local pick = random(low, n - 1)
-    if pick >= current_phase and current_phase >= low then
+    local inside = current_phase >= low and current_phase <= n
+    local pick = random(low, inside and (n - 1) or n)
+    if inside and pick >= current_phase then
         pick = pick + 1
     end
     return pick
@@ -3292,9 +3297,11 @@ local function process_pending_misses()
                 if on(menu.hit_log) then
                     local w = miss.enemy_weapon
                     w = w ~= nil and (w == "Revolver" and "r8" or w:gsub("^CWeapon", ""):gsub("^C", ""):lower()) or "?"
-                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s) | silah %s%s"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker, w,
-                        miss.move or ""))
+                    -- V1.0.52: uygulanan faz (AA'nin dondugu dusmaninki) yazilir; atanin kendi fazi farkliysa ekte.
+                    local applied = miss.applied or miss.stage
+                    print(("[%s] iska: %s | faz %d%s | %s | %s | %s | %s (%s) | silah %s%s"):format(
+                        SCRIPT, miss.state, applied, applied ~= miss.stage and (" (dusmanin %d)"):format(miss.stage) or "",
+                        miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker, w, miss.move or ""))
                 end
             end
         end
@@ -4743,7 +4750,9 @@ end
 local function pose_side(lp)
     local pose = prop(lp, "m_flPoseParameter", 11)
     if finite(pose) then
-        return pose * 120 - 60 > 0
+        -- V1.0.52: apply()'in kurali (true = sag = negatif body yaw = logda negatif dsy); eskiden ters (fs modunda
+        -- "sol/sag" ve gosterge V1.0.36-51 boyunca tersti).
+        return pose * 120 - 60 < 0
     end
     return nil
 end
@@ -5323,6 +5332,8 @@ do
             and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
         current.forced = forced
+        -- V1.0.52: "(hava, bayrak)" sadece defensive gercekten zorlandiysa.
+        current.air_keep = (current.air_keep and forced) or nil
         current.anti = forced and guard
         current.switching = forced and switching
         current.knife_def = forced and knife
@@ -6421,7 +6432,7 @@ end
 --  tick_aa: normal durum secimi, builder AA'si, anti-brute fazi, defensive, teleport.
 local function tick_prepare(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
-    current.switching, current.knife_def, current.backstab = false, false, nil
+    current.switching, current.knife_def, current.backstab, current.air_keep = false, false, nil, nil
     local rec, tick = recommended_state, tickcount()
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
         apply_recommended()
@@ -7069,6 +7080,7 @@ do
             return
         end
         entry.last = now
+        entry.shot_counted = nil
         exposure.shot = { index = shooter, tick = tickcount() }
         local shot_stage = on(menu.anti_brute) and brute_entry_stage(entry, current.phase_group) or 0
         entry.shot_stage = shot_stage
@@ -7212,8 +7224,9 @@ listen("player_hurt", protect("player_hurt", function(e)
     -- Vuruldugumuz faz: mermi geldiginde gercekten uygulanan faz (AA'nin dondugu dusmaninki).
     local _, enemy = brute_entry(attacker, "u" .. tostring(e.attacker))
     local phase, grp_name, shot_sniper = nil, nil, sniper.mode(current.weapon)
-    local frozen
+    local frozen, matched
     if enemy.shot_stage ~= nil and enemy.last ~= nil and now >= enemy.last and now - enemy.last < K.MISS_WINDOW then
+        matched = true
         phase, grp_name, shot_sniper, frozen = enemy.shot_applied, enemy.shot_group, enemy.shot_sniper, enemy.shot_frozen
     else
         phase = on(menu.anti_brute) and threat_stage(current.phase_group) or 0
@@ -7229,8 +7242,19 @@ listen("player_hurt", protect("player_hurt", function(e)
     if e.hitgroup == 1 and not melee and on(menu.anti_brute) then
         enemy.base, enemy.learned = brute.next(phase, true), true
     end
-    if e.hitgroup == 1 and not melee and not frozen then
-        record_phase(grp_name, phase, true)
+    -- V1.0.52: kafa yakinindaki mermi govdeye gelince de faz istatistigine "kafa degil" mermi olarak girer
+    -- (eskiden govde isabeti hic sayilmiyordu: oran kafa / (kafa + iska) ~%44-50, mermi basina %22-28; ortalama fazlar
+    -- "kotu" isaretleniyordu). Bir mermi bir kez sayilir (DT'nin ikinci mermisi / sacma ayni darbeye).
+    if not melee and not frozen then
+        if e.hitgroup == 1 then
+            record_phase(grp_name, phase, true)
+            if matched then
+                enemy.shot_counted = true
+            end
+        elseif matched and not enemy.shot_counted and e.hitgroup ~= 0 then
+            enemy.shot_counted = true
+            record_phase(grp_name, phase, false)
+        end
     end
     -- Sniper exploit: govde isabeti de mermi sayilir, kafa degil (V1.0.15; oyun logu: DT'de yenen 33 isabetin
     -- 17'si govde, HS'de 21'in hepsi kafa; govde sayilmayinca HS daha iyi gorunup 30 dk DT / defensive kapali kaldi).
@@ -7660,7 +7684,7 @@ persist.save = function(force)
     if not persist.dirty or (not force and now >= persist.saved and now - persist.saved < persist.every) then
         return
     end
-    local data = { version = 1, brute = {}, resolver = {}, phase_groups = {},
+    local data = { version = 1, phase_v = brute.phase_v, brute = {}, resolver = {}, phase_groups = {},
         sniper = { v = 2, hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
             dt = { shots = sniper.stats.dt.shots, hits = sniper.stats.dt.hits } },
         own_res = { v = 1, arms = {} } }
@@ -7853,7 +7877,14 @@ persist.load = function()
                 local e = list[phase + 1]
                 if type(e) == "table" and finite(e.shots) and finite(e.hits)
                     and e.hits >= 0 and e.hits <= e.shots and e.shots <= 1000 then
-                    brute.phases[grp_name][phase] = { shots = e.shots, hits = e.hits }
+                    local shots, hits = e.shots, e.hits
+                    -- V1.0.52: eski olcu (govde sayilmadan) mermi basina olcuye cevrilir ve agirligi "kotu" esiginin
+                    -- altinda tutulur: eski veriden hicbir faz kotu isaretli gelmez, yeni mermiler karar verir.
+                    if data.phase_v ~= brute.phase_v and shots > 0 then
+                        local cap = min(shots, brute.bad_shots - 1)
+                        hits, shots = hits * 0.55 * cap / shots, cap
+                    end
+                    brute.phases[grp_name][phase] = { shots = shots, hits = hits }
                 end
             end
             brute.default[grp_name] = 0
@@ -8552,11 +8583,13 @@ D.no_shot = function(enemy, v, lp, now)
     -- V1.0.50: MD 100 ustu "can + fazlasi" demek; gercek esik canla yazilir (logda "hasar 74 < MD 101" denip
     -- 54 canli dusman oldurulebilirdi).
     local need, hp = md, prop(enemy, "m_iHealth")
-    if finite(md) and md > 100 and finite(hp) and hp > 0 then
-        need = min(md, hp + md - 100)
+    if finite(md) and finite(hp) and hp > 0 then
+        -- V1.0.52: MD 100 ve alti da dusmanin caniyla sinirli (aimbot oldurecek atisi alir).
+        need = md > 100 and min(md, hp + md - 100) or min(md, hp)
     end
     if finite(need) and best < need then
-        reasons[#reasons + 1] = need ~= md and ("hasar %d < can+%d = %d (hp%d)"):format(round(best), round(md - 100), round(need), round(hp))
+        reasons[#reasons + 1] = (need ~= md and md > 100) and ("hasar %d < can+%d = %d (hp%d)"):format(round(best), round(md - 100), round(need), round(hp))
+            or (need ~= md and ("hasar %d < can %d (MD %d)"):format(round(best), round(need), round(md)))
             or ("hasar %d < MD %d"):format(round(best), round(md))
     end
     if (v.dh or 0) <= 0 then

@@ -325,7 +325,7 @@ function renderer.gradient() end
 function renderer.circle_outline() end
 
 -- Hafiza: hava grubunda faz 1 kotu bilinsin (20 mermi, 15 kafa) -> V1.0.23 faz atlama testi.
-local db = { nykle_win_gs_memory = { version = 1, brute = {}, resolver = {}, phase_groups = {
+local db = { nykle_win_gs_memory = { version = 1, phase_v = 2, brute = {}, resolver = {}, phase_groups = {
     air = { { shots = 0, hits = 0 }, { shots = 20, hits = 15 } } },
     -- V1.0.32: GS kolu hafizada 40/45 (%89): salt on bilgiyle lby+ (0.62) one gecemez, UCB primi gecirir.
     own_res = { v = 1, arms = { gs = { shots = 45, hits = 40 } } } } }
@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.51 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.51")
+check(printed("V1.0.52 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.52")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1444,9 +1444,19 @@ do
     local l51 = printed("vuruldun:", before)
     check(l51 ~= nil and l51:find("(hava, bayrak)", 1, true) ~= nil and l51:find(" | v%d+ duck%d+$") ~= nil,
         "V1.0.51: vuruldun satirinda hava bayragi ve hiz / egilme (" .. tostring(l51) .. ")")
+    -- V1.0.52: bomba cekince (defensive erken doner) etiket takili kalmaz.
+    W.weapon_class = "CHEGrenade"
+    tick(3)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    l51 = printed("vuruldun:", before)
+    check(l51 ~= nil and l51:find("(hava, bayrak)", 1, true) == nil, "V1.0.52: defensive calismayan tick'te '(hava, bayrak)' etiketi kalmaz (" .. tostring(l51) .. ")")
+    W.weapon_class = "CWeaponSSG08"
+    tick(3)
     W.flags, W.speed = 1, 0
     tick(6)
     check(last_cmd.force_defensive ~= true, "V1.0.51: yerde bayrak temiz atis sayilir, defensive kesilir")
+
     W.esp, W.sees[2] = 0, false
     tick(40)
 end
@@ -1491,7 +1501,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.51 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.52 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

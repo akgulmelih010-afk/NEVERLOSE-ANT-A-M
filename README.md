@@ -619,7 +619,19 @@ V1.0.48 (v50 logu, ~40 dk): 22 kill / 33 ölüm, sana gelen 53 isabette 18 kafa 
 
 Doğrulamada elenenler: eğik peek'te hızı 50'ye kesmek (yazılan haliyle CS:GO'da hiç yavaşlatmıyor, mekanizma da tam kanıtlanmadı; **elle: açıya eğik yürüyerek girme, ya ayakta peek at ya da durup eğil**), havada teleportu kapatmak (iki doğrulayıcı ayrıştı; asıl sebep bayrak), peek'te gizli pitch Up, yerde defensive'i uzatmak (yerde fark yok).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.51 kuralları (194 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.52** (AA araştırması + faz tasarımı + çalışma / mantık hatası taraması; 258 düşman mermisi, V1.0.45–50)
+
+| Değişiklik | Neden |
+|---|---|
+| **Faz öğrenmesi gövde isabetini de sayar** (kafa yakınına gelen mermi gövdeye gelirse "kafa değil" mermi; bir mermi bir kez); eski hafıza yeni ölçüye çevrilip "kötü" eşiğinin altında tutulur | Eskiden gövde isabeti hiç sayılmıyordu: ölçü kafa / (kafa + ıska) ≈ %44–50, gerçek mermi başına %22–28. Ortalama fazlar (yerde faz 1: mermi başına %30) rastgele "kötü" işaretlenip atlanıyordu. |
+| **Rastgele faz sırası artık son fazı (8, asym) da seçiyor** | Faz 0'dan ilk adımda faz 8 hiç seçilemiyordu (258 mermide 17). |
+| `iska` satırı uygulanan fazı yazıyor (atanın kendi fazı farklıysa `(dusmanin N)`) | Hit ve ıska satırları farklı kaynaktan faz yazıyordu. |
+| Body freestanding'de taraf (`sol/sag`) ve göstergedeki taraf düzeltildi | `pose_side` ters işaretliydi: fs modunda V1.0.36–51 logları ve gösterge tersti (önceki fs taraf analizleri ters okunmalı). |
+| `(hava, bayrak)` etiketi sadece defensive gerçekten zorlandığı tick'te; `sikmadi` MD ≤ 100'de de canı hesaba katar (`hasar X < can Y (MD 100)`) | Etiket bomba / merdiven / DT kapalı tick'lerinde takılı kalıyordu; düşük canlı düşmana "MD yetmedi" yanlış suçlaması. |
+
+Araştırmanın sonucu (dürüst): **yerde faz seçimi kafa oranını değiştirmiyor** (fazlar arası ki-kare p≈0,86; aileler %19–30). Daha fazla faz eklemek veriyle desteklenmedi; önce öğrenme düzeltildi. AA'da gerçek sızıntılar: hareket ederken desync'in çökmesi (eğik yürüyüş ~29°, ≤30° desync'te kafa %27 / üstünde %17) ve hava (V1.0.51'de bayrak düzeltildi). GameSense'in kullanmadığımız AA ayarları (Yaw 180 Z, Opposite body yaw, edge yaw, fake lag, bacak / animasyon kırıcı, fake peek) bu sızıntılara etki etmiyor. Elenenler: 16 fazlık tablo (nötr), eğik peek'te hız sınırı (mekanizma ıskalarla doğrulanmadı; V1.0.51'den beri ıska satırlarında hız var, sonraki loglarla yeniden bakılacak), havada iz sinyalini bayrağın önüne koymak (V1.0.51 düzeltmesini geri alırdı).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.52 kuralları (195 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
