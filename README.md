@@ -651,7 +651,7 @@ Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek
 
 | Değişiklik | Neden |
 |---|---|
-| `dbg atis-detay`: o görünürlükteki ilk atışta `vurulabilir Xs` (vurulabilir olduğundan beri), `ates-hakki Xs` (öldürecek hasar görüneliden beri), `o-gordu Xs` | "aim" alanı atış anında hep 0.00s'ti; yavaş mı sıkıyoruz yoksa ıskalıyor muyuz ayırt edilemiyordu. |
+| `dbg atis-detay`: o görünürlükteki ilk atışta `vurulabilir Xs` (vurulabilir olduğundan beri), `ates-hakki Xs` (öldürecek hasar göründüğünden beri), `o-gordu Xs` | "aim" alanı atış anında hep 0.00s'ti; yavaş mı sıkıyoruz yoksa ıskalıyor muyuz ayırt edilemiyordu. |
 | `dbg ayarlar`: GameSense'in accuracy boost, delay shot, quick stop (+ seçenekleri), ping spike | Backtrack / doğruluk ayarları loglarda görünsün. Ping spike scout için önerilmez. |
 | "Clear saved logs" sürüm işaretini yeniden yazar | Silinen logdan sonra bir sonraki yüklemede (GS lua'yı birkaç kez yükler) tüm dosya siliniyordu. |
 | Ölünce temizlik `player_death`'te de çalışır | GameSense ölüyken setup_command çağırmıyor: AFK / fake duck / plist temizliği ve "afk modu kapali: oldun" hiç çalışmıyordu; doğuş tick'i "defensive bitti" sayıyordu. |
