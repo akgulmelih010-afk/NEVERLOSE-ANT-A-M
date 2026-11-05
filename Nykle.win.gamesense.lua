@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.44"
+local VERSION = "1.0.45"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1292,6 +1292,7 @@ menu.safe_air       = grp.protect:switch("  » Safe head: any air crouch", false
 menu.safe_high      = grp.protect:switch("  » Safe head: high ground", false, function() return on(menu.safe_head) end)
 menu.anti_brute     = grp.protect:switch("Anti-bruteforce", true)
 menu.brute_reset    = grp.protect:slider("  » Anti-brute reset after", 1, 15, 6, "s", function() return on(menu.anti_brute) end)
+menu.brute_random   = grp.protect:switch("  » Random anti-brute order", true, function() return on(menu.anti_brute) end)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
 -- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
@@ -1310,7 +1311,8 @@ menu.auto_exploit   = grp.exploits:switch("Auto exploit", true)
 menu.sniper_exploit = grp.exploits:combo("Snipers (SSG08/AWP/R8)", { "Same as state", "Auto (learn)", "Hide shots" },
     function() return on(menu.auto_exploit) end)
 menu.safe_recharge  = grp.exploits:switch("Safe recharge", true)
-menu.crouch_recharge = grp.exploits:switch("  » Also while crouched (peek / crouch move)", true, function() return on(menu.safe_recharge) end)
+-- V1.0.45: varsayilan KAPALI (20 mermilik veri; V1.0.22'de Peek'te bekleme 179 mermide 70 kafa yedirmisti).
+menu.crouch_recharge = grp.exploits:switch("  » Also while crouched (peek / crouch move)", false, function() return on(menu.safe_recharge) end)
 -- V1.0.36 (v30-v33b, 193 dusman mermisi): DT yarim sarjdayken (atistan / teleporttan sonra sunucuda donuyorsun) gelen
 -- mermilerin %50'si kafa (24/48), DT dolu / bosken %17. En az kafa yenen poz statik body + freestanding body yaw
 -- (Freestanding durumunda 2/25): sarj dolana kadar o poz.
@@ -1326,18 +1328,28 @@ menu.peek_defensive = grp.peek:switch("  » Defensive during AI peek", true, fun
 menu.afk            = grp.peek_raw:switch("AFK mode (AI peek here + strafe, full exploits)", false)
 -- V1.0.37 (istek: "afk oldugumu anlasin, kendi kendine aktiflessin"): dogduktan sonra hareket / ziplama / egilme tusuna
 -- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
-menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", true)
+-- V1.0.45: varsayilan KAPALI (V1.0.42'de 43 roundda 19 kez acildi; acikken DT / defensive zorlar, cikista yuruyor).
+menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", false)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 -- V1.0.43: A/B sonucu (V1.0.42, 40 dusman mermisi): A (zorlanan defensive) 18 mermi 7 kafa (%39), %17 iska, 10 olum;
 -- B (zorlanmaz) 22 mermi 6 kafa (%27), %32 iska, 7 olum. V1.0.36'da da daha cok defensive -> daha cok kafa. Varsayilan
 -- artik B: gorulme / yakin dusman / peek / havada icin defensive zorlanmaz (silah degisimi, bicakli yakin, AFK kalir).
-menu.smart_force    = grp.defensive:switch("Force defensive when seen / near (Smart)", false)
+-- V1.0.45: yine ACIK (V1.0.33 gibi). V1.0.42 A/B gecersizdi: A kolunda defensive 19 dusman mermisi satirinin sadece
+-- 1'inde zorlanmisti, yani karsilastirma zorlanan / zorlanmayan degildi. V1.0.30-33 (bu acik) duello kazanma %51,
+-- V1.0.36-43 %35. Yerine defensive bitisinden sonra 1 sn yeniden acmama (asagida "re-arm cooldown") geldi.
+menu.smart_force    = grp.defensive:switch("Force defensive when seen / near (Smart)", true)
+-- V1.0.45: gorulmeye devam ederken (ilk gorus / peek / hava / silah degisimi degil) defensive bittikten sonra 1 sn
+-- yeniden zorlanmaz: DT dolsun. V1.0.30-33'te atis yokken DT yarim sarjda gelen mermilerin 13/28'i kafa (%46),
+-- DT doluyken 13/68 (%19); V1.0.36-42'de defensive bitisinden sonraki 1 sn'de gelenlerin 14/34'u kafa.
+menu.def_cooldown   = grp.defensive:switch("  » Re-arm cooldown (let DT refill after defensive)", true)
 -- A/B testi yeniden acilabilir: tek roundlarda zorlar, cift roundlarda zorlamaz; satirlarda "test A" / "test B".
 menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no forced defensive)", false)
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 -- V1.0.44: havadayken biri seni goruyorsa (ya da birazdan gorecekse) egil. Tum GameSense loglarinda havada
 -- egikken %33 kafa (6/18), duz havada %58 (18/31); egik + teleport 1/9.
-menu.air_duck       = grp.defensive:switch("Air duck when seen", true)
+-- V1.0.45: varsayilan KAPALI. Duruma gore yeniden sayildi: havada egik 17/32 kafa, duz havada 55/85 (p=0.29, fark yok);
+-- V1.0.44'teki %33 / %58 olmus oyuncularin satirlarini da sayiyordu.
+menu.air_duck       = grp.defensive:switch("Air duck when seen", false)
 menu.air_lag        = grp.defensive:switch("Air lag (defensive every tick)", true)
 -- V1.0.36'da kapatilmisti, V1.0.37'de geri ACIK: V1.0.36 oturumunda defensive daha cok acilip kapandikca DT her
 -- bitiste yeniden sarj oldu ("DT %0, defbitti 0.00s"): sana gelen mermilerin 16/28'i yarim / bos sarjda (onceki 48/193),
@@ -1373,8 +1385,10 @@ menu.head_only      = grp.resolver:switch("Head unless body kills (snipers)", tr
 -- varsayilan KAPALI: acarsan biri kafani gorurken ve kafa olduremezken govde 70+ icin Min. damage gecici 70.
 menu.exposed_body   = grp.resolver:switch("  » Body 70+ while an enemy sees you", false, function() return on(menu.head_only) end)
 -- V1.0.26: scout DT iki mermi atar; govde 86 x 2 >= can ise cift oldurucudur, kafa beklenmez (bkz. apply_body_aim).
--- V1.0.34: etkisiz (sniper DT'si ikinci mermiyi atmiyor); eski config'ler yuklenebilsin diye oge duruyor, gizli.
-menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", false, function() return false end)
+-- V1.0.45: geri geldi. V1.0.34'te "ikinci mermi yok" diye kaldirilmisti; ama V1.0.30-33'te 9 cift govde atisinin 7'si
+-- oldurmeyle bitti (ikinci scout atisi ~1 sn sonra 8-27 canli dusmana), duello ortalamasi %51. Kaldirirken ornek
+-- verilen v30 17:13:35 olum degil oldurmeydi.
+menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", true, function() return on(menu.head_only) end)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -2215,7 +2229,8 @@ charge.update = function(lp)
         shift = charge.expected
     end
     charge.shift = max(0, shift)
-    -- V1.0.43: sunucunun gercek sarj tavani gozlemden ogrenilir (son 5 sn'deki en yuksek shift, en az 4). V1.0.42 logunda (ping ~30) DT doluyken bile "DT %60" gorunuyordu: hayat boyu 7500 tick "yarim sarj",
+    -- V1.0.43: sunucunun gercek sarj tavani gozlemden ogrenilir. V1.0.45: son 30 sn'deki en yuksek shift, en az 6
+    -- (5 sn / 4 yogun anlarda yarim sarji "dolu" okuyordu: "DT %25 sh 1/14"); her roundda sifirlanir. V1.0.42 logunda (ping ~30) DT doluyken bile "DT %60" gorunuyordu: hayat boyu 7500 tick "yarim sarj",
     -- AI peek "DT sarj oluyor" diye bekliyordu.
     -- Saniye basina en yuksek shift tutulur, tavan son 5 saniyenin en yuksegi (sunucu degisince 5 sn'de uyar).
     if dt_on() then
@@ -2225,7 +2240,7 @@ charge.update = function(lp)
         hist[sec] = max(hist[sec] or 0, charge.shift)
         local peak = 0
         for k, v in pairs(hist) do
-            if k < sec - 4 or k > sec then
+            if k < sec - 29 or k > sec then
                 hist[k] = nil
             elseif v > peak then
                 peak = v
@@ -2233,7 +2248,7 @@ charge.update = function(lp)
         end
         charge.peak = peak
     end
-    local full = max(1, min(10, charge.expected - 2, max(4, charge.peak or 10)))
+    local full = max(1, min(10, charge.expected - 2, max(6, charge.peak or 10)))
     charge.value = dt_on() and max(0, min(1, charge.shift / full)) or 0
     -- V1.0.36 log: DT ne zaman acildi (atissiz yarim sarjin kaynagi icin).
     local dt = dt_on()
@@ -2478,6 +2493,21 @@ brute.known_bad = function(grp_name, phase)
     local list = brute.phases[grp_name]
     local stat = list ~= nil and list[phase] or nil
     return stat ~= nil and stat.shots >= brute.bad_shots and stat.hits / stat.shots >= brute.bad_rate
+end
+
+-- V1.0.45 (rakip "anti brute Claude'a bagli, randomize" diyordu): siradaki faz sabit +1 degil, rastgele (su anki
+-- haric). allow_zero: taban icin 0 (varsayilan) da secilebilir. "Random anti-brute order" kapaliyken eski +1.
+brute.next = function(current_phase, allow_zero)
+    local n = #BRUTE_PHASES
+    if menu.brute_random == nil or not on(menu.brute_random) then
+        return allow_zero and (current_phase + 1) % (n + 1) or current_phase % n + 1
+    end
+    local low = allow_zero and 0 or 1
+    local pick = random(low, n - 1)
+    if pick >= current_phase and current_phase >= low then
+        pick = pick + 1
+    end
+    return pick
 end
 
 brute.skip_bad = function(grp_name, phase)
@@ -4175,11 +4205,13 @@ do
             wanted = "Prefer"
             local chest = chest_damage(lp, enemy, info, is_target)
             lethal = finite(health) and health > 0 and health <= chest
-            -- V1.0.26 "DT cifti" (govde x 2 >= can) V1.0.34'te kaldirildi: scout / AWP / R8'de DT ikinci mermiyi
-            -- atmiyor (loglarda ~500 scout atisinda ardisik iki atis arasi hep 1.0-1.3 sn, yani surgu). "Cift"
-            -- govde -90 ile dusmani 8-15 canla birakiyor, DT / defensive bosaliyor ve donus atisinda oluyordun
-            -- (v30 17:13:35, v32 18:00:44, v33b 18:30:12). Neverlose V1.1.7 ile ayni karar. Sniper'da kafa (HP + 1).
+            -- V1.0.26 "DT cifti": govde x 2 >= can ise oldurucu sayilir (ilk govde, ikincisi ~1 sn sonra). V1.0.34'te
+            -- kaldirilmisti, V1.0.45'te geri (V1.0.30-33: 9 cift atisin 7'si oldurme).
             local pair = nil
+            if not lethal and on(menu.dt_pair) and dt_ready() and finite(health) and health > 0 and finite(chest)
+                and chest >= K.DT_PAIR_MIN and health <= 2 * chest then
+                lethal, pair = true, chest
+            end
             local since = realtime() - resolver.aim_time
             if lethal and enemy == resolver.aim_target and since >= 0 and since <= K.AIM_TARGET_HOLD then
                 wanted, stalled = body_stall(enemy), true
@@ -4999,6 +5031,15 @@ do
         if not use_force then
             window, guard, peeking = false, false, false
         end
+        -- Re-arm cooldown (V1.0.45): gorulmeye devam ederken defensive bittiyse 1 sn yeniden zorlanmaz, DT dolar. Ilk
+        -- gorus / dusman peek'i, hava, AI peek, silah degisimi, bicakli yakin ve AFK haric.
+        if window and on(menu.def_cooldown) and not (guard or peeking or switching or knife or afk.on or airborne
+            or exposure.peeked or exposure.enemy_peek) then
+            local since = realtime() - (charge.def_end or -1000)
+            if since >= 0 and since < 1.0 then
+                window = false
+            end
+        end
         local forced = (window or guard or peeking or switching or knife or afk.on) and dt and exploit_active()
             and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
@@ -5322,8 +5363,7 @@ teleport.judge = function(hit)
         print(("[%s] teleport sonucu: %s (son %d: %d vurulma)"):format(SCRIPT,
             hit and "1.5 sn icinde vuruldun" or "vurulmadin", #results, hits))
     end
-    -- V1.0.44: en az keep (3) sonuc olmadan kapanmaz (eskiden 2 sonucun 2'si yetiyordu).
-    if #results >= teleport.keep and hits >= teleport.limit and not teleport.off then
+    if hits >= teleport.limit and not teleport.off then
         teleport.off = true
         print(("[%s] teleport: son %d isinlanmanin %d'sinde hemen vuruldun, bu harita boyunca havada teleport kapali (sarj air lag / DT icin kalir)"):format(
             SCRIPT, #results, hits))
@@ -5334,10 +5374,7 @@ end
 -- mermi isinlanmadan once atilmisti, sayilmaz (Neverlose V1.1.8 ile ayni; v31 17:24:21 "tp 0.13s").
 -- V1.0.44: sadece KAFA vurusu teleport'un basarisizligi sayilir (teleport kafayi korumak icin). Tum GameSense
 -- loglarinda havada teleporttan sonra %33 kafa, teleportsuz %58; "kapat" kurali 6 kez, cogu govde vurusuyla tetiklendi.
-teleport.hurt = function(now, hitgroup)
-    if hitgroup ~= nil and hitgroup ~= 1 then
-        return
-    end
+teleport.hurt = function(now)
     if teleport.watch ~= nil and now >= teleport.watch + teleport.result_min and now - teleport.watch <= teleport.window then
         teleport.judge(true)
     end
@@ -6752,7 +6789,7 @@ do
         if not on(menu.anti_brute) then
             return
         end
-        entry.stage = shot_stage % #BRUTE_PHASES + 1
+        entry.stage = brute.next(shot_stage, false)
         entry.time = now
         brute.recent = key
         if on(menu.brute_log) then
@@ -6857,7 +6894,7 @@ listen("player_hurt", protect("player_hurt", function(e)
 
     local now = realtime()
     brute.hurt[e.attacker] = now
-    teleport.hurt(now, e.hitgroup)
+    teleport.hurt(now)
     -- Fake duck'tayken sniper mermisi: fake duck korumasi bir sure birakir (bkz. update_fd_guard).
     if fd_on() and (e.weapon == "ssg08" or e.weapon == "awp") then
         own.fd_hit = { attacker = attacker, time = now, name = player_name(attacker) }
@@ -6884,8 +6921,10 @@ listen("player_hurt", protect("player_hurt", function(e)
     local melee = weapon:find("knife", 1, true) ~= nil or weapon == "bayonet" or weapon == "taser"
     -- V1.0.36: yarim sarjda (donukken) yenen kafa fazin hatasi degil: kalici taban ve faz istatistigi degismez
     -- (sira yine ilerler). Bu mermiler kafa kayitlarinin yarisiydi ve fazlari yanlis "kotu" gosteriyordu.
-    if e.hitgroup == 1 and not melee and on(menu.anti_brute) and not frozen then
-        enemy.base, enemy.learned = (phase + 1) % (#BRUTE_PHASES + 1), true
+    -- V1.0.45: taban ogrenmesi yine kosulsuz (V1.0.33 gibi; atistan hemen sonra seni oldurenler de tabani tasir); sira
+    -- rastgele (ogrenen bir anti-resolver "bir sonraki faz"i tahmin edemesin). Faz istatistigi yarim sarjsiz kalir.
+    if e.hitgroup == 1 and not melee and on(menu.anti_brute) then
+        enemy.base, enemy.learned = brute.next(phase, true), true
     end
     if e.hitgroup == 1 and not melee and not frozen then
         record_phase(grp_name, phase, true)
@@ -7546,6 +7585,7 @@ listen("round_start", protect("round_start", function()
     afk.auto, afk.armed, afk.idle_since, afk.anchor = false, true, nil, nil
     -- Defensive A/B testi (V1.0.42): round sayaci; satirlarda "test A" / "test B".
     charge.round_no = charge.round_no + 1
+    charge.hist, charge.peak = {}, nil
     if on(menu.def_ab) and on(menu.hit_log) then
         print(("[%s] defensive testi: bu round %s"):format(SCRIPT,
             charge.round_no % 2 == 0 and "B (zorlanan defensive yok)" or "A (defensive normal)"))
@@ -7601,8 +7641,7 @@ listen("player_death", protect("player_death", function(e)
             -- kuralini (sahte kayitta govde, olduren govdeye Force) haritanin geri kalaninda kapatiyordu; v33b'de iki
             -- "0.00 sn vurulabilir" olumle 20 dk kapali kaldi. O durumda sayilmaz.
             local since_shot = realtime() - own.last_shot
-            local user_md = user_value("min_damage")
-            if current.head_only and (since_shot < 0 or since_shot > 1.5) and not (finite(user_md) and user_md >= 90) then
+            if current.head_only and (since_shot < 0 or since_shot > 1.5) then
                 resolver.held_death(attacker)
             end
         end
@@ -9170,6 +9209,18 @@ end
 
 -- Kalici hafiza yuklenir; kac oyuncu hatirlandigi surum satirina eklenir.
 do
+    -- V1.0.45: Auto AFK varsayilani kapandi; V1.0.37-44'ten kayitli config'te acik kalmasin (bir kez kapatilir).
+    local ok_m, done = pcall(database.read, "nykle_win_gs_afkauto45")
+    if not (ok_m and done == true) then
+        afk.migrate = true
+        pcall(menu.afk_auto.set, menu.afk_auto, false)
+        pcall(database.write, "nykle_win_gs_afkauto45", true)
+    end
+    listen("post_config_load", protect("afk auto migrate", function()
+        if afk.migrate then
+            pcall(menu.afk_auto.set, menu.afk_auto, false)
+        end
+    end))
     local loaded = persist.load()
     print(("[%s] V%s (%s edition) yuklendi%s"):format(SCRIPT, VERSION, "GameSense",
         loaded > 0 and (" (hafiza: %d oyuncu)"):format(loaded) or ""))

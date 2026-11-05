@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.44 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.44")
+check(printed("V1.0.45 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.45")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -442,12 +442,18 @@ local ab_ref = find_ref("Defensive A/B test (even rounds: no forced defensive)")
 check(ab_ref ~= nil and ab_ref.value == false, "V1.0.43: A/B testi varsayilan kapali")
 -- V1.0.43: gorulunce zorlanan defensive varsayilan kapali (A/B sonucu); eski Smart bolumleri icin acilir.
 local force_ref = find_ref("Force defensive when seen / near (Smart)")
-check(force_ref ~= nil and force_ref.value == false, "V1.0.43: gorulunce defensive zorlama varsayilan kapali")
+check(force_ref ~= nil and force_ref.value == true, "V1.0.45: gorulunce defensive zorlama yine varsayilan acik (V1.0.33 gibi)")
 -- "Always use recommended settings" (64 tick'te bir varsayilana dondurur) eski bolumlerde kapali.
 local rec_ref = find_ref("Always use recommended settings")
 check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
 rec_ref.value = false
 if force_ref ~= nil then force_ref.value = true end
+-- V1.0.45: rastgele anti-brute sirasi ve defensive bekleme suresi eski (deterministik) bolumleri bozmasin; kendi
+-- bolumlerinde test edilir.
+local random_ref, cooldown_ref = find_ref("  » Random anti-brute order"), find_ref("  » Re-arm cooldown (let DT refill after defensive)")
+check(random_ref ~= nil and random_ref.value == true and cooldown_ref ~= nil and cooldown_ref.value == true,
+    "V1.0.45: rastgele anti-brute sirasi ve defensive bekleme suresi varsayilan acik")
+random_ref.value, cooldown_ref.value = false, false
 tick(200)
 errs = errors_since(before)
 check(#errs == 0, "200 tick hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
@@ -553,7 +559,10 @@ check(dt_ref.value == true, "yururken Safe recharge beklemez")
 W.speed, W.lag = 0, 12
 tick(40)
 -- V1.0.35: egik yururken (ve egik Peek'te) goruluyorsan atistan sonra sarj bekletilir: egikken DT yarim sarjda
--- gelen mermilerin %55'i kafaydi, dolu / 0'da %17.
+-- gelen mermilerin %55'i kafaydi, dolu / 0'da %17. V1.0.45: secenek varsayilan kapali; burada acilarak test edilir.
+local crouch_ref = find_ref("  » Also while crouched (peek / crouch move)")
+check(crouch_ref ~= nil and crouch_ref.value == false, "V1.0.45: egik sarj bekleme secenegi var, varsayilan kapali")
+crouch_ref.value = true
 W.speed, W.duck = 150, 1
 tick(10)
 fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
@@ -564,8 +573,6 @@ tick(36)
 check(dt_ref.value == true, "V1.0.35: egikken de en fazla 0.5 sn")
 W.lag = 12
 tick(10)
-local crouch_ref = find_ref("  » Also while crouched (peek / crouch move)")
-check(crouch_ref ~= nil and crouch_ref.value == true, "V1.0.35: egik sarj bekleme secenegi var, varsayilan acik")
 crouch_ref.value = false
 fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
 W.lag = 0
@@ -643,15 +650,19 @@ local md_ref = find_ref("Minimum damage")
 local body_ref = find_ref("  » Body 70+ while an enemy sees you")
 local pair_ref = find_ref("  » DT pair counts as lethal")
 check(body_ref ~= nil and body_ref.value == false, "Body 70+ secenegi var ve varsayilan kapali")
-check(pair_ref ~= nil and pair_ref.value == false, "V1.0.34: DT pair secenegi etkisiz, varsayilan kapali")
--- "Always use recommended settings" 64 tick'te bir secenekleri varsayilana dondurur: test icin kapatilir.
--- V1.0.34: scout DT ikinci mermiyi atmiyor: govde 86 x 2 >= 100 olsa da cift yok, kafa (MD 101). Secenegi elle
--- acmak da bir sey degistirmez.
+check(pair_ref ~= nil and pair_ref.value == true, "V1.0.45: DT pair secenegi yine var ve varsayilan acik")
+-- V1.0.45 (V1.0.33 gibi): DT dolu, govde 86 x 2 >= 100: cift oldurucu, MD gecici 85.
 W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 86, 12
-pair_ref.value = true
 tick(10)
-check(md_ref.value == 101, "V1.0.34: DT dolu, govde 86 x 2 >= 100: cift yok, MD 101 (" .. tostring(md_ref.value) .. ")")
-check(printed("DT cifti olduruyor") == nil, "V1.0.34: DT cifti satiri yazilmadi")
+check(md_ref.value == 85, "V1.0.45: DT cifti olduruyor (86 x 2 >= 100): MD 85 (" .. tostring(md_ref.value) .. ")")
+check(printed("DT cifti olduruyor (govde 86 x 2 >= can 100), Min. damage gecici 85") ~= nil, "V1.0.45: DT cifti satiri yazildi")
+W.body_dmg[2] = 45 -- 45 x 2 < 100 ve 60'in altinda: kafa kurali
+tick(10)
+check(md_ref.value == 101, "govde 45: DT cifti olduremez, MD 101 (" .. tostring(md_ref.value) .. ")")
+W.body_dmg[2], W.lag = 86, 0 -- DT bos: cift yok
+tick(10)
+check(md_ref.value == 101, "DT bosken cift sayilmaz, MD 101 (" .. tostring(md_ref.value) .. ")")
+W.lag = 12
 pair_ref.value = false
 tick(10)
 check(md_ref.value == 101, "secenek kapali: sniper kurali MD 101 (" .. tostring(md_ref.value) .. ")")
@@ -781,6 +792,8 @@ tick(10)
 -------------------------------------------------------------------------------
 local hc_ref = find_ref("Minimum hit chance")
 check(hc_ref ~= nil and hc_ref.value == 55, "yerde hit chance senin 55")
+-- V1.0.45: bu bolum deterministik faz sirasini test eder: onerilen ayarlar kapali, rastgele sira kapali.
+rec_ref.value, random_ref.value = false, false
 W.flags, W.speed, W.sees[2] = 0, 200, true -- havada
 tick(10)
 check(hc_ref.value == 40, "V1.0.27: havada sniper hit chance 40 (" .. tostring(hc_ref.value) .. ")")
@@ -797,18 +810,19 @@ check(line ~= nil and line:find("faz 2", 1, true) ~= nil, "ogrenilen faz 1 kotu 
 W.flags, W.speed, W.sees[2] = 1, 0, false
 tick(10)
 check(hc_ref.value == 55, "yere inince hit chance geri 55 (" .. tostring(hc_ref.value) .. ")")
+rec_ref.value = true
 
 -------------------------------------------------------------------------------
--- V1.0.34: senin Min. damage'in 100 iken kafa beklerken olum sniper kuralini gevsetmez
+-- V1.0.45 (V1.0.33 gibi): kafa beklerken olum ogrenilir, o dusmana karsi sniper kurali gevser (senin MD'n yazilir).
 -------------------------------------------------------------------------------
-W.sees[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 86
+W.sees[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 45
 tick(10)
-check(md_ref.value == 101, "V1.0.34 kurulum: sniper kurali, MD 101 (" .. tostring(md_ref.value) .. ")")
+check(md_ref.value == 101, "V1.0.45 kurulum: sniper kurali, MD 101 (" .. tostring(md_ref.value) .. ")")
 before = #prints + 1
 fire("player_death", { userid = 1, attacker = 2, headshot = true, penetrated = 0, weapon = "ssg08" })
 tick(10)
-check(printed("ogrenildi:", before) == nil, "V1.0.34: MD 100 iken kafa-bekleme olumu ogrenilmez")
-check(md_ref.value == 101, "V1.0.34: sniper kurali acik kalir, MD 101 (" .. tostring(md_ref.value) .. ")")
+check(printed("ogrenildi:", before) ~= nil, "V1.0.45: kafa beklerken olum ogrenilir (V1.0.33 gibi)")
+check(md_ref.value == 100, "V1.0.45: o dusmana karsi sniper kurali gevser, senin MD'n 100 (" .. tostring(md_ref.value) .. ")")
 W.sees[2] = false
 tick(10)
 
@@ -920,6 +934,7 @@ check(printed("afk modu kapali", before) ~= nil and fire_ref.value == false, "V1
 do
     local fs_ref, pose_ref = find_ref("Freestanding body yaw"), find_ref("Recharge pose (static + freestanding body while DT charges)")
     check(pose_ref ~= nil and pose_ref.value == false, "V1.0.41: sarj pozu secenegi var, varsayilan kapali (donukken statik desync %56 kafa)")
+    rec_ref.value, random_ref.value, cooldown_ref.value = false, false, false -- onerilen ayarlar pozu geri kapatmasin
     pose_ref.value = true
     W.sees[2], W.lag, W.speed = true, 12, 150 -- yururken (Safe recharge beklemez, DT hemen dolmaya baslar)
     tick(200)
@@ -964,8 +979,8 @@ do
     W.lag = 12
     tick(100)
     local base_after = round_phase()
-    check(base_before ~= nil and base_before == base_after,
-        "V1.0.36: yarim sarjda yenen kafa dusmanin faz tabanini degistirmez (" .. tostring(base_before) .. " -> " .. tostring(base_after) .. ")")
+    check(base_before ~= nil and base_after ~= nil and base_before ~= base_after,
+        "V1.0.45: kafa (yarim sarjda da) dusmanin faz tabanini tasir, V1.0.33 gibi (" .. tostring(base_before) .. " -> " .. tostring(base_after) .. ")")
     W.sees[2], W.speed = false, 0
     tick(10)
 end
@@ -1036,6 +1051,7 @@ do
     tick(200)
     check(afk_ref.value == true, "V1.0.40: 'Always use recommended settings' acikken AFK acik kalir")
     rec_ref.value = false
+    random_ref.value, cooldown_ref.value, force_ref.value = false, false, true -- onerilen ayarlar varsayilana dondurdu
     afk_ref.value = false
     tick(10)
 end
@@ -1109,7 +1125,7 @@ do
     force_ref.value = false
     -- Sunucu tavani 6 tick: bir sure sonra "DT dolu" sayilir (eskiden hep "DT %60").
     W.sees[2], W.lag = false, 6
-    tick(64 * 25)
+    tick(64 * 32)
     before = #prints + 1
     fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
     local line = printed("vuruldun:", before)
@@ -1129,7 +1145,8 @@ end
 -------------------------------------------------------------------------------
 do
     local duck_ref = find_ref("Air duck when seen")
-    check(duck_ref ~= nil and duck_ref.value == true, "V1.0.44: havada egilme secenegi var, varsayilan acik")
+    check(duck_ref ~= nil and duck_ref.value == false, "V1.0.45: havada egilme secenegi var, varsayilan kapali")
+    duck_ref.value = true
     W.flags, W.speed, W.sees[2] = 0, 200, true
     tick(5)
     check(last_cmd.in_duck == 1, "V1.0.44: havada biri goruyorken egilinir")
@@ -1143,9 +1160,44 @@ do
     duck_ref.value = false
     tick(5)
     check(last_cmd.in_duck ~= 1, "V1.0.44: secenek kapaliyken havada egilme yok")
-    duck_ref.value = true
     W.flags, W.speed, W.sees[2] = 1, 0, false
     tick(20)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.45: rastgele anti-brute sirasi ve defensive bekleme suresi
+-------------------------------------------------------------------------------
+do
+    rec_ref.value = false
+    random_ref.value, cooldown_ref.value, force_ref.value = true, true, true
+    -- Rastgele sira: art arda kafa vuruslarinda faz hep +1 ilerlemez.
+    W.flags, W.speed, W.sees[2], W.lag = 1, 150, true, 12
+    tick(20)
+    local phases, plus_one, prev = {}, 0, nil
+    for _ = 1, 12 do
+        local b = #prints + 1
+        fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 1, hitgroup = 1, weapon = "ssg08" })
+        local l = printed("vuruldun:", b)
+        local f = l ~= nil and tonumber(l:match("| faz (%d+) |")) or nil
+        if f ~= nil and prev ~= nil and f == prev % 9 + 1 then
+            plus_one = plus_one + 1
+        end
+        phases[#phases + 1] = f
+        prev = f
+        tick(20)
+    end
+    check(#phases == 12 and plus_one < 10, "V1.0.45: rastgele sirada faz hep +1 ilerlemez (" .. plus_one .. "/11 +1)")
+    -- Bekleme suresi: defensive bittikten sonraki 1 sn'de (gorulmeye devam ederken) yeniden zorlanmaz.
+    W.speed = 0
+    tick(64)
+    local forced, gaps = 0, 0
+    for _ = 1, 128 do
+        tick(1)
+        forced = forced + (last_cmd.force_defensive == true and 1 or 0)
+    end
+    check(forced > 0, "V1.0.45 kurulum: gorulurken Smart defensive zorlaniyor (" .. forced .. "/128)")
+    W.sees[2], W.speed = false, 0
+    tick(40)
 end
 
 -------------------------------------------------------------------------------
@@ -1158,7 +1210,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.44 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.45 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

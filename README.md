@@ -500,7 +500,31 @@ Oturum notları: kafa oranı %32 (13/40); senin göğüs / mide ıskalarının h
 | **Teleport sadece kafa vuruşuyla "başarısız" sayılır**, haritada kapanması için en az 3 sonuç | Teleport in air when seen | Havada teleporttan sonra %33 kafa, teleportsuz %58. "Kapat" kuralı 6 kez tetiklendi, çoğu göğüs / mide vuruşuyla (bu oturumda 2 sonuçta kapandı) |
 | Havada defensive (Air lag) kapalı kalır (V1.0.43'ten beri, Smart zorlamasıyla birlikte) | — | Havada defensive açıkken %58 kafa, kapalıyken %46: korumuyor |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.44 kuralları (144 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.45 — V1.0.33'e göre geri dönüş + iki yenilik.** Sürüm sürüm aynı ölçüler (düello kazanma = öldürme / (öldürme + ölüm)):
+
+| Sürümler | Düello kazanma | Aimbot isabeti | DT dolu değilken gelen mermi |
+|---|---|---|---|
+| V1.0.30–1.0.33 | **%51** (91/178) | **%74** (117/158) | %49 |
+| V1.0.36–1.0.43 | %35 (35/101) | %56 (53/95) | %64 |
+
+Fark istatistiksel olarak gerçek (p = 0.009 ve 0.004); bir kısmı ortamdan (ping 110, tek rakip, R8 + MD 11), ama V1.0.33 sonrası dört varsayılan değişiklik çürüyen ya da karışık veriye dayanıyordu:
+
+| Değişiklik | V1.0.45 | Neden |
+|---|---|---|
+| Görülünce / yakında zorlanan defensive (V1.0.43'te kapatılmıştı) | **Yine açık** | V1.0.42 A/B geçersizdi: A kolunda defensive 19 satırın sadece 1'inde zorlanmıştı |
+| Sniper DT çifti (V1.0.34'te kaldırılmıştı) | **Geri** | V1.0.30–33'te 9 çift gövde atışının 7'si öldürme; ikinci scout atışı ~1 sn sonra 8–27 canlı düşmana. Kaldırırken verilen örnek ölüm değil öldürmeydi |
+| Teleport: her vuruş sayılır, 3'te 2'de kapanır (V1.0.44'te sadece kafa) | **V1.0.33 gibi** | Teleport sonrası iniş = boş DT; V1.0.44'ün %33 / %58 verisi ölmüş oyuncu satırlarını da sayıyordu |
+| Kafa beklerken ölüm öğrenmesi (V1.0.34'te MD 90+ iken kapanmıştı) | **V1.0.33 gibi** | V1.0.30–33'te her oturumda 2–3 kez çalıştı, en iyi K/D o oturumlarda |
+| Anti-brute tabanı her kafada taşınır (V1.0.36'da yarım şarjda taşınmıyordu) | **V1.0.33 gibi** (faz istatistiği yine temiz) | Atıştan hemen sonra seni öldüren düşman tabanı hiç taşımıyordu |
+| Havada eğilme, otomatik AFK, eğikken şarj bekletme | **Varsayılan kapalı** (seçenekler duruyor) | Havada eğik 17/32 vs düz 55/85 kafa (p = 0.29, fark yok); otomatik AFK V1.0.42'de 43 roundda 19 kez açılıp DT / defensive zorladı; eğik şarj 20 mermilik veri. Otomatik AFK eski config'lerde bir kez kapatılır |
+| Şarj tavanı | 30 sn penceresi, en az 6, her roundda sıfır | 5 sn / 4 yoğun anlarda yarım şarjı "dolu" okuyordu |
+
+Yenilikler:
+- **Re-arm cooldown** (Exploits → Defensive, açık): görülmeye devam ederken defensive bittiyse 1 sn yeniden zorlanmaz, DT dolar (ilk görüş, düşman peek'i, hava, AI peek, silah değişimi, bıçak ve AFK hariç). V1.0.30–33'te atış yokken DT yarım şarjda gelen mermilerin 13/28'i kafa (%46), DT doluyken 13/68 (%19); V1.0.36–42'de defensive bitişinden sonraki 1 sn'de 14/34.
+- **Random anti-brute order** (Anti-Aim → Protection, açık): kafa yiyince sıradaki faz sabit +1 değil, rastgele (kötü bilinen fazlar yine atlanır). Rakip "anti brute Claude'a bağlı, randomize" diyordu; sabit sıra öğrenen bir resolver'a tahmin edilebilir.
+Kalanlar: sahte kayıt / teleport 0.12 sn / kol muhasebesi düzeltmeleri, Clean shot açık, şarj pozu kapalı, görülmezken sniper Prefer, loglar, AFK (elle), 4:3 / FPS boost.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.45 kuralları (149 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
