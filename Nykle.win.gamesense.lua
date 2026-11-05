@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.38"
+local VERSION = "1.0.39"
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1448,9 +1448,10 @@ menu.arrows      = grp.indicators:switch("Manual arrows", true)
 menu.arrow_color = grp.indicators:color("Arrow color", { r = 150, g = 190, b = 255, a = 255 })
 menu.stats_panel = grp.indicators:switch("Stats panel", false)
 menu.res_panel   = grp.panel:switch("Resolver panel", true)
-menu.panel_size  = grp.panel:slider("  » Panel size", 70, 200, 100, "%", function() return on(menu.res_panel) end)
-menu.panel_x     = grp.panel:slider("  » Panel position X", 0, 1000, 12, nil, function() return on(menu.res_panel) end)
-menu.panel_y     = grp.panel:slider("  » Panel position Y", 0, 1000, 330, nil, function() return on(menu.res_panel) end)
+-- V1.0.39 (istek): varsayilan buyuk ve ekranin ortasinin biraz sag ustunde (binde 560 / 380).
+menu.panel_size  = grp.panel:slider("  » Panel size", 70, 200, 160, "%", function() return on(menu.res_panel) end)
+menu.panel_x     = grp.panel:slider("  » Panel position X", 0, 1000, 560, nil, function() return on(menu.res_panel) end)
+menu.panel_y     = grp.panel:slider("  » Panel position Y", 0, 1000, 380, nil, function() return on(menu.res_panel) end)
 
 -- Misc: clan tag (NYKLE Yaw'daki animasyonlu "Nykle.win") ve trash talk (NYKLE Yaw'daki cumlelerin
 -- Ingilizcesi). Tercih: onerilen ayarlara girmez (kapatirsan kapali kalir); ikisi de varsayilan acik.
@@ -7897,8 +7898,35 @@ D.plist = function(ent)
 end
 
 -- Senin durumun: konum, AA durumu, manual / FS / peek tusu, exploit.
-D.me = function(lp)
+-- foe verilirse (V1.0.39): AA'nin saldirana gore yonu: "yon" = gonderdigin yaw ile saldirana yon arasi (0 = ona
+-- bakiyorsun, 180 = sirtin donuk), "dsy" = modeldeki isaretli desync (body yaw pose), "body" = o anki body modu.
+D.aim_text = function(lp, foe)
+    local mine, theirs = origin_of(lp), origin_of(foe)
+    if mine == nil or theirs == nil then
+        return nil
+    end
+    local parts = {}
+    local _, yaw = prop(lp, "m_angEyeAngles")
+    if finite(yaw) then
+        local to_foe = math.deg(atan2(theirs.y - mine.y, theirs.x - mine.x))
+        parts[#parts + 1] = ("yon %+d"):format(round(D.norm(yaw - to_foe)))
+    end
+    local pose = prop(lp, "m_flPoseParameter", 11)
+    if finite(pose) then
+        parts[#parts + 1] = ("dsy %+d"):format(round(pose * 120 - 60))
+    end
+    if current.body_mode ~= nil then
+        parts[#parts + 1] = "body " .. current.body_mode
+    end
+    return #parts > 0 and ("aa " .. table.concat(parts, " ")) or nil
+end
+
+D.me = function(lp, foe)
     local parts = { "ben " .. D.where(lp, nil), current.state }
+    local aim = foe ~= nil and D.aim_text(lp, foe) or nil
+    if aim ~= nil then
+        parts[#parts + 1] = aim
+    end
     if manual.dir ~= "Off" then
         parts[#parts + 1] = "manual " .. manual.dir
     end
@@ -8128,7 +8156,7 @@ D.mine = function()
     local m = D.my
     if m == nil then
         m = { ticks = 0, forced = 0, setup = 0, pred = 0, both = 0, net = 0, dt = 0, tp = 0, tp_hit = 0,
-            tp_last = teleport.last, switching = 0, knife = 0 }
+            tp_last = teleport.last, switching = 0, knife = 0, partial = 0, partial_seen = 0, pose = 0, def_ends = 0 }
         D.my = m
     end
     return m
@@ -8147,6 +8175,15 @@ D.track = function(lp, now)
     m.both = m.both + ((pred and current.forced) and 1 or 0)
     m.net = m.net + (D.tb.net and 1 or 0)
     m.dt = m.dt + (dt_on() and 1 or 0)
+    -- V1.0.39: DT yarim sarjda (sunucuda donuk) gecen tick'ler, bunlarin goruluyorken olanlari, sarj pozu, defensive
+    -- bitisleri (her biri bir sarj demek).
+    local partial = dt_on() and charge.value > 0 and charge.value < 1
+    m.partial = m.partial + (partial and 1 or 0)
+    m.partial_seen = m.partial_seen + ((partial and seen_by_enemy()) and 1 or 0)
+    m.pose = m.pose + (current.pose and 1 or 0)
+    if charge.def_end ~= nil and charge.def_end ~= m.def_end_at then
+        m.def_end_at, m.def_ends = charge.def_end, m.def_ends + 1
+    end
     if teleport.last ~= m.tp_last then
         m.tp_last, m.tp = teleport.last, m.tp + 1
     end
@@ -8353,7 +8390,7 @@ listen("player_hurt", protect("detailed log player_hurt", function(e)
     end
     print(("[%s] dbg vurulma-detay: %s %s -%d %s | %s | %s%s | %s | %s"):format(SCRIPT, player_name(attacker),
         HITGROUPS[e.hitgroup] or "?", round(damage), tostring(e.weapon or "?"), D.where(attacker, lp), D.rec(attacker), gap,
-        mine, D.me(lp)))
+        mine, D.me(lp, attacker)))
 end))
 
 listen("player_death", protect("detailed log player_death", function(e)
@@ -8388,7 +8425,7 @@ listen("player_death", protect("detailed log player_death", function(e)
     if victim == lp then
         if attacker ~= nil and attacker ~= lp then
             print(("[%s] dbg olum-detay: %s %s%s | %s | %s | %s"):format(SCRIPT, player_name(attacker),
-                tostring(e.weapon or "?"), tag, D.where(attacker, lp), D.rec(attacker), D.me(lp)))
+                tostring(e.weapon or "?"), tag, D.where(attacker, lp), D.rec(attacker), D.me(lp, attacker)))
             D.close(attacker, "oldun")
         end
         D.close_all("sen oldun")
@@ -8433,9 +8470,9 @@ listen("round_start", protect("detailed log round_start", function()
             if m.switching > 0 or m.knife > 0 then
                 extra = (" (silah degisirken %d, bicakli yakinken %d)"):format(m.switching, m.knife)
             end
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s"):format(
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d"):format(
                 SCRIPT, m.ticks, m.dt, m.forced, extra, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
-                teleport.off and " (teleport bu harita kapali)" or ""))
+                teleport.off and " (teleport bu harita kapali)" or "", m.partial, m.partial_seen, m.pose, m.def_ends))
         end
         -- V1.0.20: harita basinda round_start arka arkaya iki kez geliyor; arada satir yoksa ayni baslik
         -- ikinci kez yazilmaz.
@@ -8835,10 +8872,20 @@ do
     end
 
     res_panel.draw = function(sw, sh)
+        -- V1.0.39: config'te eski varsayilan (12 / 330 / %100) kayitliysa bir kez yeni varsayilana tasinir; elle
+        -- surukledigin bir yer korunur.
+        if not res_panel.migrated then
+            res_panel.migrated = true
+            if menu.panel_x:get() == 12 and menu.panel_y:get() == 330 and menu.panel_size:get() == 100 then
+                menu.panel_x:set(560)
+                menu.panel_y:set(380)
+                menu.panel_size:set(160)
+            end
+        end
         if res_panel.drag == nil then
-            res_panel.size = menu.panel_size:get() or 100
-            res_panel.x = floor((menu.panel_x:get() or 12) / 1000 * sw)
-            res_panel.y = floor((menu.panel_y:get() or 330) / 1000 * sh)
+            res_panel.size = menu.panel_size:get() or 160
+            res_panel.x = floor((menu.panel_x:get() or 560) / 1000 * sw)
+            res_panel.y = floor((menu.panel_y:get() or 380) / 1000 * sh)
         end
         local big, small = res_panel.fonts(res_panel.size)
         local target = resolver_target()

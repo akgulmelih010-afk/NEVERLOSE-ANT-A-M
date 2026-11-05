@@ -378,7 +378,12 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.38 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.38")
+check(printed("V1.0.39 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.39")
+do
+    local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
+    check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
+        "V1.0.39: resolver paneli varsayilan buyuk (%160), ortanin sag ustunde (560 / 380)")
+end
 
 local function errors_since(i)
     local found = {}
@@ -976,6 +981,31 @@ do
     auto_ref.value = false
     tick(10)
     check(fire_ref.value ~= true, "V1.0.37: secenek kapatilinca otomatik AFK kapanir")
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.39: ayrintili log: saldirana gore AA yonu, hayat ozetinde yarim sarj sureleri
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.speed, W.lag = true, 150, 12
+    tick(20)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 20, hitgroup = 3, weapon = "ssg08" })
+    local line = printed("vurulma-detay:", before)
+    check(line ~= nil and line:find("| aa yon ", 1, true) ~= nil,
+        "V1.0.39: vurulma-detay satirinda saldirana gore AA yonu (" .. tostring(line) .. ")")
+    fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
+    W.lag = 5
+    tick(20)
+    W.lag = 12
+    tick(10)
+    before = #prints + 1
+    fire("round_start")
+    line = printed("sen ozeti:", before)
+    check(line ~= nil and line:match("yarim sarj (%d+) tick") ~= nil and tonumber(line:match("yarim sarj (%d+) tick")) > 0,
+        "V1.0.39: hayat ozetinde yarim sarj tick'leri (" .. tostring(line) .. ")")
+    W.sees[2], W.speed = false, 0
+    tick(10)
 end
 
 -------------------------------------------------------------------------------
