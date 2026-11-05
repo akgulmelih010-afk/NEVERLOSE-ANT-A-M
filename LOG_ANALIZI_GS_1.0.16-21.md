@@ -427,3 +427,16 @@ Yani eğik peek'te de ölüm = ıska + 1.25 sn sürgü; eğik yürürken kaçam�
 | Senin atışın | 29: 18 isabet, 11 ıska (8 death, 3 correction); kafaya nişan 21: 16 isabet |
 
 Bulgu: yarım / boş şarj satırlarının çoğunda `atis yok` ve `defbitti 0.00–0.6s`: DT, defensive bittiği anda yeniden şarj oluyor ve o sırada kafa yeniyor. V1.0.36'da Clean shot kapatılınca defensive daha sık açılıp kapandı, bu pencere çoğaldı. → V1.0.37'de Clean shot yine açık. Ayarlanan 58° jitter'da modelde 12–34° (`gercek`), statik / fs'de 56–57°.
+
+## GameSense V1.0.37–1.0.39 oturumları (de_mirage, ~22 dk, 13:47–14:09)
+
+| | |
+|---|---|
+| Sana gelen mermi | 41: 14 kafa (%34), 9 ıska |
+| DT dolu | 12: 4 kafa |
+| DT yarım / boş | 28: 10 kafa (%36) |
+| Poz açıkken (DT dolu değil) | 10: 6 kafa — V1.0.36 ile birlikte 16: 9 kafa (%56); poz yokken 28: 9 (%32) |
+| Senin atışın | 33: 22 isabet; kafaya nişan 19: 8 isabet (correction 6, death 4) |
+| Otomatik AFK | 8 sn'de açıldı, tuşla kapandı (V1.0.37 mesajı) |
+
+`sen ozeti` (V1.0.39): bir hayatta 141'e kadar defensive bitişi, yarım şarj 17–2075 tick, görülürken 0–192 tick. → V1.0.41'de şarj pozu kapalı. Sıradaki aday: defensive'in sık açılıp kapanması.

@@ -185,7 +185,12 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.40"
+local VERSION = "1.0.41"
+-- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
+-- oturumlar atilir (karisik olmasin).
+if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
+    nlog.old, nlog.dirty = "", true
+end
 local DEG = "\194\176"
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
@@ -1309,7 +1314,9 @@ menu.crouch_recharge = grp.exploits:switch("  » Also while crouched (peek / cro
 -- V1.0.36 (v30-v33b, 193 dusman mermisi): DT yarim sarjdayken (atistan / teleporttan sonra sunucuda donuyorsun) gelen
 -- mermilerin %50'si kafa (24/48), DT dolu / bosken %17. En az kafa yenen poz statik body + freestanding body yaw
 -- (Freestanding durumunda 2/25): sarj dolana kadar o poz.
-menu.recharge_pose  = grp.exploits:switch("Recharge pose (static + freestanding body while DT charges)", true)
+-- V1.0.41: varsayilan KAPALI. V1.0.36-1.0.39 oturumlarinda DT dolu degilken poz aciksa 16 merminin 9'u kafa (%56),
+-- poz yokken (jitter) 28'in 9'u (%32): donukken statik desync tahmin edilebilir oluyor.
+menu.recharge_pose  = grp.exploits:switch("Recharge pose (static + freestanding body while DT charges)", false)
 menu.hidden_spin    = grp.exploits:slider("Hidden spin speed", 1, 30, 10)
 menu.exploit_info   = grp.exploits:label(DIM_HEX .. "Per-state exploit settings are in the Builder.")
 menu.auto_peek      = grp.peek:switch("Auto peek", true)

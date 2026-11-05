@@ -364,6 +364,7 @@ local cvar = {
 -------------------------------------------------------------------------------
 -- Yukle
 -------------------------------------------------------------------------------
+local files = { ["nykle_log.txt"] = "10:00:00 [Nykle.win] V1.0.1 (GameSense edition) yuklendi\n10:00:01 [Nykle.win] ESKI OTURUM SATIRI\n" }
 local env = {
     print = print, client = client, ui = ui, entity = entity, globals = globals, renderer = renderer,
     database = database, plist = plist, cvar = cvar, bit = bit,
@@ -371,6 +372,9 @@ local env = {
     tonumber = tonumber, select = select, setmetatable = setmetatable, getmetatable = getmetatable, pcall = pcall,
     xpcall = xpcall, error = error, unpack = unpack, next = next, rawget = rawget, rawset = rawset, assert = assert,
     os = { clock = function() return now() end },
+    -- V1.0.41: log dosyasi. Onceki surumun oturumu dosyada: yeni surumde atilmali.
+    readfile = function(path) return files[path] end,
+    writefile = function(path, text) files[path] = text end,
 }
 env._G = env
 local fn, err = loadstring(src, "=Nykle.win.gamesense.lua")
@@ -382,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.40 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.40")
+check(printed("V1.0.41 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.41")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -907,7 +911,8 @@ check(printed("afk modu kapali", before) ~= nil and fire_ref.value == false, "V1
 -------------------------------------------------------------------------------
 do
     local fs_ref, pose_ref = find_ref("Freestanding body yaw"), find_ref("Recharge pose (static + freestanding body while DT charges)")
-    check(pose_ref ~= nil and pose_ref.value == true, "V1.0.36: sarj pozu secenegi var, varsayilan acik")
+    check(pose_ref ~= nil and pose_ref.value == false, "V1.0.41: sarj pozu secenegi var, varsayilan kapali (donukken statik desync %56 kafa)")
+    pose_ref.value = true
     W.sees[2], W.lag, W.speed = true, 12, 150 -- yururken (Safe recharge beklemez, DT hemen dolmaya baslar)
     tick(200)
     check(fs_ref.value == false, "V1.0.36 kurulum: DT dolu, freestanding body kapali")
@@ -931,7 +936,6 @@ do
     W.lag = 5
     tick(3)
     check(fs_ref.value == false, "V1.0.36: secenek kapaliyken poz yok")
-    pose_ref.value = true
     W.lag = 12
     tick(100)
     -- Yarim sarjda yenen kafa faz ogrenmesine sayilmaz: round basindaki faz (dusmanin ogrenilmis tabani) degismez.
@@ -1062,6 +1066,9 @@ fire("shutdown")
 errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
+check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
+    and files["nykle_log.txt"]:find("V1.0.41 (GameSense edition) yuklendi", 1, true) ~= nil,
+    "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
 local saved = db.nykle_win_gs_memory

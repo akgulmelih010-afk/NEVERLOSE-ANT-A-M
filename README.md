@@ -472,7 +472,16 @@ V1.0.36 oturumu (28 düşman mermisi, küçük örnek): şarj pozu 6 mermide 3 k
 | `defensive bitisi` sayacı her round 1 fazla sayıyordu; ölüyken eski defensive durumu doğuşta "bitti" sayılıyordu | Sayaç düzeltildi |
 | Log dosyası canlıyken 5 dk'da bir, ölüyken / donmada dakikada bir yazılır | 1 MB'lık dosyayı round içinde her dakika yazmak takılma yapıyordu |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.40 kuralları (128 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.41** (V1.0.37–1.0.39 oturumları, de_mirage ~22 dk, 41 düşman mermisi):
+
+| Değişiklik | Neden |
+|---|---|
+| **Şarj pozu varsayılan kapalı** (Exploits → Recharge pose) | V1.0.36–1.0.39'da DT dolu değilken poz açıkken **16 merminin 9'u kafa (%56)**, poz yokken (jitter) 28'in 9'u (%32). Donukken statik desync + freestanding tahmin edilebilir oluyor |
+| **Log dosyası her yeni sürümde sıfırdan:** `nykle_log.txt`'de bu sürümün yükleme satırı yoksa eski oturumlar atılır | İstek (karışık olmasın) |
+
+Oturum notları: Clean shot açık olsa da yarım / boş şarjda gelen mermi payı yüksek kaldı (28/41); demek ki asıl sebep Clean shot değil, defensive'in sürekli açılıp kapanması (bir hayatta 141 defensive bitişi). Kafa oranı %34. Senin kafa atışın 8/19 (correction 6). Otomatik AFK doğru çalıştı (8 sn'de açıldı, tuşla kapandı). `aa yon` örnekleri: vurulduğunda yüzün saldırana çoğunlukla ±120–180° (arkası dönük), birkaçında ±90° (yan).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.41 kuralları (129 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
