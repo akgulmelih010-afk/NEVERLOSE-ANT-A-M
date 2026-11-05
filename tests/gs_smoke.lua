@@ -287,7 +287,7 @@ function entity.get_prop(ent, name, idx)
     if ent == 11 or ent == 12 or ent == 13 then
         if name == "m_iClip1" then return W.clip end
         if name == "m_flNextPrimaryAttack" then return W.next_attack end
-        if name == "m_iItemDefinitionIndex" then return 40 end
+        if name == "m_iItemDefinitionIndex" then return W.item_index or 40 end
         return nil
     end
     if ent == 99 then
@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.46 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.46")
+check(printed("V1.0.47 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.47")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -796,7 +796,15 @@ check(hc_ref ~= nil and hc_ref.value == 55, "yerde hit chance senin 55")
 rec_ref.value, random_ref.value = false, false
 W.flags, W.speed, W.sees[2] = 0, 200, true -- havada
 tick(10)
-check(hc_ref.value == 40, "V1.0.27: havada sniper hit chance 40 (" .. tostring(hc_ref.value) .. ")")
+check(hc_ref.value == 55, "V1.0.47: havada sniper hit chance varsayilan dokunulmaz, senin 55 (" .. tostring(hc_ref.value) .. ")")
+do
+    local air_ref = find_ref("In-air hit chance (snipers, 0 = off)")
+    check(air_ref ~= nil and air_ref.value == 0, "V1.0.47: In-air hit chance varsayilan 0")
+    air_ref.value = 40; tick(2)
+    check(hc_ref.value == 40, "V1.0.27: elle 40 secilince havada 40 (" .. tostring(hc_ref.value) .. ")")
+    air_ref.value = 0; tick(2)
+    check(hc_ref.value == 55, "0'a geri alininca havada 55 (" .. tostring(hc_ref.value) .. ")")
+end
 before = #prints + 1
 fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 100, hitgroup = 1, weapon = "ssg08" })
 line = printed("vuruldun:", before)
@@ -1227,6 +1235,100 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.47: sarj tavani tutulan shift'ten ogrenilir (kisa defensive dususleri tavani sisirmez)
+-------------------------------------------------------------------------------
+do
+    force_ref.value, cooldown_ref.value, rec_ref.value = true, false, false
+    W.sees[2], W.speed, W.flags = false, 0, 1
+    W.lag = 0; tick(4)
+    fire("round_start", {})
+    W.lag = 7; tick(64)
+    for _ = 1, 6 do W.lag = 17; tick(10); W.lag = 7; tick(150) end
+    W.sees[2] = true; tick(5)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local line47 = printed("vuruldun:", before)
+    check(line47 ~= nil and line47:find("DT dolu", 1, true) ~= nil,
+        "V1.0.47: duz sh 7 + kisa dususler DT dolu okunur (" .. tostring(line47) .. ")")
+    check(last_cmd.force_defensive == true, "V1.0.47: duz shift'te goruluyorken defensive zorlanir")
+    W.lag = 2; tick(2)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    line47 = printed("vuruldun:", before)
+    check(line47 ~= nil and line47:find("DT %", 1, true) ~= nil, "V1.0.47: tavanin altina gercek dusus hala yarim sarj (" .. tostring(line47) .. ")")
+    W.sees[2], W.lag = false, 12; tick(40)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.47: extended desync (roll): yerde yavasken +-45, kosarken 0, kapaliyken senin degerin
+-------------------------------------------------------------------------------
+do
+    local roll_ref = find_ref("Roll")
+    local roll_menu = find_ref("Extended desync (roll)")
+    check(roll_menu ~= nil and roll_menu.value == true, "V1.0.47: Extended desync (roll) secenegi var, varsayilan acik")
+    roll_menu = roll_menu or { value = true }
+    W.flags, W.speed, W.sees[2] = 1, 0, false
+    tick(4)
+    check(roll_ref ~= nil and (roll_ref.value == 45 or roll_ref.value == -45), "V1.0.47: dururken roll 45 (" .. tostring(roll_ref and roll_ref.value) .. ")")
+    W.sees[2] = true; tick(2)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local line = printed("vurulma-detay:", before)
+    check(line ~= nil and line:find("roll [%+%-]45") ~= nil, "V1.0.47: vurulma satirinda roll yazar (" .. tostring(line) .. ")")
+    W.sees[2] = false
+    W.speed = 250; tick(4)
+    check(roll_ref.value == 0, "V1.0.47: kosarken roll 0 (" .. tostring(roll_ref.value) .. ")")
+    W.flags = 0; W.speed = 0; tick(4)
+    check(roll_ref.value == 0, "V1.0.47: havada roll 0 (" .. tostring(roll_ref.value) .. ")")
+    W.flags = 1
+    roll_menu.value = false; tick(4)
+    check(roll_ref.value == 0, "V1.0.47: kapaliyken senin Roll degerin (0) geri gelir (" .. tostring(roll_ref.value) .. ")")
+    roll_menu.value = true; tick(4)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.47: sahte kayitta bekleme birakilinca sebebi yazilir; atis satirinda "bekleme yok: <sebep>"
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.sees[3], W.speed, W.lag = false, false, 0, 12
+    tick(80)
+    before = #prints + 1
+    W.sim_shift[2] = 10; tick(2)
+    check(plist.get(2, "Add to whitelist") == true, "V1.0.47 kurulum: sahte kayitta whitelist")
+    W.sees[2] = true; tick(2)
+    check(printed("gercek kayit geldi", before) == nil and printed("serbest birakildi (seni goruyor), kayit hala sahte", before) ~= nil,
+        "V1.0.47: gorulunce birakilan bekleme 'gercek kayit geldi' sayilmaz")
+    before = #prints + 1
+    fire("aim_fire", { id = 47, target = 2, hitgroup = 1, damage = 120, hit_chance = 70, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_miss", { id = 47, target = 2, hitgroup = 1, reason = "?" })
+    local line = printed("atis:", before)
+    check(line ~= nil and line:find("bekleme yok: seni goruyor", 1, true) ~= nil, "V1.0.47: sahte kayda atista bekleme yok sebebi (" .. tostring(line) .. ")")
+    W.sim_shift[2], W.sees[2] = 0, false
+    tick(80)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.47: R8 sniper kuralina girmez (senin R8 Min. damage'in); R8 olumu scout kuralini ogretmez
+-------------------------------------------------------------------------------
+do
+    fire("level_init") -- onceki testlerin "kafa beklerken olum" gevsemesi silinsin
+    local md_r8 = find_ref("Minimum damage")
+    W.weapon_class, W.item_index = "CDEagle", 64
+    md_r8.value = 11
+    W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 82, 0
+    tick(10)
+    check(md_r8.value == 11, "V1.0.47: R8 goruluyorken sniper kurali yok, MD senin 11 (" .. tostring(md_r8.value) .. ")")
+    before = #prints + 1
+    fire("player_death", { userid = 1, attacker = 2, headshot = false, penetrated = 0, weapon = "deagle" })
+    tick(10)
+    check(printed("ogrenildi:", before) == nil, "V1.0.47: R8 ile olum kafa-bekleme olarak ogrenilmez")
+    W.weapon_class, W.item_index = "CWeaponSSG08", nil
+    md_r8.value = 100
+    W.sees[2] = false
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1236,7 +1338,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.46 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.47 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

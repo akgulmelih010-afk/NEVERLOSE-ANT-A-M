@@ -466,3 +466,14 @@ Sebepsiz yarım şarj (hayat başına yüzlerce tick, ör. 1038 tickin 766'sı) 
 ## GameSense V1.0.45 ilk oturumu (de_mirage, 12 dk, scout + MD 100)
 
 Düello 9 / 11 (%45; V1.0.44 %35), sana gelen 34 mermide 5 kafa (%15; V1.0.44 %30), 16 ıska (%47). Scout 16/27 (8 correction). DT çifti 5 karar: 3 öldürme, 1 ölüm (ilk atış kafa ıskası), 1 iki takip ıskası (8 canlı çömelik düşmana mide, correction). → V1.0.46: can ≤ 30 hedefe Force safe point. Rakipler: northgard (19 düello), m1ndotoryy (9).
+
+## GameSense V1.0.46 oturumu (de_mirage, 19 dk, scout + MD 100)
+
+Rakipler northgard, iha, Serpent1337, azure (rakipler roll / "extended" kullanıyor). Düello 10 / 28 (%36; V1.0.45 %45). Sana gelen 36 isabetin 13'ü kafa (%36; V1.0.45 %15), 5 ölüm duvardan kafa (çoğunda sen onu göremiyordun). Scout 11 / 26 (8 correction, 5 spread, 1 prediction, 1 unregistered).
+
+- **Şarj ölçüm hatası:** 10 roundun 5'inde (ilk bölüm) yarım şarj %80+ ("DT %70 sh 7/14", atış yok); o roundlarda zorlanan defensive 0 tick, havada teleport ve DT çifti kapalı. Aynı hayatta ilk atıştan sonra "DT dolu". Sebep: tavan anlık shift'in saniye başına en yükseğiydi, defensive düşüşü / kırpma tick'i tavanı 10'a çıkarıyordu. → V1.0.47 tutulan shift (24 tick min).
+- **Havada hc 40:** hc < 55 havada 4 atış, 4 spread; hc ≥ 55 havada 5 atışta 3 isabet (1 kafa). Tüm loglarda hc < 55 havada 12 atış, 3 gövde, 0 kafa. → V1.0.47 varsayılan 0.
+- **R8:** 82 gövde hasarı varken HP+1 kuralıyla 0.45 sn beklendi (deagle'a ölüm); R8 ölümleri iki kez "kafa beklerken öldü" öğrenmesi yaptı (bir kez "herkese karşı"). → V1.0.47 R8 kuraldan çıktı.
+- **Düşük can safe point:** 2 atış: 26 canlı iha'ya mide (öldürme), 24 canlı northgard'a sahte kayıtta kafa ıskası (beklemeden sonra). Örnek az, değişmedi.
+- **Sahte kayıt beklemesi:** 47 bekleme 14 tick sınırıyla, 25 "gercek kayit geldi"; görülünce / peek'te bırakılanlar da "gercek kayit geldi" yazıyordu. → V1.0.47 etiketler ve atışta `bekleme yok: <sebep>`.
+- **Roll:** rakibin roll'u ağdan gelmiyor; V1.0.47 `bas yan` ile kafanın yana kaymasını yazar, bizim tarafa Extended desync (roll) eklendi (yerde yavaşken ±45).

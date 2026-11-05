@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.46"
+local VERSION = "1.0.47"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1293,6 +1293,12 @@ menu.safe_high      = grp.protect:switch("  » Safe head: high ground", false, f
 menu.anti_brute     = grp.protect:switch("Anti-bruteforce", true)
 menu.brute_reset    = grp.protect:slider("  » Anti-brute reset after", 1, 15, 6, "s", function() return on(menu.anti_brute) end)
 menu.brute_random   = grp.protect:switch("  » Random anti-brute order", true, function() return on(menu.anti_brute) end)
+-- V1.0.47 (istek: "extended var mi"; rakipler z ekseninde extended basiyor = sunucu roll'a izin veriyor): GameSense'in
+-- AA > Roll ayari lua acikken gizliydi ve hic yazilmiyordu. Yerde ve yavasken (duran / egik / slow walk, hiz < 100)
+-- govde desync tarafina gore +-roll yazilir; kosarken, havada, merdivende 0 (roll hareketi bozar). Valve
+-- sunucularinda kullanma (untrusted). Vurulma satirlarinda "roll N" yazar: kafa orani roll acik / kapali karsilastirilir.
+menu.roll           = grp.protect:switch("Extended desync (roll)", true)
+menu.roll_value     = grp.protect:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
 -- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
@@ -1360,8 +1366,10 @@ menu.switch_def     = grp.defensive:switch("Defensive while switching weapons", 
 menu.sniper_air_dt  = grp.defensive:switch("Snipers use DT in the air", false)
 -- V1.0.27 (abyss lua'sinin durum basina hit chance'i; bes logda 254 "sikmadi"nin 75'i "sen havadasin", hepsi hc 55):
 -- havada sniper tutarken Minimum hit chance gecici bu deger (0 = kapali). Sadece oldurecek atis kurali havada da gecerli;
--- loglarda havadan giden atislar %67-89 tuttu.
-menu.air_hc         = grp.defensive:slider("In-air hit chance (snipers, 0 = off)", 0, 100, 40, "%")
+-- loglarda havadan giden atislar %67-89 tuttu (bunlar hc >= 55 olanlardi).
+-- V1.0.47: varsayilan 0 (havada da senin hc'n). Bu ayarin actigi hc < 55 havada scout atislari (V1.0.30-46): 12 atis,
+-- 3 govde isabeti, 0 kafa, 0 oldurme; v46'da 4/4 spread (hc >= 55 havada: 3/5 isabet). Bedeli: havada hc 55 altinda yine sikmaz (V1.0.27 oncesi gibi).
+menu.air_hc         = grp.defensive:slider("In-air hit chance (snipers, 0 = off)", 0, 100, 0, "%")
 
 -- Ragebot. GameSense'in kendi resolver'i acilari cozmeye devam eder; bu katman bir dusmana resolver
 -- yuzunden ("?" iskasi) iska gectikce sadece o dusmana karsi safe point'i yukseltir.
@@ -2237,11 +2245,25 @@ charge.update = function(lp)
     -- (5 sn / 4 yogun anlarda yarim sarji "dolu" okuyordu: "DT %25 sh 1/14"); her roundda sifirlanir. V1.0.42 logunda (ping ~30) DT doluyken bile "DT %60" gorunuyordu: hayat boyu 7500 tick "yarim sarj",
     -- AI peek "DT sarj oluyor" diye bekliyordu.
     -- Saniye basina en yuksek shift tutulur, tavan son 5 saniyenin en yuksegi (sunucu degisince 5 sn'de uyar).
+    -- V1.0.47 (v46: 10 roundun 5'i bastan sona "DT %70 sh 7/14", o roundlarda zorlanan defensive 0, teleport ve
+    -- DT cifti kapali): tavan anlik shift'ten degil, 24 tick (~0.4 sn) TUTULAN shift'ten ogrenilir. Defensive
+    -- tickbase dususu ve kirpma tick'i (<=15t) tavani 10'a cikarip duz 7'yi "yarim" okutuyordu.
     if dt_on() then
+        local ring = charge.ring or {}
+        charge.ring = ring
+        charge.ring_i = (charge.ring_i or 0) % 24 + 1
+        ring[charge.ring_i] = charge.shift
+        local held = charge.shift
+        for i = 1, 24 do
+            local v = ring[i]
+            if v ~= nil and v < held then
+                held = v
+            end
+        end
         local sec = floor(realtime())
         local hist = charge.hist or {}
         charge.hist = hist
-        hist[sec] = max(hist[sec] or 0, charge.shift)
+        hist[sec] = max(hist[sec] or 0, held)
         local peak = 0
         for k, v in pairs(hist) do
             if k < sec - 29 or k > sec then
@@ -2251,8 +2273,11 @@ charge.update = function(lp)
             end
         end
         charge.peak = peak
+    else
+        charge.ring = nil
     end
     local full = max(1, min(10, charge.expected - 2, max(6, charge.peak or 10)))
+    charge.full = full
     charge.value = dt_on() and max(0, min(1, charge.shift / full)) or 0
     -- V1.0.36 log: DT ne zaman acildi (atissiz yarim sarjin kaynagi icin).
     local dt = dt_on()
@@ -4079,8 +4104,19 @@ resolver.wait_apply = function(class, present)
         end
         local profile = enabled and enemy_watch.profile(enemy) or nil
         local cooling = now >= w.free_until - wait.cooldown and now < w.free_until
-        local free = profile == nil or cooling or duel or sees_me(enemy) or plist_user(enemy, PL.WHITELIST) == true
+        local seen = sees_me(enemy)
+        local mine = plist_user(enemy, PL.WHITELIST) == true
+        local free = profile == nil or cooling or duel or seen or mine
         local fake = profile ~= nil and profile.defensive_now
+        -- V1.0.47 (v46: sahte kayda giden atislar "bekleme yok" sebebi bilinmeden gitti): kayit sahteyken beklenmiyorsa
+        -- sebebi tutulur; atis satirina "bekleme yok: <sebep>" yazilir.
+        if fake and free then
+            w.why = (profile == nil and "veri yok") or (cooling and "cooldown") or (duel and "duello / peek")
+                or (seen and "seni goruyor") or (mine and "senin whitelist") or "?"
+            w.why_tick = now
+        elseif not fake then
+            w.why = nil
+        end
         -- Sahte kayitta; ya da sahte kayit yeni bitti: ilk gercek kayittan sonra after tick daha (V1.0.22).
         local hold = not free and (fake or (w.ticks > 0 and w.after < wait.after))
         if hold then
@@ -4092,22 +4128,39 @@ resolver.wait_apply = function(class, present)
                 hold = false
             end
         end
-        if hold and plist_override(enemy, PL.WHITELIST, true) then
+        local written = hold and plist_override(enemy, PL.WHITELIST, true)
+        if written then
             current.waiting = current.waiting or enemy
         else
             if w.ticks > 0 then
                 w.free_until = now + wait.cooldown
+                if fake then
+                    w.why = w.ticks > wait.max and "sinir doldu" or (hold and "whitelist yazilamadi") or w.why
+                    w.why_tick = now
+                end
             end
             if w.ticks > 0 and on(menu.resolver_log) then
                 -- Iki tur ayri hiz sinirli (surekli defensive'de konsol dolmasin).
+                -- V1.0.47: bitis sebebi ayri yazilir (eskiden goruldugu / peek attigin icin birakilan bekleme de
+                -- "gercek kayit geldi" diye yaziliyordu).
                 local capped, real = w.ticks > wait.max, realtime()
-                local kind = capped and "cap" or "real"
+                local label
+                if capped then
+                    label = fake and "sinir doldu, kayit hala sahte, ates serbest"
+                        or "sinir doldu (gercek kayit gelmisti, sonrasi kesildi)"
+                elseif hold then
+                    label = "whitelist yazilamadi, ates serbest"
+                elseif fake then
+                    label = ("serbest birakildi (%s), kayit hala sahte"):format(w.why or "?")
+                else
+                    label = "gercek kayit geldi"
+                end
+                local kind = capped and "cap" or (fake and "free" or "real")
                 local last = w.logged[kind] or -1000
                 if real < last or real - last >= wait.log_every then
                     w.logged[kind] = real
                     print(("[%s] resolver: %s sahte kayitta (defensive): %d tick gercek kayit beklendi, %s"):format(
-                        SCRIPT, player_name(enemy), min(w.ticks, wait.max),
-                        capped and "sinir doldu, ates serbest" or "gercek kayit geldi"))
+                        SCRIPT, player_name(enemy), min(w.ticks, wait.max), label))
                 end
             end
             w.ticks, w.after = 0, 0
@@ -4291,7 +4344,9 @@ do
     apply_body_aim = function(lp, class, target, level, present)
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
         local info = WEAPONS[class]
-        local sniper_rule = on(menu.head_only) and info ~= nil and info[4] and exposed
+        -- V1.0.47: R8 bu kurala girmez (v46: R8 82 govde hasariyla 0.45 sn bekledi, deagle'a oldun; R8 olumleri scout
+        -- kuralini "ogrenildi" diye kapatiyordu). R8'de senin kendi Min. damage'in gecer. Kural SSG08 / AWP.
+        local sniper_rule = on(menu.head_only) and info ~= nil and info[4] and class ~= "Revolver" and exposed
             and not resolver.head_relaxed(target)
         -- Senin baim tusun (Force body aim) basiliyken oyuncu ayarlarina dokunulmaz.
         local user_force = get("force_body") == true
@@ -4565,6 +4620,18 @@ local function apply(v, lp)
         override("freestanding_key", nil)
     end
     override("edge_yaw", false)
+    -- V1.0.47: extended desync (roll). Sadece yerde ve yavasken; govde desync yoksa da 0.
+    local roll = nil
+    if refs.roll ~= nil and on(menu.roll) then
+        roll = 0
+        if v.body ~= "Off" and lp ~= nil and on_ground(lp) and speed2d(lp) < 100 and prop(lp, "m_MoveType") ~= 9 then
+            local amount = menu.roll_value ~= nil and menu.roll_value:get() or 45
+            amount = finite(amount) and clamp(round(amount), 0, 45) or 45
+            roll = side and amount or -amount
+        end
+    end
+    override("roll", roll)
+    current.roll = roll
 
     current.side = side
     current.freestand = v.freestand
@@ -6222,6 +6289,10 @@ local function tick_special(cmd, lp, move_state, class)
     -- Merdivende yerde degiliz ama "havada" da sayilmamaliyiz; acilara GameSense kendisi karisir.
     if prop(lp, "m_MoveType") == K.MOVETYPE_LADDER then
         current.state = "Ladder"
+        if refs.roll ~= nil and on(menu.roll) then
+            override("roll", 0)
+            current.roll = 0
+        end
         apply_exploit(builder["Standing"], class)
         sample_exploit(current.state)
         return true
@@ -7066,6 +7137,9 @@ local function shot_line(e, shot, target, reason)
     if shot ~= nil and shot.res_arm ~= nil and on(menu.own_res) then
         hyp = (" | res %s"):format(shot.res_arm) .. hyp
     end
+    if shot ~= nil and shot.wait_why ~= nil then
+        hyp = hyp .. " | bekleme yok: " .. shot.wait_why
+    end
     return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | MD %s | bt %s | hc %s | %s | %s%s"):format(SCRIPT, name,
         state, finite(health) and tostring(round(health)) or "?", aimed, result, tostring(safe), tostring(body),
         finite(min_damage) and tostring(round(min_damage)) or "?",
@@ -7122,6 +7196,12 @@ listen("aim_fire", protect("aim_fire", function(e)
             exploit = not fd_on() and ((dt_on() and "dt") or (hs_on() and "hs")) or nil,
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw,
             hyp_slot = h ~= nil and h.seeded or nil }
+        -- V1.0.47: sahte kayda giden atista gercek kayit beklemesi neden yoktu (ates aninda).
+        local shot = resolver.shots[e.id]
+        if shot.profile ~= nil and shot.profile.defensive_now then
+            local w = resolver.wait.enemies[target]
+            shot.wait_why = not on(menu.wait_real) and "kapali" or (w ~= nil and w.why) or "?"
+        end
     end
     local stall = resolver.stalls[target]
     if stall ~= nil then
@@ -7611,7 +7691,7 @@ listen("round_start", protect("round_start", function()
     afk.auto, afk.armed, afk.idle_since, afk.anchor = false, true, nil, nil
     -- Defensive A/B testi (V1.0.42): round sayaci; satirlarda "test A" / "test B".
     charge.round_no = charge.round_no + 1
-    charge.hist, charge.peak = {}, nil
+    charge.hist, charge.peak, charge.ring = {}, nil, nil
     if on(menu.def_ab) and on(menu.hit_log) then
         print(("[%s] defensive testi: bu round %s"):format(SCRIPT,
             charge.round_no % 2 == 0 and "B (zorlanan defensive yok)" or "A (defensive normal)"))
@@ -8031,7 +8111,22 @@ D.where = function(ent, lp)
         parts[#parts + 1] = ("duck%d"):format(round(duck * 100))
     end
     if mine ~= nil then
-        local pitch, yaw = prop(ent, "m_angEyeAngles")
+        local pitch, yaw, eye_roll = prop(ent, "m_angEyeAngles")
+        -- V1.0.47: rakip z ekseninde extended (roll) basiyorsa gorunsun (aglar roll'u gonderiyorsa).
+        if finite(eye_roll) and abs(eye_roll) >= 1 then
+            parts[#parts + 1] = ("roll%+d"):format(round(eye_roll))
+        end
+        -- V1.0.47 ("karsi taraf roll aciyo vuramiyorum"): roll aglarda gelmiyor; yatma kafanin ayaklara gore yana
+        -- kaymasindan olculur. "bas yan": bize gore kafanin yana kaymasi (birim, + sag); normal durusta ~0-10.
+        local head = hitbox_of(ent, 0)
+        if head ~= nil then
+            local dx, dy = mine.x - o.x, mine.y - o.y
+            local len = sqrt(dx * dx + dy * dy)
+            if len > 1 then
+                local side_off = ((head.x - o.x) * dy - (head.y - o.y) * dx) / len
+                parts[#parts + 1] = ("bas yan%+d"):format(round(side_off))
+            end
+        end
         if finite(yaw) then
             local to_me = math.deg(atan2(mine.y - o.y, mine.x - o.x))
             parts[#parts + 1] = ("bak%+d"):format(round(D.norm(yaw - to_me)))
@@ -8131,6 +8226,10 @@ D.aim_text = function(lp, foe)
     end
     if current.body_mode ~= nil then
         parts[#parts + 1] = "body " .. current.body_mode
+    end
+    -- V1.0.47: extended desync (roll) o an kac derece (kafa orani roll acik / kapali karsilastirmasi icin).
+    if current.roll ~= nil then
+        parts[#parts + 1] = ("roll %+d"):format(round(current.roll))
     end
     return #parts > 0 and ("aa " .. table.concat(parts, " ")) or nil
 end
@@ -8685,9 +8784,10 @@ listen("round_start", protect("detailed log round_start", function()
             if m.switching > 0 or m.knife > 0 then
                 extra = (" (silah degisirken %d, bicakli yakinken %d)"):format(m.switching, m.knife)
             end
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d"):format(
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d | sarj tavani %d, taban farki %d"):format(
                 SCRIPT, m.ticks, m.dt, m.forced, extra, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
-                teleport.off and " (teleport bu harita kapali)" or "", m.partial, m.partial_seen, m.pose, m.def_ends))
+                teleport.off and " (teleport bu harita kapali)" or "", m.partial, m.partial_seen, m.pose, m.def_ends,
+                charge.full or 0, (charge.base or charge.offset or 0) - (charge.offset or 0)))
         end
         -- V1.0.20: harita basinda round_start arka arkaya iki kez geliyor; arada satir yoksa ayni baslik
         -- ikinci kez yazilmaz.
@@ -9242,9 +9342,22 @@ do
         pcall(menu.afk_auto.set, menu.afk_auto, false)
         pcall(database.write, "nykle_win_gs_afkauto45", true)
     end
+    -- V1.0.47: In-air hit chance varsayilani 40 -> 0 (senin hc'n). Kayitli config'teki eski varsayilan 40 bir kez 0 olur;
+    -- elle baska bir deger sectiysen dokunulmaz.
+    local ok_a, done_a = pcall(database.read, "nykle_win_gs_airhc47")
+    if not (ok_a and done_a == true) then
+        resolver.air_migrate = true
+        if menu.air_hc:get() == 40 then
+            pcall(menu.air_hc.set, menu.air_hc, 0)
+        end
+        pcall(database.write, "nykle_win_gs_airhc47", true)
+    end
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             pcall(menu.afk_auto.set, menu.afk_auto, false)
+        end
+        if resolver.air_migrate and menu.air_hc:get() == 40 then
+            pcall(menu.air_hc.set, menu.air_hc, 0)
         end
     end))
     local loaded = persist.load()

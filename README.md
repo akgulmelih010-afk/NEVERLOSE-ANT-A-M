@@ -20,7 +20,7 @@ GameSense sürümü on oyun loguyla V1.0.22'den V1.0.33'e geliştirildi, V1.0.34
 | **Kafa önceliği (V1.1.5 / V1.1.6):** kafa açıkken kafaya: DT çifti öldürüyorsa Body Aim Prefer kalır (Force değil), az önce ateş ettiğin hedefte de çift gövdeyi zorlamaz (tek gövde mermisi öldürüyorsa Force), duelloda sahte kayda kafa atmadan önce 6 tick gerçek kayıt beklenir. **V1.1.7:** DT çifti yalnızca hedefin kaydı 8+ tick gecikmeliyken (kafa tutmaz); kayıt tazeyse Min. Damage 101 kalır (kafa) | Ragebot → Resolver → **Headshot priority** (açık; kapalı = V1.1.3: çift her zaman, öldürüyorsa gövde Force, duelloda bekleme yok) | İstek: daha fazla HS. Scout'ta DT ikinci mermiyi atmıyor (kullanıcı doğruladı; loglarda 130 atışta 1), çiftin gövdesi düşmanı 9 canla bırakıp sürgüde öldürtüyordu (11/19 ölüm); kafa taze kayıtta %79 tutuyor, gecikmeli kayıtta %29 |
 | **Taze kayıt (V1.1.5):** sniper'da hedefin şu anki kaydına mermi geçmiyorsa ama 24 tick içinde geçiyorduysa (geri çekildi / köşe arkasına geçti) ateş bekletilir (V1.1.8: hitbox listesi boşaltılır, Min. Damage 130 yedek; görülme şartı yok); kayıt yine vurulabilir olunca ya da eski kayıtlar backtrack penceresinden çıkınca serbest. Log: `resolver: X su anki kaydi vurulamiyordu: 9 tick taze kayit beklendi, kayit taze, ates serbest` | Ragebot → Resolver → **Snipers: fresh record only** (açık) | 8+ tick backtrack'li atışların %68'i ıska (kafa %81), 8 tick altındakilerin %12'si (kafa %19): uzun backtrack hep düşman görünüp çekildiğinde ilk atışta |
 | **Gerçek kayıt bekleme:** hedefin kaydı sahteyken (defensive) ve kimse seni görmüyorken en fazla 14 tick ateş bekletilir (V1.1.8: hitbox listesi boşaltılır, Min. Damage 130 yedek), gerçek kayıt geldikten 3 tick sonra serbest, sonra 32 tick serbest. Duelloda (Peek, az önce ateş ettiğin hedef, seni gören düşman) Headshot priority açıkken en fazla 6 tick beklenir, kapalıyken hiç. Log: `resolver: X sahte kayitta (defensive): 8 tick gercek kayit beklendi, gercek kayit geldi` | Ragebot → Resolver → **Wait for real record (unseen)** (açık) | Sahte kayda giden atış %57 tuttu, gerçek kayda giden %75; defensive bittikten 0–2 tick sonra giden %58 |
-| **Havada sniper hit chance:** havada scout / AWP / R8 ile Hit Chance geçici 40 (senin değerin daha düşükse dokunulmaz, 0 = kapalı) | Exploits → Defensive → **In-air hit chance (snipers)** | 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55); havadan giden atışlar %67–89 tuttu |
+| **Havada sniper hit chance:** havada scout / AWP / R8 ile Hit Chance geçici bu değer (V1.0.47'den beri varsayılan 0 = kapalı, senin hc'n; senin değerin daha düşükse dokunulmaz) | Exploits → Defensive → **In-air hit chance (snipers)** | 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55); havadan giden hc ≥ 55 atışlar %67–89 tuttu, hc < 55 olanlar 12'de 3 gövde, 0 kafa |
 | **Teleport sonucu ölçülür:** ışınlandıktan 1.5 sn içinde mermi yediysen "vuruldu"; bir haritada son 3 teleportun 2'si vurulduysa o haritada teleport kapanır (harita değişince açılır). Log: `teleport sonucu: ...`, `teleport: bu haritada son 3 teleportun 2'si vuruldu -> ... kapali` | Otomatik | Bazı haritalarda 3 teleportun 2'si vuruldu: ışınlanma kaydı geçersizleştirmiyor, sadece şarjı harcıyordu |
 | **Kalıcı sol el:** lua yüklenir yüklenmez `cl_righthand 0`, açık kaldıkça öyle kalır; kapatınca / script kaldırılınca eski değer | Home → **Left hand (cl_righthand 0, permanent)** (açık) | İstek |
 | **Log kaydı:** konsola yazılan her satır saatiyle hafızada; Home → Console → **Dump logs to console** hepsini yeniden yazar, **Save logs to file now** `nykle_log.txt`'ye yazar (Neverlose'un `files` API'si varsa; round başında, harita değişince, 5 dk'da bir ve kapanışta kendiliğinden). `vuruldun:` satırında `gormedi (iz: su an goruyor / kapali)` | Home → Console | GameSense'teki bütün analizler bu dosyadan yapıldı |
@@ -356,7 +356,7 @@ Aynı özelliklerin GameSense (CS:GO) Lua API'sine taşınmış hali; oyunda `Ny
 | Değişiklik | Nereden / neden |
 |---|---|
 | Anti-brute **faz 8**: taraflar eşit sürmez (bir taraf 2 paket uzun, uzun taraf her 4 çevirmede değişir); öğrenme seçer | abyss lua'sının "Switch" body jitter'ı; "her N tick'te bir çeviriyor" diye brute eden resolver periyodu tutturamaz |
-| **In-air hit chance (snipers)** (Exploits → Defensive, varsayılan 40, 0 = kapalı): havada sniper tutarken Minimum hit chance geçici bu değer | abyss'in durum başına hit chance'i; 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55), havadan giden atışlar %67–89 tuttu |
+| **In-air hit chance (snipers)** (Exploits → Defensive, varsayılan 40; V1.0.47'den beri 0 = kapalı): havada sniper tutarken Minimum hit chance geçici bu değer | abyss'in durum başına hit chance'i; 254 `sikmadi`'nin 75'i "sen havadasın" (hepsi hc 55), havadan giden atışlar %67–89 tuttu |
 
 **V1.0.29 — kendi resolver** (Ragebot → Resolver → **Own resolver (LBY / cover side, measured vs GS)**, açık):
 
@@ -536,7 +536,24 @@ Kalanlar: sahte kayıt / teleport 0.12 sn / kol muhasebesi düzeltmeleri, Clean 
 
 Örnek küçük (20 düello) ama yön V1.0.33'e doğru. Yeni: **Finish low HP with safe point** (Ragebot → Resolver, açık): canı 30 ve altındaki düşmana Force safe point; her isabet öldürür, resolver tahminine gerek yok. Bu oturumda 8 canlı düşmana 3 takip atışı "correction" ile ıskaladı (tüm loglarda 40 atışta 6). Safe point bulunamazsa 0.5 sn sonra bırakılır.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.46 kuralları (154 kontrol; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.47** (V1.0.46 oturumu, 19 dk, de_mirage, scout + MD 100; rakipler northgard, iha, Serpent1337, azure — rakipler roll / "extended" kullanıyor):
+
+| | V1.0.45 | V1.0.46 |
+|---|---|---|
+| Düello kazanma | %45 (9/20) | %36 (10/28) |
+| Sana gelen mermide kafa | %15 (5/34) | %36 (13/36); 5 ölüm duvardan kafa |
+| Senin scout isabetin | %59 (16/27) | %42 (11/26; 8 correction, 5 spread) |
+| Düşük can safe point | — | 2 atış: 1 öldürme, 1 sahte kayıtta ıska |
+
+| Değişiklik | Neden |
+|---|---|
+| **DT şarj tavanı** artık 24 tick (~0.4 sn) **tutulan** shift'ten öğreniliyor | 10 roundun 5'i baştan sona "DT %70 sh 7/14" okundu; o roundlarda zorlanan defensive 0 tick, havada teleport ve DT çifti de kapalıydı. Kısa defensive düşüşleri ve kırpma tick'i tavanı 10'a şişirip düz 7'yi "yarım" okutuyordu. Bir hayatta ilk atıştan sonra aynı şarj "dolu" görünüyordu (ölçüm hatası). "sen ozeti"ne `sarj tavani` ve `taban farki` eklendi. |
+| **In-air hit chance** varsayılan 40 → **0** (havada da senin hc'n; kayıtlı config'teki 40 bir kez 0 yapılır) | Bu ayarın açtığı hc < 55 havada scout atışları V1.0.30–46'da 12: 3 gövde isabeti, 0 kafa, 0 öldürme; bu oturumda 4/4 spread. hc ≥ 55 havada 3/5 isabet. Bedeli: havada hc 55'in altında yine sıkmaz. |
+| **R8 sniper kuralından çıktı** (SSG08 / AWP kalır) | R8 82 gövde hasarıyla 0.45 sn bekledi, deagle'a öldün; R8 ölümleri scout kuralını "öğrenildi" diye gevşetiyordu. R8'de senin kendi Min. damage'ın geçer. |
+| **Extended desync (roll)** (Anti-Aim → Protection, açık; Roll 45°) | İstek ("extended var mı"; rakipler z ekseninde extended basıyor = sunucu izin veriyor). GameSense'in Roll ayarı lua açıkken gizliydi ve hiç yazılmıyordu. Yerde ve yavaşken (hız < 100) desync tarafına göre ±roll; koşarken, havada, merdivende 0. **Valve sunucularında kapat.** Vurulma satırlarında `roll ±45` yazar. |
+| Loglar: sahte kayıt beklemesi neden bitti (`serbest birakildi (seni goruyor / duello / cooldown)`, `sinir doldu, kayit hala sahte`), atış satırında `bekleme yok: <sebep>`; düşman satırında `bas yan ±N` (kafanın gövdeye göre yana kayması, roll ölçümü) | Bu oturumda 47 bekleme 14 tick sınırıyla, 25'i "gercek kayit geldi" diye bitti; ama görüldüğü / peek attığın için bırakılanlar da "gercek kayit geldi" yazıyordu ve sahte kayda giden atışların sebebi bilinmiyordu. Rakibin roll'u ağdan gelmiyor; yatma kafanın kaymasından ölçülecek. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.47 kuralları (172 kontrol; V1.0.47'nin 11 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
