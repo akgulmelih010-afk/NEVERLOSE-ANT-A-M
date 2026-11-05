@@ -229,7 +229,7 @@ function entity.get_player_name(ent) return ({ "ben", "dusman2", "dusman3" })[en
 function entity.get_steam64(ent) return "7656119900000000" .. tostring(ent) end
 function entity.get_player_resource() return 99 end
 function entity.get_game_rules() return 98 end
-function entity.get_esp_data() return { flags = 0 } end
+function entity.get_esp_data() return { flags = W.esp or 0 } end
 function entity.get_player_weapon(ent) return 10 + ent end
 function entity.get_classname(ent)
     if ent == 11 then return W.weapon_class end
@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.50 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.50")
+check(printed("V1.0.51 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.51")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -831,6 +831,18 @@ fire("player_death", { userid = 1, attacker = 2, headshot = true, penetrated = 0
 tick(10)
 check(printed("ogrenildi:", before) ~= nil, "V1.0.45: kafa beklerken olum ogrenilir (V1.0.33 gibi)")
 check(md_ref.value == 100, "V1.0.45: o dusmana karsi sniper kurali gevser, senin MD'n 100 (" .. tostring(md_ref.value) .. ")")
+-- V1.0.51: gevseme DT ciftini kapatmaz (v50: gevsemeden sonra 14 tam canli atisin hepsi kafaya, govde 74 x 2 >= 100).
+do
+    local lag_was = W.lag
+    W.body_dmg[2], W.lag = 74, 12
+    before = #prints + 1
+    tick(20)
+    check(md_ref.value == 73, "V1.0.51: gevsedikten sonra DT cifti: MD govde-1 = 73 (" .. tostring(md_ref.value) .. ")")
+    W.lag = 0
+    tick(20)
+    check(md_ref.value == 100, "V1.0.51: DT dolu degilken senin MD'n 100, HP+1 yok (" .. tostring(md_ref.value) .. ")")
+    W.body_dmg[2], W.lag = 45, lag_was
+end
 W.sees[2] = false
 tick(10)
 
@@ -1417,6 +1429,29 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.51: scout ile havada GameSense'in "vurulabilir" bayragi hava defensive'ini kesmez; satirlarda hiz / egilme
+-------------------------------------------------------------------------------
+do
+    force_ref.value, cooldown_ref.value, rec_ref.value = true, false, false
+    W.flags, W.speed, W.sees[2], W.lag = 1, 0, false, 12
+    tick(40)
+    W.esp = 2048
+    W.flags, W.speed, W.sees[2] = 0, 200, true -- havada, goruluyor, bayrak var
+    tick(6)
+    check(last_cmd.force_defensive == true, "V1.0.51: havada bayrak varken scout hava defensive'i surer")
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 3, weapon = "ssg08" })
+    local l51 = printed("vuruldun:", before)
+    check(l51 ~= nil and l51:find("(hava, bayrak)", 1, true) ~= nil and l51:find(" | v%d+ duck%d+$") ~= nil,
+        "V1.0.51: vuruldun satirinda hava bayragi ve hiz / egilme (" .. tostring(l51) .. ")")
+    W.flags, W.speed = 1, 0
+    tick(6)
+    check(last_cmd.force_defensive ~= true, "V1.0.51: yerde bayrak temiz atis sayilir, defensive kesilir")
+    W.esp, W.sees[2] = 0, false
+    tick(40)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
@@ -1456,7 +1491,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.50 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.51 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

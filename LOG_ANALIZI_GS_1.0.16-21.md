@@ -500,3 +500,11 @@ Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (
 - Zor rakiplerde yan duruş %41 (kolaylarda %11), medyan ping 107 (47). Statik AA'da yan duruş %29–30, arkası dönük %15–16; jitter / x-way'de yan duruş fark etmiyor.
 - Bir ıskadan sonra aynı rakibe sonraki kafa atışları %38–46 ıska (ıska yokken %16–26): ıskayla açılan önlemler doğru yön.
 - Önerilip doğrulamada elenenler: scout'a çoklu desende Force safe point (705 atışta 1 ıskaya ulaşıyor, ıskalar kayıt / lag hatası), sahte kayıtta sert bekleme (cooldown'ı bozuyor, düelloda 9 atışta 2 ölüm).
+
+## AA / defensive (V1.0.45–1.0.48, 241 düşman mermisi) ve "ı"
+
+- Kafa payı her mermide %22. Yerde DEF açık 13/63, kapalı 26/136: fark yok. Havada açık 2/14, kapalı 14/38. Havada DT dolu + DEF yok vurulmaların 7/8'i "temiz (bayrak)". → V1.0.51 havada bayrak defensive'i kesmez.
+- Eğik yürürken peek (duck100, ~78 u/s): 11/23 vurulma kafa; eğik ≤55 u/s 2/20 (desync hızla ~29°'ye iniyor). Sadece vurulmalardan; ıskalarda hız V1.0.51'den itibaren loglanıyor.
+- Body modu (jit 21%, fs 27%) ve faz (yerde) belirleyici değil. İlk görülme anı (<0,3 sn) %26.
+- **"ı":** neredeyse sürekli defensive (sahte kayıt beklemeleri hep 14 tick sınırında), desen sürekli değişiyor, hız 1488–2921 (ışınlanma). 9 atış, 2 gövde isabeti. 8 atış "öğrenildi" gevşemesinden sonra: DT çifti kapalıydı, hepsi kafaya. → V1.0.51.
+- V1.0.50 ilk oturumu: 16 vurulmanın 7'si duvardan; 6 kafanın 5'i açıktan, hepsinde DEF yok.

@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.50"
+local VERSION = "1.0.51"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -3292,8 +3292,9 @@ local function process_pending_misses()
                 if on(menu.hit_log) then
                     local w = miss.enemy_weapon
                     w = w ~= nil and (w == "Revolver" and "r8" or w:gsub("^CWeapon", ""):gsub("^C", ""):lower()) or "?"
-                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s) | silah %s"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker, w))
+                    print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s) | silah %s%s"):format(
+                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker, w,
+                        miss.move or ""))
                 end
             end
         end
@@ -3576,7 +3577,7 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
             h.flips = flips
             if #flips >= hypothesis.flip_max then
                 if now >= (h.unstable or -1000) and on(menu.resolver_log) then
-                    print(("[%s] resolver: %s %s AA deseni kararsiz (%d sn'de %d degisim): hipotez yok, Force safe point"):format(
+                    print(("[%s] resolver: %s %s AA deseni kararsiz (%d sn'de %d degisim): hipotez yok, GS resolver (safe point seviyesi degismez)"):format(
                         SCRIPT, entry ~= nil and entry.name or player_name(enemy), state, hypothesis.flip_window, #flips))
                 end
                 h.unstable = now + hypothesis.flip_window
@@ -4519,8 +4520,10 @@ do
         local info = WEAPONS[class]
         -- V1.0.47: R8 bu kurala girmez (v46: R8 82 govde hasariyla 0.45 sn bekledi, deagle'a oldun; R8 olumleri scout
         -- kuralini "ogrenildi" diye kapatiyordu). R8'de senin kendi Min. damage'in gecer. Kural SSG08 / AWP.
-        local sniper_rule = on(menu.head_only) and info ~= nil and info[4] and exposed
-            and not resolver.head_relaxed(target)
+        -- V1.0.51: "ogrenildi" gevsemesi sadece HP + 1'i kaldirir; DT cifti ve sahte kayitta govde kurali kalir
+        -- (v46b/v47d/v50: gevsemeden sonra harita sonuna kadar hic "DT cifti" yok, MD 100 ile scout sadece kafa).
+        local sniper_kind = on(menu.head_only) and info ~= nil and info[4] and exposed
+        local sniper_rule = sniper_kind and not resolver.head_relaxed(target)
         -- Senin baim tusun (Force body aim) basiliyken oyuncu ayarlarina dokunulmaz.
         local user_force = get("force_body") == true
         local target_lethal, target_wanted, target_pair = false, nil, nil
@@ -4556,7 +4559,7 @@ do
                     local entry = key ~= nil and resolver.players[key] or nil
                     enemy_level = entry ~= nil and entry_level(entry, enemy_state(enemy)) or 0
                 end
-                wanted, lethal, stalled, pair = decide(lp, class, enemy, enemy_level, enemy == target, sniper_rule)
+                wanted, lethal, stalled, pair = decide(lp, class, enemy, enemy_level, enemy == target, sniper_kind)
             end
             if not stalled then
                 resolver.body_stalls[enemy] = nil
@@ -4565,7 +4568,7 @@ do
                 target_lethal, target_wanted, target_pair = lethal, wanted, pair
                 local profile = enemy_watch.profile(enemy)
                 local cooling = now >= f.free_until - f.cooldown and now < f.free_until
-                local body_only = sniper_rule and profile ~= nil and profile.defensive_now and lethal and pair == nil
+                local body_only = sniper_kind and profile ~= nil and profile.defensive_now and lethal and pair == nil
                     and on(menu.fake_body) and not cooling
                 if body_only then
                     f.ticks = f.ticks + 1
@@ -4594,7 +4597,7 @@ do
             end
         end
         current.fake_body = fake_body
-        if sniper_rule then
+        if sniper_kind then
             current.lethal = target_lethal
         else
             current.lethal = target_wanted == "Prefer" or target_wanted == "Force"
@@ -4617,7 +4620,7 @@ do
         -- DT cifti olduruyor (V1.0.26): Min. damage gecici olarak govde hasarinin 1 altina iner ki aimbot ilk
         -- mermiyi govdeye atsin; ikincisi DT ile hemen arkasindan gelir. Override tusun basiliysa dokunulmaz.
         local pair_md = false
-        if sniper_rule and target_pair ~= nil and not md_override then
+        if sniper_kind and target_pair ~= nil and not md_override then
             local value = max(1, floor(target_pair) - 1)
             if not finite(user_md) or user_md > value then
                 pair_md, min_damage = true, value
@@ -5285,6 +5288,16 @@ do
         local hs_peek = on_peek and hs and lc_ok and not clean and now <= hs_lc.until_tick
             and now >= hs_lc.until_tick - HS_LC_HOLD
         local airborne = state == "Air" or state == "Air crouch"
+        -- V1.0.51 (V1.0.45-48: havada her mermide kafa %31, yerde %20; havada DEF acik 2/14, kapali 14/38; DT dolu ama
+        -- DEF yok havada vurulmalarin 7/8'i "temiz (bayrak)"): scout / AWP ile havadayken GameSense'in "vurulabilir"
+        -- bayragi tek basina hava defensive'ini kesmez (havada aimbot ancak hit chance tutarsa sikar). Iz ya da gercek
+        -- atis (aim_fire) yine keser.
+        if clean and airborne and on(menu.air_lag) and SNIPERS[class] and class ~= "Revolver" and clean_shot.by == "bayrak" then
+            clean = false
+            current.air_keep = true
+        else
+            current.air_keep = nil
+        end
         local window = mode == "Smart" and (smart_window(now) or (airborne and on(menu.air_lag)))
         local guard = mode == "On peek" and on(menu.anti_peek) and anti_window(now)
         local peeking = on_peek and exposure.peeking ~= nil and on(menu.peek_defensive)
@@ -5332,9 +5345,16 @@ do
         end
 
         if clean or not current.defensive or not defensive_active() then
+            current.hidden = false
             return nil, nil
         end
-        return hidden_pitch_value(s), hidden_yaw_value(s)
+        local hp, hy = hidden_pitch_value(s), hidden_yaw_value(s)
+        -- V1.0.51: gizli aci gercekten gonderildi mi (vurulma satirinda "gizli Nt").
+        current.hidden = (hp ~= nil and refs.pitch_value ~= nil) or hy ~= nil
+        if current.hidden then
+            current.hidden_tick = tickcount()
+        end
+        return hp, hy
     end
 end
 
@@ -6929,7 +6949,10 @@ local function exploit_status()
         parts[#parts + 1] = "FD"
     end
     parts[#parts + 1] = exploit
+    local hid_age = current.hidden_tick ~= nil and tickcount() - current.hidden_tick or nil
     parts[#parts + 1] = (defensive_active() and "DEF acik" or "DEF yok") .. (current.forced and " (zorla)" or "")
+        .. ((hid_age ~= nil and hid_age >= 0 and hid_age <= 16) and (" gizli %dt"):format(hid_age) or "")
+        .. (current.air_keep and " (hava, bayrak)" or "")
     if recharge.held then
         parts[#parts + 1] = "sarj bekle"
     end
@@ -7061,6 +7084,8 @@ do
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
                 applied = current.brute, group = brute.stat_group(), sniper = sniper.mode(current.weapon),
                 frozen = entry.shot_frozen, enemy_weapon = weapon_class(shooter),
+                -- V1.0.51: mermi anindaki hizin ve egilme (iska satiri sonra yazilir).
+                move = (" | v%d duck%d"):format(round(speed2d(lp)), round((finite(prop(lp, "m_flDuckAmount")) and prop(lp, "m_flDuckAmount") or 0) * 100)),
             }
         end
 
@@ -7223,9 +7248,12 @@ listen("player_hurt", protect("player_hurt", function(e)
         own.count(current.state, phase, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
     end
     if on(menu.hit_log) then
-        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s)"):format(
+        local lp_now = local_player()
+        local duck = lp_now ~= nil and prop(lp_now, "m_flDuckAmount") or nil
+        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
-            current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
+            current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info,
+            lp_now ~= nil and round(speed2d(lp_now)) or 0, round((finite(duck) and duck or 0) * 100)))
     end
 end))
 
@@ -7323,6 +7351,9 @@ local function shot_line(e, shot, target, reason)
     if shot ~= nil and shot.wait_why ~= nil then
         hyp = hyp .. " | bekleme yok: " .. shot.wait_why
     end
+    if shot ~= nil and shot.relaxed then
+        hyp = hyp .. " | kafa kurali gevsek"
+    end
     return ("[%s] atis: %s | %s | HP %s | %s | %s | SP %s | BA %s | MD %s | bt %s | hc %s | %s | %s%s"):format(SCRIPT, name,
         state, finite(health) and tostring(round(health)) or "?", aimed, result, tostring(safe), tostring(body),
         finite(min_damage) and tostring(round(min_damage)) or "?",
@@ -7388,7 +7419,10 @@ listen("aim_fire", protect("aim_fire", function(e)
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw, side_on = resolver.streak.side_on(target),
             hyp_slot = h ~= nil and h.seeded or nil,
             -- V1.0.50: ates anindaki canli taraf (brute acisi duvar tarafina gore aynalanir; log icin).
-            hyp_side = hyp_yaw ~= nil and h.side or nil, hyp_kind = hyp_yaw ~= nil and h.kind or nil }
+            hyp_side = hyp_yaw ~= nil and h.side or nil, hyp_kind = hyp_yaw ~= nil and h.kind or nil,
+            -- V1.0.51: "ogrenildi" gevsemesi bu hedefe acik mi (scout / AWP kafa kurali yerine senin MD'n).
+            relaxed = (on(menu.head_only) and SNIPERS[current.weapon] and current.weapon ~= "Revolver"
+                and resolver.head_relaxed(target)) or nil }
         -- V1.0.47: sahte kayda giden atista gercek kayit beklemesi neden yoktu (ates aninda).
         local shot = resolver.shots[e.id]
         if shot.profile ~= nil and shot.profile.defensive_now then

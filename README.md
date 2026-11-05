@@ -599,7 +599,27 @@ V1.0.48 oturumu (~20 dk): 12 kill / 19 ölüm, sana gelen 32 isabette 9 kafa, 34
 
 Doğrulamada elenenler: brute açısını seçimde dondurmak (tek kafa örneği tersini gösteriyor), teleport kapatma eşiğini 2/5 yapmak, düello gecikme logu.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.50 kuralları (189 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.51** (AA / defensive incelemesi ve "ı"; V1.0.48 uzun oturum + V1.0.50 ilk oturum)
+
+V1.0.48 (v50 logu, ~40 dk): 22 kill / 33 ölüm, sana gelen 53 isabette 18 kafa (%34); vurulduğun anların 40'ında DEF kapalı. V1.0.50 ilk oturum (10 dk): 3 / 11, 16 isabette 6 kafa, 7'si duvardan (`iz duvardan`), kafaların 5/6'sı açıktan. 241 düşman mermisi (V1.0.45–48): kafa payı her mermide %22.
+
+| Ölçüm (her düşman mermisinde kafa) | |
+|---|---|
+| Yerde DEF açık / kapalı | 13/63 (%21) / 26/136 (%19): fark yok |
+| Havada DEF açık / kapalı | **2/14 (%14) / 14/38 (%37)** |
+| Havada DT dolu ama DEF yok | 8 vurulmanın 7'si "temiz (bayrak)": GameSense'in "vurulabilir" bayrağı defensive'i kesmiş |
+| Eğik yürürken peek (~78 u/s) | 11/23 vurulmada kafa (%48); eğik ≤55 u/s 2/20; desync ~29°'ye iniyor |
+| İlk o gördü (<0,3 sn) | 44/170 (%26), sonra 9/71 (%13) |
+
+| Değişiklik | Neden |
+|---|---|
+| **Havada scout / AWP ile GameSense'in "vurulabilir" bayrağı hava defensive'ini kesmez** (iz ya da gerçek atış yine keser); logda `DEF ... (hava, bayrak)` | Havada aimbot ancak hit chance tutarsa sıkıyor; bayrak yüzünden defensive her seferinde düşüyordu. Havada DEF açıkken kafa %14, kapalıyken %37. |
+| **"Öğrenildi" gevşemesinden sonra DT çifti ve sahte kayıtta gövde kuralı açık kalır** (sadece HP+1 kalkar) | Gevşeme haritanın başında geliyor ve sonuna kadar DT çiftini kapatıyordu: v50'de gevşemeden sonra 14 tam canlı atışın hepsi kafaya (6 isabet). "ı"'ya 8 atış, 6 kafa ıskası; ikisinde DT dolu, gövde 74 × 2 ≥ 100. DT çifti gövde atışları tüm loglarda 13/17 isabet. |
+| Loglar: `iska` / `vuruldun` sonunda `v<hız> duck<eğilme>`; `DEF acik gizli Nt` (gizli açı gerçekten gönderildi); atışta `kafa kurali gevsek`; "kararsız" satırı artık yanlış "Force safe point" yazmıyor | Eğik yürüyüş bulgusu ıskalarla doğrulanabilsin; defensive'in gerçekten açı değiştirip değiştirmediği görülsün. |
+
+Doğrulamada elenenler: eğik peek'te hızı 50'ye kesmek (yazılan haliyle CS:GO'da hiç yavaşlatmıyor, mekanizma da tam kanıtlanmadı; **elle: açıya eğik yürüyerek girme, ya ayakta peek at ya da durup eğil**), havada teleportu kapatmak (iki doğrulayıcı ayrıştı; asıl sebep bayrak), peek'te gizli pitch Up, yerde defensive'i uzatmak (yerde fark yok).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.51 kuralları (194 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
