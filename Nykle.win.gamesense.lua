@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.53"
+local VERSION = "1.0.54"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 if nlog.old ~= "" and not nlog.old:find(("] V%s (GameSense edition) yuklendi"):format(VERSION), 1, true) then
@@ -1255,6 +1255,9 @@ menu.log_print    = grp.console:button("Print all logs to console", function()
 end)
 menu.log_clear    = grp.console:button("Clear saved logs", function()
     nlog.lines, nlog.old = {}, ""
+    -- V1.0.54: surum isareti yeniden yazilir; yoksa bir sonraki yuklemede (GS lua'yi birkac kez yukler) tum dosya
+    -- "eski surum" sanilip siliniyordu.
+    print(("[%s] V%s (%s edition) yuklendi (loglar silindi)"):format(SCRIPT, VERSION, "GameSense"))
     nlog.save()
     print(("[%s] kayitli loglar silindi (%s)"):format(SCRIPT, nlog.file))
 end)
@@ -1625,7 +1628,9 @@ end
 
 for _, element in ipairs({ menu.enabled, menu.tab, menu.auto_exploit, menu.ai_peek, menu.indicators, menu.arrows,
     menu.state, menu.spin, menu.safe_head, menu.anti_brute, menu.resolver, menu.hypotheses, menu.res_panel,
-    menu.trash_talk, menu.tt_kill }) do
+    menu.trash_talk, menu.tt_kill,
+    -- V1.0.54: alt secenekleri olan diger anahtarlar (kapatinca alt ayarlar hemen gizlensin / acilsin).
+    menu.avoid_backstab, menu.roll, menu.crouch_cap, menu.safe_recharge, menu.own_res, menu.head_only }) do
     if element ~= nil then
         element:set_callback(function() pcall(update_visibility) end)
     end
@@ -1712,9 +1717,17 @@ local function index_of(ent)
 end
 
 -- Canli, dormant olmayan dusmanlar (GameSense entity.get_players(true) olu ve dormant oyunculari vermez).
+-- V1.0.54: tick basina bir kez kurulur (tick'te 7-10 cagri vardi); net_update_end / round / olum / dogusta silinir.
+-- Cagiranlar donen tabloyu degistirmemeli.
+K.enemy_cache = { tick = nil, list = nil }
 local function enemy_list()
+    local c, tk = K.enemy_cache, tickcount()
+    if c.list ~= nil and c.tick == tk and tk > 0 then
+        return c.list
+    end
     local list = try(entity.get_players, true)
     local out = {}
+    c.tick, c.list = tk, out
     if type(list) == "table" then
         for _, ent in ipairs(list) do
             if finite(ent) and alive(ent) and not dormant(ent) then
@@ -1723,6 +1736,9 @@ local function enemy_list()
         end
     end
     return out
+end
+for _, event in ipairs({ "net_update_end", "level_init", "round_start", "player_death", "player_spawn" }) do
+    pcall(client.set_event_callback, event, function() K.enemy_cache.list = nil end)
 end
 
 -- Diger dusmanlar: her guncellemede tehdit disindaki iki dusman sirayla kontrol edilir; bir dusmanin
@@ -6438,6 +6454,29 @@ end
 --  tick_prepare: oyuncu, gorus, durum, resolver, body aim, AI peek. Oyun disi / kapaliysa nil.
 --  tick_special: merdiven, legit AA, spin (kendi AA'lari olan durumlar); uyguladiysa true.
 --  tick_aa: normal durum secimi, builder AA'si, anti-brute fazi, defensive, teleport.
+-- Olunce temizlik. V1.0.54: GameSense olukken setup_command cagirmiyor, bu yuzden player_death'ten de cagrilir
+-- (logda "afk modu kapali: oldun" hic yoktu; dogus tick'i "defensive bitti" sayiyordu).
+own.dead_cleanup = function()
+    -- AFK (V1.0.35): olukken capa birakilir (dogdugun yer yeni capa), otomatik ates / durbun geri verilir
+    -- (olukken AFK'yi kapatirsan da takili kalmasin).
+    if afk.on and on(menu.hit_log) then
+        print(("[%s] afk modu kapali: oldun"):format(SCRIPT))
+    end
+    afk.on, afk.anchor, afk.blocked_at = false, nil, nil
+    -- Otomatik AFK bir sonraki dogusta yeniden olculur.
+    afk.auto, afk.armed, afk.idle_since = false, true, nil
+    afk.cam_y, afk.cam_p = nil, nil
+    -- V1.0.40: olukken defensive / DT gecisleri izlenmez; dogusta eski deger "defensive bitti" saymasin.
+    charge.def_was, charge.dt_was = false, false
+    override("auto_fire", nil)
+    override("auto_scope", nil)
+    override("fakeduck", nil)
+    recharge.held = false
+    -- Olunce oyuncu listesi ezmeleri (safe point, body aim, hipotez, sahte kayit bekleme whitelist'i)
+    -- geri verilir; dogunca yeniden kurulur.
+    plist_reset(false)
+end
+
 local function tick_prepare(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     current.switching, current.knife_def, current.backstab, current.air_keep = false, false, nil, nil
@@ -6454,23 +6493,7 @@ local function tick_prepare(cmd)
     end
     local lp = local_player()
     if lp == nil or not alive(lp) then
-        -- AFK (V1.0.35): olukken capa birakilir (dogdugun yer yeni capa), otomatik ates / durbun geri verilir
-        -- (olukken AFK'yi kapatirsan da takili kalmasin).
-        if afk.on and on(menu.hit_log) then
-            print(("[%s] afk modu kapali: oldun"):format(SCRIPT))
-        end
-        afk.on, afk.anchor, afk.blocked_at = false, nil, nil
-        -- Otomatik AFK bir sonraki dogusta yeniden olculur.
-        afk.auto, afk.armed, afk.idle_since = false, true, nil
-        -- V1.0.40: olukken defensive / DT gecisleri izlenmez; dogusta eski deger "defensive bitti" saymasin.
-        charge.def_was, charge.dt_was = false, false
-        override("auto_fire", nil)
-        override("auto_scope", nil)
-        override("fakeduck", nil)
-        recharge.held = false
-        -- Olunce oyuncu listesi ezmeleri (safe point, body aim, hipotez, sahte kayit bekleme whitelist'i)
-        -- geri verilir; dogunca yeniden kurulur.
-        plist_reset(false)
+        own.dead_cleanup()
         return nil
     end
     local choked = finite(cmd.chokedcommands) and cmd.chokedcommands or 0
@@ -8531,11 +8554,14 @@ D.norm = function(yaw)
 end
 
 -- GameSense menu ayari (yol bulunamazsa "?").
-D.setting = function(tab, box, name)
+D.setting = function(tab, box, name, alt_box)
     local key = tab .. ">" .. box .. ">" .. name
     local ref = D.refs[key]
     if ref == nil then
         local ok, found = pcall(ui.reference, tab, box, name)
+        if not (ok and found ~= nil) and alt_box ~= nil then
+            ok, found = pcall(ui.reference, tab, alt_box, name)
+        end
         ref = (ok and found ~= nil) and found or false
         D.refs[key] = ref
     end
@@ -8545,6 +8571,10 @@ D.setting = function(tab, box, name)
     local ok, value = pcall(ui.get, ref)
     if not ok or value == nil then
         return "?"
+    end
+    -- V1.0.54: coklu secim tablo doner ("table: 0x..." yazmasin).
+    if type(value) == "table" then
+        return #value > 0 and table.concat(value, "+") or "-"
     end
     return tostring(value)
 end
@@ -8764,6 +8794,18 @@ D.fire_info = function(e, target)
     if z ~= nil and o ~= nil then
         flags[#flags + 1] = ("nisan z%+d"):format(round(z - o.z))
     end
+    -- V1.0.54: ilk atis gecikmesi (o gorunurlukte ilk atis): vurulabilir oldugundan, oldurecek hasar gorundugunden ve
+    -- onun seni gordugunden beri ("aim" alani atis aninda hep 0.00s'ti).
+    local v, E, tk, ti = D.vis[target], D.duel[target], tickcount(), tick_interval()
+    if v ~= nil and v.fired == 1 and tk >= v.last and tk - v.last <= D.vis_gap then
+        flags[#flags + 1] = ("vurulabilir %.2fs"):format((tk - v.first) * ti)
+        flags[#flags + 1] = v.lethal ~= nil and ("ates-hakki %.2fs"):format((tk - v.lethal) * ti) or "ates-hakki yok"
+    elseif v == nil then
+        flags[#flags + 1] = "vurulabilir yok"
+    end
+    if E ~= nil and E.he ~= nil and tk >= E.he then
+        flags[#flags + 1] = ("o-gordu %.2fs"):format((tk - E.he) * ti)
+    end
     return ("[%s] dbg atis-detay: %s %s | %s | %s | aimbot %s | %s"):format(SCRIPT, player_name(target),
         D.where(target, lp), D.rec(target), D.plist(target), #flags > 0 and table.concat(flags, " ") or "-",
         lp ~= nil and D.me(lp) or "ben ?")
@@ -8848,7 +8890,14 @@ D.scan = function(lp, now)
     if base ~= nil and eye.z < base.z + 64 then
         eye = vector(eye.x, eye.y, base.z + 64)
     end
-    for _, enemy in ipairs(enemy_list()) do
+    -- V1.0.54: dusmanlar tick'lere yayilir (hepsi ayni tick'te degil; her dusman yine 4 tick'te bir).
+    D.nxt = D.nxt or {}
+    for i, enemy in ipairs(enemy_list()) do
+      local due = D.nxt[enemy]
+      if due == nil then
+        D.nxt[enemy] = now + (i - 1) % D.every
+      elseif now < due - D.every or now >= due then
+        D.nxt[enemy] = now + D.every
         local head = hitbox_of(enemy, 0)
         local dh = head ~= nil and bullet_damage(lp, eye, head, enemy) or nil
         local db = nil
@@ -8869,6 +8918,16 @@ D.scan = function(lp, now)
                 D.vis[enemy] = v
             end
             v.last, v.dh, v.db = now, dh or 0, db or 0
+            -- Oldurecek hasar ilk ne zaman gorundu (MD 100 ustu can + fark; alti canla sinirli).
+            if v.lethal == nil then
+                local md, hp = active_min_damage(), prop(enemy, "m_iHealth")
+                if finite(md) and finite(hp) and hp > 0 then
+                    local need = md > 100 and min(md, hp + md - 100) or min(md, hp)
+                    if max(dh or 0, db or 0) >= need then
+                        v.lethal = now
+                    end
+                end
+            end
             if not v.logged and v.fired == 0 and (now - v.first) * tick_interval() >= D.see_after then
                 v.logged = true
                 print(D.no_shot(enemy, v, lp, now))
@@ -8876,6 +8935,7 @@ D.scan = function(lp, now)
         elseif v ~= nil and (now < v.last or now - v.last > D.vis_gap) then
             D.vis[enemy] = nil
         end
+      end
     end
 end
 
@@ -9053,18 +9113,22 @@ D.header = function()
 end
 
 D.settings = function()
-    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s | air strafe %s, jump scout %s"):format(
+    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s | air strafe %s, jump scout %s | accuracy boost %s, delay shot %s, quick stop %s (%s), ping spike %s"):format(
         SCRIPT, round(1 / tick_interval()), D.setting("RAGE", "Aimbot", "Enabled"),
         D.setting("RAGE", "Aimbot", "Minimum hit chance"), tostring(get("min_damage")), tostring(get("weapon_type")),
         tostring(get("doubletap")), tostring(get("hideshots")), tostring(get("dt_fakelag")),
         D.setting("AA", "Fake lag", "Amount"), D.setting("AA", "Fake lag", "Limit"), tostring(get("maxshift")),
         tostring(on(menu.recommended)), tostring(menu.sniper_exploit ~= nil and menu.sniper_exploit:get() or "?"),
         tostring(on(menu.auto_exploit)), tostring(on(menu.wait_real)),
-        refs.air_strafe ~= nil and tostring(user_value("air_strafe")) or "?", tostring(on(menu.jump_scout)))
+        refs.air_strafe ~= nil and tostring(user_value("air_strafe")) or "?", tostring(on(menu.jump_scout)),
+        -- V1.0.54: GameSense'in dogruluk ayarlari ve ping spike (loglarda backtrack hep 0t: GS'nin kendi degeri).
+        D.setting("RAGE", "Other", "Accuracy boost", "Aimbot"), D.setting("RAGE", "Other", "Delay shot", "Aimbot"),
+        D.setting("RAGE", "Other", "Quick stop", "Aimbot"), D.setting("RAGE", "Other", "Quick stop options", "Aimbot"),
+        D.setting("MISC", "Miscellaneous", "Ping spike"))
 end
 
 D.reset = function()
-    D.vis, D.duel, D.def, D.round_def, D.last_def, D.shots, D.my = {}, {}, {}, {}, {}, {}, nil
+    D.vis, D.duel, D.def, D.round_def, D.last_def, D.shots, D.my, D.nxt = {}, {}, {}, {}, {}, {}, nil, {}
 end
 
 listen("setup_command", protect("detailed log", function()
@@ -9076,10 +9140,9 @@ listen("setup_command", protect("detailed log", function()
         return
     end
     local now = tickcount()
-    if now < D.scan_tick or now - D.scan_tick >= D.every then
-        D.scan_tick = now
-        D.scan(lp, now)
-    end
+    -- V1.0.54: her tick cagrilir; her dusman kendi siranda 4 tick'te bir taranir (D.nxt).
+    D.scan_tick = now
+    D.scan(lp, now)
     D.track(lp, now)
 end))
 
@@ -9232,6 +9295,14 @@ listen("player_death", protect("detailed log player_death", function(e)
         D.close(victim, "oldurdun")
     elseif victim ~= nil then
         D.close(victim, "baskasi oldurdu")
+    end
+end))
+
+-- V1.0.54: olum aninda temizlik (detayli log olum satirindan sonra, AFK / fake duck durumu o satirda dogru kalsin).
+listen("player_death", protect("dead cleanup", function(e)
+    local lp = local_player()
+    if lp ~= nil and userid_index(e.userid) == lp then
+        own.dead_cleanup()
     end
 end))
 

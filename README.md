@@ -645,7 +645,20 @@ Desync hız ve eğilmeyle küçülüyor (Valve formülü: tam hız eğik yürüm
 
 Yeni loglar (bağımsız incelemeden sonra: silahın hızı, sabit 135,2 geçiş eşiği, 2D LC mesafesi; geri çekilme / karşı strafe girdinin yönüyle ayırt ediliyor): `iska` / `vuruldun` sonunda `maxdsy N wtr N%` (o anki tahmini en büyük desync ve koşu→yürüyüş geçişi), havadayken `lc N` (gönderilen iki kayıt arası mesafe, 64'ten büyükse `kirik`), etiketler `yavas` / `dur` / `fs ters` / `zipla yok`; round özetinde `lby taraf N/M` (kendi LBY'nin desync tarafıyla uyumu; ~%50 = sızıntı yok).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.53 kuralları (205 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.54** (atış tarafı analizi + taranmamış kısımlarda hata taraması + performans; 415 scout atışı, V1.0.30–50)
+
+Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek şey hit chance (55–64'te %51, 65+'ta %70; spread ıskalarının 19/31'i bu bantta) ama düşük hc kendi hızımızla değil mesafeyle ilişkili; "hareketliyken hc 65" önerisi doğrulamada elendi. Kendi defensive'imiz atışı bozmuyor (zorla DEF'te 14/15 isabet). Backtrack her atışta 0: bu GameSense'in kendi değeri, script'ten değil. "Ben önce gördüm ama öldüm" ölümlerinin 36/40'ında tek atış atılıp ıskalanmış.
+
+| Değişiklik | Neden |
+|---|---|
+| `dbg atis-detay`: o görünürlükteki ilk atışta `vurulabilir Xs` (vurulabilir olduğundan beri), `ates-hakki Xs` (öldürecek hasar görüneliden beri), `o-gordu Xs` | "aim" alanı atış anında hep 0.00s'ti; yavaş mı sıkıyoruz yoksa ıskalıyor muyuz ayırt edilemiyordu. |
+| `dbg ayarlar`: GameSense'in accuracy boost, delay shot, quick stop (+ seçenekleri), ping spike | Backtrack / doğruluk ayarları loglarda görünsün. Ping spike scout için önerilmez. |
+| "Clear saved logs" sürüm işaretini yeniden yazar | Silinen logdan sonra bir sonraki yüklemede (GS lua'yı birkaç kez yükler) tüm dosya siliniyordu. |
+| Ölünce temizlik `player_death`'te de çalışır | GameSense ölüyken setup_command çağırmıyor: AFK / fake duck / plist temizliği ve "afk modu kapali: oldun" hiç çalışmıyordu; doğuş tick'i "defensive bitti" sayıyordu. |
+| Alt seçenekleri olan 6 anahtar (roll, head-only, crouch keeper, safe recharge, own resolver, backstab) değişince menü hemen güncellenir | Alt ayarlar ancak sekme değişince görünüyor / gizleniyordu. |
+| Performans: düşman listesi tick başına bir kez; detaylı log taraması tick'lere yayılır | Tick başına 7–10 düşman listesi kuruluyordu; log taraması 4 tick'te bir tüm düşmanlara 15 iz atıyordu (1% low'ları bozar). Kararlar değişmez. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.54 kuralları (212 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

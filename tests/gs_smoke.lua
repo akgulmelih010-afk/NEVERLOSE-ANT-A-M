@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.53 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.53")
+check(printed("V1.0.54 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.54")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1521,6 +1521,45 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.54: ilk atis gecikmesi logu, ayarlar satiri, alt secenek gorunurlugu, log silme isareti, olum temizligi
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.speed, W.flags, W.lag = false, 0, 1, 12
+    W.head_dmg[2] = 120
+    tick(12)
+    before = #prints + 1
+    fire("aim_fire", { id = 5401, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_miss", { id = 5401, target = 2, hitgroup = 1, reason = "spread" })
+    local det = printed("dbg atis-detay:", before)
+    check(det ~= nil and det:find("vurulabilir %d+%.%d+s") ~= nil and det:find("ates-hakki ", 1, true) ~= nil,
+        "V1.0.54: ilk atista vurulabilir / ates-hakki gecikmesi (" .. tostring(det) .. ")")
+    W.head_dmg[2] = 0
+    tick(10)
+    for _, label in ipairs({ "Extended desync (roll)", "Head unless body kills (snipers)", "Desync keeper: slow crouch-walk when seen" }) do
+        local r = find_ref(label)
+        check(r ~= nil and r.callback ~= nil, "V1.0.54: '" .. label .. "' degisince alt secenekler guncellenir")
+    end
+    local clear = find_ref("Clear saved logs")
+    if clear ~= nil and type(clear.value) == "function" then
+        clear.value()
+        check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("yuklendi (loglar silindi)", 1, true) ~= nil,
+            "V1.0.54: log silinince surum isareti yeniden yazilir")
+    else
+        check(false, "V1.0.54: Clear saved logs butonu bulunamadi")
+    end
+    before = #prints + 1
+    fire("level_init")
+    local set = printed("dbg ayarlar:", before)
+    check(set ~= nil and set:find("accuracy boost", 1, true) ~= nil and set:find("ping spike", 1, true) ~= nil,
+        "V1.0.54: ayarlar satirinda dogruluk ayarlari ve ping spike (" .. tostring(set) .. ")")
+    before = #prints + 1
+    fire("player_death", { userid = 1, attacker = 2, headshot = false, penetrated = 0, weapon = "ssg08" })
+    local errs54 = errors_since(before)
+    check(#errs54 == 0, "V1.0.54: olum temizligi hatasiz" .. (#errs54 > 0 and (": " .. errs54[1]) or ""))
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
@@ -1560,7 +1599,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.53 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.54 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
