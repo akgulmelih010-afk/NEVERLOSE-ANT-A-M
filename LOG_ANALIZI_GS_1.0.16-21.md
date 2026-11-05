@@ -477,3 +477,4 @@ Rakipler northgard, iha, Serpent1337, azure (rakipler roll / "extended" kullanı
 - **Düşük can safe point:** 2 atış: 26 canlı iha'ya mide (öldürme), 24 canlı northgard'a sahte kayıtta kafa ıskası (beklemeden sonra). Örnek az, değişmedi.
 - **Sahte kayıt beklemesi:** 47 bekleme 14 tick sınırıyla, 25 "gercek kayit geldi"; görülünce / peek'te bırakılanlar da "gercek kayit geldi" yazıyordu. → V1.0.47 etiketler ve atışta `bekleme yok: <sebep>`.
 - **Rakibin extended'ı:** roll ağdan gelmiyor, istemci hitbox'ları roll'suz; ancak ıskalardan anlaşılır. Kendi tarafımıza Extended desync (roll) eklendi ama kullanıcının sunucusunda roll yasak, varsayılan kapalı.
+- **Extended yaw (rakip):** ağdan görünmüyor. Düşman LBY'si yaw'dan 60°+ uzakken atış çok az (v42–46: 7 atış), açıklamıyor. Tüm loglarda kafa atışı SP Prefer %76 (144), SP Default %63 (19) → V1.0.47 scout / AWP ile Prefer tabanı.

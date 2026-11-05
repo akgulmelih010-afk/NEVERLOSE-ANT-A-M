@@ -1325,10 +1325,12 @@ do
     fire("player_death", { userid = 1, attacker = 2, headshot = false, penetrated = 0, weapon = "deagle" })
     tick(10)
     check(printed("ogrenildi:", before) == nil, "V1.0.47: R8 ile olum kafa-bekleme olarak ogrenilmez")
+    local psafe = find_ref("Prefer safe point")
     W.weapon_class, W.item_index = "CWeaponSSG08", nil
     md_r8.value = 100
     W.sees[2] = false
     tick(10)
+    check(psafe ~= nil and psafe.value == true, "V1.0.47: scout ile Prefer safe point acik (" .. tostring(psafe and psafe.value) .. ")")
 end
 
 -------------------------------------------------------------------------------

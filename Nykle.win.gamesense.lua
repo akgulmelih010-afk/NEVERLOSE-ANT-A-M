@@ -4065,8 +4065,11 @@ local function apply_resolver(class, present)
         end
     end
     -- Prefer safe point: hedefin seviyesi 1+ ise (Neverlose'daki gibi tek ayar, silahin grubunda).
+    -- V1.0.47 (rakipler "extended yaw"; tum loglarda kafa atisi SP Prefer 110/144 %76, SP Default 12/19 %63): scout / AWP
+    -- ile seviye 0'da da Prefer (bilinmeyen desync'e karsi; Prefer atisi engellemez, safe nokta varsa onu secer).
     local scope = rage_scope(class)
-    if target_level >= 1 and on(menu.resolver) and user_value("prefer_safe") ~= true then
+    local sniper_floor = class == "CWeaponSSG08" or class == "CWeaponAWP"
+    if (target_level >= 1 or sniper_floor) and on(menu.resolver) and user_value("prefer_safe") ~= true then
         override("prefer_safe", true, scope)
     else
         override("prefer_safe", nil, scope)
