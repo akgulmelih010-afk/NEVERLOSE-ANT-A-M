@@ -548,3 +548,9 @@ Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya 
 - 8 kill / 8 ölüm; sana gelen 15 isabetin 4'ü kafa (%27); 13 atış, 10 isabet, 8 kafa, 2 correction, 1 death. HP+1 kuralıyla 6 atışın 6'sı isabet, 6'sı ilk atışta kill.
 - UCB primi artık sayı (`gs 0.758+0.085 abs+ 0.563+0.164`). İlk "tercih" ile seçilen kendi kol: northgard Crouch `bizim abs- ... body yaw -58 | r 0.504/0.15 tercih` (o düşmanda GS 7/12). Bu kolla atış henüz yok; tüm atışlar `res gs`.
 
+## V1.0.63 ilk oturumu (de_mirage, 237 satır; kullanıcı: "rakipler eskilerden iyi")
+
+- 2 kill / 7 ölüm; 5 atış (2 kafa isabet), sana gelen 12 isabetin 3'ü kafa (%25). 16 düellonun 9'unda "sadece o gördü", 4'ünde "o önce gördü", 1'inde sen; 12 vurulmanın 9'u duvardan (`iz duvardan`, "sen onu vuramıyordun"). Kayıplar resolver değil: atış fırsatı olmadan duvar arkasından / önce görülerek.
+- İlk kendi kol öldürmesi: cemalalki Fakeduck `res lby- | BY 58° (duvar R)` kafa -176 (V1.0.62 LBY kilidi çözümünden sonra).
+- Peek beklemesi çalıştı: `serbest birakildi (peek: 4 tick beklendi)` 3 kez (kate, northgard havada). Henüz o etiketle atış yok.
+
