@@ -553,4 +553,5 @@ Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya 
 - 2 kill / 7 ölüm; 5 atış (2 kafa isabet), sana gelen 12 isabetin 3'ü kafa (%25). 16 düellonun 9'unda "sadece o gördü", 4'ünde "o önce gördü", 1'inde sen; 12 vurulmanın 9'u duvardan (`iz duvardan`, "sen onu vuramıyordun"). Kayıplar resolver değil: atış fırsatı olmadan duvar arkasından / önce görülerek.
 - İlk kendi kol öldürmesi: cemalalki Fakeduck `res lby- | BY 58° (duvar R)` kafa -176 (V1.0.62 LBY kilidi çözümünden sonra).
 - Peek beklemesi çalıştı: `serbest birakildi (peek: 4 tick beklendi)` 3 kez (kate, northgard havada). Henüz o etiketle atış yok.
+- Aynı oturumun devamı + DM (`dm_twentysixer_office_aurorahvh`, 1238 satır). DM kısmı: 17 kill / 25 ölüm; 34 atış, 25 isabet (%74), 8 kafa; 6 correction ıskasının 6'sı da jitter AA'lı hedefe (jitter 49–74; lunchbox1ng, kamazimport, x2ab), hepsi `res gs`. Düellolarda ilk gören: o 45, sen 4, aynı anda 6 (DM'de çok rakip, arkadan / yandan görülme doğal). Sana gelen 59 isabetin 15'i kafa (%25), 44'ü Peek'te.
 
