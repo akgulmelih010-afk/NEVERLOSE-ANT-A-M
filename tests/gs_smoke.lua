@@ -370,6 +370,8 @@ local files = { ["nykle_log.txt"] = "10:00:00 [Nykle.win] V1.0.1 (GameSense edit
 -- V1.0.60: tekrarlanabilir rastgele sayi (Redis'in math.random'i calistirmalar arasinda farkli dizi verebiliyor;
 -- kendi resolver'in kesif cekimi artik gercekten rastgele oldugu icin test sonucu ona bagli kalmasin).
 local test_math = setmetatable({}, { __index = math })
+-- V1.0.61: oyunda UCB primi "nan" cikti (math.log); test de ayni sekilde nan dondurur.
+test_math.log = function() return 0 / 0 end
 do
     local seed = 12345
     test_math.random = function(a, b)
@@ -404,7 +406,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.60 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.61 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -736,6 +738,7 @@ check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw va
 check(printed("| bizim lby+ (lby L 50") ~= nil, "kol secimi loga yazildi")
 do
     local kl = printed("| bizim lby+ (lby L 50")
+    check(kl ~= nil and kl:find("nan", 1, true) == nil, "V1.0.61: math.log nan dondurse de UCB primi sayi (" .. tostring(kl) .. ")")
     check(kl ~= nil and kl:find("| r %d%.%d+/0%.00 tercih") ~= nil and kl:find("lby%+ %d%.%d+%+%d%.%d+") ~= nil,
         "V1.0.60: kol karari cekimi, esigi ve skorlari yazar (" .. tostring(kl) .. ")")
     check(printed("dbg random: random() 32x min") ~= nil, "V1.0.60: yuklemede rastgele cekim olcumu yazilir")
@@ -1820,7 +1823,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.60 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.61 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

@@ -537,3 +537,9 @@ Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya 
 - Aynı V1.0.59 oturumunun devamı (1915 satır, de_dust2 + de_mirage; toplam 52 kill / 42 ölüm). Yeni kısım: 32 kill / 29 ölüm, sana gelen 69 isabetin 14'ü kafa (%20), senin 77 atışın 44'ü isabet, 25'i kafa; 21 correction ıskası. MD < 100 atış yok (2 tanesi bıçak / zeus yakınken 30).
 - Correction ıskaları rakibe göre: kent.apk 15 atışta 9 (statik AA, ping 128–138; GS, abs+, abs−, seri ±58 hepsi ıskaladı → taraf değil, büyük olasılıkla küçük / sıfır desync ya da gecikme), "i love sucking" 36 atışta 8 (25 isabet). AA desenine göre: düz statik (def yok) 22 atışta 11 correction, x-way 10 atışta 0.
 
+## V1.0.60 oturumu (de_mirage, 296 satır) ve V1.0.61
+
+- Kısa oturum: 1 kill / 9 ölüm, sana gelen 10 isabetin 9'u kafa; 11 atış, 1 isabet, 6 correction (root x-way / spin + def, discord x-way, 25 x-way + def). Hepsi `res gs`: seri merdiveni ve kendi kollar hiç çalışmadı. Örnek çok küçük, rakipler yeni.
+- `dbg random`: argümansız random() ve random(0,999999)/1e6 ikisi de 0.01–0.97 arası → V1.0.60'ın random şüphesi yanlış.
+- `GS resolver'i (tercih)` satırlarında `gs 0.728+nan abs+ 0.563+nan`: UCB primi oyunda nan. Asıl hata bu → V1.0.61.
+

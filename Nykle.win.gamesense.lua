@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.60"
+local VERSION = "1.0.61"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -3885,10 +3885,33 @@ hypothesis.own.applicable = function(kind, pattern)
     return { "gs" }
 end
 
--- V1.0.60: kesif cekimi aralikli random ile (183 "bizim" kararin hepsi "(deneme)"ydi: argumansiz random() oyunda hep
--- kesif esiginin altinda kaliyordu, aralikli random(a, b) brute fazlarinda dogru calisiyor).
+-- V1.0.60: kesif cekimi aralikli random ile. (Not: V1.0.60 logunda iki cekim de 0-1 arasi dagiliyor; "hep deneme"nin
+-- asil sebebi random degil, nan UCB primiydi, bkz. own.ln.)
 hypothesis.own.draw = function()
     return random(0, 999999) / 1000000
+end
+
+-- V1.0.61: dogal logaritma math.log'a dayanmadan (V1.0.60 logu: oyunda UCB primi "nan" cikti, "gs 0.728+nan"; nan
+-- skor hicbir kolu GS'nin onune gecirmedigi icin kendi kollar sadece kesifle seciliyordu: 183 kararin hepsi "deneme").
+-- x > 0: x = m * 2^k (m 1-2 arasi), ln m = 2 * atanh((m - 1) / (m + 1)) serisi.
+hypothesis.own.ln = function(x)
+    if not finite(x) or x <= 0 then
+        return 0
+    end
+    local k = 0
+    while x >= 2 do
+        x, k = x / 2, k + 1
+    end
+    while x < 1 do
+        x, k = x * 2, k - 1
+    end
+    local y = (x - 1) / (x + 1)
+    local y2, term, sum = y * y, y, 0
+    for n = 1, 19, 2 do
+        sum = sum + term / n
+        term = term * y2
+    end
+    return 2 * sum + k * 0.69314718055994531
 end
 
 -- Donus: kol, deneme mi. Son karar own.last'ta (log icin): r, esik, skorlar.
@@ -3918,7 +3941,10 @@ hypothesis.own.choose = function(entry, kind, pattern)
     for _, arm in ipairs(list) do
         local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
         local base = own.score(entry, arm)
-        local bonus = own.ucb * sqrt(math.log(total + 1) / (shots + 1))
+        local bonus = own.ucb * sqrt(own.ln(total + 1) / (shots + 1))
+        if not finite(bonus) then
+            bonus = 0
+        end
         local score = base + bonus
         own.last.parts[#own.last.parts + 1] = ("%s %.3f+%.3f"):format(arm, base, bonus)
         if score > best_score + 1e-9 then
