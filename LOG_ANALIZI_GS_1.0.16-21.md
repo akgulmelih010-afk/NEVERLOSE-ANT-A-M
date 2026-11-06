@@ -534,4 +534,6 @@ Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (
 | MD < 100 atış | 28 | **0** |
 
 Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya da öldüren yere gitti; karşılıklı oldurmeyen gövde takası bittiği için ölüm ve yenen kafa da düştü. Iskalar: 3 spread, 2 prediction error, 2 correction (XJJKL x-way, артем jitter 31), 1 death. Eğik koruyucu: 7 vurulmanın 1'i kafa.
+- Aynı V1.0.59 oturumunun devamı (1915 satır, de_dust2 + de_mirage; toplam 52 kill / 42 ölüm). Yeni kısım: 32 kill / 29 ölüm, sana gelen 69 isabetin 14'ü kafa (%20), senin 77 atışın 44'ü isabet, 25'i kafa; 21 correction ıskası. MD < 100 atış yok (2 tanesi bıçak / zeus yakınken 30).
+- Correction ıskaları rakibe göre: kent.apk 15 atışta 9 (statik AA, ping 128–138; GS, abs+, abs−, seri ±58 hepsi ıskaladı → taraf değil, büyük olasılıkla küçük / sıfır desync ya da gecikme), "i love sucking" 36 atışta 8 (25 isabet). AA desenine göre: düz statik (def yok) 22 atışta 11 correction, x-way 10 atışta 0.
 
