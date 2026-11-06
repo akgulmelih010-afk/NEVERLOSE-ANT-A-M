@@ -543,3 +543,8 @@ Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya 
 - `dbg random`: argümansız random() ve random(0,999999)/1e6 ikisi de 0.01–0.97 arası → V1.0.60'ın random şüphesi yanlış.
 - `GS resolver'i (tercih)` satırlarında `gs 0.728+nan abs+ 0.563+nan`: UCB primi oyunda nan. Asıl hata bu → V1.0.61.
 
+## V1.0.61 ilk oturumu (257 satır)
+
+- 8 kill / 8 ölüm; sana gelen 15 isabetin 4'ü kafa (%27); 13 atış, 10 isabet, 8 kafa, 2 correction, 1 death. HP+1 kuralıyla 6 atışın 6'sı isabet, 6'sı ilk atışta kill.
+- UCB primi artık sayı (`gs 0.758+0.085 abs+ 0.563+0.164`). İlk "tercih" ile seçilen kendi kol: northgard Crouch `bizim abs- ... body yaw -58 | r 0.504/0.15 tercih` (o düşmanda GS 7/12). Bu kolla atış henüz yok; tüm atışlar `res gs`.
+
