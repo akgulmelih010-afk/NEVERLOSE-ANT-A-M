@@ -522,3 +522,16 @@ Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (
 - "MD 72–86" atışları DT çifti kuralından (Min. damage gövde-1): 8 atış, 0 kill, 8 ölüm. V1.0.45'ten beri 27 çift atış, ilk atışta 0 kill, 23 ölüm. Scout DT ikinci mermisi aynı saniyede 90 ardışık atışta 1 kez. → V1.0.59 DT çifti varsayılan kapalı.
 - Eğik koruyucu (`yavas`) 4 vurulmada 3 kafa: örnek çok küçük (p≈0.6), değişiklik yok; ~20 vurulma birikince bakılacak. maxdsy kovaları bu oturumda fark göstermedi (≤30 3/7, 31–45 6/10, 46+ 7/12).
 - Aynı V1.0.58 oturumunun devamı (2453 satır, toplam 28 kill / 49 ölüm; sana gelen 72 isabetin 33'ü kafa; 85 atış, 54 isabet, 21 kafa): MD < 100 (DT çifti) 28 atış → ilk atışta 1 kill, 2 sn içinde 20 ölüm; MD 100 (gevşek kural) 43 atış → ilk atışta 24 kill, 10 ölüm. V1.0.59 kararını örnek dışı veri de doğruluyor. Logdaki MD 9 atışları DT çifti değil (aynı sayı HP 100 ve HP 8 hedefte: büyük olasılıkla senin damage override tuşun).
+
+## V1.0.59 ilk oturumu (de_dust2, 703 satır)
+
+| | V1.0.58 (tüm oturum) | V1.0.59 |
+|---|---|---|
+| Kill / ölüm | 28 / 49 | **20 / 13** |
+| Sana gelen kafa | 33/72 (%46) | **6/22 (%27)** |
+| Senin atış: isabet / kafa | 54/85, 21 kafa (%25) | **21/29, 19 kafa (%66)** |
+| İlk atışta kill | 26/85 | **20/29** |
+| MD < 100 atış | 28 | **0** |
+
+Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya da öldüren yere gitti; karşılıklı oldurmeyen gövde takası bittiği için ölüm ve yenen kafa da düştü. Iskalar: 3 spread, 2 prediction error, 2 correction (XJJKL x-way, артем jitter 31), 1 death. Eğik koruyucu: 7 vurulmanın 1'i kafa.
+

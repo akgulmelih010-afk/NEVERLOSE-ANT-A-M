@@ -708,6 +708,8 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 | **FPS:** resolver paneli (varsayılan açık) hedefi, çözüm oranını ve ismi tick başına bir kez okur; metin ölçüleri ezberlenir | Panel her karede tüm resolver zincirini ve 4 metin ölçümünü yeniden yapıyordu (kare başı ~38 API çağrısı, 1.8 KB çöp). Sahte API'de paint 85 → ~50 çağrı / kare; çöp toplayıcı kaynaklı mikro takılma azalır. |
 | **FPS:** "» Disable ragdolls (bodies vanish)" (FPS boost altında, varsayılan KAPALI) | `cl_disable_ragdolls 1`: ölenler yere yığılmadan kaybolur, çoklu öldürme / round sonu fizik yükü gider. Kapatınca / unload'da senin değerin geri yazılır. |
 
+İlk V1.0.59 oturumu: 20 kill / 13 ölüm (V1.0.58: 28 / 49), senin 29 atışın 21'i isabet, 19'u kafa, 20'si ilk atışta kill; sana gelen kafa %46 → %27.
+
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
 Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.59 kuralları (231 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
