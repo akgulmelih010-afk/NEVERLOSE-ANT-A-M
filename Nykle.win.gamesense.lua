@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.57"
+local VERSION = "1.0.58"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1314,7 +1314,9 @@ menu.roll_value     = grp.protect_raw:slider("  » Roll", 10, 45, 45, "°", func
 -- V1.0.53 (internet arastirmasi + Valve animstate formulu): desync hiz ve egilmeyle kuculur (tam hizda egik yurume
 -- ~29°, logda <=30° desync'te kafa %27, ustunde %17). Hepsi varsayilan KAPALI: logda "maxdsy" ile olculecek.
 -- V1.0.57: izlenmeyen grupta (onerilen ayarlar acikken acilabilsinler).
-menu.crouch_cap     = grp.protect_raw:switch("Desync keeper: slow crouch-walk when seen", false)
+-- V1.0.58: varsayilan ACIK. V1.0.57 logunda "maxdsy" (vuruldugun an tahmini en buyuk desync) <= 30 iken 15 mermide 5
+-- kafa, 46-58'de 12'de 1; V1.0.45-50'de <= 30 %27 / ustunde %17. Tam hizda egik yurume 29°, 38 u/s'de ~42°.
+menu.crouch_cap     = grp.protect_raw:switch("Desync keeper: slow crouch-walk when seen", true)
 menu.crouch_speed   = grp.protect_raw:slider("  » Crouch speed", 20, 78, 38, " u/s", function() return on(menu.crouch_cap) end)
 menu.walk_cap       = grp.protect_raw:switch("Desync keeper: slow walk when seen (<=115 u/s)", false)
 menu.contact_stop   = grp.protect_raw:switch("Stop before contact when decelerating", false)
@@ -9965,6 +9967,9 @@ do
     resolver.air_migrate = not (ok_a and done_a == true)
     local ok_t, done_t = pcall(database.read, "nykle_win_gs_tt48")
     afk.tt_migrate = not (ok_t and done_t == true)
+    -- V1.0.58: desync keeper (egik) kayitli config'te kapali kaldiysa ilk config yuklemesinde bir kez acilir.
+    local ok_c, done_c = pcall(database.read, "nykle_win_gs_cc58")
+    own.aa.cc_migrate = not (ok_c and done_c == true)
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             afk.migrate = false
@@ -9977,6 +9982,11 @@ do
                 pcall(menu.air_hc.set, menu.air_hc, 0)
             end
             pcall(database.write, "nykle_win_gs_airhc47", true)
+        end
+        if own.aa.cc_migrate then
+            own.aa.cc_migrate = false
+            pcall(menu.crouch_cap.set, menu.crouch_cap, true)
+            pcall(database.write, "nykle_win_gs_cc58", true)
         end
         if afk.tt_migrate then
             afk.tt_migrate = false

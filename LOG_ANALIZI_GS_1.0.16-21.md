@@ -508,3 +508,10 @@ Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (
 - Body modu (jit 21%, fs 27%) ve faz (yerde) belirleyici değil. İlk görülme anı (<0,3 sn) %26.
 - **"ı":** neredeyse sürekli defensive (sahte kayıt beklemeleri hep 14 tick sınırında), desen sürekli değişiyor, hız 1488–2921 (ışınlanma). 9 atış, 2 gövde isabeti. 8 atış "öğrenildi" gevşemesinden sonra: DT çifti kapalıydı, hepsi kafaya. → V1.0.51.
 - V1.0.50 ilk oturumu: 16 vurulmanın 7'si duvardan; 6 kafanın 5'i açıktan, hepsinde DEF yok.
+
+## V1.0.57 oturumu (de_mirage, 15 dk) ve V1.0.58
+
+- 7 kill / 11 ölüm. Sana gelen 24 isabet: 7 kafa, 9'u duvardan ("iz duvardan"). Senin 15 atışın 14'ü isabet (6 kafa), 1 ıska ölüm.
+- Vurulma anındaki gerçek desync (`maxdsy`) ile kafa payı: ≤30° 5/15, 31–45° 1/6, 46–58° 1/12. Eski loglarla 258 mermide ≤30° %27, üstü %17. → V1.0.58 eğik desync keeper varsayılan açık.
+- Düşük desync kafaları: 2 "Air crouch" (DEF açık zorla, gizli 1t), 1 eğik peek (v78 duck100), 1 merdiven, 1 v64 duck100.
+- LBY uyumu round başına 0/7, 0/5, 1/9, 4/4, 3/5: taraf LBY'den sızıyor olabilir; bir sonraki logda kafa payıyla birlikte bakılacak.

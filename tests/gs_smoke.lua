@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.57 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.58 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1360,12 +1360,19 @@ end
 do
     local air_ref = find_ref("In-air hit chance (snipers, 0 = off)")
     check(db.nykle_win_gs_airhc47 == nil, "V1.0.47: config yuklenmeden tasima bayragi yazilmaz")
+    local cc58 = find_ref("Desync keeper: slow crouch-walk when seen")
+    check(db.nykle_win_gs_cc58 == nil, "V1.0.58: config yuklenmeden desync keeper bayragi yazilmaz")
+    cc58.value = false -- eski config'te kapali kaydedilmis
     air_ref.value = 40 -- eski config yuklendi
     fire("post_config_load")
     check(air_ref.value == 0 and db.nykle_win_gs_airhc47 == true, "V1.0.47: eski config'teki 40 bir kez 0 (" .. tostring(air_ref.value) .. ")")
+    check(cc58.value == true and db.nykle_win_gs_cc58 == true, "V1.0.58: eski config'teki kapali desync keeper bir kez acilir (" .. tostring(cc58.value) .. ")")
     air_ref.value = 40 -- sonra elle 40 secildi
+    cc58.value = false -- sonra elle kapatildi
     fire("post_config_load")
     check(air_ref.value == 40, "V1.0.47: elle secilen 40'a sonra dokunulmaz")
+    check(cc58.value == false, "V1.0.58: elle kapatilan desync keeper'a sonra dokunulmaz")
+    cc58.value = true
     air_ref.value = 0
     tick(4)
 end
@@ -1468,8 +1475,9 @@ do
     local cc = find_ref("Desync keeper: slow crouch-walk when seen")
     local wc = find_ref("Desync keeper: slow walk when seen (<=115 u/s)")
     local nj = find_ref("Block jump while seen (not jump-scout)")
-    check(cc ~= nil and cc.value == false and wc ~= nil and wc.value == false and nj ~= nil and nj.value == false,
-        "V1.0.53: hareket secenekleri var, varsayilan kapali")
+    check(cc ~= nil and cc.value == true and wc ~= nil and wc.value == false and nj ~= nil and nj.value == false,
+        "V1.0.58: egik desync keeper varsayilan acik; yuruyus/ziplama secenekleri kapali")
+    cc.value = false
     W.flags, W.speed, W.duck, W.sees[2] = 1, 78, 1, true
     tick(5)
     check(last_cmd.forwardmove == 450, "V1.0.53: kapaliyken egik yuruyuse dokunulmaz (" .. tostring(last_cmd.forwardmove) .. ")")
@@ -1619,7 +1627,6 @@ do
     cc.value = true
     tick(70)
     check(cc.value == true, "V1.0.57: onerilen ayarlar acikken desync keeper acilabilir")
-    cc.value = false
     local first = rr.value
     check(first == 45 or first == -45, "V1.0.57 kurulum: roll uygulanir (" .. tostring(first) .. ")")
     W.sees[2] = true
@@ -1674,7 +1681,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.57 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.58 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

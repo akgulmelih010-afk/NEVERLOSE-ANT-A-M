@@ -688,7 +688,18 @@ Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek
 
 Not: kullanıcının sunucusunda roll yasak; sadece izin veren sunucuda aç.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.57 kuralları (222 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.58** (V1.0.57 logu, de_mirage, 15 dk: 7 kill / 11 ölüm; sana gelen 24 isabetin 7'si kafa, 9'u duvardan; senin 15 atışın 14'ü isabet, 6'sı kafa)
+
+| Değişiklik | Neden |
+|---|---|
+| **"Desync keeper: slow crouch-walk when seen" varsayılan AÇIK** (eski config'te kapalı kaydedildiyse ilk config yüklemesinde bir kez açılır, `nykle_win_gs_cc58`; sonra elle kapatırsan dokunulmaz). Görülürken eğik yürüyüş hızı ~38 u/s ile sınırlanır, desync ~29°'ye düşmez. | V1.0.53'ten beri her vurulmada `maxdsy` loglanıyor. V1.0.57 logunda mermi başına kafa: maxdsy ≤ 30 iken **5/15**, 31–45 iken 1/6, 46–58 iken **1/12**. Eski loglarla birlikte (258 mermi) ≤30° %27, üstü %17. Kafa yiyen düşük-desync durumlarının çoğu eğik yürüyüş / eğik zıplama. |
+
+Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
+- 2 kafa "Air crouch" + "DEF acik (zorla) gizli 1t (hava, bayrak)": havada eğilirken desync de ~29°'ye iniyor; görülen açıya eğilerek zıplamak kafa veriyor.
+- LBY uyumu round başına çok taraflı (0/7, 0/5, 1/9, 4/4, 3/5): rakip bazı roundlarda tarafı LBY'den okuyor olabilir. Bir sonraki logda `lby` sütunu ile kafa payı birlikte bakılacak.
+- `res seri` ve roll bu oturumda hiç çalışmadı (roll kapalı, sunucuda yasak).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.58 kuralları (225 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
