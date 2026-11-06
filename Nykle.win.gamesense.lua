@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.59"
+local VERSION = "1.0.60"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -3710,14 +3710,16 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
                 if on(menu.resolver_log) then
                     local where = h.kind == "lby" and ("lby %s%s"):format(h.side, h.mag ~= nil and (" %d%s"):format(floor(h.mag + 0.5), DEG) or "")
                         or h.kind == "side" and ("duvar %s"):format(h.side) or "statik desync, taraf bilgisi yok"
-                    print(("[%s] resolver: %s %s | bizim %s (%s) body yaw %d%s%s | kollar: %s"):format(SCRIPT,
+                    print(("[%s] resolver: %s %s | bizim %s (%s) body yaw %d%s%s | kollar: %s%s"):format(SCRIPT,
                         entry.name or player_name(enemy), state, arm, where,
                         hypothesis.yaw(hypothesis.actual(c, h.side)), DEG, exploring and " (deneme)" or "",
-                        hypothesis.own.summary(entry)))
+                        hypothesis.own.summary(entry), hypothesis.own.why(exploring)))
                 end
-            elseif exploring and on(menu.resolver_log) then
-                print(("[%s] resolver: %s %s | GS resolver'i (deneme) | kollar: %s"):format(SCRIPT,
-                    entry.name or player_name(enemy), state, hypothesis.own.summary(entry)))
+            elseif on(menu.resolver_log) then
+                -- V1.0.60: GS'nin tercih edildigi kararlar da yazilir (eskiden sessizdi).
+                print(("[%s] resolver: %s %s | GS resolver'i (%s) | kollar: %s%s"):format(SCRIPT,
+                    entry.name or player_name(enemy), state, exploring and "deneme" or "tercih",
+                    hypothesis.own.summary(entry), hypothesis.own.why(exploring)))
             end
         end
     end
@@ -3881,12 +3883,20 @@ hypothesis.own.applicable = function(kind, pattern)
     return { "gs" }
 end
 
--- Donus: kol, deneme mi.
+-- V1.0.60: kesif cekimi aralikli random ile (183 "bizim" kararin hepsi "(deneme)"ydi: argumansiz random() oyunda hep
+-- kesif esiginin altinda kaliyordu, aralikli random(a, b) brute fazlarinda dogru calisiyor).
+hypothesis.own.draw = function()
+    return random(0, 999999) / 1000000
+end
+
+-- Donus: kol, deneme mi. Son karar own.last'ta (log icin): r, esik, skorlar.
 hypothesis.own.choose = function(entry, kind, pattern)
     local own = hypothesis.own
     local list = own.applicable(kind, pattern)
     local explore = menu.own_explore ~= nil and (menu.own_explore:get() or 0) / 100 or 0
-    if explore > 0 and random() < explore then
+    local r = own.draw()
+    own.last = { r = r, explore = explore, parts = {} }
+    if explore > 0 and r < explore then
         local least, least_shots = nil, nil
         for _, arm in ipairs(list) do
             local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
@@ -3905,12 +3915,35 @@ hypothesis.own.choose = function(entry, kind, pattern)
     local best, best_score = "gs", -1
     for _, arm in ipairs(list) do
         local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
-        local score = own.score(entry, arm) + own.ucb * sqrt(math.log(total + 1) / (shots + 1))
+        local base = own.score(entry, arm)
+        local bonus = own.ucb * sqrt(math.log(total + 1) / (shots + 1))
+        local score = base + bonus
+        own.last.parts[#own.last.parts + 1] = ("%s %.3f+%.3f"):format(arm, base, bonus)
         if score > best_score + 1e-9 then
             best, best_score = arm, score
         end
     end
     return best, false
+end
+
+hypothesis.own.probe = function()
+    local a_lo, a_hi, b_lo, b_hi = 1, 0, 1, 0
+    for _ = 1, 32 do
+        local a, b = random(), hypothesis.own.draw()
+        a_lo, a_hi, b_lo, b_hi = min(a_lo, a), max(a_hi, a), min(b_lo, b), max(b_hi, b)
+    end
+    print(("[%s] dbg random: random() 32x min %.3f max %.3f | random(0,999999)/1e6 32x min %.3f max %.3f"):format(
+        SCRIPT, a_lo, a_hi, b_lo, b_hi))
+end
+
+-- V1.0.60: karar logu eki: " | r 0.412/0.15 tercih | gs 0.668+0.081 abs+ ..."
+hypothesis.own.why = function(exploring)
+    local last = hypothesis.own.last
+    if last == nil then
+        return ""
+    end
+    return (" | r %.3f/%.2f %s%s"):format(last.r, last.explore, exploring and "deneme" or "tercih",
+        #last.parts > 0 and (" | " .. table.concat(last.parts, " ")) or "")
 end
 
 -- Kolun kanonik adayi: "+" taraf yonunde (tam aci; LBY farki 45 derecenin altindaysa yarim), "-" tersi.
@@ -4007,6 +4040,9 @@ end
 -- arkasi donukken %15; jitter / x-way / random'da yan durus fark etmiyor ve zorlanan aci hic denenmemis (GS %73 isabet).
 -- Bu yuzden: statik + yan durusta 2 iska seriyi acar (sadece hala yan dururken uygulanir); coklu desende seri ne sayar
 -- ne uygulanir (GS'ye birakilir).
+-- V1.0.60 (kent.apk: statik, yan duruyor, lby+0; seri -58 / +58, GS ve abs+ / abs- hepsi kafada correction, 15 atista 9;
+-- kullanici: "fake yaw kullaniyor"): seride iki taraf da tam aciyla iskalarsa sonra body yaw 0, o da iskalarsa -lim/2 ve
+-- +lim/2 denenir, sonra yine tam aci. s.step: 0 = +-lim, 1 = 0, 2 = +-lim/2; s.fail = tam acida iskalayan isaretler.
 resolver.streak = { list = {}, need = 3, side_need = 2, window = 300 }
 
 -- Dusmanin bize gore bakisi (log'daki "bak" ile ayni), mutlak deger 0-180; okunamazsa nil.
@@ -4050,7 +4086,13 @@ resolver.streak.yaw = function(key, pattern, enemy)
     if s.n < S.need and enemy ~= nil and not S.side_on(enemy) then
         return nil
     end
-    return s.sign * (menu.hyp_angle ~= nil and menu.hyp_angle:get() or 58)
+    local lim = menu.hyp_angle ~= nil and menu.hyp_angle:get() or 58
+    if s.step == 1 then
+        return 0
+    elseif s.step == 2 then
+        return s.sign * floor(lim / 2 + 0.5)
+    end
+    return s.sign * lim
 end
 
 resolver.streak.result = function(shot, head_hit, miss)
@@ -4072,13 +4114,15 @@ resolver.streak.result = function(shot, head_hit, miss)
             print(("[%s] resolver: %s seri: %s"):format(SCRIPT, name, text))
         end
     end
+    local half = floor(lim / 2 + 0.5)
     if miss then
         if s == nil then
-            s = { n = 0, side = 0, last = now, sign = -1, bad = 0 }
+            s = { n = 0, side = 0, last = now, sign = -1, bad = 0, step = 0, fail = {} }
             S.list[key] = s
         elseif now < s.last or now - s.last > S.window then
-            s.n, s.side, s.sign, s.bad = 0, 0, -1, 0
+            s.n, s.side, s.sign, s.bad, s.step, s.fail = 0, 0, -1, 0, 0, {}
         end
+        s.step, s.fail = s.step or 0, s.fail or {}
         local was_on = S.armed(s)
         s.n, s.last = s.n + 1, now
         if pattern == "static" and shot.side_on then
@@ -4089,8 +4133,23 @@ resolver.streak.result = function(shot, head_hit, miss)
         -- (tum zorlanan atislar: -58 13 isabet / 5 iska, +58 3 / 8).
         local hc = shot.hitchance or 0
         local forced = shot.streak_yaw or shot.hyp_yaw
-        if forced ~= nil and forced ~= 0 and (forced > 0) == (s.sign > 0) and shot.hitgroup == 1
-            and hc >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
+        local fair = shot.hitgroup == 1 and hc >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70)
+        local ladder = shot.streak_yaw ~= nil and fair and was_on
+        if ladder and s.step == 1 and shot.streak_yaw == 0 then
+            s.step, s.sign, s.bad = 2, -1, 0
+            say(("body yaw 0 iskaladi -> body yaw -%d"):format(half))
+        elseif ladder and s.step == 2 and abs(shot.streak_yaw) == half and (shot.streak_yaw > 0) == (s.sign > 0) then
+            if s.sign < 0 then
+                s.sign = 1
+                say(("-%d iskaladi -> body yaw +%d"):format(half, half))
+            else
+                s.step, s.sign, s.bad, s.fail = 0, -1, 0, {}
+                say(("+%d iskaladi -> yine tam aci, body yaw -%d"):format(half, lim))
+            end
+        elseif forced ~= nil and forced ~= 0 and (forced > 0) == (s.sign > 0) and fair and s.step == 0 then
+            if ladder and abs(forced) == lim then
+                s.fail[s.sign] = true
+            end
             if s.sign < 0 then
                 s.bad = s.bad + 1
                 if s.bad >= 2 then
@@ -4105,6 +4164,10 @@ resolver.streak.result = function(shot, head_hit, miss)
                     say(("+%d iskaladi -> body yaw -%d"):format(lim, lim))
                 end
             end
+            if s.fail[-1] and s.fail[1] then
+                s.step, s.bad, s.fail = 1, 0, {}
+                say(("-%d ve +%d ikisi de iskaladi (fake yaw / kucuk desync) -> body yaw 0"):format(lim, lim))
+            end
         end
         if not was_on and S.armed(s) then
             say((s.n >= S.need and "%d resolver iskasi (durumdan bagimsiz)" or "%d iska, yan duruyor (statik)")
@@ -4112,7 +4175,16 @@ resolver.streak.result = function(shot, head_hit, miss)
         end
     elseif s ~= nil then
         local forced = shot.streak_yaw or shot.hyp_yaw
-        if forced ~= nil and forced ~= 0 then
+        if shot.streak_yaw ~= nil and (s.step or 0) ~= 0 then
+            -- V1.0.60: 0 / yarim aciyla kafa: o basamak dogru, seri acik kalir.
+            if shot.streak_yaw ~= 0 then
+                s.sign = shot.streak_yaw > 0 and 1 or -1
+            end
+            s.bad = 0
+            if S.armed(s) then
+                s.last = now
+            end
+        elseif forced ~= nil and forced ~= 0 then
             -- Zorlanan aciyla kafa: o aci dogru; seri kapanmaz, isaret o aciya gecer.
             s.sign, s.bad = forced > 0 and 1 or -1, 0
             if S.armed(s) then
@@ -4122,7 +4194,7 @@ resolver.streak.result = function(shot, head_hit, miss)
             if S.armed(s) then
                 say("bitti (GS kafadan vurdu)")
             end
-            s.n, s.side, s.bad = 0, 0, 0
+            s.n, s.side, s.bad, s.step, s.fail = 0, 0, 0, 0, {}
         end
     end
 end
@@ -9371,6 +9443,12 @@ listen("player_death", protect("detailed log player_death", function(e)
     elseif attacker == lp and victim ~= nil then
         print(("[%s] dbg kill-detay: %s %s%s | %s"):format(SCRIPT, player_name(victim), tostring(e.weapon or "?"), tag,
             D.where(victim, lp)))
+        -- V1.0.60: player_death aim_hit'ten once gelir; olduren isabet duello kapanmadan sayilir (v58'de 9/9
+        -- "oldurdun" duellosu "0 isabet" yaziyordu). Bomba / bicak / elle olumde atis yoksa sayilmaz.
+        local E = D.duel[victim]
+        if E ~= nil and E.our_shots > E.our_hits then
+            E.our_hits = E.our_hits + 1
+        end
         D.close(victim, "oldurdun")
     elseif victim ~= nil then
         D.close(victim, "baskasi oldurdu")
@@ -10053,6 +10131,10 @@ do
     local loaded = persist.load()
     print(("[%s] V%s (%s edition) yuklendi%s"):format(SCRIPT, VERSION, "GameSense",
         loaded > 0 and (" (hafiza: %d oyuncu)"):format(loaded) or ""))
+    -- V1.0.60: kendi resolver kol secimindeki rastgele cekim (183 kararin hepsi "deneme" cikti) bir kez olculur.
+    if on(menu.resolver_log) then
+        hypothesis.own.probe()
+    end
 end
 
 end

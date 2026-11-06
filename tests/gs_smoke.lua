@@ -388,7 +388,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.59 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.60 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -718,6 +718,12 @@ check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw va
     "kendi resolver acik: lby+ kolu, Force body yaw 58 (" .. tostring(plist.get(2, "Force body yaw")) .. " / "
     .. tostring(plist.get(2, "Force body yaw value")) .. ")")
 check(printed("| bizim lby+ (lby L 50") ~= nil, "kol secimi loga yazildi")
+do
+    local kl = printed("| bizim lby+ (lby L 50")
+    check(kl ~= nil and kl:find("| r %d%.%d+/0%.00 tercih") ~= nil and kl:find("lby%+ %d%.%d+%+%d%.%d+") ~= nil,
+        "V1.0.60: kol karari cekimi, esigi ve skorlari yazar (" .. tostring(kl) .. ")")
+    check(printed("dbg random: random() 32x min") ~= nil, "V1.0.60: yuklemede rastgele cekim olcumu yazilir")
+end
 -- V1.0.32: karar dusman basina: dusman yurumeye gecince (Moving hipotezi) kol yeni karar verilmeden tasinir.
 before = #prints + 1
 W.evel[2] = 100
@@ -1462,6 +1468,45 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.60: seride -58 ve +58 ikisi de iskalarsa body yaw 0, o da iskalarsa -29 / +29, sonra yine tam aci
+-------------------------------------------------------------------------------
+do
+    local own2 = find_ref("  » Own resolver (LBY")
+    local own_was = own2.value
+    own2.value = false
+    W.sees[2], W.sees[3], W.speed, W.lag = false, false, 0, 12
+    W.head_dmg[3] = 100
+    tick(10)
+    local vels = { 0, 130, 250 }
+    for i = 1, 3 do
+        W.evel[3] = vels[i]; tick(40)
+        fire("aim_fire", { id = 6000 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        fire("aim_miss", { id = 6000 + i, target = 3, hitgroup = 1, reason = "?" })
+    end
+    W.evel[3] = 0
+    local seen = {}
+    before = #prints + 1
+    for i = 1, 8 do
+        tick(6)
+        seen[#seen + 1] = plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") or "x"
+        fire("aim_fire", { id = 6010 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        fire("aim_miss", { id = 6010 + i, target = 3, hitgroup = 1, reason = "?" })
+    end
+    local got = {}
+    for _, v in ipairs(seen) do got[#got + 1] = tostring(v) end
+    local seq = table.concat(got, " ")
+    check(printed("seri: -58 ve +58 ikisi de iskaladi (fake yaw / kucuk desync) -> body yaw 0", before) ~= nil,
+        "V1.0.60: seride iki taraf da iskalayinca body yaw 0 (" .. seq .. ")")
+    check(printed("seri: body yaw 0 iskaladi -> body yaw -29", before) ~= nil and printed("seri: -29 iskaladi -> body yaw +29", before) ~= nil,
+        "V1.0.60: 0 iskalayinca -29, sonra +29 (" .. seq .. ")")
+    check(printed("seri: +29 iskaladi -> yine tam aci, body yaw -58", before) ~= nil, "V1.0.60: yarim acilar da iskalayinca yine tam aci")
+    check(seq:find("58 0 %-29 29") ~= nil, "V1.0.60: seri merdiveni plist'e yazilir: +58, 0, -29, +29 (" .. seq .. ")")
+    own2.value = own_was
+    W.head_dmg[3] = 0
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.51: scout ile havada GameSense'in "vurulabilir" bayragi hava defensive'ini kesmez; satirlarda hiz / egilme
 -------------------------------------------------------------------------------
 do
@@ -1698,6 +1743,24 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.60: olduren isabet duello satirinda sayilir (player_death aim_hit'ten once gelir)
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.head_dmg[2] = true, 120
+    tick(10)
+    fire("aim_fire", { id = 6101, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    before = #prints + 1
+    fire("player_death", { userid = 2, attacker = 1, headshot = true, penetrated = 0, weapon = "ssg08" })
+    fire("aim_hit", { id = 6101, target = 2, hitgroup = 1, damage = 120 })
+    local dl = printed("dbg duello: dusman2", before)
+    check(dl ~= nil and dl:find("sen: 1 ates 1 isabet | oldurdun", 1, true) ~= nil,
+        "V1.0.60: olduren atis duelloda isabet sayilir (" .. tostring(dl) .. ")")
+    fire("player_spawn", { userid = 2 })
+    W.head_dmg[2] = 0
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1707,7 +1770,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.59 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.60 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

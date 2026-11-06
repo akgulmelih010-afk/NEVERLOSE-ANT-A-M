@@ -712,7 +712,18 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.59 kuralları (231 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.60** (resolver; V1.0.59 logları: 52 kill / 42 ölüm, 106 atışta 44 kafa, 23 correction ıskası; kullanıcı: "kent fake yaw kullanıyor")
+
+| Değişiklik | Neden |
+|---|---|
+| **Seri merdiveni:** düşman başına seride −58 ve +58 ikisi de tam açıyla kafada ıskalarsa body yaw **0**, o da ıskalarsa **−29**, sonra **+29**, sonra yine tam açı. 0 / yarım açıyla kafa vurulursa o basamak korunur. Log: `seri: -58 ve +58 ikisi de iskaladi (fake yaw / kucuk desync) -> body yaw 0` | kent.apk (statik, yan duruyor, `lby+0`): 15 atışta 9 correction; GS, abs+, abs−, seri −58 ve +58 hepsi ıskaladı. İki taraf da tutmuyorsa sorun taraf değil, açının büyüklüğü (fake yaw / küçük desync). Resolver'da 0 ve ±29 adayları vardı ama seri sadece ±58 arasında gidip geliyordu. |
+| **Hata:** kendi resolver kol seçiminde keşif çekimi `random()` yerine `random(0, 999999) / 1e6` | Tüm loglardaki 183 "bizim" kararının hepsi "(deneme)" idi: kol hep en az denenen koldu, öğrenilen skorlar hiç kullanılmıyordu. Yüklemede `dbg random:` satırı iki çekimi ölçer. |
+| Kol kararları skorlarıyla yazılır (`| r 0.412/0.15 tercih | gs 0.668+0.081 abs+ ...`); GS'nin tercih edildiği kararlar da (`GS resolver'i (tercih)`) | Önceden GS seçimi sessizdi; kolların gerçekten GS'den iyi olup olmadığı ölçülemiyordu. |
+| **Hata (log):** öldüren isabet düello satırında sayılır | `player_death`, `aim_hit`'ten önce geldiği için v58'de 9/9 "oldurdun" düellosu "0 isabet" yazıyordu. |
+
+Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.60 kuralları (237 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
