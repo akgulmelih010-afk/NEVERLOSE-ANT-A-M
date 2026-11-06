@@ -406,7 +406,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.61 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.62 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -554,6 +554,25 @@ tick(3)
 check(plist.get(2, "Add to whitelist") == false, "kafani gorurken sahte kayitta beklenmez")
 W.sim_shift[2] = 0
 tick(40)
+-- V1.0.62: peek atarken (dusman seni gormuyor) sahte kayitta en fazla 4 tick beklenir.
+do
+    W.sees[2] = false
+    local pk = find_ref("Quick peek assist key")
+    local pc = find_ref("Quick peek assist")
+    pk.value, pc.value = true, true
+    W.speed = 120
+    tick(10)
+    W.sim_shift[2] = 10
+    tick(2)
+    local w2 = plist.get(2, "Add to whitelist")
+    tick(5)
+    local w7 = plist.get(2, "Add to whitelist")
+    check(w2 == true and w7 == false, "V1.0.62: peek'te gorulmezken sahte kayitta kisa bekleme (2. tick " .. tostring(w2) .. ", 7. tick " .. tostring(w7) .. ")")
+    W.sim_shift[2] = 0
+    pk.value, pc.value, W.speed = false, false, 0
+    W.sees[2] = true
+    tick(40)
+end
 
 -------------------------------------------------------------------------------
 -- V1.0.22: Safe recharge Peek'te / yururken beklemez, en fazla 0.5 sn
@@ -1823,7 +1842,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.61 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.62 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

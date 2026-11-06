@@ -712,6 +712,17 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.62** (kullanıcı: northgard "predictlemiyorsun" dedi; 109 özelliğin denetimi: 23 ajan, her "çalışmıyor" iddiasına şüpheci)
+
+| Değişiklik | Neden |
+|---|---|
+| **Peek atarken sahte kayıt beklemesi:** sen peek atarken düşman seni **görmüyorsa** sahte (defensive) kayıtta en fazla **4 tick** gerçek kayıt beklenir (sonra ateş serbest, 32 tick cooldown). Seni görüyorsa eskisi gibi beklenmez. | Tüm loglarda sahte kayda "bekleme yok: duello / peek" ile giden 24 scout atışı %37 isabet / %37 correction; normal kayıt %61 / %23, bekleyerek sahte kayda giden %63. "Predict" şikâyeti bu: peek'te defensive'in sahte kaydına sıkılıyordu. |
+| "bekleme yok" sebebi aynı sahte kayıt penceresinde ilk gerçek sebebi korur (sonraki cooldown tick'leri "cooldown" diye ezmez) | Atış satırı yanlış sebep yazıyordu. |
+| **Hata (denetim):** kendi resolver'ın LBY kolları hiç ölçülemiyordu: `lby-` kararı 23/23 kez atış gitmeden 1 sn içinde bırakıldı, 0 atışlı kol keşifte ve UCB'de hep yeniden seçildi (kilitlenme). Artık atışsız bırakılan karar o kola "deneme" sayılır (oturum içi); prim azalır, sıra diğer kollara / GS'ye geçer. | Denetim + şüpheci doğruladı. |
+| **Hata (denetim):** roll açıkken her yüklemede kayıtlı özel Roll değerin 45'e eziliyordu; artık sadece senin kapalı → açık geçişinde | Roll sunucuda yasak, pratikte etkisiz ama hata. |
+
+Denetimde çalışmadığı doğrulanan ama **bilerek değiştirilmeyenler** (varsayılanları zaten kapalı ya da veriyle kapatılmış; "Always use recommended settings" açıkken elle açılamıyorlar): `Defensive vs enemy peeks` (sadece "On peek" durumlarında çalışıyor, varsayılan durumların hepsi Smart; yerde defensive'in kafa payına etkisi ölçülmedi, açmak DT şarjını harcar), `Body 70+ while an enemy sees you` (MD 100'ü düşürür), `Air duck when seen`, `Snipers use DT in the air`, `Fake duck still`. Denetimde "çalışıyor" çıkanlar: resolver, hipotezler, seri, safe point, düşük can, kafa kuralı, sahte kayıt gövdesi, gerçek kayıt bekleme, unutma / istatistik sıfırlama butonları, FPS / aspect, AFK, AI peek, loglar.
+
 **V1.0.61** (V1.0.60 logu: kısa oturum, 1 kill / 9 ölüm, 11 atışın hepsi `res gs`; seri ve kendi kollar hiç devreye girmedi)
 
 | Değişiklik | Neden |
@@ -731,7 +742,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.61 kuralları (241 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.62 kuralları (242 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

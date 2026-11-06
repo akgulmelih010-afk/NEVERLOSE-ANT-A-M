@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.61"
+local VERSION = "1.0.62"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -3673,6 +3673,15 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
                 print(("[%s] resolver: %s %s | taraf bilgisi %.1f sn'dir yok (%s -> %s): %s kolu birakildi, GS resolver'i"):format(SCRIPT,
                     entry.name or player_name(enemy), state, now - own.seen, own.kind, h.kind, own.arm))
             end
+            -- V1.0.62 (ozellik denetimi: lby- karari 23/23 kez atis gitmeden 1 sn icinde birakildi, 0 atisli kol UCB'de
+            -- ve kesifte hep yeniden secildi): atissiz birakilan karar o kola "deneme" sayilir (oturum ici), kolun
+            -- primi azalir, sira diger kollara / GS'ye gecer.
+            if not own.fired then
+                local st = hypothesis.own.stats[own.arm]
+                if st ~= nil then
+                    st.tries = (st.tries or 0) + 1
+                end
+            end
             -- Bilgi geri gelince bekletmeden yeni karar verilsin.
             entry.own, entry.own_choice, own = nil, nil, nil
         end
@@ -3914,6 +3923,12 @@ hypothesis.own.ln = function(x)
     return 2 * sum + k * 0.69314718055994531
 end
 
+-- Kesif / UCB icin kolun denenme sayisi: atis + atissiz birakilan karar (V1.0.62).
+hypothesis.own.tried = function(arm)
+    local st = hypothesis.own.stats[arm]
+    return st ~= nil and (st.shots + (st.tries or 0)) or 0
+end
+
 -- Donus: kol, deneme mi. Son karar own.last'ta (log icin): r, esik, skorlar.
 hypothesis.own.choose = function(entry, kind, pattern)
     local own = hypothesis.own
@@ -3924,7 +3939,7 @@ hypothesis.own.choose = function(entry, kind, pattern)
     if explore > 0 and r < explore then
         local least, least_shots = nil, nil
         for _, arm in ipairs(list) do
-            local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
+            local shots = own.tried(arm)
             if shots < own.explore_max and (least == nil or shots < least_shots) then
                 least, least_shots = arm, shots
             end
@@ -3935,11 +3950,11 @@ hypothesis.own.choose = function(entry, kind, pattern)
     end
     local total = 0
     for _, arm in ipairs(list) do
-        total = total + (own.stats[arm] ~= nil and own.stats[arm].shots or 0)
+        total = total + own.tried(arm)
     end
     local best, best_score = "gs", -1
     for _, arm in ipairs(list) do
-        local shots = own.stats[arm] ~= nil and own.stats[arm].shots or 0
+        local shots = own.tried(arm)
         local base = own.score(entry, arm)
         local bonus = own.ucb * sqrt(own.ln(total + 1) / (shots + 1))
         if not finite(bonus) then
@@ -4418,7 +4433,10 @@ end
 -- bittikten 0-2 tick sonra giden atis da %58 (ilk gercek kayit daha oturmadan). Varsayilan ACIK (kurallari
 -- aynen: duelloda / goruluyorken beklenmez, en fazla max tick, sonra cooldown tick serbest) ve gercek kayit
 -- geldikten sonra after tick daha beklenir.
-resolver.wait = { max = 14, after = 3, cooldown = 32, enemies = {}, log_every = 5 }
+-- V1.0.62 (kullanici: northgard "predictlemiyorsun" dedi; tum loglarda sahte kayda "bekleme yok: duello / peek" ile giden
+-- 24 scout atisi %37 isabet / %37 correction, normal kayit %61 / %23, bekleyerek sahte kayda giden %63): sen peek
+-- atarken de dusman seni GORMUYORSA en fazla duel_max tick gercek kayit beklenir (seni goruyorsa yine beklenmez).
+resolver.wait = { max = 14, after = 3, cooldown = 32, enemies = {}, log_every = 5, duel_max = 4 }
 
 resolver.wait_apply = function(class, present)
     local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
@@ -4438,13 +4456,17 @@ resolver.wait_apply = function(class, present)
         local cooling = now >= w.free_until - wait.cooldown and now < w.free_until
         local seen = sees_me(enemy)
         local mine = plist_user(enemy, PL.WHITELIST) == true
-        local free = profile == nil or cooling or duel or seen or mine
+        local free = profile == nil or cooling or seen or mine or (duel and w.ticks >= wait.duel_max)
         local fake = profile ~= nil and profile.defensive_now
         -- V1.0.47 (v46: sahte kayda giden atislar "bekleme yok" sebebi bilinmeden gitti): kayit sahteyken beklenmiyorsa
         -- sebebi tutulur; atis satirina "bekleme yok: <sebep>" yazilir.
         if fake and free then
-            w.why = (cooling and "cooldown") or (duel and "duello / peek")
-                or (seen and "seni goruyor") or (mine and "senin whitelist") or "?"
+            -- V1.0.62: ayni sahte kayit penceresinde birakilmanin asil sebebi (gorulme / peek siniri) sonraki
+            -- cooldown tick'lerinde "cooldown" ile ezilmez.
+            if not (cooling and w.why ~= nil) then
+                w.why = (cooling and "cooldown") or (duel and not seen and "duello / peek")
+                    or (seen and "seni goruyor") or (mine and "senin whitelist") or "?"
+            end
             w.why_tick = now
         elseif not fake then
             w.why = nil
@@ -4962,6 +4984,11 @@ local function apply(v, lp)
     local roll = nil
     local roll_on = on(menu.roll)
     -- V1.0.57: roll acildigi anda en iyi deger (45, en buyuk yatma) yazilir; sonra elle degistirirsen dokunulmaz.
+    -- V1.0.62 (ozellik denetimi): ilk tick'te (yukleme / reload) sadece durum kaydedilir; kayitli ozel Roll degerin her
+    -- yuklemede 45'e ezilmesin, sadece senin kapali -> acik gecisinde yazilsin.
+    if current.roll_was == nil then
+        current.roll_was = roll_on
+    end
     if roll_on and not current.roll_was and menu.roll_value ~= nil then
         pcall(menu.roll_value.set, menu.roll_value, 45)
     end
@@ -7812,6 +7839,10 @@ listen("aim_fire", protect("aim_fire", function(e)
         local res_arm = "gs"
         if hyp_yaw ~= nil then
             res_arm = h.own_arm or "brute"
+            local pe = key ~= nil and resolver.players[key] or nil
+            if pe ~= nil and pe.own ~= nil and pe.own.arm == res_arm then
+                pe.own.fired = true
+            end
         end
         local prof_now = enemy_watch.profile(target)
         local streak_yaw = hyp_yaw == nil and resolver.streak.yaw(key, prof_now ~= nil and prof_now.pattern or nil, target) or nil
