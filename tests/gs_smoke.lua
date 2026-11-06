@@ -277,8 +277,8 @@ function entity.get_prop(ent, name, idx)
         if name == "m_iTeamNum" then return 3 end
         if name == "m_ArmorValue" then return 100 end
         if name == "m_flMaxspeed" then return 230 end
-        if name == "m_angEyeAngles" then return 0, 180, 0 end
-        if name == "m_angEyeAngles[1]" then return 180 end
+        if name == "m_angEyeAngles" then return 0, (W.eyaw and W.eyaw[ent]) or 180, 0 end
+        if name == "m_angEyeAngles[1]" then return (W.eyaw and W.eyaw[ent]) or 180 end
         if name == "m_flLowerBodyYawTarget" then return W.elby[ent] or 180 end
         if name == "m_vecViewOffset[2]" then return 64 end
         if name == "m_flPoseParameter" then return 0.5 end
@@ -406,7 +406,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.63 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.64 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -800,16 +800,18 @@ check(plist.get(2, "Force body yaw") == true, "V1.0.31: fark arada geri geldiyse
 tick(10)
 check(printed("sn'dir yok (lby -> open): lby+ kolu birakildi", before) ~= nil, "V1.0.30: LBY farki 1 sn kesintisiz kalkinca lby+ kolu birakilir (loga yazildi)")
 -- V1.0.33: taraf bilgisi yok ama desen statik -> abs+ kolu (dogrudan +58), atis "res abs+" ile etiketlenir.
-check(plist.get(2, "Force body yaw") == true and plist.get(2, "Force body yaw value") == 58
-    and printed("| bizim abs+ (statik desync, taraf bilgisi yok) body yaw 58", before) ~= nil,
-    "V1.0.33: statik dusmanda taraf bilgisi yokken abs+ kolu (" .. tostring(plist.get(2, "Force body yaw value")) .. ")")
+-- V1.0.64: hangi abs kolunun secilecegi onceki (atissiz, suresi dolan) kararlarin deneme sayisina bagli; secilen kol izlenir.
+W.absa = plist.get(2, "Force body yaw value") == -58 and "abs-" or "abs+"
+check(plist.get(2, "Force body yaw") == true and math.abs(plist.get(2, "Force body yaw value") or 0) == 58
+    and printed("| bizim " .. W.absa .. " (statik desync, taraf bilgisi yok) body yaw " .. (W.absa == "abs-" and "-58" or "58"), before) ~= nil,
+    "V1.0.33: statik dusmanda taraf bilgisi yokken abs kolu (" .. tostring(plist.get(2, "Force body yaw value")) .. ")")
 before = #prints + 1
 fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
 fire("aim_fire", { id = 8, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
 tick(2)
 fire("aim_hit", { id = 8, target = 2, hitgroup = 1, damage = 120 })
 line = printed("atis: dusman2", before)
-check(line ~= nil and line:find("| res abs+", 1, true) ~= nil, "V1.0.33: atis satirinda res abs+ (" .. tostring(line) .. ")")
+check(line ~= nil and line:find("| res " .. W.absa, 1, true) ~= nil, "V1.0.33: atis satirinda res " .. W.absa .. " (" .. tostring(line) .. ")")
 -- V1.0.34: kafaya nisan alinip gogse giden isabet kolun basarisi sayilmaz (hafizada abs+ 1/1 kalmali, bkz. kapanis).
 fire("weapon_fire", { userid = 1, weapon = "weapon_ssg08" })
 fire("aim_fire", { id = 9, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
@@ -824,8 +826,8 @@ fire("aim_fire", { id = 10, target = 2, hitgroup = 1, damage = 120, hit_chance =
 tick(2)
 fire("aim_miss", { id = 10, target = 2, hitgroup = 1, reason = "?" })
 line = printed("atis: dusman2", before)
-check(line ~= nil and line:find("| res abs+", 1, true) ~= nil and line:find("iska", 1, true) ~= nil,
-    "V1.0.34 kurulum: abs+ kolunda resolver iskasi (" .. tostring(line) .. ")")
+check(line ~= nil and line:find("| res " .. W.absa, 1, true) ~= nil and line:find("iska", 1, true) ~= nil,
+    "V1.0.34 kurulum: abs kolunda resolver iskasi (" .. tostring(line) .. ")")
 check(printed("denenecek", before) == nil, "V1.0.34: kol iskasi brute dongusunu baslatmaz (" .. tostring(printed("denenecek", before)) .. ")")
 -- V1.0.31: sag taraf (dusman 3, LBY 230: fark -50 -> R, aci aynalanir: body yaw -58); anlik kayipta secilen taraf korunur.
 W.sees[3], W.elby[3] = true, 230
@@ -1843,6 +1845,70 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.64: DT doluyken kayan sarj tabani 2 sn sebepsiz dusuk okumadan sonra duzelir
+-------------------------------------------------------------------------------
+do
+    W.sees[2], W.sees[3], W.speed, W.flags = false, false, 0, 1
+    W.lag = 12
+    dt_ref.value = false
+    tick(10) -- DT kapaliyken taban = dolu offset (kayma)
+    dt_ref.value = true
+    tick(20)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 1, hitgroup = 3, weapon = "ssg08" })
+    local l1 = printed("vuruldun:", before)
+    tick(200)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 1, hitgroup = 3, weapon = "ssg08" })
+    local l2 = printed("vuruldun:", before)
+    check(l1 ~= nil and l1:find("DT %0", 1, true) ~= nil and l2 ~= nil and l2:find("DT dolu", 1, true) ~= nil,
+        "V1.0.64: kayan DT tabani duzelir (once " .. tostring(l1 and l1:match("DT [^,]+")) .. ", sonra " .. tostring(l2 and l2:match("DT [^,]+")) .. ")")
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.64: DM (round_start yok): dogusta 60 sn'de bir round ozeti / sifirlama
+-------------------------------------------------------------------------------
+do
+    fire("round_start")
+    tick(20)
+    before = #prints + 1
+    fire("player_spawn", { userid = 1 })
+    check(printed("dbg sen ozeti", before) == nil, "V1.0.64: round_start'tan hemen sonra dogus round islerini tekrarlamaz")
+    W.tick = W.tick + 64 * 61 -- 61 sn round_start yok (DM)
+    tick(20)
+    before = #prints + 1
+    fire("player_spawn", { userid = 1 })
+    check(printed("dbg sen ozeti", before) ~= nil and printed("dbg ===== round", before) ~= nil,
+        "V1.0.64: DM'de 60 sn sonra dogusta round ozeti yazilir")
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.64: durum degisince onceki durumun deseni bu durumun "desen degisimi" sayilmaz
+-------------------------------------------------------------------------------
+do
+    W.eyaw = {}
+    W.sees[3], W.head_dmg[3] = true, 100
+    W.evel[3] = 0
+    tick(200) -- Standing: statik
+    before = #prints + 1
+    for cycle = 1, 4 do
+        W.evel[3] = 130 -- Slow walk / Moving: jitter
+        for i = 1, 50 do
+            W.eyaw[3] = (i % 2 == 0) and 120 or -120
+            tick(1)
+        end
+        W.evel[3], W.eyaw[3] = 0, 180 -- Standing: statik
+        tick(50)
+    end
+    local k = printed("dusman3 Standing AA deseni kararsiz", before)
+    check(k == nil, "V1.0.64: durumlar arasi gidip gelen dusmanda Standing 'kararsiz' sayilmaz (" .. tostring(k) .. ")")
+    W.eyaw, W.head_dmg[3], W.sees[3] = nil, 0, false
+    tick(20)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1852,16 +1918,27 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.63 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.64 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
 local saved = db.nykle_win_gs_memory
+do
+    local with_last = 0
+    if type(saved) == "table" and type(saved.resolver) == "table" then
+        for _, e in pairs(saved.resolver) do
+            if type(e) == "table" and e.last == saved.session then with_last = with_last + 1 end
+        end
+    end
+    check(type(saved) == "table" and saved.session == 1 and with_last > 0,
+        "V1.0.64: hafiza kaydi oturum ve son gorulme tasir (oturum " .. tostring(type(saved) == "table" and saved.session) .. ", " .. with_last .. " oyuncu)")
+end
 local arms = type(saved) == "table" and type(saved.own_res) == "table" and saved.own_res.arms or nil
 check(arms ~= nil and arms["lby+"] ~= nil and arms["lby+"].shots == 1 and arms["lby+"].hits == 1,
     "kol sayimi hafizaya yazildi (lby+ 1/1)")
-check(arms ~= nil and arms["abs+"] ~= nil and arms["abs+"].hits == 1,
-    "V1.0.34: abs+ kafa isabeti 1, gogse giden isabet sayilmadi (" .. (arms and arms["abs+"] and (arms["abs+"].hits .. "/" .. arms["abs+"].shots) or "?") .. ")")
+local aa_arm = W.absa or "abs+"
+check(arms ~= nil and arms[aa_arm] ~= nil and arms[aa_arm].hits == 1,
+    "V1.0.34: " .. aa_arm .. " kafa isabeti 1, gogse giden isabet sayilmadi (" .. (arms and arms[aa_arm] and (arms[aa_arm].hits .. "/" .. arms[aa_arm].shots) or "?") .. ")")
 errs = errors_since(1)
 check(#errs == 0, "hic hata satiri yok" .. (#errs > 0 and (": " .. errs[1]) or ""))
 

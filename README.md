@@ -712,6 +712,19 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.64** (ikinci özellik denetimi: 14 ajan; sayı taraması, hiç görünmeyen log satırları, iç sistemler; her bulguya şüpheci)
+
+| Düzeltme | Neden |
+|---|---|
+| **AA deseni değişimi durum oturmadan sayılmaz** (düşman yeni duruma geçince 1.5 sn) | Desen penceresi düşman başına, karşılaştırma durum başına: önceki durumun deseni (ör. Slow walk'taki jitter) Standing'in "desen değişimi" sayılıyordu. "deseni degisti / kararsiz" olaylarının yaklaşık yarısı buydu; her biri o durumda kendi resolver'ı ve hipotezleri **20 sn kapatıyordu**. Testte eski kod "kararsiz" yazıyor, yenisi yazmıyor. |
+| **DT şarj tahmini düşükte takılırsa 2 sn sonra düzelir** (`sen ozeti`'nde "taban duzeltildi N kez") | v63b round 7: tüm round "DT %0 sh 0/14", **zorlanan defensive 0 tick**, yarım şarj 1700 tick. Taban DT doluyken kayınca onu düzeltecek boşaltmalar (zorlanan defensive, havada teleport) dolu şarj istediği için hiç olmuyordu. |
+| **DM'de round işleri doğuşta** (son round başlangıcından 60 sn geçtiyse): round özeti, hafıza kaydı, şarj / brute sıfırlama, detaylı log özetleri | DM haritasında round_start hiç gelmiyor: v63b'de 8 dakika boyunca hiçbiri çalışmadı. Harita değişince de son roundun özeti artık yazılıyor. |
+| Atış gitmeyen kendi kol kararı 10 sn sonra bırakılır (o kola deneme sayılır) | abs kolları hiç bırakılmıyordu ("taraf bilgisi 248 sn'dir yok"). |
+| Hafıza (64 oyuncu) son görülme oturumuna göre: yüklemede en yeniler, oturumda en eski hatırlanan önce atılır | Hafıza dolu ve kimin atılacağı tablo sırasına kalmıştı. |
+| Ölen oyuncu detay satırında "havada" yazılmaz | Ölümcül her vurulmada yanlış "havada vz+0" yazılıyordu. |
+
+Denetimde temiz çıkanlar: loglardaki tüm sayılar (nan / inf yalnız eski V1.0.60 UCB primi), trig / sqrt / modulo kullanımları, fake duck koruması (v42'de tetiklenmiş), manuel ok tuşları, freestanding tuşu, istatistik sıfırlama, keşif oranı (V1.0.61'den beri çalışıyor). `math.random` tohumsuz ama etkisiz bulundu (oyun içi çekim sayısı oturumları ayırıyor).
+
 **V1.0.63** (V1.0.62'nin ayrı incelemesi: 10 ajan, 3 gerçek bulgu)
 
 | Değişiklik | Neden |
@@ -750,7 +763,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.63 kuralları (243 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.64 kuralları (248 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

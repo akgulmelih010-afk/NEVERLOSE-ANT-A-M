@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.63"
+local VERSION = "1.0.64"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -2279,6 +2279,7 @@ charge.update = function(lp, quiet)
     if not dt_on() or offset > charge.base then
         charge.base = offset
         charge.flat_full = nil
+        charge.low_n = 0
     end
     local shift = charge.base - offset
     -- Ping dustuyse base eskidi: sarj beklenenden fazla gorunmesin.
@@ -2314,7 +2315,9 @@ charge.update = function(lp, quiet)
         -- Sadece tavani dusurur; sebep penceresinde, taban yukari duzelince ve her round silinir.
         if not quiet then
             charge.flat_full, charge.flat_at, charge.flat_n = nil, nil, 0
+            charge.low_n = 0
         elseif held >= 3 then
+            charge.low_n = 0
             if charge.flat_at ~= nil and abs(held - charge.flat_at) <= 1 then
                 charge.flat_n = charge.flat_n + 1
             else
@@ -2330,6 +2333,20 @@ charge.update = function(lp, quiet)
             end
         else
             charge.flat_at, charge.flat_n = nil, 0
+            -- V1.0.64 (denetim, v63b round 7: tum round "DT %0 sh 0/14", zorlanan defensive 0, yarim sarj 1700 tick):
+            -- taban DT doluyken kayarsa shift 0-2'de takili kalir; onu duzeltecek bosaltmalar (zorlanan defensive,
+            -- havada teleport) de dolu sarj istedigi icin hic olmaz. Calisan DT ~0.25 sn'de dolar: bosaltma sebebi
+            -- yokken 2 sn (128 tick) boyunca tutulan shift 0-2 kaldiysa taban eskimistir, sarj beklenen degere alinir.
+            charge.low_n = (charge.low_n or 0) + 1
+            if charge.low_n >= 128 then
+                charge.base = offset + charge.expected
+                charge.shift = charge.expected
+                charge.low_n = 0
+                charge.low_fixes = (charge.low_fixes or 0) + 1
+                for i = 1, 24 do
+                    ring[i] = charge.expected
+                end
+            end
         end
         local sec = floor(realtime())
         local hist = charge.hist or {}
@@ -2524,7 +2541,7 @@ brute.group_for = function(state)
     return brute.group_of[state] or "still"
 end
 -- Ogrenilenler GameSense'in database deposuna yazilir (Neverlose surumunden ayri anahtar).
-local persist = { key = "nykle_win_gs_memory", every = 60, dirty = false, saved = -huge }
+local persist = { key = "nykle_win_gs_memory", every = 60, dirty = false, saved = -huge, session = 1 }
 
 -- Oran (isabet + 2) / (mermi + 4) (sniper exploit icin).
 brute.rate = function(stat)
@@ -3427,7 +3444,7 @@ end
 -- spin arasinda saniyede bir; her degisimde "hipotezler sifirlandi", hemen ardindan yine "3 resolver iskasi
 -- -> body yaw 58"). Kararsizken hipotez yok (Force safe point kalir); yeni desen 1.5 sn oturmadan baslamaz.
 local hypothesis = { store = {}, candidates = 5, attempts = 5, cooldown = 4, memory = 30,
-    settle = 1.5, flip_window = 20, flip_max = 3 }
+    settle = 1.5, flip_window = 20, flip_max = 3, cur = {} }
 
 -- V1.0.17: jitter / x-way / random tek aile (hipotez yok, Force safe point); aralarindaki gecis desen
 -- degisimi ve kararsizlik sayilmaz (oyun logu: Haise jitter 50 <-> x-way 85 arasinda okunuyordu, 9 dk'da
@@ -3617,7 +3634,16 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     end
     local profile = enemy_watch.profile(enemy)
     local pattern = profile ~= nil and profile.pattern or nil
-    if pattern ~= nil then
+    -- V1.0.64 (denetim: "deseni degisti / kararsiz" olaylarinin yaklasik yarisi durum degisiminden hemen sonra; desen
+    -- penceresi dusman basina, karsilastirma durum basina; onceki durumun deseni bu durumun degisimi sayiliyor ve
+    -- kendi resolver / hipotezler o durumda 20 sn kapaniyordu): dusman bu duruma gecince settle sn dolmadan desen
+    -- degisimi sayilmaz ve durumun deseni yazilmaz.
+    local cur = hypothesis.cur[key]
+    if cur == nil or cur.state ~= state or now < cur.since then
+        cur = { state = state, since = now }
+        hypothesis.cur[key] = cur
+    end
+    if pattern ~= nil and now - cur.since >= hypothesis.settle then
         local changed = h.pattern ~= nil and hypothesis.family(pattern) ~= hypothesis.family(h.pattern)
         if changed then
             h.pattern_since = now
@@ -3663,6 +3689,15 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
         entry.own, entry.own_choice = nil, nil
     end
     local own = entry ~= nil and entry.own or nil
+    -- V1.0.64 (denetim: "taraf bilgisi 248 sn'dir yok" - abs kollari turu hep "open" oldugu icin hic birakilmiyordu):
+    -- atis gitmeyen karar hold sn sonra birakilir ve o kola deneme sayilir; atis gitmis (isabet etmis) karar kalir.
+    if own ~= nil and not own.fired and (now < (own.time or now) or now - (own.time or now) > hypothesis.own.hold) then
+        local st = hypothesis.own.stats[own.arm]
+        if st ~= nil then
+            st.tries = (st.tries or 0) + 1
+        end
+        entry.own, entry.own_choice, own = nil, nil, nil
+    end
     if own ~= nil then
         if h.kind == own.kind then
             own.seen, own.side, own.mag = now, h.side, h.mag
@@ -3714,7 +3749,7 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
             entry.own_choice = { arm = arm, kind = h.kind, time = now, exploring = exploring }
             if arm ~= "gs" then
                 hypothesis.own.stamp = hypothesis.own.stamp + 1
-                entry.own = { arm = arm, kind = h.kind, side = h.side, mag = h.mag, seen = now, stamp = hypothesis.own.stamp }
+                entry.own = { arm = arm, kind = h.kind, side = h.side, mag = h.mag, seen = now, time = now, stamp = hypothesis.own.stamp }
                 local c = hypothesis.own.candidate(arm, h.kind, h.mag)
                 h.candidate, h.visited, h.attempts, h.feedback = c, { [c] = true }, 1, now
                 h.own_arm, h.own_stamp = arm, hypothesis.own.stamp
@@ -8127,7 +8162,12 @@ persist.save = function(force)
     if not persist.dirty or (not force and now >= persist.saved and now - persist.saved < persist.every) then
         return
     end
-    local data = { version = 1, phase_v = brute.phase_v, brute = {}, resolver = {}, phase_groups = {},
+    -- V1.0.64 (denetim: hafiza 64'te dolu, yuklemede kim atilacagi tablo sirasina kalmisti): her kayit son goruldugu
+    -- oturumu tasir; yukleme en yeniden eskiye gider, oturum icinde de en eski hatirlanan once atilir.
+    local function last_of(entry)
+        return (entry.seen or 0) > 0 and persist.session or entry.last or 0
+    end
+    local data = { version = 1, phase_v = brute.phase_v, brute = {}, resolver = {}, phase_groups = {}, session = persist.session,
         sniper = { v = 2, hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
             dt = { shots = sniper.stats.dt.shots, hits = sniper.stats.dt.hits } },
         own_res = { v = 1, arms = {} } }
@@ -8136,7 +8176,7 @@ persist.save = function(force)
     end
     for key, entry in pairs(brute.enemies) do
         if steam_key(key) and entry.learned then
-            data.brute[key] = { base = entry.base, name = entry.name }
+            data.brute[key] = { base = entry.base, name = entry.name, last = last_of(entry) }
         end
     end
     for _, grp_name in ipairs(brute.groups) do
@@ -8179,7 +8219,7 @@ persist.save = function(force)
                     end
                 end
             end
-            data.resolver[key] = { name = entry.name, results = copy(entry.results), states = states,
+            data.resolver[key] = { name = entry.name, last = last_of(entry), results = copy(entry.results), states = states,
                 hits = entry.hits, misses = entry.misses, angles = angles, arms = arms,
                 profile = has_profile and { n = p.n, jitter = p.jitter, static = p.static, spin = p.spin,
                     xway = p.xway or 0, random = p.random or 0, def = p.def, fd = p.fd } or nil }
@@ -8189,6 +8229,33 @@ persist.save = function(force)
     if type(database) == "table" and pcall(database.write, persist.key, data) then
         persist.dirty = false
     end
+end
+
+-- V1.0.64: kayitli tablonun anahtarlari son gorulme oturumuna gore (yeniden eskiye; esitlikte anahtar sirasi).
+persist.order = function(tbl)
+    local keys = {}
+    for key, e in pairs(tbl) do
+        if type(e) == "table" then
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys, function(a, b)
+        local la, lb = tonumber(tbl[a].last) or 0, tonumber(tbl[b].last) or 0
+        if la ~= lb then
+            return la > lb
+        end
+        return tostring(a) < tostring(b)
+    end)
+    return keys
+end
+
+-- Hatirlanan oyuncunun "seen" degeri: kac oturum once goruldu (eksi; memory_entry en kucugu atar). Hic gorulmediyse 0.
+persist.age = function(e)
+    local last = tonumber(e.last)
+    if last == nil or last <= 0 then
+        return -(persist.session or 1)
+    end
+    return min(0, last - (persist.session or 1))
 end
 
 -- Kalici kisi profili ve aci sonuclari (bozuk / eski veri atlanir).
@@ -8278,6 +8345,7 @@ persist.load = function()
     if not ok or type(data) ~= "table" or data.version ~= 1 then
         return 0
     end
+    persist.session = (finite(data.session) and data.session or 0) + 1
     local players, count = {}, 0
     local function add(key)
         if not players[key] then
@@ -8285,11 +8353,12 @@ persist.load = function()
         end
     end
     if type(data.brute) == "table" then
-        for key, e in pairs(data.brute) do
+        for _, key in ipairs(persist.order(data.brute)) do
+            local e = data.brute[key]
             if count < K.MEMORY_LIMIT and steam_key(key) and type(e) == "table" and finite(e.base)
                 and e.base >= 0 and e.base <= #BRUTE_PHASES and e.base == floor(e.base) then
                 brute.enemies[key] = { stage = 0, time = 0, base = e.base, learned = true, name = tostring(e.name or "?"),
-                    seen = 0 }
+                    seen = persist.age(e), last = finite(e.last) and e.last or nil }
                 add(key)
             end
         end
@@ -8345,9 +8414,11 @@ persist.load = function()
         end
     end
     if type(data.resolver) == "table" then
-        for key, e in pairs(data.resolver) do
+        for _, key in ipairs(persist.order(data.resolver)) do
+            local e = data.resolver[key]
             if (players[key] or count < K.MEMORY_LIMIT) and steam_key(key) and type(e) == "table" then
-                local entry = { results = stored_window(e.results), states = {}, name = tostring(e.name or "?"), seen = 0 }
+                local entry = { results = stored_window(e.results), states = {}, name = tostring(e.name or "?"),
+                    seen = persist.age(e), last = finite(e.last) and e.last or nil }
                 for _, field in ipairs({ "hits", "misses" }) do
                     local n = e[field]
                     if finite(n) and n >= 0 and n <= 100000 then
@@ -8383,7 +8454,7 @@ forget_enemies = function()
     sniper.choice = "dt"
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     resolver.jittery, resolver.stalls = {}, {}
-    hypothesis.store = {}
+    hypothesis.store, hypothesis.cur = {}, {}
     resolver.streak.list = {}
     pending_misses = {}
     if type(database) == "table" then
@@ -8392,7 +8463,11 @@ forget_enemies = function()
     persist.dirty = false
 end
 
-listen("round_start", protect("round_start", function()
+-- V1.0.64 (denetim: DM haritasinda round_start hic gelmiyor; 8 dk boyunca round ozeti, periyodik hafiza kaydi ve round
+-- sifirlamalari hic calismadi): round baslangic isi bir fonksiyonda; round_start ve DM'de dogus (en fazla dakikada bir)
+-- onu cagirir.
+own.round_begin = function()
+    own.round_at = realtime()
     own.summary()
     own.shot_summary()
     reset_brute()
@@ -8411,11 +8486,19 @@ listen("round_start", protect("round_start", function()
     pending_misses = {}
     recharge.held = false
     persist.save(false)
+end
+
+listen("round_start", protect("round_start", function()
+    own.round_begin()
 end))
 
 -- Harita degisince slot numaralari degisir; Steam ID ile ogrenilenler korunur. Oyuncu listesi ezmeleri
 -- geri verilir (HvH sunucularinda oyuncular haritalar arasi kalir; slotu degisen oyuncuya varsayilan yazilir).
 listen("level_init", protect("level_init", function()
+    -- V1.0.64: haritanin son roundunun ozeti yeni haritanin verisine karismadan yazilir.
+    own.summary()
+    own.shot_summary()
+    own.round_at = nil
     reset_brute()
     pending_misses = {}
     -- Yeni harita yeni oturum: Force icin yine bu haritada bir resolver iskasi gerekir; hafizadan taninan
@@ -8826,7 +8909,9 @@ D.where = function(ent, lp)
     end
     local v = velocity_of(ent)
     parts[#parts + 1] = ("v%d"):format(round(sqrt(v.x * v.x + v.y * v.y)))
-    if not on_ground(ent) then
+    -- V1.0.64 (denetim): olen oyuncunun yerde bayragi silinir; olumcul vurulmada "havada vz+0" yanlis yaziliyordu.
+    local hp_now = prop(ent, "m_iHealth")
+    if not on_ground(ent) and not (finite(hp_now) and hp_now <= 0) then
         parts[#parts + 1] = ("havada vz%+d"):format(round(v.z))
     end
     local duck = prop(ent, "m_flDuckAmount")
@@ -9566,7 +9651,8 @@ listen("round_end", protect("detailed log round_end", function(e)
         (finite(team) and winner == team) and " (senin takimin)" or ""))
 end))
 
-listen("round_start", protect("detailed log round_start", function()
+-- V1.0.64: round ozeti / sifirlama tek fonksiyonda (round_start, DM dogusu, harita degisimi); no_header: baslik yazilmaz.
+D.round_begin = function(no_header)
     if D.on() then
         D.close_all("round bitti")
         for enemy, ep in pairs(D.def) do
@@ -9582,28 +9668,50 @@ listen("round_start", protect("detailed log round_start", function()
             if m.switching > 0 or m.knife > 0 then
                 extra = (" (silah degisirken %d, bicakli yakinken %d)"):format(m.switching, m.knife)
             end
-            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d | sarj tavani %d, taban farki %d | lby taraf %d/%d"):format(
+            print(("[%s] dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen: setup %d / predict %d / net_update %d, zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken %d), sarj pozu %d, defensive bitisi %d | sarj tavani %d, taban farki %d%s | lby taraf %d/%d"):format(
                 SCRIPT, m.ticks, m.dt, m.forced, extra, m.setup, m.pred, m.net, m.both, m.tp, m.tp_hit,
                 teleport.off and " (teleport bu harita kapali)" or "", m.partial, m.partial_seen, m.pose, m.def_ends,
                 charge.full or 0, (charge.base or charge.offset or 0) - (charge.offset or 0),
+                (charge.low_fixes or 0) > 0 and (", taban duzeltildi %d kez"):format(charge.low_fixes) or "",
                 own.aa.lby_same, own.aa.lby_n))
+            charge.low_fixes = 0
             -- V1.0.53: LBY taraf uyumu round basina (yakin %50 = sizinti yok; %90+ ya da %10- = LBY tarafi ele veriyor).
             own.aa.lby_same, own.aa.lby_n = 0, 0
         end
         -- V1.0.20: harita basinda round_start arka arkaya iki kez geliyor; arada satir yoksa ayni baslik
         -- ikinci kez yazilmaz.
-        local header = D.header()
-        if header ~= D.last_header or nlog.count ~= D.header_count then
-            print(header)
+        if not no_header then
+            local header = D.header()
+            if header ~= D.last_header or nlog.count ~= D.header_count then
+                print(header)
+            end
+            D.last_header, D.header_count = header, nlog.count
         end
-        D.last_header, D.header_count = header, nlog.count
     end
     D.reset()
     nlog.save()
+end
+
+listen("round_start", protect("detailed log round_start", function()
+    D.round_begin(false)
+end))
+
+-- V1.0.64: DM (round_start yok): yerel oyuncu dogdugunda, son round baslangicindan 60 sn gectiyse round isleri calisir.
+listen("player_spawn", protect("dm round", function(e)
+    local lp = local_player()
+    if lp == nil or userid_index(e.userid) ~= lp then
+        return
+    end
+    local now = realtime()
+    if own.round_at ~= nil and now >= own.round_at and now - own.round_at <= 60 then
+        return
+    end
+    own.round_begin()
+    D.round_begin(false)
 end))
 
 listen("level_init", protect("detailed log level_init", function()
-    D.reset()
+    D.round_begin(true)
     if D.on() then
         print(("[%s] dbg ===== harita %s ====="):format(SCRIPT, tostring(try(globals.mapname) or "?")))
         print(D.settings())
