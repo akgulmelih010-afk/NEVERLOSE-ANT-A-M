@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.58"
+local VERSION = "1.0.59"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1423,7 +1423,11 @@ menu.exposed_body   = grp.resolver:switch("  » Body 70+ while an enemy sees you
 -- V1.0.45: geri geldi. V1.0.34'te "ikinci mermi yok" diye kaldirilmisti; ama V1.0.30-33'te 9 cift govde atisinin 7'si
 -- oldurmeyle bitti (ikinci scout atisi ~1 sn sonra 8-27 canli dusmana), duello ortalamasi %51. Kaldirirken ornek
 -- verilen v30 17:13:35 olum degil oldurmeydi.
-menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", true, function() return on(menu.head_only) end)
+-- V1.0.59: varsayilan KAPALI (kayitli config'te acik kaldiysa ilk config yuklemesinde bir kez kapatilir,
+-- nykle_win_gs_dtpair59). Scout / AWP'de GameSense DT ikinci mermiyi hemen atmiyor (surgu ~1 sn; ayni saniyede ikinci
+-- atis 90'da 1). V1.0.45'ten beri 27 cift govde atisi: ilk atista 0 oldurme, 2 sn icinde 23 olum (v58: 8/8 olum, 5'i
+-- kafa, dusman 0.13-0.37 sn sonra vurdu). Ustelik senin Min. damage 100'unu 72-86'ya indiriyordu. Acarsan eski davranis.
+menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", false, function() return on(menu.head_only) end)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -2757,8 +2761,11 @@ sniper.record = function(mode, hit)
     if choice ~= sniper.choice then
         sniper.choice = choice
         if on(menu.hit_log) then
-            print(("[%s] sniper exploit: %s%s"):format(SCRIPT, sniper.summary(),
-                exploring and " (deneme: oteki hic denenmedi)" or ""))
+            -- V1.0.59: secim sadece "Auto (learn)"da uygulanir; baska ayarda satir etkisiz oldugunu soyler.
+            local setting = menu.sniper_exploit:get()
+            print(("[%s] sniper exploit: %s%s%s"):format(SCRIPT, sniper.summary(),
+                exploring and " (deneme: oteki hic denenmedi)" or "",
+                setting ~= "Auto (learn)" and (" (ayar: %s, etkisiz)"):format(tostring(setting)) or ""))
         end
     end
 end
@@ -4651,8 +4658,8 @@ do
 
         -- Kafa ya da oldurucu atis: tek atisli silahta Min. damage "HP + 1" (GameSense'te 101), aimbot sadece
         -- oldurecek yere ates eder. Senin daha yuksek minimum hasarin ve Minimum damage override tusun
-        -- dusurulmez (tek istisna asagida: yakindaki bicak / zeus). Sadece elindeki silahin grubu seciliyken
-        -- yazilir.
+        -- dusurulmez (istisnalar asagida: yakindaki bicak / zeus ve sen acarsan DT cifti; V1.0.59'dan beri
+        -- varsayilan kapali). Sadece elindeki silahin grubu seciliyken yazilir.
         local scope = rage_scope(class)
         local min_damage = nil
         local user_md = user_value("min_damage")
@@ -4664,7 +4671,8 @@ do
             end
         end
         -- DT cifti olduruyor (V1.0.26): Min. damage gecici olarak govde hasarinin 1 altina iner ki aimbot ilk
-        -- mermiyi govdeye atsin; ikincisi DT ile hemen arkasindan gelir. Override tusun basiliysa dokunulmaz.
+        -- mermiyi govdeye atsin; ikincisi scout / AWP'de surguden sonra (~1 sn) gelir. Override tusun basiliysa
+        -- dokunulmaz. V1.0.59: secenek varsayilan kapali (loglarda 27 cift atista 23 olum).
         local pair_md = false
         if sniper_kind and target_pair ~= nil and not md_override then
             local value = max(1, floor(target_pair) - 1)
@@ -8150,8 +8158,10 @@ persist.load = function()
         sniper.choice = choice
         -- V1.0.17: hangi exploit'le baslandigi yuklemede gorunsun.
         if sniper.stats.hs.shots + sniper.stats.dt.shots > 0 and on(menu.hit_log) then
-            print(("[%s] sniper exploit (hafiza): %s%s"):format(SCRIPT, sniper.summary(),
-                exploring and " (deneme: oteki hic denenmedi)" or ""))
+            local setting = menu.sniper_exploit:get()
+            print(("[%s] sniper exploit (hafiza): %s%s%s"):format(SCRIPT, sniper.summary(),
+                exploring and " (deneme: oteki hic denenmedi)" or "",
+                setting ~= "Auto (learn)" and (" (ayar: %s, etkisiz)"):format(tostring(setting)) or ""))
         end
     end
     for _, grp_name in ipairs(brute.groups) do
@@ -9970,6 +9980,9 @@ do
     -- V1.0.58: desync keeper (egik) kayitli config'te kapali kaldiysa ilk config yuklemesinde bir kez acilir.
     local ok_c, done_c = pcall(database.read, "nykle_win_gs_cc58")
     own.aa.cc_migrate = not (ok_c and done_c == true)
+    -- V1.0.59: DT cifti kayitli config'te acik kaldiysa ilk config yuklemesinde bir kez kapatilir.
+    local ok_p, done_p = pcall(database.read, "nykle_win_gs_dtpair59")
+    own.aa.pair_migrate = not (ok_p and done_p == true)
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             afk.migrate = false
@@ -9987,6 +10000,11 @@ do
             own.aa.cc_migrate = false
             pcall(menu.crouch_cap.set, menu.crouch_cap, true)
             pcall(database.write, "nykle_win_gs_cc58", true)
+        end
+        if own.aa.pair_migrate then
+            own.aa.pair_migrate = false
+            pcall(menu.dt_pair.set, menu.dt_pair, false)
+            pcall(database.write, "nykle_win_gs_dtpair59", true)
         end
         if afk.tt_migrate then
             afk.tt_migrate = false

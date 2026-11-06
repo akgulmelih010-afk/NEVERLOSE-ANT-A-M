@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.58 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.59 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -650,7 +650,12 @@ local md_ref = find_ref("Minimum damage")
 local body_ref = find_ref("  » Body 70+ while an enemy sees you")
 local pair_ref = find_ref("  » DT pair counts as lethal")
 check(body_ref ~= nil and body_ref.value == false, "Body 70+ secenegi var ve varsayilan kapali")
-check(pair_ref ~= nil and pair_ref.value == true, "V1.0.45: DT pair secenegi yine var ve varsayilan acik")
+check(pair_ref ~= nil and pair_ref.value == false, "V1.0.59: DT pair secenegi var ve varsayilan kapali")
+pair_ref.value = false
+W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 86, 12
+tick(10)
+check(md_ref.value == 101, "V1.0.59: DT pair kapaliyken govde 86 x 2 >= 100 olsa da MD 85'e inmez (" .. tostring(md_ref.value) .. ")")
+pair_ref.value = true -- eski davranisin kontrolleri (secenek acikken)
 -- V1.0.45 (V1.0.33 gibi): DT dolu, govde 86 x 2 >= 100: cift oldurucu, MD gecici 85.
 W.sees[2], W.head_dmg[2], W.body_dmg[2], W.lag = true, 0, 86, 12
 tick(10)
@@ -834,6 +839,7 @@ check(md_ref.value == 100, "V1.0.45: o dusmana karsi sniper kurali gevser, senin
 -- V1.0.51: gevseme DT ciftini kapatmaz (v50: gevsemeden sonra 14 tam canli atisin hepsi kafaya, govde 74 x 2 >= 100).
 do
     local lag_was = W.lag
+    pair_ref.value = true -- V1.0.59: secenek varsayilan kapali; eski davranis acikken
     W.body_dmg[2], W.lag = 74, 12
     before = #prints + 1
     tick(20)
@@ -842,6 +848,7 @@ do
     tick(20)
     check(md_ref.value == 100, "V1.0.51: DT dolu degilken senin MD'n 100, HP+1 yok (" .. tostring(md_ref.value) .. ")")
     W.body_dmg[2], W.lag = 45, lag_was
+    pair_ref.value = false
 end
 W.sees[2] = false
 tick(10)
@@ -1363,16 +1370,22 @@ do
     local cc58 = find_ref("Desync keeper: slow crouch-walk when seen")
     check(db.nykle_win_gs_cc58 == nil, "V1.0.58: config yuklenmeden desync keeper bayragi yazilmaz")
     cc58.value = false -- eski config'te kapali kaydedilmis
+    local pair_was = pair_ref.value
+    pair_ref.value = true -- eski config'te DT pair acik kaydedilmis
     air_ref.value = 40 -- eski config yuklendi
     fire("post_config_load")
     check(air_ref.value == 0 and db.nykle_win_gs_airhc47 == true, "V1.0.47: eski config'teki 40 bir kez 0 (" .. tostring(air_ref.value) .. ")")
+    check(pair_ref.value == false and db.nykle_win_gs_dtpair59 == true, "V1.0.59: eski config'teki acik DT pair bir kez kapatilir")
     check(cc58.value == true and db.nykle_win_gs_cc58 == true, "V1.0.58: eski config'teki kapali desync keeper bir kez acilir (" .. tostring(cc58.value) .. ")")
     air_ref.value = 40 -- sonra elle 40 secildi
     cc58.value = false -- sonra elle kapatildi
+    pair_ref.value = true -- sonra elle acildi
     fire("post_config_load")
     check(air_ref.value == 40, "V1.0.47: elle secilen 40'a sonra dokunulmaz")
     check(cc58.value == false, "V1.0.58: elle kapatilan desync keeper'a sonra dokunulmaz")
+    check(pair_ref.value == true, "V1.0.59: elle acilan DT pair'e sonra dokunulmaz")
     cc58.value = true
+    pair_ref.value = pair_was
     air_ref.value = 0
     tick(4)
 end
@@ -1681,7 +1694,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.58 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.59 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

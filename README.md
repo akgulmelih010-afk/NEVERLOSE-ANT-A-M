@@ -699,7 +699,14 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 - LBY uyumu round başına çok taraflı (0/7, 0/5, 1/9, 4/4, 3/5): rakip bazı roundlarda tarafı LBY'den okuyor olabilir. Bir sonraki logda `lby` sütunu ile kafa payı birlikte bakılacak.
 - `res seri` ve roll bu oturumda hiç çalışmadı (roll kapalı, sunucuda yasak).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.58 kuralları (225 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.59** (V1.0.58 logu, de_mirage / de_dust2: 9 kill / 22 ölüm; sana gelen 31 isabetin 16'sı kafa; senin 26 atışın 18'i isabet, 9'u kafa)
+
+| Değişiklik | Neden |
+|---|---|
+| **"DT pair counts as lethal" varsayılan KAPALI** (kayıtlı config'te açıksa ilk yüklemede bir kez kapatılır, `nykle_win_gs_dtpair59`; elle açarsan dokunulmaz) | Bu kural Min. damage 100'ünü 72–86'ya indiriyordu (logdaki "MD 73/84/86"). Scout / AWP'de GameSense DT ikinci mermiyi hemen atmıyor (sürgü ~1 sn; aynı saniyede ikinci atış 90'da 1). v58'de 8 çift gövde atışı: 0 kill, 8 ölüm (5'i kafa, düşman 0.13–0.37 sn sonra vurdu). V1.0.45'ten beri 27 çift atış: ilk atışta 0 kill, 2 sn içinde 23 ölüm. Kafa kuralı gevşemesi tek başına zararsız (MD 100 ile ilk atışta kill 46/95). |
+| Sniper exploit öğrenme satırı "Same as state" iken `(ayar: ..., etkisiz)` yazar | Log "-> Hide shots" diyordu ama ayar Same as state olduğu için hiçbir şey değişmiyordu. |
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.59 kuralları (228 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

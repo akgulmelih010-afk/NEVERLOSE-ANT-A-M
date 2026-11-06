@@ -515,3 +515,10 @@ Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (
 - Vurulma anındaki gerçek desync (`maxdsy`) ile kafa payı: ≤30° 5/15, 31–45° 1/6, 46–58° 1/12. Eski loglarla 258 mermide ≤30° %27, üstü %17. → V1.0.58 eğik desync keeper varsayılan açık.
 - Düşük desync kafaları: 2 "Air crouch" (DEF açık zorla, gizli 1t), 1 eğik peek (v78 duck100), 1 merdiven, 1 v64 duck100.
 - LBY uyumu round başına 0/7, 0/5, 1/9, 4/4, 3/5: taraf LBY'den sızıyor olabilir; bir sonraki logda kafa payıyla birlikte bakılacak.
+
+## V1.0.58 oturumu (de_mirage / de_dust2) ve V1.0.59
+
+- 9 kill / 22 ölüm. Sana gelen 31 isabetin 16'sı kafa. Atışından 0.5 sn içinde gelen 5 isabetin 5'i kafa; 3'ü DT çifti gövde atışından sonra.
+- "MD 72–86" atışları DT çifti kuralından (Min. damage gövde-1): 8 atış, 0 kill, 8 ölüm. V1.0.45'ten beri 27 çift atış, ilk atışta 0 kill, 23 ölüm. Scout DT ikinci mermisi aynı saniyede 90 ardışık atışta 1 kez. → V1.0.59 DT çifti varsayılan kapalı.
+- Eğik koruyucu (`yavas`) 4 vurulmada 3 kafa: örnek çok küçük (p≈0.6), değişiklik yok; ~20 vurulma birikince bakılacak. maxdsy kovaları bu oturumda fark göstermedi (≤30 3/7, 31–45 6/10, 46+ 7/12).
+
