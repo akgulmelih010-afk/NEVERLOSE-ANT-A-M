@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.64"
+local VERSION = "1.0.65"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -3669,10 +3669,12 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
                     entry ~= nil and entry.name or player_name(enemy), state, h.pattern, pattern))
             end
             h.candidate, h.visited, h.outcomes, h.attempts, h.seeded = 0, {}, {}, 0, nil
-        elseif (enemy_watch.multi[pattern] or now < (h.unstable or -1000)) and h.candidate > 0 then
-            h.candidate, h.visited, h.attempts = 0, {}, 0
         end
         h.pattern = pattern
+    end
+    -- V1.0.64 (inceleme): cok tarafli desende / kararsizken aday her tick birakilir (durum oturmasini beklemez).
+    if pattern ~= nil and (enemy_watch.multi[pattern] or now < (h.unstable or -1000)) and h.candidate > 0 then
+        h.candidate, h.visited, h.attempts = 0, {}, 0
     end
     -- Canli desen yoksa hafizadaki aliskanlik; o desen ve duvar durumunun kalici aci sonuclari yuklenir.
     local habit = resolver.habit(entry)
@@ -3691,10 +3693,13 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
     local own = entry ~= nil and entry.own or nil
     -- V1.0.64 (denetim: "taraf bilgisi 248 sn'dir yok" - abs kollari turu hep "open" oldugu icin hic birakilmiyordu):
     -- atis gitmeyen karar hold sn sonra birakilir ve o kola deneme sayilir; atis gitmis (isabet etmis) karar kalir.
+    if own ~= nil and not own.vis and sees_me(enemy) then
+        own.vis = true
+    end
     if own ~= nil and not own.fired and (now < (own.time or now) or now - (own.time or now) > hypothesis.own.hold) then
-        local st = hypothesis.own.stats[own.arm]
-        if st ~= nil then
-            st.tries = (st.tries or 0) + 1
+        -- V1.0.64 (inceleme): deneme sadece dusman o surede seni gorduyse (atis firsati olduysa) sayilir.
+        if own.vis then
+            hypothesis.own.try(own.arm)
         end
         entry.own, entry.own_choice, own = nil, nil, nil
     end
@@ -3712,10 +3717,7 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
             -- ve kesifte hep yeniden secildi): atissiz birakilan karar o kola "deneme" sayilir (oturum ici), kolun
             -- primi azalir, sira diger kollara / GS'ye gecer.
             if not own.fired then
-                local st = hypothesis.own.stats[own.arm]
-                if st ~= nil then
-                    st.tries = (st.tries or 0) + 1
-                end
+                hypothesis.own.try(own.arm)
             end
             -- Bilgi geri gelince bekletmeden yeni karar verilsin.
             entry.own, entry.own_choice, own = nil, nil, nil
@@ -3956,6 +3958,14 @@ hypothesis.own.ln = function(x)
         term = term * y2
     end
     return 2 * sum + k * 0.69314718055994531
+end
+
+-- V1.0.64 (inceleme): atissiz birakilan karar sayaci en fazla 10 (sinirsiz artip kesfi oturum boyu kapatmasin).
+hypothesis.own.try = function(arm)
+    local st = hypothesis.own.stats[arm]
+    if st ~= nil then
+        st.tries = min(10, (st.tries or 0) + 1)
+    end
 end
 
 -- Kesif / UCB icin kolun denenme sayisi: atis + atissiz birakilan karar (V1.0.62).
@@ -8165,7 +8175,7 @@ persist.save = function(force)
     -- V1.0.64 (denetim: hafiza 64'te dolu, yuklemede kim atilacagi tablo sirasina kalmisti): her kayit son goruldugu
     -- oturumu tasir; yukleme en yeniden eskiye gider, oturum icinde de en eski hatirlanan once atilir.
     local function last_of(entry)
-        return (entry.seen or 0) > 0 and persist.session or entry.last or 0
+        return (entry.seen or 0) > 0 and persist.session or entry.mem_last or 0
     end
     local data = { version = 1, phase_v = brute.phase_v, brute = {}, resolver = {}, phase_groups = {}, session = persist.session,
         sniper = { v = 2, hs = { shots = sniper.stats.hs.shots, hits = sniper.stats.hs.hits },
@@ -8232,21 +8242,48 @@ persist.save = function(force)
 end
 
 -- V1.0.64: kayitli tablonun anahtarlari son gorulme oturumuna gore (yeniden eskiye; esitlikte anahtar sirasi).
-persist.order = function(tbl)
+persist.order = function(tbl, plain)
     local keys = {}
     for key, e in pairs(tbl) do
-        if type(e) == "table" then
+        if plain or type(e) == "table" then
             keys[#keys + 1] = key
         end
     end
+    local function last(k)
+        local e = tbl[k]
+        if plain then
+            return tonumber(e) or 0
+        end
+        return tonumber(e.last) or 0
+    end
     table.sort(keys, function(a, b)
-        local la, lb = tonumber(tbl[a].last) or 0, tonumber(tbl[b].last) or 0
+        local la, lb = last(a), last(b)
         if la ~= lb then
             return la > lb
         end
         return tostring(a) < tostring(b)
     end)
     return keys
+end
+
+-- V1.0.64: yuklenecek oyuncular: brute ve resolver kayitlarinin birlesimi, son gorulme oturumuna gore en fazla 64.
+persist.allowed = function(data)
+    local best = {}
+    for _, tbl in ipairs({ data.brute, data.resolver }) do
+        if type(tbl) == "table" then
+            for key, e in pairs(tbl) do
+                if type(e) == "table" and steam_key(key) then
+                    best[key] = max(best[key] or 0, tonumber(e.last) or 0)
+                end
+            end
+        end
+    end
+    local keys = persist.order(best, true)
+    local out = {}
+    for i = 1, min(#keys, K.MEMORY_LIMIT) do
+        out[keys[i]] = true
+    end
+    return out
 end
 
 -- Hatirlanan oyuncunun "seen" degeri: kac oturum once goruldu (eksi; memory_entry en kucugu atar). Hic gorulmediyse 0.
@@ -8346,6 +8383,8 @@ persist.load = function()
         return 0
     end
     persist.session = (finite(data.session) and data.session or 0) + 1
+    -- V1.0.64 (inceleme): 64 kisilik sinir iki tablonun birlesimine, en yeni gorulenden baslayarak uygulanir.
+    local allowed = persist.allowed(data)
     local players, count = {}, 0
     local function add(key)
         if not players[key] then
@@ -8355,10 +8394,10 @@ persist.load = function()
     if type(data.brute) == "table" then
         for _, key in ipairs(persist.order(data.brute)) do
             local e = data.brute[key]
-            if count < K.MEMORY_LIMIT and steam_key(key) and type(e) == "table" and finite(e.base)
+            if allowed[key] and steam_key(key) and type(e) == "table" and finite(e.base)
                 and e.base >= 0 and e.base <= #BRUTE_PHASES and e.base == floor(e.base) then
                 brute.enemies[key] = { stage = 0, time = 0, base = e.base, learned = true, name = tostring(e.name or "?"),
-                    seen = persist.age(e), last = finite(e.last) and e.last or nil }
+                    seen = persist.age(e), mem_last = finite(e.last) and e.last or nil }
                 add(key)
             end
         end
@@ -8416,9 +8455,9 @@ persist.load = function()
     if type(data.resolver) == "table" then
         for _, key in ipairs(persist.order(data.resolver)) do
             local e = data.resolver[key]
-            if (players[key] or count < K.MEMORY_LIMIT) and steam_key(key) and type(e) == "table" then
+            if allowed[key] and steam_key(key) and type(e) == "table" then
                 local entry = { results = stored_window(e.results), states = {}, name = tostring(e.name or "?"),
-                    seen = persist.age(e), last = finite(e.last) and e.last or nil }
+                    seen = persist.age(e), mem_last = finite(e.last) and e.last or nil }
                 for _, field in ipairs({ "hits", "misses" }) do
                     local n = e[field]
                     if finite(n) and n >= 0 and n <= 100000 then
@@ -8489,6 +8528,9 @@ own.round_begin = function()
 end
 
 listen("round_start", protect("round_start", function()
+    -- V1.0.64 (inceleme): bu haritada round_start geldiyse DM yedegi devre disi (normal haritada dogus round_start'tan
+    -- once gelir; uzun roundlardan sonra round isleri iki kez calisiyordu).
+    own.round_seen = true
     own.round_begin()
 end))
 
@@ -8498,7 +8540,7 @@ listen("level_init", protect("level_init", function()
     -- V1.0.64: haritanin son roundunun ozeti yeni haritanin verisine karismadan yazilir.
     own.summary()
     own.shot_summary()
-    own.round_at = nil
+    own.round_at, own.round_seen = nil, false
     reset_brute()
     pending_misses = {}
     -- Yeni harita yeni oturum: Force icin yine bu haritada bir resolver iskasi gerekir; hafizadan taninan
@@ -9699,7 +9741,7 @@ end))
 -- V1.0.64: DM (round_start yok): yerel oyuncu dogdugunda, son round baslangicindan 60 sn gectiyse round isleri calisir.
 listen("player_spawn", protect("dm round", function(e)
     local lp = local_player()
-    if lp == nil or userid_index(e.userid) ~= lp then
+    if own.round_seen or lp == nil or userid_index(e.userid) ~= lp then
         return
     end
     local now = realtime()

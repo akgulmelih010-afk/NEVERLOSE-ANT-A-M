@@ -406,7 +406,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.64 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.65 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1536,7 +1536,7 @@ do
     W.evel[3] = 0
     local seen = {}
     before = #prints + 1
-    for i = 1, 8 do
+    for i = 1, 10 do
         tick(6)
         seen[#seen + 1] = plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") or "x"
         fire("aim_fire", { id = 6010 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
@@ -1867,15 +1867,26 @@ do
 end
 
 -------------------------------------------------------------------------------
--- V1.0.64: DM (round_start yok): dogusta 60 sn'de bir round ozeti / sifirlama
+-- V1.0.64: DM (round_start yok): dogusta 60 sn'de bir round ozeti / sifirlama; normal haritada dogus tekrarlamaz
 -------------------------------------------------------------------------------
 do
     fire("round_start")
     tick(20)
+    W.tick = W.tick + 64 * 61 -- uzun round (normal harita)
+    tick(20)
     before = #prints + 1
     fire("player_spawn", { userid = 1 })
-    check(printed("dbg sen ozeti", before) == nil, "V1.0.64: round_start'tan hemen sonra dogus round islerini tekrarlamaz")
-    W.tick = W.tick + 64 * 61 -- 61 sn round_start yok (DM)
+    check(printed("dbg sen ozeti", before) == nil, "V1.0.64: normal haritada (round_start var) dogus round islerini calistirmaz")
+    fire("level_init") -- DM haritasi: round_start hic gelmez
+    tick(20)
+    before = #prints + 1
+    fire("player_spawn", { userid = 1 })
+    check(printed("dbg ===== round", before) ~= nil, "V1.0.64: DM'de ilk dogusta round isleri calisir")
+    tick(20)
+    before = #prints + 1
+    fire("player_spawn", { userid = 1 })
+    check(printed("dbg ===== round", before) == nil, "V1.0.64: DM'de 60 sn dolmadan tekrar calismaz")
+    W.tick = W.tick + 64 * 61
     tick(20)
     before = #prints + 1
     fire("player_spawn", { userid = 1 })
@@ -1918,7 +1929,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.64 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.65 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
