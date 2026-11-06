@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.56 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.56")
+check(printed("V1.0.57 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1604,6 +1604,37 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.57: roll acilinca en iyi ayar (45), onerilen ayarlar acikken kapanmaz, kafa yiyince taraf ters
+-------------------------------------------------------------------------------
+do
+    local rm, rv, rr = find_ref("Extended desync (roll)"), find_ref("  » Roll"), find_ref("Roll")
+    W.flags, W.speed, W.sees[2] = 1, 0, false
+    rec_ref.value = true
+    rv.value = 20
+    rm.value = true
+    tick(70)
+    check(rm.value == true, "V1.0.57: onerilen ayarlar acikken roll acik kalir")
+    check(rv.value == 45, "V1.0.57: roll acilinca deger 45 (en iyi) olur (" .. tostring(rv.value) .. ")")
+    local cc = find_ref("Desync keeper: slow crouch-walk when seen")
+    cc.value = true
+    tick(70)
+    check(cc.value == true, "V1.0.57: onerilen ayarlar acikken desync keeper acilabilir")
+    cc.value = false
+    local first = rr.value
+    check(first == 45 or first == -45, "V1.0.57 kurulum: roll uygulanir (" .. tostring(first) .. ")")
+    W.sees[2] = true
+    tick(3)
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 20, hitgroup = 1, weapon = "ssg08" })
+    check(printed("roll: kafa yendi", before) ~= nil, "V1.0.57: roll'luyken kafa yenince roll tarafi ters cevrilir")
+    W.sees[2] = false
+    tick(3)
+    rm.value = false
+    rec_ref.value = false
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
@@ -1643,7 +1674,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.56 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.57 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

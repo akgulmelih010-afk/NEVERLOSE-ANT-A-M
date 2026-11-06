@@ -679,7 +679,16 @@ Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek
 
 İki tur hata avından sonra (14 bulgu, 10'u düzeltildi) kod tarafındaki hatalar büyük ölçüde temizlendi; bundan sonraki gerçek ilerleme oyun loglarıyla ölçüm.
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.56 kuralları (217 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.57** (istek: "roll'u açınca en iyi ayarlarında açılsın")
+
+| Değişiklik | Neden |
+|---|---|
+| **Extended desync (roll) açılınca en iyi ayarla gelir:** Roll 45° (en büyük yatma), taraf desync tarafında; roll'luyken kafa yenince roll tarafı ters çevrilir (`roll: kafa yendi -> roll tarafi ters`). Yerde ve yavaşken (< 100 u/s) çalışır; koşarken, havada, merdivende 0. | Roll resolver'ları yatma tarafını tahmin eder; kafa yenince taraf değişmeli. |
+| **Hata:** "Always use recommended settings" açıkken (varsayılan) roll ve V1.0.53'ün desync koruyucu seçenekleri ~1 sn içinde geri kapatılıyordu; artık izlenmeyen grupta | Bu seçenekler hiç açılamıyordu. |
+
+Not: kullanıcının sunucusunda roll yasak; sadece izin veren sunucuda aç.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.57 kuralları (222 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.56"
+local VERSION = "1.0.57"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1307,16 +1307,19 @@ menu.brute_random   = grp.protect:switch("  » Random anti-brute order", true, f
 -- govde desync tarafina gore +-roll yazilir; kosarken, havada, merdivende 0 (roll hareketi bozar). Valve
 -- sunucularinda kullanma (untrusted). Vurulma satirlarinda "roll N" yazar: kafa orani roll acik / kapali karsilastirilir.
 -- Varsayilan KAPALI: kullanici "sunucuda roll yasak, extended degil" dedi; roll'a izin veren sunucuda elle ac.
-menu.roll           = grp.protect:switch("Extended desync (roll)", false)
-menu.roll_value     = grp.protect:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
+-- V1.0.57: izlenmeyen grupta ("Always use recommended settings" acikken acilan roll 1 sn icinde geri kapatiliyordu).
+-- Acilinca en iyi ayarla gelir: Roll 45 (en buyuk), tarafi desync tarafinda, kafa yiyince taraf ters cevrilir.
+menu.roll           = grp.protect_raw:switch("Extended desync (roll)", false)
+menu.roll_value     = grp.protect_raw:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
 -- V1.0.53 (internet arastirmasi + Valve animstate formulu): desync hiz ve egilmeyle kuculur (tam hizda egik yurume
 -- ~29°, logda <=30° desync'te kafa %27, ustunde %17). Hepsi varsayilan KAPALI: logda "maxdsy" ile olculecek.
-menu.crouch_cap     = grp.protect:switch("Desync keeper: slow crouch-walk when seen", false)
-menu.crouch_speed   = grp.protect:slider("  » Crouch speed", 20, 78, 38, " u/s", function() return on(menu.crouch_cap) end)
-menu.walk_cap       = grp.protect:switch("Desync keeper: slow walk when seen (<=115 u/s)", false)
-menu.contact_stop   = grp.protect:switch("Stop before contact when decelerating", false)
-menu.fs_contact     = grp.protect:switch("Invert freestanding side at first contact", false)
-menu.no_jump_seen   = grp.protect:switch("Block jump while seen (not jump-scout)", false)
+-- V1.0.57: izlenmeyen grupta (onerilen ayarlar acikken acilabilsinler).
+menu.crouch_cap     = grp.protect_raw:switch("Desync keeper: slow crouch-walk when seen", false)
+menu.crouch_speed   = grp.protect_raw:slider("  » Crouch speed", 20, 78, 38, " u/s", function() return on(menu.crouch_cap) end)
+menu.walk_cap       = grp.protect_raw:switch("Desync keeper: slow walk when seen (<=115 u/s)", false)
+menu.contact_stop   = grp.protect_raw:switch("Stop before contact when decelerating", false)
+menu.fs_contact     = grp.protect_raw:switch("Invert freestanding side at first contact", false)
+menu.no_jump_seen   = grp.protect_raw:switch("Block jump while seen (not jump-scout)", false)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
 -- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
@@ -4841,12 +4844,23 @@ local function apply(v, lp)
     override("edge_yaw", false)
     -- V1.0.47: extended desync (roll). Sadece yerde ve yavasken; govde desync yoksa da 0.
     local roll = nil
-    if refs.roll ~= nil and on(menu.roll) then
+    local roll_on = on(menu.roll)
+    -- V1.0.57: roll acildigi anda en iyi deger (45, en buyuk yatma) yazilir; sonra elle degistirirsen dokunulmaz.
+    if roll_on and not current.roll_was and menu.roll_value ~= nil then
+        pcall(menu.roll_value.set, menu.roll_value, 45)
+    end
+    current.roll_was = roll_on
+    if refs.roll ~= nil and roll_on then
         roll = 0
         if v.body ~= "Off" and lp ~= nil and on_ground(lp) and speed2d(lp) < 100 and prop(lp, "m_MoveType") ~= 9 then
             local amount = menu.roll_value ~= nil and menu.roll_value:get() or 45
             amount = finite(amount) and clamp(round(amount), 0, 45) or 45
-            roll = side and amount or -amount
+            -- Taraf desync tarafinda; roll'luyken kafa yenince ters cevrilir (roll resolver'i tarafi tahmin eder).
+            local lean = side
+            if current.roll_flip then
+                lean = not lean
+            end
+            roll = lean and amount or -amount
         end
     end
     override("roll", roll)
@@ -7491,6 +7505,13 @@ listen("player_hurt", protect("player_hurt", function(e)
     -- (sira yine ilerler). Bu mermiler kafa kayitlarinin yarisiydi ve fazlari yanlis "kotu" gosteriyordu.
     -- V1.0.45: taban ogrenmesi yine kosulsuz (V1.0.33 gibi; atistan hemen sonra seni oldurenler de tabani tasir); sira
     -- rastgele (ogrenen bir anti-resolver "bir sonraki faz"i tahmin edemesin). Faz istatistigi yarim sarjsiz kalir.
+    -- V1.0.57: roll uygulanirken kafa yendiyse roll tarafi ters cevrilir.
+    if e.hitgroup == 1 and not melee and current.roll ~= nil and current.roll ~= 0 then
+        current.roll_flip = not current.roll_flip
+        if on(menu.hit_log) then
+            print(("[%s] roll: kafa yendi (roll %+d) -> roll tarafi ters"):format(SCRIPT, round(current.roll)))
+        end
+    end
     if e.hitgroup == 1 and not melee and on(menu.anti_brute) then
         enemy.base, enemy.learned = brute.next(phase, true), true
     end
