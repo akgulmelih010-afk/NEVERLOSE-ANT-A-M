@@ -253,7 +253,7 @@ function entity.get_prop(ent, name, idx)
     end
     if ent == 1 then
         if name == "m_iHealth" then return 100 end
-        if name == "m_nTickBase" then return W.tick - W.lag end
+        if name == "m_nTickBase" then return W.tick - (W.tick_shift or 0) - W.lag end
         if name == "m_fFlags" then return W.flags end
         if name == "m_vecVelocity" then return W.speed, 0, 0 end
         if name == "m_flDuckAmount" then return W.duck end
@@ -305,7 +305,7 @@ function entity.get_prop(ent, name, idx)
 end
 
 local globals = {}
-function globals.tickcount() return W.tick end
+function globals.tickcount() return W.tick - (W.tick_shift or 0) end
 function globals.realtime() return now() end
 function globals.curtime() return now() end
 function globals.frametime() return W.interval end
@@ -386,7 +386,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.55 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.55")
+check(printed("V1.0.56 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.56")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1590,6 +1590,20 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.56: Enable kapaliyken developer geri verilir
+-------------------------------------------------------------------------------
+do
+    local en = find_ref("Enable Nykle.win")
+    tick(70)
+    check(dev.value == 0, "V1.0.56 kurulum: sessiz logda developer 0")
+    en.value = false
+    tick(70)
+    check(dev.value == 1, "V1.0.56: Enable kapaliyken developer senin degerin (" .. tostring(dev.value) .. ")")
+    en.value = true
+    tick(70)
+end
+
+-------------------------------------------------------------------------------
 -- V1.0.48: taban kaymasi (v42-v47: roundun ilk atisindan once sebepsiz okumalar 63 dolu / 133 yarim, sh 4-9 duz;
 -- atistan sonra 54 dolu / 9 yarim). Sebepsiz (atis / aim / teleport / DT acilisi yok) duz duran shift doludur.
 -------------------------------------------------------------------------------
@@ -1629,7 +1643,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.55 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.56 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

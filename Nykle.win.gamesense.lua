@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.55"
+local VERSION = "1.0.56"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -5094,6 +5094,13 @@ end
 clean_shot.update = function(lp, target, armed)
     local tick = tickcount()
     clean_shot.by = nil
+    -- V1.0.56: harita / sunucu degisince tickcount bastan baslar; eski haritanin pencereleri (bayrak, iz, atis) temizlenir
+    -- (yoksa yeni haritada dakikalarca "bayrak" temiz atis sayilip defensive kesiliyordu).
+    if tick < (clean_shot.checked or -1000) - 1 or tick < (clean_shot.flag_until or -1000) - clean_shot.hold - 1 then
+        clean_shot.flag_until, clean_shot.trace_until, clean_shot.fire_until = -1000, -1000, -1000
+        clean_shot.until_tick, clean_shot.from_tick, clean_shot.checked = -1000, -1000, -1000
+        clean_shot.index, clean_shot.trace_index = nil, nil
+    end
     if not on(menu.clean_shot) or not armed then
         clean_shot.until_tick = -1000
         return false
@@ -7126,8 +7133,10 @@ do
         end
         nlog.quiet = on(menu.log_quiet)
         -- Sol ust bildirim alani sadece developer 1 iken konsol satirlarini cizer: sessiz modda developer 0.
-        hold("developer", nlog.quiet and 0 or nil, false)
-        hold_blind("con_notifytime", nlog.quiet and 0 or nil, 8)
+        -- V1.0.56: ana anahtar kapaliyken de geri verilir (Enable kapatinca bildirimler geri gelsin).
+        local quiet = enabled and nlog.quiet
+        hold("developer", quiet and 0 or nil, false)
+        hold_blind("con_notifytime", quiet and 0 or nil, 8)
     end
 
     listen("paint", protect("aspect / fps", update))

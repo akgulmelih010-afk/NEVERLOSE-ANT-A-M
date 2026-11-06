@@ -670,7 +670,16 @@ Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek
 | "Önerilen ayarlar kapalı" raporu kendi anahtarını fark saymıyor | Rapor hep bir fazla sayıyor ve örnek olarak kendini gösteriyordu. |
 | Temiz atış etiketi kaynağı doğru yazar: `bayrak`, `iz`, `bayrak+iz`, `atis` | "atis" hiç görünmüyordu, iz ve bayrak karışıyordu. Hava defensive kuralı değişmedi (bayrak açıkken sürer); `bayrak+iz` ile ikisinin birlikte ne sıklıkla olduğu ölçülecek. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.55 kuralları (215 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+**V1.0.56** (ikinci hata avı, konu bazında: oyuncu / round geçişleri, ayar kapatma ve kaldırma, zaman birimleri, sayılar; 2 gerçek hata)
+
+| Düzeltme | Etkisi |
+|---|---|
+| Harita / sunucu değişince temiz atış pencereleri (bayrak / iz / atış) temizlenir | tickcount baştan başladığı için eski haritanın "bayrak" penceresi yeni haritada dakikalarca temiz atış sayılıp defensive'i kesebiliyordu. (Test ortamı bu yolu taklit edemiyor; kod incelemesiyle doğrulandı.) |
+| "Enable Nykle.win" kapalıyken `developer` / `con_notifytime` geri verilir | Script kapalıyken de ekrandaki bildirimler gizli kalıyordu. |
+
+İki tur hata avından sonra (14 bulgu, 10'u düzeltildi) kod tarafındaki hatalar büyük ölçüde temizlendi; bundan sonraki gerçek ilerleme oyun loglarıyla ölçüm.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.56 kuralları (217 kontrol; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
