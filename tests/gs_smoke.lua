@@ -352,6 +352,7 @@ end
 local righthand = { value = 1 }
 -- V1.0.35: aspect ratio (float, set_raw_float) ve FPS boost'tan biri (int, set_raw_int).
 local aspect, sky, notify, dev = { value = 0 }, { value = 1 }, { value = 8 }, { value = 1 }
+local ragdoll = { value = 0 }
 local cvar = {
     cl_clanid = { get_int = function() return 0 end, set_int = function() end },
     cl_righthand = { get_int = function() return righthand.value end, set_int = function(_, v) righthand.value = v end },
@@ -359,6 +360,7 @@ local cvar = {
     r_3dsky = { get_int = function() return sky.value end, set_raw_int = function(_, v) sky.value = v end },
     con_notifytime = { get_float = function() return notify.value end, set_raw_float = function(_, v) notify.value = v end },
     developer = { get_int = function() return dev.value end, set_int = function(_, v) dev.value = v end },
+    cl_disable_ragdolls = { get_int = function() return ragdoll.value end, set_raw_int = function(_, v) ragdoll.value = v end },
 }
 
 -------------------------------------------------------------------------------
@@ -878,6 +880,17 @@ aspect_ref.value, boost_ref.value = "Off", false
 tick(70)
 check(aspect.value == 0 and sky.value == 1, "V1.0.35: kapatinca senin degerlerin geri (" .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ")")
 aspect_ref.value, boost_ref.value = "4:3", true
+do
+    local rag_ref = find_ref("  » Disable ragdolls (bodies vanish)")
+    tick(70)
+    check(rag_ref ~= nil and rag_ref.value == false and ragdoll.value == 0, "V1.0.59: ragdoll kapatma secenegi var, varsayilan kapali (cvar " .. tostring(ragdoll.value) .. ")")
+    rag_ref.value = true
+    tick(70)
+    check(ragdoll.value == 1, "V1.0.59: acinca cl_disable_ragdolls 1 (" .. tostring(ragdoll.value) .. ")")
+    rag_ref.value = false
+    tick(70)
+    check(ragdoll.value == 0, "V1.0.59: kapatinca senin degerin geri (" .. tostring(ragdoll.value) .. ")")
+end
 tick(70)
 check(math.abs(aspect.value - 4 / 3) < 0.001 and sky.value == 0, "V1.0.35: yeniden acilinca 4:3 ve r_3dsky 0")
 -- V1.0.35: loglar sadece konsola (color_log), ekranin sol ust bildirimi kapali; kapatinca print ve eski deger.

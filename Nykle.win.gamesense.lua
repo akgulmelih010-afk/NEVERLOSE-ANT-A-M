@@ -1550,6 +1550,10 @@ menu.left_hand   = grp.movement:switch("Left hand (cl_righthand 0, permanent)", 
 -- post-process, kirilan parca ve namlu isigi kapali). Ikisi de kapatinca / script kaldirilinca eski degerine doner.
 menu.aspect      = grp.movement:combo("Aspect ratio", { "4:3", "Off", "5:4", "16:10" })
 menu.fps_boost   = grp.movement:switch("FPS boost (shadows / 3D sky / post-process off)", true)
+-- V1.0.59 (istek: "fps arttirma"): istege bagli, varsayilan KAPALI. cl_disable_ragdolls 1: olen oyuncular yere
+-- yigilmadan kaybolur (coklu oldurme / round sonu fizik yukunu siler, 1% low'u iyilestirir). Hile bayrakli bir cvar
+-- (set_raw ile yazilir); kapatinca / unload'da senin degerin geri yazilir.
+menu.fps_ragdolls = grp.movement:switch("  » Disable ragdolls (bodies vanish)", false, function() return on(menu.fps_boost) end)
 
 -- GameSense'in kendi AA ayarlari: lua acikken gizli (lua bunlari kendisi yaziyor, menusu de ayni kutuda),
 -- kapaliyken ve unload'da geri gorunur (angelwings'in yontemi).
@@ -7155,6 +7159,7 @@ do
         for _, name in ipairs(FPS_CVARS) do
             hold(name, boost and 0 or nil, false)
         end
+        hold("cl_disable_ragdolls", (boost and on(menu.fps_ragdolls)) and 1 or nil, false)
         nlog.quiet = on(menu.log_quiet)
         -- Sol ust bildirim alani sadece developer 1 iken konsol satirlarini cizer: sessiz modda developer 0.
         -- V1.0.56: ana anahtar kapaliyken de geri verilir (Enable kapatinca bildirimler geri gelsin).
@@ -7171,6 +7176,7 @@ do
         for _, name in ipairs(FPS_CVARS) do
             hold(name, nil, false)
         end
+        hold("cl_disable_ragdolls", nil, false)
     end))
 end
 
@@ -9827,6 +9833,22 @@ do
         res_panel.migrated = false
     end))
 
+    -- V1.0.59 (FPS): metin olculeri ezberlenir (ayni yazi her karede yeniden olculmez; en fazla 256 kayit).
+    res_panel.measure = function(font, str)
+        local c = res_panel.c
+        local key = font .. "\0" .. str
+        local hit = c.m[key]
+        if hit == nil then
+            if c.mn >= 256 then
+                c.m, c.mn = {}, 0
+            end
+            local mw, mh = try(renderer.measure_text, font, str)
+            hit = { finite(mw) and mw or #str * 5, finite(mh) and mh or 20 }
+            c.m[key], c.mn = hit, c.mn + 1
+        end
+        return hit[1], hit[2]
+    end
+
     res_panel.draw = function(sw, sh)
         -- V1.0.39: config'te eski varsayilan (12 / 330 / %100) kayitliysa bir kez yeni varsayilana tasinir; elle
         -- surukledigin bir yer korunur.
@@ -9844,14 +9866,32 @@ do
             res_panel.y = floor((menu.panel_y:get() or 380) / 1000 * sh)
         end
         local big, small = res_panel.fonts(res_panel.size)
-        local target = resolver_target()
-        if target ~= nil and not alive(target) then
-            target = nil
+        -- V1.0.59 (FPS): hedef, cozum orani, kayit ve isim tick basina bir kez okunur (her karede degil); gosterilen
+        -- deger yine her karede yumusatilir.
+        local c = res_panel.c
+        if c == nil then
+            c = { tick = nil, target = nil, live = 0, entry = nil, name = "", m = {}, mn = 0 }
+            res_panel.c = c
         end
+        local tick = tickcount()
+        if c.tick ~= tick then
+            c.tick = tick
+            local t = resolver_target()
+            if t ~= nil and not alive(t) then
+                t = nil
+            end
+            c.target = t
+            if t ~= nil then
+                c.live, c.entry = res_panel.live(t)
+                local n = player_name(t)
+                c.name = #n > 16 and n:sub(1, 15) .. "." or n
+            end
+        end
+        local target = c.target
 
         local main, name, info, col
         if target ~= nil then
-            local live, entry = res_panel.live(target)
+            local live, entry = c.live, c.entry
             if res_panel.shown_index ~= target then
                 res_panel.shown_index, res_panel.shown = target, live
             end
@@ -9861,10 +9901,9 @@ do
             local hits, misses = entry ~= nil and entry.hits or 0, entry ~= nil and entry.misses or 0
             main = ("%d%%"):format(floor(res_panel.shown + 0.5))
             col = res_panel.tint(res_panel.shown)
-            name = player_name(target)
-            name = #name > 16 and name:sub(1, 15) .. "." or name
+            name = c.name
             info = ("COZUM   HIT %d%%   %d/%d"):format(hit, hits, hits + misses)
-            if current.hyp ~= nil and target == resolver_target() then
+            if current.hyp ~= nil then
                 info = info .. ("   BY %d%s"):format(current.hyp, DEG)
             end
         else
@@ -9872,11 +9911,10 @@ do
             main, name, info, col = "--", "", "COZUM   hedef yok", COLOR.DIM
         end
 
-        local big_w = text_width(big, main)
-        local _, big_h = try(renderer.measure_text, big, main)
-        big_h = finite(big_h) and big_h or 20
+        local measure = res_panel.measure
+        local big_w, big_h = measure(big, main)
         local gap = floor(8 * res_panel.size / 100)
-        local w = max(big_w + gap + text_width(big, name), text_width(small, info))
+        local w = max(big_w + gap + (name ~= "" and measure(big, name) or 0), (measure(small, info)))
         local h = big_h + 14
         res_panel.w, res_panel.h = w + 4, h + 3
         local open = res_panel.input(sw, sh)

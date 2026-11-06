@@ -705,8 +705,12 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 |---|---|
 | **"DT pair counts as lethal" varsayılan KAPALI** (kayıtlı config'te açıksa ilk yüklemede bir kez kapatılır, `nykle_win_gs_dtpair59`; elle açarsan dokunulmaz) | Bu kural Min. damage 100'ünü 72–86'ya indiriyordu (logdaki "MD 73/84/86"). Scout / AWP'de GameSense DT ikinci mermiyi hemen atmıyor (sürgü ~1 sn; aynı saniyede ikinci atış 90'da 1). v58'de 8 çift gövde atışı: 0 kill, 8 ölüm (5'i kafa, düşman 0.13–0.37 sn sonra vurdu). V1.0.45'ten beri 27 çift atış: ilk atışta 0 kill, 2 sn içinde 23 ölüm. Kafa kuralı gevşemesi tek başına zararsız (MD 100 ile ilk atışta kill 46/95). |
 | Sniper exploit öğrenme satırı "Same as state" iken `(ayar: ..., etkisiz)` yazar | Log "-> Hide shots" diyordu ama ayar Same as state olduğu için hiçbir şey değişmiyordu. |
+| **FPS:** resolver paneli (varsayılan açık) hedefi, çözüm oranını ve ismi tick başına bir kez okur; metin ölçüleri ezberlenir | Panel her karede tüm resolver zincirini ve 4 metin ölçümünü yeniden yapıyordu (kare başı ~38 API çağrısı, 1.8 KB çöp). Sahte API'de paint 85 → ~50 çağrı / kare; çöp toplayıcı kaynaklı mikro takılma azalır. |
+| **FPS:** "» Disable ragdolls (bodies vanish)" (FPS boost altında, varsayılan KAPALI) | `cl_disable_ragdolls 1`: ölenler yere yığılmadan kaybolur, çoklu öldürme / round sonu fizik yükü gider. Kapatınca / unload'da senin değerin geri yazılır. |
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.59 kuralları (228 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
+
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.59 kuralları (231 kontrol; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
