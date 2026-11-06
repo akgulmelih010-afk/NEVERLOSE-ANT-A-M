@@ -367,10 +367,26 @@ local cvar = {
 -- Yukle
 -------------------------------------------------------------------------------
 local files = { ["nykle_log.txt"] = "10:00:00 [Nykle.win] V1.0.1 (GameSense edition) yuklendi\n10:00:01 [Nykle.win] ESKI OTURUM SATIRI\n" }
+-- V1.0.60: tekrarlanabilir rastgele sayi (Redis'in math.random'i calistirmalar arasinda farkli dizi verebiliyor;
+-- kendi resolver'in kesif cekimi artik gercekten rastgele oldugu icin test sonucu ona bagli kalmasin).
+local test_math = setmetatable({}, { __index = math })
+do
+    local seed = 12345
+    test_math.random = function(a, b)
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        local r = seed / 2147483648
+        if a == nil then
+            return r
+        elseif b == nil then
+            return 1 + math.floor(r * a)
+        end
+        return a + math.floor(r * (b - a + 1))
+    end
+end
 local env = {
     print = print, client = client, ui = ui, entity = entity, globals = globals, renderer = renderer,
     database = database, plist = plist, cvar = cvar, bit = bit,
-    math = math, string = string, table = table, pairs = pairs, ipairs = ipairs, type = type, tostring = tostring,
+    math = test_math, string = string, table = table, pairs = pairs, ipairs = ipairs, type = type, tostring = tostring,
     tonumber = tonumber, select = select, setmetatable = setmetatable, getmetatable = getmetatable, pcall = pcall,
     xpcall = xpcall, error = error, unpack = unpack, next = next, rawget = rawget, rawset = rawset, assert = assert,
     os = { clock = function() return now() end },
@@ -1501,6 +1517,30 @@ do
         "V1.0.60: 0 iskalayinca -29, sonra +29 (" .. seq .. ")")
     check(printed("seri: +29 iskaladi -> yine tam aci, body yaw -58", before) ~= nil, "V1.0.60: yarim acilar da iskalayinca yine tam aci")
     check(seq:find("58 0 %-29 29") ~= nil, "V1.0.60: seri merdiveni plist'e yazilir: +58, 0, -29, +29 (" .. seq .. ")")
+    -- Inceleme: tam aciyla kafa eski iskalari siler; tek bir sonraki iska merdiveni (0) baslatmaz.
+    local function shoot(id, hit)
+        tick(6)
+        local v = plist.get(3, "Force body yaw") == true and plist.get(3, "Force body yaw value") or "x"
+        fire("aim_fire", { id = id, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        if hit then
+            fire("aim_hit", { id = id, target = 3, hitgroup = 1, damage = 120 })
+        else
+            fire("aim_miss", { id = id, target = 3, hitgroup = 1, reason = "?" })
+        end
+        return v
+    end
+    local trail = {}
+    for i = 1, 6 do
+        tick(6)
+        local v = plist.get(3, "Force body yaw value")
+        if plist.get(3, "Force body yaw") == true and v == 58 then break end
+        trail[#trail + 1] = tostring(shoot(6020 + i, false))
+    end
+    before = #prints + 1
+    local hv = shoot(6030, true)
+    local mv = shoot(6031, false)
+    check(hv == 58 and mv == 58 and printed("ikisi de iskaladi", before) == nil,
+        "V1.0.60: +58 kafadan vurduktan sonra tek +58 iskasi body yaw 0'a dusurmez (" .. tostring(hv) .. ", " .. tostring(mv) .. " | " .. table.concat(trail, " ") .. ")")
     own2.value = own_was
     W.head_dmg[3] = 0
     tick(10)
@@ -1755,6 +1795,16 @@ do
     local dl = printed("dbg duello: dusman2", before)
     check(dl ~= nil and dl:find("sen: 1 ates 1 isabet | oldurdun", 1, true) ~= nil,
         "V1.0.60: olduren atis duelloda isabet sayilir (" .. tostring(dl) .. ")")
+    fire("player_spawn", { userid = 2 })
+    tick(10)
+    -- Iskadan sonra bombayla olum: isabet sayilmaz.
+    fire("aim_fire", { id = 6102, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_miss", { id = 6102, target = 2, hitgroup = 1, reason = "spread" })
+    before = #prints + 1
+    fire("player_death", { userid = 2, attacker = 1, headshot = false, penetrated = 0, weapon = "hegrenade" })
+    dl = printed("dbg duello: dusman2", before)
+    check(dl ~= nil and dl:find("sen: 1 ates 0 isabet | oldurdun", 1, true) ~= nil,
+        "V1.0.60: iskadan sonra bomba olumu isabet sayilmaz (" .. tostring(dl) .. ")")
     fire("player_spawn", { userid = 2 })
     W.head_dmg[2] = 0
     tick(10)

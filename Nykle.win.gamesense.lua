@@ -3700,7 +3700,9 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
         local choice = entry.own_choice
         if choice == nil or choice.kind ~= h.kind or now < choice.time or now - choice.time > hypothesis.own.hold then
             local arm, exploring = hypothesis.own.choose(entry, h.kind, guess)
-            entry.own_choice = { arm = arm, kind = h.kind, time = now }
+            -- V1.0.60: ayni GS karari (taraf turu titreyince yeniden verilen) tekrar yazilmaz.
+            local repeat_gs = arm == "gs" and choice ~= nil and choice.arm == "gs" and choice.exploring == exploring
+            entry.own_choice = { arm = arm, kind = h.kind, time = now, exploring = exploring }
             if arm ~= "gs" then
                 hypothesis.own.stamp = hypothesis.own.stamp + 1
                 entry.own = { arm = arm, kind = h.kind, side = h.side, mag = h.mag, seen = now, stamp = hypothesis.own.stamp }
@@ -3715,7 +3717,7 @@ hypothesis.update = function(enemy, key, state, raw, misses, stalled, entry)
                         hypothesis.yaw(hypothesis.actual(c, h.side)), DEG, exploring and " (deneme)" or "",
                         hypothesis.own.summary(entry), hypothesis.own.why(exploring)))
                 end
-            elseif on(menu.resolver_log) then
+            elseif on(menu.resolver_log) and not repeat_gs then
                 -- V1.0.60: GS'nin tercih edildigi kararlar da yazilir (eskiden sessizdi).
                 print(("[%s] resolver: %s %s | GS resolver'i (%s) | kollar: %s%s"):format(SCRIPT,
                     entry.name or player_name(enemy), state, exploring and "deneme" or "tercih",
@@ -4175,18 +4177,20 @@ resolver.streak.result = function(shot, head_hit, miss)
         end
     elseif s ~= nil then
         local forced = shot.streak_yaw or shot.hyp_yaw
-        if shot.streak_yaw ~= nil and (s.step or 0) ~= 0 then
-            -- V1.0.60: 0 / yarim aciyla kafa: o basamak dogru, seri acik kalir.
-            if shot.streak_yaw ~= 0 then
-                s.sign = shot.streak_yaw > 0 and 1 or -1
+        -- V1.0.60 (inceleme): suresi dolmus seride basamak / iska kaydi tasinmaz.
+        if now < s.last or now - s.last > S.window then
+            s.step, s.fail = 0, {}
+        end
+        if forced ~= nil then
+            -- Zorlanan aciyla kafa (0 dahil): o aci dogru; seri kapanmaz. Tam aciyla kafa merdiveni ve eski
+            -- iskalari sifirlar (o taraf calisiyor); 0 / yarim aciyla kafa o basamakta tutar.
+            if forced ~= 0 then
+                s.sign = forced > 0 and 1 or -1
             end
             s.bad = 0
-            if S.armed(s) then
-                s.last = now
+            if abs(forced) == lim then
+                s.step, s.fail = 0, {}
             end
-        elseif forced ~= nil and forced ~= 0 then
-            -- Zorlanan aciyla kafa: o aci dogru; seri kapanmaz, isaret o aciya gecer.
-            s.sign, s.bad = forced > 0 and 1 or -1, 0
             if S.armed(s) then
                 s.last = now
             end
@@ -9323,6 +9327,7 @@ listen("aim_fire", protect("detailed log aim_fire", function(e)
         local now = tickcount()
         local E = D.open(target, lp, now)
         E.our_shots, E.last, E.we = E.our_shots + 1, now, E.we or now
+        E.pend = (E.pend or 0) + 1
     end
     local shot = e.id ~= nil and resolver.shots[e.id] or nil
     if shot ~= nil then
@@ -9334,6 +9339,15 @@ listen("aim_hit", protect("detailed log aim_hit", function(e)
     local E = finite(e.target) and D.duel[e.target] or nil
     if E ~= nil then
         E.our_hits = E.our_hits + 1
+        E.pend = max(0, (E.pend or 0) - 1)
+    end
+end))
+
+-- V1.0.60: sonucu bekleyen atis sayisi (olduren isabet ancak bekleyen atis varken sayilir).
+listen("aim_miss", protect("detailed log aim_miss", function(e)
+    local E = finite(e.target) and D.duel[e.target] or nil
+    if E ~= nil then
+        E.pend = max(0, (E.pend or 0) - 1)
     end
 end))
 
@@ -9444,9 +9458,13 @@ listen("player_death", protect("detailed log player_death", function(e)
         print(("[%s] dbg kill-detay: %s %s%s | %s"):format(SCRIPT, player_name(victim), tostring(e.weapon or "?"), tag,
             D.where(victim, lp)))
         -- V1.0.60: player_death aim_hit'ten once gelir; olduren isabet duello kapanmadan sayilir (v58'de 9/9
-        -- "oldurdun" duellosu "0 isabet" yaziyordu). Bomba / bicak / elle olumde atis yoksa sayilmaz.
+        -- "oldurdun" duellosu "0 isabet" yaziyordu). Sadece sonucu bekleyen aimbot atisi varken ve mermili silahla.
         local E = D.duel[victim]
-        if E ~= nil and E.our_shots > E.our_hits then
+        local gun = tostring(e.weapon or "")
+        gun = gun ~= "" and not gun:find("grenade", 1, true) and not gun:find("inferno", 1, true)
+            and not gun:find("molotov", 1, true) and not gun:find("knife", 1, true) and not gun:find("bayonet", 1, true)
+            and not gun:find("taser", 1, true)
+        if E ~= nil and gun and (E.pend or 0) > 0 and E.our_shots > E.our_hits then
             E.our_hits = E.our_hits + 1
         end
         D.close(victim, "oldurdun")
