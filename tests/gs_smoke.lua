@@ -270,7 +270,7 @@ function entity.get_prop(ent, name, idx)
     end
     if ent == 2 or ent == 3 then
         if name == "m_iHealth" then return (W.ehp and W.ehp[ent]) or 100 end
-        if name == "m_fFlags" then return 1 end
+        if name == "m_fFlags" then return (W.eair and W.eair[ent]) and 0 or 1 end
         if name == "m_vecVelocity" then return W.evel[ent] or 0, 0, 0 end
         if name == "m_flDuckAmount" then return 0 end
         if name == "m_flSimulationTime" then return (W.tick - W.sim_shift[ent]) * W.interval end
@@ -406,7 +406,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.62 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.63 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -564,10 +564,20 @@ do
     tick(10)
     W.sim_shift[2] = 10
     tick(2)
+    local g2 = plist.get(2, "Add to whitelist")
+    check(g2 == false, "V1.0.62: peek'te yerdeki hedefin sahte kaydinda eskisi gibi beklenmez (" .. tostring(g2) .. ")")
+    W.sim_shift[2] = 0
+    tick(40)
+    W.eair = W.eair or {}
+    W.eair[2] = true
+    tick(10)
+    W.sim_shift[2] = 10
+    tick(2)
     local w2 = plist.get(2, "Add to whitelist")
     tick(5)
     local w7 = plist.get(2, "Add to whitelist")
-    check(w2 == true and w7 == false, "V1.0.62: peek'te gorulmezken sahte kayitta kisa bekleme (2. tick " .. tostring(w2) .. ", 7. tick " .. tostring(w7) .. ")")
+    check(w2 == true and w7 == false, "V1.0.62: peek'te gorulmezken havadaki hedefin sahte kaydinda kisa bekleme (2. tick " .. tostring(w2) .. ", 7. tick " .. tostring(w7) .. ")")
+    W.eair[2] = nil
     W.sim_shift[2] = 0
     pk.value, pc.value, W.speed = false, false, 0
     W.sees[2] = true
@@ -1842,7 +1852,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.62 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.63 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

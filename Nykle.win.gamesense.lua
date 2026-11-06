@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.62"
+local VERSION = "1.0.63"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -4433,9 +4433,11 @@ end
 -- bittikten 0-2 tick sonra giden atis da %58 (ilk gercek kayit daha oturmadan). Varsayilan ACIK (kurallari
 -- aynen: duelloda / goruluyorken beklenmez, en fazla max tick, sonra cooldown tick serbest) ve gercek kayit
 -- geldikten sonra after tick daha beklenir.
--- V1.0.62 (kullanici: northgard "predictlemiyorsun" dedi; tum loglarda sahte kayda "bekleme yok: duello / peek" ile giden
--- 24 scout atisi %37 isabet / %37 correction, normal kayit %61 / %23, bekleyerek sahte kayda giden %63): sen peek
--- atarken de dusman seni GORMUYORSA en fazla duel_max tick gercek kayit beklenir (seni goruyorsa yine beklenmez).
+-- V1.0.62 (kullanici: northgard "predictlemiyorsun" dedi): tum loglarda sahte kayda "bekleme yok: duello / peek" ile giden
+-- 31 scout atisinin havadaki hedefe giden 8'inde 6 correction (%75; gercek kayitta havadaki hedef %25), yerdekilerde
+-- correction %22 (normal %23 ile ayni; kalan iskalar spread / olum, beklemek onlari duzeltmez). Bu yuzden sen peek
+-- atarken dusman seni GORMUYORSA ve HEDEF HAVADAYSA en fazla duel_max tick gercek kayit beklenir; yerde ya da seni
+-- goruyorsa eskisi gibi beklenmez.
 resolver.wait = { max = 14, after = 3, cooldown = 32, enemies = {}, log_every = 5, duel_max = 4 }
 
 resolver.wait_apply = function(class, present)
@@ -4456,7 +4458,12 @@ resolver.wait_apply = function(class, present)
         local cooling = now >= w.free_until - wait.cooldown and now < w.free_until
         local seen = sees_me(enemy)
         local mine = plist_user(enemy, PL.WHITELIST) == true
-        local free = profile == nil or cooling or seen or mine or (duel and w.ticks >= wait.duel_max)
+        local air = false
+        if duel and not seen and profile ~= nil and profile.defensive_now then
+            local st = enemy_state(enemy)
+            air = st == "Air"
+        end
+        local free = profile == nil or cooling or seen or mine or (duel and (not air or w.ticks >= wait.duel_max))
         local fake = profile ~= nil and profile.defensive_now
         -- V1.0.47 (v46: sahte kayda giden atislar "bekleme yok" sebebi bilinmeden gitti): kayit sahteyken beklenmiyorsa
         -- sebebi tutulur; atis satirina "bekleme yok: <sebep>" yazilir.
@@ -4464,7 +4471,11 @@ resolver.wait_apply = function(class, present)
             -- V1.0.62: ayni sahte kayit penceresinde birakilmanin asil sebebi (gorulme / peek siniri) sonraki
             -- cooldown tick'lerinde "cooldown" ile ezilmez.
             if not (cooling and w.why ~= nil) then
-                w.why = (cooling and "cooldown") or (duel and not seen and "duello / peek")
+                -- V1.0.62: peek'te havadaki hedefe beklenip birakildiysa "peek: N tick beklendi" (bekleme vardi).
+                w.why = (cooling and "cooldown")
+                    or (duel and not seen and air and ("peek: %d tick beklendi"):format(w.ticks))
+                    or (duel and not seen and "duello / peek")
+                    or (duel and seen and "duello, seni goruyor")
                     or (seen and "seni goruyor") or (mine and "senin whitelist") or "?"
             end
             w.why_tick = now
@@ -7792,7 +7803,7 @@ local function shot_line(e, shot, target, reason)
         hyp = (" | res %s"):format(shot.res_arm) .. hyp
     end
     if shot ~= nil and shot.wait_why ~= nil then
-        hyp = hyp .. " | bekleme yok: " .. shot.wait_why
+        hyp = hyp .. (shot.wait_why:find("tick beklendi", 1, true) and " | bekleme: " or " | bekleme yok: ") .. shot.wait_why
     end
     if shot ~= nil and shot.relaxed then
         hyp = hyp .. " | kafa kurali gevsek"
@@ -8721,6 +8732,8 @@ listen("pre_config_load", protect("pre_config_load", function()
 end))
 listen("post_config_load", protect("post_config_load", function()
     forget_overrides()
+    -- V1.0.62: config yuklemesi roll'u "acildi" saymasin (kayitli ozel Roll degeri 45'e ezilmesin).
+    current.roll_was = nil
     recommended_state.pending, recommended_state.report_off = true, true
     pcall(update_visibility)
 end))
