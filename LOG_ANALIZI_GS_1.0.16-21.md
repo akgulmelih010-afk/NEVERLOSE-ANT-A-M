@@ -1,0 +1,557 @@
+# GameSense edition V1.0.16 – V1.0.21 log analizi
+
+Kaynak: `nykle_log.txt` (10 961 satır, 33 yükleme, V1.0.16 → V1.0.21, çoğunluk V1.0.16).
+Sayılar `atis:`, `vuruldun:`, `iska:`, `dbg duello`, `dbg sikmadi`, `dbg olum-detay`, `teleport sonucu` satırlarından çıkarıldı.
+
+## V1.0.22'de uygulananlar
+
+| Madde | Ne yapıldı |
+|---|---|
+| 5 (şarj bekle) | Peek'te ve yürürken bekleme yok; üst sınır 0.5 sn. |
+| 7 (sahte kayıt) | `Wait for real record` varsayılan açık + ilk gerçek kayıttan sonra 3 tick. |
+| 1 (gövde kuralı) | Seçenek olarak (`Body 70+ while an enemy sees you`, kapalı): Min. damage 100 isteği korunuyor. Öğrenme (`ogrenildi`) hâlâ sadece HP+1'i kaldırır. |
+| 3 (gormedi) | Önce teşhis: `gormedi (iz: ...)` ile görüş takibinin kaçırdığı durum loga yazılır; delmeli görüş `trace_bullet` ile zaten var, sorunun kaynağı bir sonraki logdan okunacak. |
+| 9 (sebep bilinmiyor) | `aimbot tehdidi baska`, `gercek kayit bekleniyor`, `safe point Force` sebepleri. |
+| 2, 4, 6, 8 | Yapılmadı: Peek AA ve temiz atış değişiklikleri oyun içi deneme ister; önce V1.0.22 logu. |
+
+## V1.0.23: anti-aim (ikinci log, aynı veri + 1 oturum)
+
+İkinci log (9 612 satır) aynı dosyanın devamı: 990 yeni satır, bir V1.0.21 oturumu (aurorahvh, 105 mermi: dururken %56, Peek %50, freestanding %62 kafa) ve V1.0.22'nin sadece yüklenmesi. AA için sana gelen 1 100 merminin kırılımı:
+
+| Kırılım | Kafa / mermi |
+|---|---|
+| Düşman seni gördükten < 0.1 sn sonra | 137 / 329 = **%42** |
+| 0.1–1 sn | 123 / 346 = %36 |
+| ≥ 1 sn | 23 / 137 = **%17** |
+| `gormedi` | 87 / 240 = %36 |
+| Dururken < 0.1 sn | 31 / 58 = %53 |
+| Freestanding < 0.1 sn | 14 / 26 = %54 |
+| Faz 0 / 1 / 2 / 3 / 4 / 5 (hepsi) | %35 / %43 / %33 / %32 / %34 / %37 |
+| Desync `sag 58` / `sol 58` / `sol 60` / `sag 60` | %40 / %37 / %29 / %31 |
+| Saldıran `AA hedefi` / `AA hedefi degil` | %33 / **%45** |
+| Saldıran defensive'de (`DEF geri`) / değil | **%59** / %33 |
+| `DT dolu, DEF yok (zorla)` (zorlandı, pencere yok) | 61 / 114 = %54 |
+| Scout mermisi | 346 / 598 = %58 |
+
+Okuma: AA bir kez görüldükten sonra iş görüyor (%17); ölümler ilk 0.1 sn'de ve defensive'li, ön nişanlı scout'lardan. Faz ve taraf değişimi fark yaratmıyor (resolver yazı-tura atıyor, desync 58 iken doğru tahmin = kafa).
+
+Uygulananlar: (1) ilk görüşte / peek'te defensive silah hazırken de (temiz atış hariç), (2) düşük desync fazları 6–7 (öğrenme seçer), (3) kötü bilinen faz atlanır.
+
+## V1.0.23'ün ilk logu → V1.0.24
+
+Üçüncü log: V1.0.23 ile 12 dk DM (dm_twentysixer_office_aurorahvh, 14:30–14:43), çoğu tek rakibe karşı (мопсик: 37 ölüm+öldürme). 20 öldürme / 34 ölüm; sana 70 mermi, 31 kafa (%44); senin 42 atış, 24 isabet.
+
+- **Bütün oturum Hide shots'taydı:** sniper öğrenmesi "HS 17/32, DT 19/28 → Hide shots" demişti. HS'de zorlanan defensive, teleport ve peek koruması yok; V1.0.23'ün "ilk görüşte defensive" değişikliği hiç devreye girmedi. 1 100 mermilik toplamda HS %45 / DT %36 kafa. → Varsayılan `Same as state` (DT), Auto eşikleri yükseltildi.
+- **`gormedi (iz: kapali)` 22/23:** vurulma anında saldıranın gözünden kafana iz kapalı; 13'ünde kaydı sahte (`DEF geri`). → Sahte kayıttaki düşman için ileri bakış kaydın gerisi kadar uzatıldı.
+- Faz 6/7: 24 + 18 mermi, %42 / %44 — faz 3 (%41) ile aynı; öğrenme peek için faz 3'ü seçti. Tek rakip, erken.
+- Gerçek kayıt bekleme: 285 "gerçek kayıt geldi", 233 "sınır doldu" (düşman 14 tick'ten uzun defensive'de). Sahte kayda 12 atış %50, gerçeğe 29 atış %62.
+- `sarj bekle` ile vurulma: 0 (V1.0.22 değişikliği).
+
+## V1.0.24'ün ilk logu → V1.0.25
+
+Dördüncü log: V1.0.24 ile 14 dk DM (dm_hvh_fysnow_bc_aurorahvh, 14:49–15:03), DT açık (`sniper Same as state`). 29 öldürme / 49 ölüm; sana 103 mermi, 75 isabet, **48 kafa (%64)**; senin 65 atış, 39 isabet (%60).
+
+| Kırılım | Kafa / mermi |
+|---|---|
+| Freestanding / Peek / Standing / Air | 19/37 · 17/33 · 4/17 · 5/8 |
+| Saldıran `gormedi` | 21/36 = %58; `iz: kapali` 32, `duvardan` 3, `su an goruyor` 1; 16'sında `DEF geri` |
+| `gormedi` saldıran mesafesi | 245–1991 birim, 11'i 1600+ |
+| Defensive penceresi açık / kapalı | 9/23 = %39 · 39/80 = %49 |
+| `DT dolu, DEF yok, atis yok` / `DEF yok (zorla)` | 11 · 8 kafa |
+| Faz 1 / 2 / 3 / 5 / 6 / 7 | %31 / %29 / %54 / %55 / **%65** / %48 (öğrenme: yerde faz 2; faz 6 artık "kötü bilinen") |
+| Teleport | 15, 2'si 1.5 sn içinde vurulma (eskiden %29) |
+| `sikmadi` → ölüm (2 sn) | 9, 8'inde gövde 70+ vardı (`Body 70+` kapalı) |
+| Sahte / gerçek kayda atış | 16/23 · 23/42 (küçük örnek) |
+
+Okuma: ölümlerin çoğu ekranda hiç görünmeyen, defensive'li, uzak scout'lardan; o sırada defensive kapalı (`On peek` görünmeyen düşmana zorlamıyor). → Smart artık 1800 birim içinde düşman varken de zorlar; dururken / eğilirken / freestanding'de varsayılan Smart.
+
+## V1.0.25'in ilk logu (aynı harita, 10 dk, 15:11–15:21)
+
+| | V1.0.24 (14 dk) | V1.0.25 (10 dk) |
+|---|---|---|
+| Öldürme / ölüm | 29 / 49 | **41 / 46** |
+| Sana gelen mermi / isabet / kafa | 103 / 75 / 48 (%64 kafa) | 82 / 68 / 34 (**%50**) |
+| `gormedi` kafa | 21 | **5** |
+| Senin atış / isabet | 65 / 39 (%60) | 79 / 54 (**%68**) |
+| Sahte / gerçek kayda atış | 16/23 · 23/42 | 11/19 · 39/56 |
+| Teleport | 15, 2 vurulma | 3, 2 vurulma → haritada kapandı |
+
+Kalan kafa mermileri: 20/34 Peek'te; 17'sinde `DT %N` (şarj doluyor) ya da `DT dolu, DEF yok` ve 12'si **kendi atışından 0.4 sn içinde**: DT'yle ateş ettin, şarj boşaldı, karşılık geldi. Bu DT'nin kendi bedeli; peek'ten sonra geri çekilmek (AI peek bunu yapıyor) tek çözüm. `sikmadi` → ölüm 12, 11'inde gövde 70+ vardı.
+
+→ **V1.0.26:** DT çifti öldürüyorsa (gövde × 2 ≥ can, DT dolu) gövde serbest: Min. damage 100 şartı "sadece öldürecek atış" demek, çift öldürüyor. Temiz atışın atış sonrası tutması 14 → 6 tick (defensive şarjla birlikte dönsün). Yapılmayan: `AA hedefi degil` (%45, 152 mermi: freestanding 27, Peek 26 kafa) için hedef önceliği — hangi düşmanın görmesi gerektiğini log söylemiyor; `zorlanan 138 418 tick / zorlanıp görülen 90 810` (%66): `(zorla)` ama pencere yok = DT şarj boşluğu, script'ten düzeltilemez.
+
+## V1.0.27–1.0.29 logu (altıncı log: office DM 8 dk, fysnow 5 dk, de_mirage 22 dk / 8 round)
+
+| | V1.0.27 (office) | V1.0.28 (fysnow) | V1.0.29 (mirage) |
+|---|---|---|---|
+| Öldürme / ölüm | 5 / 16 | 5 / 6 | 13 / 25 |
+| Sana gelen isabet / kafa | 28 / 10 | 8 / 5 | 38 / 14 (%37) |
+| Senin atış / isabet | 15 / 9 | 11 / 8 | 30 / 19 (%63), 5 correction |
+| `gormedi` kafa | — | — | 4 (13 `iz: kapali`) |
+| Teleport | — | — | 3 ok / 4 vurulma |
+
+Mirage okuması:
+- **DT çifti çalışıyor:** 5 satır (`MD 86` / `MD 72` geçici), hedef kafa/mide 22/6, mideye giden 5/6 tuttu.
+- **Kendi resolver hiç uygulanmadı:** 30 atışın hepsi `res gs`, panelde `kollar: GS 6/7`. Sebep: LBY kolu sadece duran düşmana seçiliyordu (`speed < 5`), atışların 28'i hareketli hedefe gitti. → **V1.0.30:** LBY kolu yerdeki her düşmanda; taraf bilgisi gidince kol bırakılır; eşikte histerezis.
+- Faz 8 (asimetrik) 44 merminin 30'unu yedi, %30 kafa: diğer fazlarla aynı bant, öğrenme elemiyor; veri az, izlenecek.
+- `sen havadasın` 4/9 `sikmadi`: havada hit chance 40 çalışıyor (eskiden 75/254).
+- Çalışma hatası yok; Peek 10/20, Air 2/11 kafa.
+
+## V1.0.30 logu (yedinci log: de_mirage 26 dk, 16:50–17:16)
+
+| | V1.0.29 (mirage 22 dk) | V1.0.30 (mirage 26 dk) |
+|---|---|---|
+| Öldürme / ölüm | 13 / 25 | **22 / 17** |
+| Sana gelen isabet / kafa | 38 / 14 (%37) | 33 / 10 (**%30**) |
+| Senin atış / isabet | 30 / 19 (%63), 5 correction | 30 / 27 (**%90**), 2 correction |
+| `gormedi` kafa | 4 | 11 (13 `iz: kapali`) |
+| DT çifti | 5 | 7 |
+
+- **Kendi resolver yine uygulanmadı, bu kez başka sebepten:** 8 kol seçimi (`bizim lby+ ... (deneme)`) ve 8'i aynı saniye `taraf bilgisi degisti (lby -> open): lby+ kolu birakildi`. LBY farkı anlık: düşman yürürken LBY göz yaw'ına eşitleniyor, fark bir an 0'a düşüyor (vurulma-detay'da `lby+0` / `lby-106` yan yana). V1.0.30'un "bilgi gidince bırak" kuralı fazla hevesliydi. → **V1.0.31:** 1 sn kesintisiz kayıp şartı; anlık kayıpta seçilen taraf korunur.
+- Seçimlerin hepsi `(deneme)`: GS kolu 23/24 ile çok yüksek skorlu, LBY kolu sadece %15 denemeyle seçiliyor. Bu doğru: GS bu sunucuda %90 tutuyor, kendi kol ancak veri biriktirince öne geçer.
+- Gerçek kayıt bekleme: 46 kez kayıt geldi, 76 kez 14 tick sınırı doldu (XOXO 41 kez / round defensive'de). Sahte kayda giden 4 atışın 2'si tuttu.
+- Ölümlerin 17'si Peek'te (33 isabetin 17'si); kafa 10/33, faz 0 ve 8'de 3+3.
+
+## V1.0.31 logu (sekizinci log: de_mirage 30 dk, 17:23–17:53)
+
+| | V1.0.30 | V1.0.31 |
+|---|---|---|
+| Öldürme / ölüm | 22 / 17 | 24 / 25 |
+| Sana gelen isabet / kafa | 33 / 10 (%30) | 39 / 15 (%38) |
+| Senin atış / isabet | 30 / 27 (%90), 2 correction | 43 / 29 (%67), **12 correction** |
+| `sikmadi` | 10 | 8 |
+
+- **Kendi resolver üçüncü kez uygulanmadı**, bu kez sebep durum anahtarı: 12 kol seçimi (`bizim lby+ / wall+ ... (deneme)`), hepsi "Standing"de; atışlar 1 sn sonra düşman "Slow walk" / "Moving"deyken gitti (klaus 17:25:49 → 17:25:50, ﷽﷽ 17:25:50 → 17:25:51). Hipotez kaydı (düşman, durum) başına; yeni durumun kaydı boş → `res gs`. Bırakmalar artık 1–31 sn sonra (grace çalışıyor). → **V1.0.32:** karar düşman başına, her durumun hipotezine taşınır.
+- Seçimlerin 11'i `(deneme)`: GS kolu 42/49 (%86) ile skor 0.84, lby+ ön bilgisi 0.62. Sadece ε ile seçiliyor. → UCB1 primi (0.25): denenmemiş kol ilk 4–8 atışta öne geçer.
+- `lby L 102°`, `111°`, `122°`, `R 178°`: desync'in üstünde farklar, LBY kırıcı / bayat LBY. → 150° üstü taraf sayılmaz.
+- Correction ıskası 2 → 12 (%28): Black Beatles 4, ﷽﷽ 3, furkan 2. Çoğu `BA Off` ile (bu oturumda body aim kapalı, kafa 32/43). Kendi kol tam bu düşmanlarda devreye girmeliydi; Black Beatles'ta skorla (`GS 1/4`) seçildi ama durum anahtarına takıldı.
+- Çalışma hatası yok; gerçek kayıt bekleme ve DT çifti öncekiyle aynı.
+
+## V1.0.32 logu (dokuzuncu log: de_mirage 2 dk, 18:00–18:02)
+
+Yargı için çok kısa: 7 atış / 7 isabet, 5 öldürme / 2 ölüm, hata yok. Kendi resolver bir kez kol seçti (`kaan Standing | bizim wall+ (duvar L)`), aynı saniye kaan'ın AA deseni static → x-way'e döndü (hipotezler sıfırlandı; x-way çok yönlü desen, kol uygulanmaz) ve kaan 27 sn siper olmayan yerde yürüdü → kol bırakıldı (doğru). kaan'a tek atış x-way + sahte kayıtta gitti, `res gs`. V1.0.32'nin durum taşıması bu oturumda sınanmadı; uzun oturum gerekli.
+
+### Devamı: aynı oturumun tamamı (de_mirage 20 dk, 18:00–18:20)
+
+| | V1.0.31 | V1.0.32 |
+|---|---|---|
+| Öldürme / ölüm | 24 / 25 | 18 / 21 |
+| Sana gelen isabet / kafa | 39 / 15 (%38) | 38 / 12 (%32) |
+| Senin atış / isabet | 43 / 29 (%67), 12 correction | 36 / 26 (%72), 5 correction |
+| Kol kararı / kolla giden atış | 12 / 0 | 3 / 0 |
+
+- Durum taşıması çalışıyor ama **karar verecek bilgi yok**: 36 atışın 28'inde atış-detay'daki LBY farkı 0 (`lby+0`), 35° üstü sadece 8'inde (70, 146, 47, 168 …). Duvar kararı 20 dakikada 1. Jitter / x-way düşman 21 atış (kol yok), "AA deseni kararsız" 23 satır (e 14).
+- İki karar düşman dormant'ken 26–28 sn asılı kaldı (güncelleme gelmedi), bırakıldı; biri (kaan 18:13:39) 1 sn sonra bırakıldı. Hiçbiri atışa denk gelmedi.
+- GameSense Lua'da başka taraf kaynağı yok: animasyon katmanları / pose parametreleri okunamıyor, GS'nin çözdüğü açı dışarı verilmiyor. Kalan tek yol: **açıyı kendimiz zorlayıp sonucu düşman başına öğrenmek**. → **V1.0.33:** statik desync'li düşmanda taraf bilgisi gerektirmeyen `abs+` / `abs-` kolları (+58 / −58), UCB ile denenir, düşman başına kalıcı öğrenilir. Statik desync'te gerçek kafa sahte yaw'ın hep aynı tarafında; 36 atışın 15'i statik düşmana gitti.
+- `sikmadi` 12: 5'i kaan / furkan'da "hasar 85–86 < MD 100" (DT çifti için can 100 > 2 × 86 değil, kural doğru).
+
+## V1.0.33 logu (onuncu log: de_mirage 10 dk, 18:27–18:37)
+
+| | V1.0.32 (20 dk) | V1.0.33 (10 dk) |
+|---|---|---|
+| Öldürme / ölüm | 18 / 21 | **17 / 8** |
+| Sana gelen isabet / kafa | 38 / 12 | 14 / 4 |
+| Senin atış / isabet | 36 / 26 (%72), 5 correction | 23 / 21 (%91), **0 correction** |
+| Kol kararı / kolla giden atış | 3 / 0 | 4 / **6** |
+
+- **Kendi resolver ilk kez atışa girdi:** `res abs+` ile 6 atış, 6 isabet (4 kafa: Ayz 3, PACo 1). Ayz'a karar 18:28:11'de "Slow walk"ta verildi, atışlar Moving / Standing / Slow walk'ta gitti (V1.0.32'nin düşman başına taşıması çalışıyor). Panelde `ABS+ 3/3` (kafaya nişanlı 3 atış sayıldı; mideye gidenler ölçüme girmez).
+- UCB sırayla deniyor: abs+ 3/3 olunca bir sonraki karar `furkan | bizim abs-` (deneme) oldu; furkan'a atış gelmedi.
+- PACo'ya duvar kararı (`wall+`) dormant'ken 37 sn asılı kaldı, bırakıldı; sonra abs+ ile 2 isabet.
+- Ölümler 8: 6'sı Peek'te. Hata yok, `sikmadi` 2. Kod değişikliği gerekmedi.
+
+### Devamı: aynı oturumun tamamı (de_mirage 25 dk, 18:27–18:52)
+
+| | GS kolu | Kendi kollar (abs+ / abs−) |
+|---|---|---|
+| Atış / isabet | 38 / 28 (%74), 4 correction | 11 / 7 (%64), 3 correction, 1 spread |
+
+Düşman başına (isabet / atış): **Ayz** GS 5/8, abs+ **4/5**; **PACo** GS 2/3, abs+ 2/3, abs− 1/2; **furkan** GS **12/16**, abs− 0/1. Oturum toplamı 27 öldürme / 24 ölüm, 49 atış / 35 isabet; sana gelen 37 isabet / 14 kafa (Peek 16, Freestanding 8; faz 8 Freestanding'de 3 kafa).
+
+- UCB'nin deneme bedeli göründü: abs+ 3/3 olunca 3 karar abs−'ye gitti (furkan, Ayz, PACo); abs− 1/3. Artık abs−'nin genel sayımı dolduğu için (3 atış) primi düştü, Ayz'da abs+ (4/5) kalır, furkan'da GS kalır. Tasarım gereği, değişiklik yok.
+- Öğrenme hafızaya yazılıyor (`ABS+ 4/6 (1/2)`); sonraki oturumda Ayz / PACo tanınınca kol doğrudan skorla seçilir.
+- `sikmadi` 8: hepsi "hasar < MD 100" (87, 86, 85, 73, 52, 41) ve silah hazır değil; kural doğru.
+
+## Genel tablo
+
+| | |
+|---|---|
+| Senin atışın | 955 (isabet 632 = %66; ıska: correction 161, spread 66, death 50, damage rejection 26, prediction 12) |
+| Sana gelen mermi | 1 108 (783 isabet, 325 ıska); **369 kafa** |
+| Öldürme / ölüm (detay satırları) | 585 / 502 |
+| Düello sonuçları | öldürdün 585, öldün 417 + 79, ayrıldı 691, başkası öldürdü 114 |
+| Sürüm | 1.0.16: 368 / 306 · 1.0.21: 26 / 68 (aurorahvh DM, bir kısmı rage kapalı: karşılaştırma için güvenilmez) |
+
+Kafa yeme oranı (kafa / sana gelen mermi), durum başına:
+
+| Durum | Kafa / mermi | Oran |
+|---|---|---|
+| **Peek** | 187 / 532 | %35 |
+| Air | 62 / 128 | **%48** |
+| Air crouch | 17 / 40 | %42 |
+| Fake duck | 12 / 31 | %39 |
+| Freestanding | 37 / 162 | %23 |
+| Standing | 22 / 94 | %23 |
+| Crouching | 22 / 92 | %24 |
+
+Ölümlerin **%49'u Peek'te** (248 / 502), %15'i havada (75), %11'i freestanding (54).
+
+## Bulgular (önem sırasıyla)
+
+### 1. Sniper "sadece öldürecek atış" kuralı ölüme yol açıyor; öğrenme işe yaramıyor
+
+- `sikmadi` satırlarının 223'ü `hasar X < MD 100`; bunların **129'unda gövde hasarı ≥ 70** (scout gövde 85–87, düşman hp100).
+- 94 ölümün 2 sn öncesinde bir `sikmadi` var; **71'inde gövdeye ≥ 70 hasar vurabilirdin**, kafa bekledin, öldün.
+- 369 kafa ölümünün **183'ünde (`atis yok`) hiç ateş etmemişsin**.
+- `ogrenildi: ... kafa beklerken öldürdü -> gövde de atılacak` 44 kez tetiklendi; **36'sı "(ama Min. damage'in 100: gövde yine atılmaz)" ile no-op**. 1.0.19/1.0.20'de "görürken geçici 70" vardı, **1.0.21'de yine no-op'a dönmüş** (5/5).
+
+Öneri:
+- Öğrenilen kural geri gelsin ve gerçekten uygulansın: o düşman (ya da haritadaki herkes) seni görürken Min. damage geçici olarak `min(hp, 70)`; hedef hp ≤ 87 ise zaten gövde öldürür.
+- Öğrenmeyi beklemeden de: **seni görebilen düşman** + kafa atışı `N` tick (ör. 0.3 sn) içinde gelmediyse + gövde ≥ 70 → gövdeye at. İkinci atış (ya da takım) bitirir; 86 hasar yiyen çoğu geri çekiliyor. Görülmüyorken kural aynen kalsın (kafa bekle).
+- Alternatif ölçüt: gövde atışı sonrası düşman hp ≤ 15 kalıyorsa (86/100) bunu "öldürecek" say.
+
+### 2. Peek: faz öğrenmesi hiçbir şey kazandırmıyor
+
+Peek'te 6 fazın hepsi %32–43 arasında (faz 0: 28/88, 1: 31/78, 2: 34/104, 3: 38/120, 4: 35/93, 5: 21/49). Faz değiştirmek kafa oranını değiştirmiyor → düşman seni **çözüyor** ya da fazdan bağımsız vuruyor.
+
+- Peek kafa vuruşlarının 67'si düşman seni gördükten **< 0.1 sn** sonra (ön nişan, sen onun tuttuğu açıya giriyorsun), 34'ü < 0.3 sn.
+- `sadece o gördü -> öldün` 123 düello: **111'i < 0.3 sn sürdü, 81'inde düşman defensive'deydi (> %50)**, medyan mesafe 591. Sen onu hiç "vurulabilir" görmedin (`sen onu vuramıyordun` 77). Klasik defensive peek + anlık atış.
+- Peek'te her mermide `sol 58 / sag 58`: desync hep aynı miktar; faz sadece tarafı / ±15° değiştiriyor.
+
+Öneri:
+- Peek'te faz yerine **mesafeyi** değiştir: düşman seni görmeden önceki 2–3 tick'te yaw'ı 90°+ çevir (ters taraf) ve desync'i 58 sabitinden rastgele 35–58 aralığına çek; peek'e girişte jitter gecikmesini 0 yap. Ölçüt: `AA FAZ / PEEK` kafa oranı.
+- "Defensive vs enemy peeks" sadece hızdan tahmin ediyor; `sadece o gördü` ölümlerinin 58'inde düşman hızı ≤ 150 (duruyor, açı tutuyor). Açı tutan düşmana peek atarken (auto peek, AI peek) ilk 0.3 sn **zorla defensive + hidden yaw** (hide shots ile), atış ancak kafa/gövde kuralı geçince.
+- Auto peek durumuna girişi daha erken yap: `gordu < 0.1` ölümlerinde sen zaten "Peek"tesin ama defensive `yok`/`zorla kapalı` (bkz. 4).
+
+### 3. Duvar arkasından ölüm ve görünmeyen saldırgan
+
+- `olum-detay` 502 ölümün **213'ü `duvardan (1)`** (mermi bir yüzeyden geçmiş; kafa hasarları -105…-222 ile tutarlı).
+- 85 kafa vuruşunda saldırgan senin takibine göre seni **görmüyordu** (`gormedi`); 77'sinde `sen onu vuramıyordun`, 50'si duvardan.
+- `update_exposure` delip geçmeyi hesaba katmıyor: ince duvar arkasında "görünmüyor" sayılıyorsun → defensive yok, AA hedefi o değil, DT şarj bekletiliyor.
+
+Öneri:
+- Görüş testinde düşmanın gözünden senin kafana **delmeli** trace (`client.trace_bullet` GameSense'te hasar ve delme veriyor): kafaya ≥ (hp) hasar geçiyorsa "görülüyor" say. Bu, defensive/hide shots'u ve AA hedefini duvar arkası düşmana da açar.
+- Aynı trace ile "duvar arkası kafa riski" varken Peek/Standing'de hidden pitch/yaw kapatma.
+
+### 4. Temiz atış (clean shot) defensive'i kapatıyor ama atış gelmiyor
+
+`DEF yok (zorla)` + `atis yok` ile 38 kafa vuruşu (Peek 17–18, Freestanding 11, Air 5, Standing 4); `DEF acik (zorla)` + `atis yok` 35. "Temiz atış" bayrağı açılınca Break LC / defensive / hidden kapanıyor, aimbot ateş etmiyor (`sebep bilinmiyor` 22, `silah hazir degil` 26, `sen havadasın` 19), sen açıkta kalıyorsun.
+
+Öneri:
+- Temiz atış sadece aimbot **gerçekten** ateşlemek üzereyken açılsın: hit chance eşiği geçmiş + silah hazır + hedef hitbox geçerli; bu şartlardan biri yoksa açılmasın.
+- Açıldıktan sonra `k` tick (ör. 4) içinde `weapon_fire` gelmezse kapan, `atis yok` ile ölümde bayrak açıksa öğren (o düşmana karşı temiz atış kapalı).
+- `silah hazir degil` (sürgü) sırasında temiz atış asla açılmasın; `sen havadasın` (jump scout) sırasında da.
+
+### 5. Safe recharge (şarj bekle) seni çıplak bırakıyor
+
+`DT %0, DEF yok, sarj bekle`: 179 isabet, **70 kafa**, 57'si Peek. Görülürken şarj bekletiliyor ama o sırada ne DT ne defensive var; 1.2 sn'ye kadar.
+
+Öneri:
+- Peek / Moving'de şarj beklemesi yok (hemen şarj et).
+- Beklerken defensive (hide shots / fake lag) zorla açık; bekleme üst sınırı 0.5 sn.
+
+### 6. Hava: en yüksek kafa oranı, teleport 1/3 vuruluyor
+
+- Air %48, Air crouch %42 kafa. Air faz 1: **16/25 = %64**, faz 5: 9/15, faz 2: 8/14; faz 0: 16/46 = %35. Hava grubunda öğrenme faz 1'den kaçmıyor.
+- Teleport sonucu: 136 teleportun **40'ında 1.5 sn içinde vuruldun** (%29; 1.0.16: 26/88, 1.0.21: 6/18). "Son 3'ün 2'sinde vuruldun" kilidi 12 kez devreye girdi.
+- `sen havadasın` 19 `sikmadi` + 13 ölüm: zıplarken ateş edemiyorsun (jump scout) ve zıplarken vuruluyorsun.
+
+Öneri:
+- Hava grubunda faz 1'i başlangıçta yasakla (öğrenme oranına göre), öncelik faz 0.
+- Teleport: inişe < 0.5 sn kala ya da seni gören düşman duruyorsa (hız ≤ 50) teleport yok; teleport yerine havada her tick defensive zaten var.
+- Jump scout kapalıyken "havada sniper atışı yok" kuralı; açıkken hc'yi havada 55 → 30 düşürme yerine havada ateşi tamamen kapat ve iniş tick'inde temiz atış.
+
+### 7. Resolver: sahte kayda atış 18 puan kaybettiriyor
+
+| Düşman kaydı | Atış | İsabet | Correction |
+|---|---|---|---|
+| Gerçek (def yok) | 392 | 294 (%75) | 36 (%9) |
+| Defensive **yeni bitti** | 386 | 241 (%62) | 82 (%21) |
+| Defensive **içinde** (`DEF geri`) | 178 | 102 (%57) | 44 (%25) |
+
+- Scout 1.25 sn'lik döngüde her ıska pahalı. `gercek kayit bekle` ayarı var ama **kapalı**.
+- Düşman AA'sına göre correction: static %10, jitter %21, x-way %21, `?` %25. Seviye 2 (Force) atışları 28/53 (%53) — Force ıskayı azaltmıyor.
+- `AA deseni kararsız: hipotez yok, Force safe point` 56 kez: kararsız desende Force'a geçmek veriyle çelişiyor.
+
+Öneri:
+- **Koşullu gerçek kayıt bekleme:** sniper + düşman defensive'de + **sen görülmüyorsan** (madde 3'teki delmeli görüşe göre) ≤ 0.2 sn bekle; görülüyorsan hemen at (ilk ateş eden kazanır). Defensive bittikten sonraki ilk 2 tick de "sahte" sayılsın (62 → 75'e yaklaşması beklenir).
+- Kararsız desen → Force yerine Prefer; Force sadece aynı düşmana aynı durumda 2 correction sonrası (v5.2 kuralı).
+- Jitter/x-way ön bilgisi Prefer'i korusun (ıska %21), static'te Default.
+
+### 8. AI peek: 407 denemenin 165'i "60 birime kadar öldürecek atış yok"
+
+Madde 1'deki gövde kuralı AI peek'i de kilitliyor (kafa görünmezse hiç peek yok). Peek atılanlarda sonuç iyi (çoğu `isabet head`), 31 `aci kapandi`, 9 `süre doldu`.
+
+Öneri: görülmüyorsan (düşman seni göremiyor) kuralı koru; AI peek'te "gövde ≥ 70 + hedef tek, ikinci atış mümkün" noktalarını da say; `aci kapandi` için noktada bekleme 0.5 → 0.7 sn (R8 gibi).
+
+### 9. Diğer
+
+- `damage rejection` 26 (r8 5, ssg08 21): "sunucu Hide shots'u reddediyor -> 5 dk DT" 3 kez tetiklendi; çalışıyor.
+- `iska death` 50: hedef mermi varmadan öldü (takım). Sayılmamalı; `atis ozeti`'nden çıkar.
+- `panoya kopyalanamadi (Allow unsafe scripts kapalı)` 17 kez: mesaj her Copy'de tekrar ediyor, bir kez yaz.
+- `hp100`'e karşı 369 `sikmadi`; hp ≤ 87 düşmanda gövde zaten öldürüyor, orada sorun yok.
+
+## Önerilen uygulama sırası
+
+1. Madde 1 (gövde kuralı + öğrenme no-op düzeltmesi) — en çok ölüm, en küçük değişiklik.
+2. Madde 3 (delmeli görüş) — 4, 5 ve 7'nin de temeli.
+3. Madde 4 + 5 (temiz atış ve şarj bekle: defensive'siz kalma).
+4. Madde 7 (koşullu gerçek kayıt bekleme).
+5. Madde 2 + 6 (Peek ve hava AA).
+
+Her maddeyi ölçmek için gereken satırlar zaten logda var: `sikmadi` sebepleri, `vuruldun` exploit alanı, `atis-detay`'daki `DEF geri / once bitti`, `teleport sonucu`, Stats `AA FAZ / PEEK`.
+
+---
+
+# Neverlose V1.1: ilk log (4.5 dk, realtime 921–1188)
+
+Dosya kaydı çalıştı (`nykle_log.txt`, Neverlose'un `files` API'si var; `os.date` yok, damga oyun saati). 205 satır.
+
+| | |
+|---|---|
+| Senin atış / isabet | 12 / 8 (kafa 4, gövde 3, boyun 1); ıska: correction 1, prediction error 1, hedef öldü 2 |
+| Sana gelen isabet / kafa | 13 / 10: faz 7 ×4, faz 6 ×2, faz 8 ×2, faz 2 ×2, faz 3, faz 5 |
+| Teleport | 10, 1 vurulma (ilk; 1.24 sn sonra) |
+| DT çifti | 7 kez devreye girdi (gövde 65–74 → MD 64–73) |
+| Gerçek kayıt bekleme | 48 bekleme: 24 "sınır doldu", 24 "gerçek kayıt geldi" (3 düşman sürekli defensive) |
+| `sikmadi` | 12: "sen havadasın" 4, "hasar < MD" 4, "silah hazır değil" 2, **"sebep bilinmiyor" 2** |
+
+Okuma:
+- **Yeni fazlar 6–8 bu oturumda kafa yedi (10 kafanın 8'i).** Beklenen bedel: denenmemiş faz önce denenir, 12 mermiden sonra kötü işaretlenir ve atlanır. GS'de de 6–7 diğerleriyle aynı banda oturmuştu; karar Stats → `AA FAZ` verisine bırakıldı. Değişiklik yok.
+- **"sebep bilinmiyor" ×2:** kafa 292 / 74 açık, MD 72–73 (DT çifti), temiz atış, SP Prefer — yine de 0.44 sn atış yok. Neverlose'un kendi hit chance / multipoint kararı olabilir. → **V1.1.1:** `sikmadi` satırına SP / BA / hitbox durumu eklendi, bir sonraki logda ayrışsın.
+- **Bekleme logu çok:** 205 satırın 95'i "sahte kayıtta". → **V1.1.1:** düşman ve tür başına 15 sn'de bir.
+- Ölümlerin 4'ü `DT %0, DEF yok` (kendi atışından 0–1 sn sonra): DT'nin bilinen bedeli. 5'i `DEF acik` iken kafa: zorlanan defensive'e rağmen; düşman resolver'ları bunu çözüyor, faz öğrenmesi devrede.
+- Havada hit chance 40 ile 4 kez atış gelmedi ("sen havadasın"), biri 1047.2'de kafa 73 / gövde 92 açıkken; sonra havada kafadan vuruldun. GS'de havadan giden atışlar %67–89 tutmuştu; 40 değeri bir log daha izlenecek.
+
+## Neverlose V1.1.1: ikinci log (13 dk, 34:51–47:57, iki düşman: aimlarp, KaslıZenci)
+
+| | İlk log (4.5 dk) | İkinci log (13 dk) |
+|---|---|---|
+| Senin atış / isabet | 12 / 8 | 18 / 8 (kafa 6), correction **6**, spread 3, hedef öldü 2 |
+| Sana gelen isabet / kafa | 13 / 10 (%77) | 26 / 5 (**%19**): faz 8 ×2, faz 0 (FD), faz 3, faz 6 |
+| Teleport | 10, 1 vurulma | 9, 4 vurulma (0.25 / 0.36 / 1.41 / 0.74 sn) → **haritada kapandı** (47:43.9) |
+| DT çifti | 7 | 6 (1 isabet, 2 correction, 1 spread) |
+| Gerçek kayıt bekleme | 48 | 54 (iki düşman da sürekli defensive) |
+
+Okuma:
+- **Kafa oranı %77 → %19.** Faz öğrenmesi oturdu: 6–8 fazları artık kafa yemiyor (8'de 2, 6'da 1); ölümlerin çoğu gövde / mide, 5'i fake duck'ta `DT %0 (bind)` ile.
+- **Correction ıskası 6/16:** iki düşman da jitter'lı (20–101°) ve sürekli defensive; 3 ıska sahte kayda gitti (öğrenilmez), adaptive resolver ikisini de Prefer'e çekti. Neverlose'un resolver'ı; lua'dan açı zorlanamıyor.
+- **Teleport haritada kapandı:** 4 vurulmanın 2'si ışınlandıktan 0.25–0.36 sn sonra kafadan. Kural tam bunun için var.
+- **`sikmadi` "sebep bilinmiyor" ×4:** üçünde atış 0.1–0.2 sn sonra geldi, yani aimbot'un normal gecikmesi. → **V1.1.2:** pencere 0.44 → 0.63 sn; 20 hasar altı "vurulabilir" (havada 3–9 hasar, 6 satır) ve tek sebebi "silah hazır değil" olan satırlar yazılmaz.
+- Neverlose logunda öldürme satırı yoktu (K/D sadece Stats panelinde). → **V1.1.2:** `oldurdun: X | durum | sen silah [| headshot]` ve `oldun: X | durum | sen silah`.
+
+## Neverlose V1.1.2: üçüncü log (29 dk, 52:26–81:42; DUVARCI, fluxx, aimlarp)
+
+| | |
+|---|---|
+| Öldürme / ölüm | 27 / 30 |
+| Senin atış / isabet | 78 / 55 (%71); correction **22**, prediction error 1 |
+| Kafaya giden atış | 32: 16 isabet, **15 correction** (%48) |
+| Gövdeye giden atış | 45: 38 isabet, 7 correction (%16) |
+| Sana gelen isabet / kafa | 52 / 20; Peek 24 isabet / 13 kafa |
+| Ölümler | Peek **15**, Standing 3, Air 3, Moving 2, Freestanding 2, Fake duck 2, Crouching 2, Crouch move 1 |
+| `Peek (egik)` | **0** (eğilerek yürüyen peek hiç olmadı) |
+| Teleport | 9, 3 vurulma → 58:39'da haritada kapandı |
+| DT çifti | 35 |
+
+Okuma:
+- **Peek ölümlerinin kaynağı kendi atışın:** 13 Peek kafa mermisinin 10'u kendi atışından 0.05–0.6 sn sonra, `DT %0, DEF yok` iken geldi. Scout'un sürgüsü 1.25 sn; ıska ettiğin an çıplaksın. Yani Peek'te ölüm = ıska. Ayakta peek; eğik peek (`Peek (egik)`) bu logda hiç yok, Crouching 2 ve Fake duck 2 ölüm var.
+- **Kafa atışı yazı-tura (%48 correction), gövde %84 tutuyor.** fluxx 15 correction (statik / jitter 16–76°). DT çifti 35 kez Min. Damage'ı düşürdü ama Body Aim `Prefer` ile Neverlose kafa açıkken yine kafaya gitti (`hedef head ... MD 73`). → **V1.1.3:** DT çifti öldürüyorsa Body Aim **Force** (ilk mermi gövdeye, ikincisi DT ile); gövde görünmüyorsa 0.5 sn sonra Prefer (takılma koruması).
+- Faz 2 Peek'te 5 kafa yedi (round özetlerinde `2:1` ×4); öğrenme onu bırakacak (12 mermi eşiği).
+- `sikmadi`: "sebep bilinmiyor" 8, havada hit chance 5, DT bekleme 2.
+
+## Neverlose V1.1.3: dördüncü log (11 dk, 88:21–99:43; meow :=, DUVARCI) — eğik peek verisi
+
+| | |
+|---|---|
+| Öldürme / ölüm | 8 / 10 (5 headshot) |
+| Senin atış / isabet | 27 / 15; correction 10, spread 3 |
+| Kafaya giden atış | 11: 5 isabet, 6 correction |
+| Gövdeye giden (BA Force, DT çifti) | 4: 3 isabet, 1 correction |
+| Ölümler | **Peek (egik) 5**, Peek 2, Crouching 1, Air 1, Air crouch 1 |
+| Öldürmeler | Peek (egik) **5**, Crouching 1, Air crouch 1, Peek 1 |
+| Teleport | 6, 1 vurulma |
+
+Eğik peek: 5 ölüm, 5 öldürme; kafana gelen 3 mermi, kafanın yanından geçen 7 (AA'nın işi iyi). Ölümlerin kaynağı:
+- 3/5 kendi ıskandan 0.24–0.74 sn sonra `DT %0, DEF yok` (91:16.9, 96:30.2, 97:29.1 — öncesinde correction ıskası).
+- 1/5 teleporttan 2 sn sonra `DT %0` ile peek (95:58.6).
+- 1/5 `DEF acik`, atış yok (94:16.1): defensive'e rağmen kafa.
+Yani eğik peek'te de ölüm = ıska + 1.25 sn sürgü; eğik yürürken kaçamıyorsun. → **V1.1.4 "Bolt cover":** sniper'la ateş ettikten sonra silah hazır olana kadar (sürgü) biri seni görüyorsa fake duck zorlanır (kafa aşağıda, kayıt her pakette değişir); varsayılan sadece eğik peek'te, ayakta peek için ayrı seçenek (geri çekilmeyi yavaşlatır). Bıçaklı düşman yakınsa / havada yok.
+- V1.1.3'ün gövde Force'u: 4 atışta 3 isabet (önceki logda kafa %48 correction).
+- Peek grubunda faz 2 "en az vurulan" seçildi (12/25 kafa): hâlâ yüksek ama diğerleri daha kötü; öğrenme sürüyor.
+
+## Neverlose V1.1.5: üçüncü log yeniden (backtrack kesiti) — "çok missliyoruz"
+
+Üçüncü Neverlose logunun 77 çözümlenen `atis:` satırı backtrack tick'ine (`bt`) göre:
+
+| | atış | ıska | kafa | gövde |
+|---|---|---|---|---|
+| `bt` < 8 | 52 | 6 (%12) | 3/16 | 3/37 |
+| `bt` ≥ 8 | 25 | 17 (%68) | 13/16 | 4/9 |
+
+- Duruma göre `bt` ≥ 8 kafa: Moving 7/9, Air 2/4, Crouch 2/2, Standing 1/1, Fakeduck 1/1 ıska. `bt` < 8 kafa: Moving 0/3, Air 1/3, Crouch 1/4.
+- Düşmanın AA'sına göre: jitter'lı düşmanda `bt` < 8 → 4/43 ıska, `bt` ≥ 8 → 13/20. Resolver taze kayıtta iyi, eski kayıtta kötü.
+- Zaman sırası: uzun backtrack'ler hep bir düşmanla karşılaşmanın **ilk** atışında (71:35.1 `bt11` ıska, 71:38.7 `bt10` ıska, 71:40.4 `bt0` isabet; 76:02.3 `bt9` ıska, 76:03.6 / 76:04.9 `bt0` isabet). Düşman görünüp geri çekilince aimbot elindeki en iyi (eski) kayda ateş ediyor.
+- `bt` 13+ (200 ms üstü: 25, 25, 23, 19, 19, 18, 17, 17, 16) 9 atışın 7'si ıska: ya Neverlose fake latency'si açık ya düşmanın kaydı gecikmeli.
+
+→ **V1.1.5 "Snipers: fresh record only":** şu anki kayda mermi geçmiyorsa (az önce geçiyorduysa) en fazla 24 tick bekle. Kaybedilen: `bt` ≥ 8'deki 8 isabet (bir kısmı bekleme sonrası taze kayda yine gelir). Kazanılan: 17 ıska → sürgü süresinde ölüm azalır. Kafa önceliği (Headshot priority) ile birlikte beklenen kafa isabeti: eski kayıtsız kafa atışları %81 tutuyordu.
+
+## Neverlose V1.1.6: beşinci log (18 dk, 129:51–148:14; meow :=, DUVARCI) — V1.1.5 ile
+
+| | |
+|---|---|
+| Öldürme / ölüm | 25 / 19 (11 headshot); eğik peek 15 öldürme (8 HS) / 6 ölüm |
+| Senin atış / isabet | 54 / 41 (%76); correction 8, death 2, prediction 2, unregistered 1 |
+| Kafaya giden | 21: 13 isabet (%62), 5 correction |
+| Gövdeye giden | 33: 28 isabet (%85) |
+| `bt` < 8 / ≥ 8 | 41 atış 8 ıska / 13 atış 5 ıska (kafa 5/7 ıska, gövde 0/6) |
+| Taze kayıt beklemesi | 17 (2–24 tick), 9'u "kayıt taze" ile bitti |
+| Duello kısa bekleme | 24 satır `(duello, kafa onceligi)` |
+| Bolt cover | 29 `surgu korumasi`; fake duck'a 14 mermi, 7 ölüm `Fake duck` |
+| Teleport | 10; haritada 3/3 vurulunca kapandı |
+
+- **DT ikinci mermiyi atmıyor.** Ardışık atış aralıkları: < 0.2 sn 1, 0.8–1.6 sn 12, > 1.6 sn 39 (3. logda 0/23/52). "DT cifti olduruyor" 24 kez yazıldı; gövde −91/−92'den sonra düşman 7–9 canla kaldı, ikinci atış 1.0–1.3 sn sonra (sürgü). Ölümlerin 11'i o sürgüde (130:49, 133:10, 135:43, 138:55, 141:24, 141:49, 142:19, 142:45, 143:16, 143:48, 144:24).
+- **Fake duck koruması ters tepti:** `vuruldun: head -138 ssg08 | Fake duck | FD, DT %0 (bind), DEF yok` tipinde 14 isabet; FD'de DT boşalıyor, defensive kapanıyor.
+- **Backtrack düşman kaynaklı:** DUVARCI 138:13'ten sonra `bt 13–26t` (fake latency / ping); meow := 8–14. Taze kayıt beklemesi bunu engelleyemez. Kafa gecikmeli kayıtta 5/7 ıska, gövde 0/6 → kayıt gecikmesi (`record_age`) ölçülüp çift kararına giriyor.
+- Kafa taze kayıtta 11/14 (%79; 3. logda %81) — kafa önceliği taze kayıtta çalışıyor.
+
+→ **V1.1.6:** duelloda çift yok (kafa, Min. Damage 101), gecikmeli kayıtta çift; bolt cover kapalı.
+
+## GameSense V1.0.36 oturumu (de_mirage, 23 dk, 13:17–13:40)
+
+| | |
+|---|---|
+| Sana gelen mermi | 28: 10 kafa (%36), 7 ıska |
+| DT dolu | 12 mermi: 2 kafa (%17), 3 ıska |
+| DT yarım / boş | 16 mermi: 8 kafa (%50) — önceki oturumlarda yarım şarj 48/193 mermiydi, burada 16/28 |
+| Şarj pozu açıkken | 6 mermi: 3 kafa |
+| Senin atışın | 29: 18 isabet, 11 ıska (8 death, 3 correction); kafaya nişan 21: 16 isabet |
+
+Bulgu: yarım / boş şarj satırlarının çoğunda `atis yok` ve `defbitti 0.00–0.6s`: DT, defensive bittiği anda yeniden şarj oluyor ve o sırada kafa yeniyor. V1.0.36'da Clean shot kapatılınca defensive daha sık açılıp kapandı, bu pencere çoğaldı. → V1.0.37'de Clean shot yine açık. Ayarlanan 58° jitter'da modelde 12–34° (`gercek`), statik / fs'de 56–57°.
+
+## GameSense V1.0.37–1.0.39 oturumları (de_mirage, ~22 dk, 13:47–14:09)
+
+| | |
+|---|---|
+| Sana gelen mermi | 41: 14 kafa (%34), 9 ıska |
+| DT dolu | 12: 4 kafa |
+| DT yarım / boş | 28: 10 kafa (%36) |
+| Poz açıkken (DT dolu değil) | 10: 6 kafa — V1.0.36 ile birlikte 16: 9 kafa (%56); poz yokken 28: 9 (%32) |
+| Senin atışın | 33: 22 isabet; kafaya nişan 19: 8 isabet (correction 6, death 4) |
+| Otomatik AFK | 8 sn'de açıldı, tuşla kapandı (V1.0.37 mesajı) |
+
+`sen ozeti` (V1.0.39): bir hayatta 141'e kadar defensive bitişi, yarım şarj 17–2075 tick, görülürken 0–192 tick. → V1.0.41'de şarj pozu kapalı. Sıradaki aday: defensive'in sık açılıp kapanması.
+
+## GameSense V1.0.42 oturumu (de_mirage, 40 dk, 43 round) — defensive A/B
+
+| Kol | Mermi | Kafa | Iska | Ölüm |
+|---|---|---|---|---|
+| A (zorlanan defensive) | 18 | 7 (%39) | 3 (%17) | 10 |
+| B (zorlanmaz) | 22 | 6 (%27) | 7 (%32) | 7 |
+
+Peek'te A 7 mermide 3 kafa, B 11 mermide 1 kafa (6 ıska). Şarj tahmini bu sunucuda (ping ~30) dolu iken %60'ta takılıyordu (hayat başına 7500 tick "yarım şarj", 0 defensive). → V1.0.43: zorlama varsayılan kapalı, şarj tavanı gözlemden.
+
+## GameSense V1.0.44 oturumu (de_mirage, 22 dk) — V1.0.45'ten önceki son ölçüm
+
+| | |
+|---|---|
+| Düello | 16 öldürme / 30 ölüm (%35 kazanma; V1.0.30–33 %51) |
+| Sana gelen mermi | 63: 19 kafa (%30), 20 ıska |
+| DT dolu / dolu değil | 20 mermi 3 kafa (%15) / 43 mermi 16 kafa (%37) |
+| Dolu değilken sebep | atış 12, defensive bitişi 11, teleport 2, aim 1, **sebepsiz 17** (8 kafa; çoğu %50+ gösteriyor) |
+| Havada (Air duck açık) | Air crouch 17 mermi 8 kafa (%47): eğilme korumadı → V1.0.45'te kapalı |
+| Senin atışın | scout 24/33 (%73), R8 6/6 |
+
+Sebepsiz yarım şarj (hayat başına yüzlerce tick, ör. 1038 tickin 766'sı) büyük olasılıkla V1.0.43'ün 5 sn / en az 4 tavanının yanlış okuması; V1.0.45'te 30 sn / en az 6, round başında sıfır.
+
+## GameSense V1.0.45 ilk oturumu (de_mirage, 12 dk, scout + MD 100)
+
+Düello 9 / 11 (%45; V1.0.44 %35), sana gelen 34 mermide 5 kafa (%15; V1.0.44 %30), 16 ıska (%47). Scout 16/27 (8 correction). DT çifti 5 karar: 3 öldürme, 1 ölüm (ilk atış kafa ıskası), 1 iki takip ıskası (8 canlı çömelik düşmana mide, correction). → V1.0.46: can ≤ 30 hedefe Force safe point. Rakipler: northgard (19 düello), m1ndotoryy (9).
+
+## GameSense V1.0.46 oturumu (de_mirage, 19 dk, scout + MD 100)
+
+Rakipler northgard, iha, Serpent1337, azure (rakipler roll / "extended" kullanıyor). Düello 10 / 28 (%36; V1.0.45 %45). Sana gelen 36 isabetin 13'ü kafa (%36; V1.0.45 %15), 5 ölüm duvardan kafa (çoğunda sen onu göremiyordun). Scout 11 / 26 (8 correction, 5 spread, 1 prediction, 1 unregistered).
+
+- **Şarj ölçüm hatası:** 10 roundun 5'inde (ilk bölüm) yarım şarj %80+ ("DT %70 sh 7/14", atış yok); o roundlarda zorlanan defensive 0 tick, havada teleport ve DT çifti kapalı. Aynı hayatta ilk atıştan sonra "DT dolu". Sebep: tavan anlık shift'in saniye başına en yükseğiydi, defensive düşüşü / kırpma tick'i tavanı 10'a çıkarıyordu. → V1.0.47 tutulan shift (24 tick min).
+- **Havada hc 40:** hc < 55 havada 4 atış, 4 spread; hc ≥ 55 havada 5 atışta 3 isabet (1 kafa). Tüm loglarda hc < 55 havada 12 atış, 3 gövde, 0 kafa. → V1.0.47 varsayılan 0.
+- **R8:** 82 gövde hasarı varken HP+1 kuralıyla 0.45 sn beklendi (deagle'a ölüm); R8 ölümleri iki kez "kafa beklerken öldü" öğrenmesi yaptı (bir kez "herkese karşı"). → V1.0.47 R8 kuraldan çıktı.
+- **Düşük can safe point:** 2 atış: 26 canlı iha'ya mide (öldürme), 24 canlı northgard'a sahte kayıtta kafa ıskası (beklemeden sonra). Örnek az, değişmedi.
+- **Sahte kayıt beklemesi:** 47 bekleme 14 tick sınırıyla, 25 "gercek kayit geldi"; görülünce / peek'te bırakılanlar da "gercek kayit geldi" yazıyordu. → V1.0.47 etiketler ve atışta `bekleme yok: <sebep>`.
+- **Rakibin extended'ı:** roll ağdan gelmiyor, istemci hitbox'ları roll'suz; ancak ıskalardan anlaşılır. Kendi tarafımıza Extended desync (roll) eklendi ama kullanıcının sunucusunda roll yasak, varsayılan kapalı.
+- **Extended yaw (rakip):** ağdan görünmüyor. Düşman LBY'si yaw'dan 60°+ uzakken atış çok az (v42–46: 7 atış), açıklamıyor. Tüm loglarda kafa atışı SP Prefer %76 (144), SP Default %63 (19) → V1.0.47 scout / AWP ile Prefer tabanı.
+
+## GameSense V1.0.47 oturumu (de_mirage, ~30 dk, scout + MD 100)
+
+Kill / ölüm 21 / 29 (%42; V1.0.46 %36). Sana gelen 58 isabette 17 kafa (%29; V1.0.46 %36). Scout 30 / 61 (14 kafa); 24 correction (dominik'e 25 atış, azure 11), 3 spread (hepsi hc ≥ 55). Havada hc < 55 spread 0 (V1.0.46'da 4).
+
+- **Şarj hâlâ yarım okunuyor:** canlı sürenin %41'i. Sebep taban kayması: roundun ilk atışından önce sebepsiz okumalar (v42–47) 63 dolu / 133 yarım, sonra 54 / 9; yarım süre ≈ roundun başından ilk atışa kadar geçen süre. → V1.0.48 sebepsiz düz shift dolu.
+- **Force safe point scout'ta hiç uygulanmıyor:** resolver.cap sniper kafa kuralında seviyeyi 1'e indiriyor, log "Force" yazıyordu. Iskadan sonraki atış (10 sn, aynı düşman): GS 21/37, brute 1/4, kendi kol 0/1, Force 0. Davranış değiştirilmedi, log düzeltildi.
+- **Yan dönük düşman:** v47'de |bak| 61–120 iken kafa atışlarının 13/16'sı correction (dominik, azure); diğer loglarda %28 vs %22. İki oyuncu, örnek az.
+
+## dominik (V1.0.47) ve V1.0.48 ilk oturumu
+
+- **dominik:** 25 atış; kafa 1/16 (14 correction), gövde 6/9. Sabit yan duruş (bak ≈ -75, pitch 89, lby +0); bir okumada roll+44 göründü (roll ağdan geliyorsa extended). GS'nin kendi resolver'ı yan duran dominik + azure'a kafada 0/14. 14 ıska 5 duruma dağıldı, brute aynı durumda 3 ıska istediği için iki kez açıldı; AA deseni 12 kez "değişti", 10 kez "kararsız" sayıldı (hipotezleri kapatır). → V1.0.49 düşman başına resolver serisi.
+- **Brute ayna hatası:** "-58 (duvar R)" duyurulan aday atışta +58 gitti (duvar tarafı değişmişti). Ayrı düzeltilecek.
+- **V1.0.48 ilk oturumu (344 satır):** yarım şarj %11 (V1.0.47 %41), zorlanan defensive canlı sürenin %36'sı. 5 kill / 10 ölüm, sana gelen 20 isabette 5 kafa. 18 atış, 7 isabet (1 kafa), 6 correction (northgard 3, sssssxxxcccc 2), 4 spread (biri R8 hc 24); hepsi GS ile.
+
+## Tüm loglar: sürekli ıskaladığın rakipler (V1.0.21–1.0.48, 705 GS scout atışı)
+
+Resolver ıskası oranı: dominik %65 (23 atış), azure %50 (16), aimlarp %44 (Neverlose lua'sı), ping-170 oyuncu (m1ndotoryy / "Nykle #..." / sıfır genişlikli "northgard") %35, PhytoCannaBinoide %32, мопсик %28, gerçek northgard %18 (onda kayıp çoğu spread / ölüm).
+- Iskalar kafa sorunu: kafa nişanında %26 correction, mide nişanında %7.
+- Zor rakiplerde yan duruş %41 (kolaylarda %11), medyan ping 107 (47). Statik AA'da yan duruş %29–30, arkası dönük %15–16; jitter / x-way'de yan duruş fark etmiyor.
+- Bir ıskadan sonra aynı rakibe sonraki kafa atışları %38–46 ıska (ıska yokken %16–26): ıskayla açılan önlemler doğru yön.
+- Önerilip doğrulamada elenenler: scout'a çoklu desende Force safe point (705 atışta 1 ıskaya ulaşıyor, ıskalar kayıt / lag hatası), sahte kayıtta sert bekleme (cooldown'ı bozuyor, düelloda 9 atışta 2 ölüm).
+
+## AA / defensive (V1.0.45–1.0.48, 241 düşman mermisi) ve "ı"
+
+- Kafa payı her mermide %22. Yerde DEF açık 13/63, kapalı 26/136: fark yok. Havada açık 2/14, kapalı 14/38. Havada DT dolu + DEF yok vurulmaların 7/8'i "temiz (bayrak)". → V1.0.51 havada bayrak defensive'i kesmez.
+- Eğik yürürken peek (duck100, ~78 u/s): 11/23 vurulma kafa; eğik ≤55 u/s 2/20 (desync hızla ~29°'ye iniyor). Sadece vurulmalardan; ıskalarda hız V1.0.51'den itibaren loglanıyor.
+- Body modu (jit 21%, fs 27%) ve faz (yerde) belirleyici değil. İlk görülme anı (<0,3 sn) %26.
+- **"ı":** neredeyse sürekli defensive (sahte kayıt beklemeleri hep 14 tick sınırında), desen sürekli değişiyor, hız 1488–2921 (ışınlanma). 9 atış, 2 gövde isabeti. 8 atış "öğrenildi" gevşemesinden sonra: DT çifti kapalıydı, hepsi kafaya. → V1.0.51.
+- V1.0.50 ilk oturumu: 16 vurulmanın 7'si duvardan; 6 kafanın 5'i açıktan, hepsinde DEF yok.
+
+## V1.0.57 oturumu (de_mirage, 15 dk) ve V1.0.58
+
+- 7 kill / 11 ölüm. Sana gelen 24 isabet: 7 kafa, 9'u duvardan ("iz duvardan"). Senin 15 atışın 14'ü isabet (6 kafa), 1 ıska ölüm.
+- Vurulma anındaki gerçek desync (`maxdsy`) ile kafa payı: ≤30° 5/15, 31–45° 1/6, 46–58° 1/12. Eski loglarla 258 mermide ≤30° %27, üstü %17. → V1.0.58 eğik desync keeper varsayılan açık.
+- Düşük desync kafaları: 2 "Air crouch" (DEF açık zorla, gizli 1t), 1 eğik peek (v78 duck100), 1 merdiven, 1 v64 duck100.
+- LBY uyumu round başına 0/7, 0/5, 1/9, 4/4, 3/5: taraf LBY'den sızıyor olabilir; bir sonraki logda kafa payıyla birlikte bakılacak.
+
+## V1.0.58 oturumu (de_mirage / de_dust2) ve V1.0.59
+
+- 9 kill / 22 ölüm. Sana gelen 31 isabetin 16'sı kafa. Atışından 0.5 sn içinde gelen 5 isabetin 5'i kafa; 3'ü DT çifti gövde atışından sonra.
+- "MD 72–86" atışları DT çifti kuralından (Min. damage gövde-1): 8 atış, 0 kill, 8 ölüm. V1.0.45'ten beri 27 çift atış, ilk atışta 0 kill, 23 ölüm. Scout DT ikinci mermisi aynı saniyede 90 ardışık atışta 1 kez. → V1.0.59 DT çifti varsayılan kapalı.
+- Eğik koruyucu (`yavas`) 4 vurulmada 3 kafa: örnek çok küçük (p≈0.6), değişiklik yok; ~20 vurulma birikince bakılacak. maxdsy kovaları bu oturumda fark göstermedi (≤30 3/7, 31–45 6/10, 46+ 7/12).
+- Aynı V1.0.58 oturumunun devamı (2453 satır, toplam 28 kill / 49 ölüm; sana gelen 72 isabetin 33'ü kafa; 85 atış, 54 isabet, 21 kafa): MD < 100 (DT çifti) 28 atış → ilk atışta 1 kill, 2 sn içinde 20 ölüm; MD 100 (gevşek kural) 43 atış → ilk atışta 24 kill, 10 ölüm. V1.0.59 kararını örnek dışı veri de doğruluyor. Logdaki MD 9 atışları DT çifti değil (aynı sayı HP 100 ve HP 8 hedefte: büyük olasılıkla senin damage override tuşun).
+
+## V1.0.59 ilk oturumu (de_dust2, 703 satır)
+
+| | V1.0.58 (tüm oturum) | V1.0.59 |
+|---|---|---|
+| Kill / ölüm | 28 / 49 | **20 / 13** |
+| Sana gelen kafa | 33/72 (%46) | **6/22 (%27)** |
+| Senin atış: isabet / kafa | 54/85, 21 kafa (%25) | **21/29, 19 kafa (%66)** |
+| İlk atışta kill | 26/85 | **20/29** |
+| MD < 100 atış | 28 | **0** |
+
+Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya da öldüren yere gitti; karşılıklı oldurmeyen gövde takası bittiği için ölüm ve yenen kafa da düştü. Iskalar: 3 spread, 2 prediction error, 2 correction (XJJKL x-way, артем jitter 31), 1 death. Eğik koruyucu: 7 vurulmanın 1'i kafa.
+- Aynı V1.0.59 oturumunun devamı (1915 satır, de_dust2 + de_mirage; toplam 52 kill / 42 ölüm). Yeni kısım: 32 kill / 29 ölüm, sana gelen 69 isabetin 14'ü kafa (%20), senin 77 atışın 44'ü isabet, 25'i kafa; 21 correction ıskası. MD < 100 atış yok (2 tanesi bıçak / zeus yakınken 30).
+- Correction ıskaları rakibe göre: kent.apk 15 atışta 9 (statik AA, ping 128–138; GS, abs+, abs−, seri ±58 hepsi ıskaladı → taraf değil, büyük olasılıkla küçük / sıfır desync ya da gecikme), "i love sucking" 36 atışta 8 (25 isabet). AA desenine göre: düz statik (def yok) 22 atışta 11 correction, x-way 10 atışta 0.
+
+## V1.0.60 oturumu (de_mirage, 296 satır) ve V1.0.61
+
+- Kısa oturum: 1 kill / 9 ölüm, sana gelen 10 isabetin 9'u kafa; 11 atış, 1 isabet, 6 correction (root x-way / spin + def, discord x-way, 25 x-way + def). Hepsi `res gs`: seri merdiveni ve kendi kollar hiç çalışmadı. Örnek çok küçük, rakipler yeni.
+- `dbg random`: argümansız random() ve random(0,999999)/1e6 ikisi de 0.01–0.97 arası → V1.0.60'ın random şüphesi yanlış.
+- `GS resolver'i (tercih)` satırlarında `gs 0.728+nan abs+ 0.563+nan`: UCB primi oyunda nan. Asıl hata bu → V1.0.61.
+
+## V1.0.61 ilk oturumu (257 satır)
+
+- 8 kill / 8 ölüm; sana gelen 15 isabetin 4'ü kafa (%27); 13 atış, 10 isabet, 8 kafa, 2 correction, 1 death. HP+1 kuralıyla 6 atışın 6'sı isabet, 6'sı ilk atışta kill.
+- UCB primi artık sayı (`gs 0.758+0.085 abs+ 0.563+0.164`). İlk "tercih" ile seçilen kendi kol: northgard Crouch `bizim abs- ... body yaw -58 | r 0.504/0.15 tercih` (o düşmanda GS 7/12). Bu kolla atış henüz yok; tüm atışlar `res gs`.
+
+## V1.0.63 ilk oturumu (de_mirage, 237 satır; kullanıcı: "rakipler eskilerden iyi")
+
+- 2 kill / 7 ölüm; 5 atış (2 kafa isabet), sana gelen 12 isabetin 3'ü kafa (%25). 16 düellonun 9'unda "sadece o gördü", 4'ünde "o önce gördü", 1'inde sen; 12 vurulmanın 9'u duvardan (`iz duvardan`, "sen onu vuramıyordun"). Kayıplar resolver değil: atış fırsatı olmadan duvar arkasından / önce görülerek.
+- İlk kendi kol öldürmesi: cemalalki Fakeduck `res lby- | BY 58° (duvar R)` kafa -176 (V1.0.62 LBY kilidi çözümünden sonra).
+- Peek beklemesi çalıştı: `serbest birakildi (peek: 4 tick beklendi)` 3 kez (kate, northgard havada). Henüz o etiketle atış yok.
+- Aynı oturumun devamı + DM (`dm_twentysixer_office_aurorahvh`, 1238 satır). DM kısmı: 17 kill / 25 ölüm; 34 atış, 25 isabet (%74), 8 kafa; 6 correction ıskasının 6'sı da jitter AA'lı hedefe (jitter 49–74; lunchbox1ng, kamazimport, x2ab), hepsi `res gs`. Düellolarda ilk gören: o 45, sen 4, aynı anda 6 (DM'de çok rakip, arkadan / yandan görülme doğal). Sana gelen 59 isabetin 15'i kafa (%25), 44'ü Peek'te.
+
