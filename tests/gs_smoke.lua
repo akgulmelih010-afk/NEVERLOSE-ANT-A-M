@@ -109,6 +109,11 @@ reference("RAGE", "Aimbot", "Minimum hit chance", newref("slider", "Minimum hit 
 reference("MISC", "Settings", "sv_maxusrcmdprocessticks2", newref("slider", "maxshift", 16))
 reference("MISC", "Miscellaneous", "Clan tag spammer", newref("checkbox", "Clan tag spammer", false))
 reference("MISC", "Movement", "Air strafe", newref("checkbox", "Air strafe", true))
+-- V1.0.66: ping spike (kutu + tus + ms) ve quick stop (kutu + tus + secenekler).
+reference("MISC", "Miscellaneous", "Ping spike", newref("checkbox", "Ping spike", true), newref("hotkey", "Ping spike key", true),
+    newref("slider", "Ping spike ms", 100))
+reference("RAGE", "Other", "Quick stop", newref("checkbox", "Quick stop", true), newref("hotkey", "Quick stop key", false),
+    newref("multiselect", "Quick stop options", { "Slow motion" }))
 reference("AA", "Fake lag", "Enabled", newref("checkbox", "Fake lag", true))
 reference("AA", "Fake lag", "Limit", newref("slider", "Fake lag limit", 14))
 reference("AA", "Fake lag", "Amount", newref("combo", "Fake lag amount", "Dynamic"))
@@ -406,7 +411,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.65 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.66 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1920,6 +1925,35 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.66: ping spike kapali, scout'ta quick stop Early; ayar satiri ikisini de gosterir
+-------------------------------------------------------------------------------
+do
+    local ps, qs, qso = find_ref("Ping spike"), find_ref("Quick stop"), find_ref("Quick stop options")
+    local po, qe = find_ref("Disable ping spike"), find_ref("Quick stop: Early for scout / AWP")
+    check(po ~= nil and po.value == true and qe ~= nil and qe.value == true, "V1.0.66: iki secenek var ve varsayilan acik")
+    -- Onceki testlerin config yuklemesi ezme kayitlarini unutturdu: config yuklenmis gibi senin degerlerin yazilir.
+    ps.value, qso.value = true, { "Slow motion" }
+    fire("post_config_load")
+    tick(5)
+    check(ps.value == false, "V1.0.66: ping spike kapatildi (" .. tostring(ps.value) .. ")")
+    local o = qso.value
+    check(type(o) == "table" and o[1] == "Early" and o[2] == "Slow motion",
+        "V1.0.66: scout'ta quick stop secenekleri Early + senin secimin (" .. (type(o) == "table" and table.concat(o, "+") or tostring(o)) .. ")")
+    before = #prints + 1
+    fire("level_init")
+    local set = printed("dbg ayarlar:", before)
+    check(set ~= nil and set:find("quick stop true tus false [Early+Slow motion]", 1, true) ~= nil and set:find("100ms", 1, true) ~= nil,
+        "V1.0.66: ayar satiri quick stop secenekleri ve ping spike ms (" .. tostring(set and set:match("quick stop.*")) .. ")")
+    po.value, qe.value = false, false
+    tick(5)
+    o = qso.value
+    check(ps.value == true and type(o) == "table" and #o == 1 and o[1] == "Slow motion",
+        "V1.0.66: kapatinca senin ping spike ve quick stop ayarin geri (" .. tostring(ps.value) .. ", " .. (type(o) == "table" and table.concat(o, "+") or "?") .. ")")
+    po.value, qe.value = true, true
+    tick(5)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1929,7 +1963,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.65 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.66 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

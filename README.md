@@ -652,7 +652,7 @@ Atış analizi: isabet %66, kafa %36. Resolver dışında isabeti belirleyen tek
 | Değişiklik | Neden |
 |---|---|
 | `dbg atis-detay`: o görünürlükteki ilk atışta `vurulabilir Xs` (vurulabilir olduğundan beri), `ates-hakki Xs` (öldürecek hasar göründüğünden beri), `o-gordu Xs` | "aim" alanı atış anında hep 0.00s'ti; yavaş mı sıkıyoruz yoksa ıskalıyor muyuz ayırt edilemiyordu. |
-| `dbg ayarlar`: GameSense'in accuracy boost, delay shot, quick stop (+ seçenekleri), ping spike | Backtrack / doğruluk ayarları loglarda görünsün. Ping spike scout için önerilmez. |
+| `dbg ayarlar`: GameSense'in accuracy boost, delay shot, quick stop (+ seçenekleri), ping spike | Backtrack / doğruluk ayarları loglarda görünsün. Ping spike scout için önerilmez (V1.0.66'dan beri script kapatıyor). |
 | "Clear saved logs" sürüm işaretini yeniden yazar | Silinen logdan sonra bir sonraki yüklemede (GS lua'yı birkaç kez yükler) tüm dosya siliniyordu. |
 | Ölünce temizlik `player_death`'te de çalışır | GameSense ölüyken setup_command çağırmıyor: AFK / fake duck / plist temizliği ve "afk modu kapali: oldun" hiç çalışmıyordu; doğuş tick'i "defensive bitti" sayıyordu. |
 | Alt seçenekleri olan 6 anahtar (roll, head-only, crouch keeper, safe recharge, own resolver, backstab) değişince menü hemen güncellenir | Alt ayarlar ancak sekme değişince görünüyor / gizleniyordu. |
@@ -711,6 +711,21 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 İlk V1.0.59 oturumu: 20 kill / 13 ölüm (V1.0.58: 28 / 49), senin 29 atışın 21'i isabet, 19'u kafa, 20'si ilk atışta kill; sana gelen kafa %46 → %27.
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
+
+**V1.0.66** (üçüncü hata taraması + internetten exploit araştırması: 25 ajan; kullanıcı kuralı: ayar yapmıyor, iyi olan varsayılan açık, yasak sadece roll)
+
+| Değişiklik | Neden |
+|---|---|
+| **Exploit: ping spike kapalı** ("Disable ping spike", Misc > Movement, **varsayılan açık**) | GameSense sürümündeki tüm atışlarda backtrack 0t: genişletilmiş backtrack penceresi hiç kullanılmadı. Spike açıkken skor tablosu pingi ~90 (kapalıyken 5–10), isabet aynı (%63.6 / %62), tahmin (prediction error) ıskası **%6.9 / %1**. Seçenek kapanınca / unload'da senin ayarın geri gelir. |
+| **Exploit: scout / AWP'de Quick stop "Early"** ("Quick stop: Early for scout / AWP", Exploits, **varsayılan açık**) | Early, hitbox görünmeden önce frenlemeye başlar. Peek'te öldürücü hasarın görülmesinden atışa medyan 0.09 sn (~6 tick fren); "önce gördüm ama öldüm" 40 ölümün 36'sı tek mermi. Senin diğer quick stop seçimlerin korunur, "Duck" eklenmez (kafayı indirir), R8 hariç. |
+| Kayıtlı config için tek seferlik taşıma (`nykle_win_gs_x66`): iki seçenek kapalı kaydedildiyse ilk yüklemede açılır | Kullanıcı ayar yapmıyor. |
+| **Hata:** bıçak / zeus yakınken Min. damage 30, duvar / kat arkasındaki bıçaklıda ve **başka hedefe** de uygulanıyordu | Artık görüş çizgisi, ≤128 birim kat farkı ve hedefin kendisi olması gerekiyor (MD 100 gereksiz düşmesin). |
+| **Hata:** merdivende, Legit (E) ve Spin'de yenen vuruşlar anti-brute faz istatistiğine giriyordu | O durumlarda faz uygulanmıyor; artık öğrenilmiyor. |
+| **Hata (log):** ölüm satırı "sarj bekle"yi hiç yazmıyordu (558 ölüm satırında 0) | Bekleme durumu ölüm satırından önce siliniyordu. |
+| **Hata (log):** `dbg ayarlar` quick stop seçeneklerini hep "?", ping spike'ı tuşu ve ms'si olmadan yazıyordu | Artık `quick stop true tus false [Early+Slow motion]`, `ping spike false tus true 100ms`. |
+| "Disable ragdolls" FPS boost açılıp kapanınca görünür / gizlenir; dosya başı yorumları güncel | Küçük. |
+
+Araştırmada elenenler: defensive AA flick, lag peek, havada LC kırma vb. script'te zaten var (defensive zorlama, havada teleport, air lag); "Duck" quick stop (kafayı indirir); ping spike'ı otomatik geri açma kuralı (backtrack ölçüsü spike'ın faydasını göstermez). Roll kapalı kalıyor.
 
 **V1.0.65** (V1.0.64'ün ayrı incelemesi: 12 ajan, 5 gerçek bulgu; şarj düzeltmesinin "boş DT'yi dolu sanma" riski çürütüldü)
 
@@ -773,7 +788,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.65 kuralları (250 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.66 kuralları (255 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

@@ -1,11 +1,11 @@
 --[[
-    Nykle.win lua V1.0  |  GameSense edition  |  GameSense (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.x  |  GameSense edition  |  GameSense (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     Neverlose surumunun (Nykle.win.lua V1.0) butun ozelliklerinin GameSense API'sine tasinmis hali.
     Kurar kurmaz calisir: butun varsayilanlar ayarlanmis halde gelir ("Always use recommended
     settings" acik kaldikca en iyi bilinen degerler korunur). Menu: AA sekmesi > Anti-aimbot angles.
 
-    Neverlose surumunden farklar (GameSense API'sinin izin verdigi kadar, bkz. README_GAMESENSE.md):
+    Neverlose surumunden farklar (GameSense API'sinin izin verdigi kadar, bkz. README.md "GameSense edition"):
       - GameSense'te AA'nin "hidden" (defensive) acilari icin API yok: defensive penceresi tickbase'den
         anlasilir ve o tick'lerde pitch / yaw menu ayarlari degistirilir (topluluk lua'larinin yontemi).
       - Teleport: cmd.discharge_pending (Neverlose'da rage.exploit:force_teleport).
@@ -20,9 +20,9 @@
       - Kapatinca / config kaydederken GameSense ayarlarinin hepsi senin degerlerine geri doner.
       - Ek: Misc sekmesinde NYKLE Yaw'daki animasyonlu "Nykle.win" clan tag'i ve trash talk (NYKLE Yaw'daki
         cumlelerin Ingilizcesi; oldurunce / olunce / sadece headshot, olasilik, tum chat / takim chati,
-        gecikme ayarlanir). Ikisi de varsayilan acik.
+        gecikme ayarlanir). Clan tag varsayilan acik; trash talk V1.0.48'den beri kapali.
 
-    Kurulum, ayarlar ve degisiklikler icin README_GAMESENSE.md'ye bak.
+    Kurulum, ayarlar ve degisiklikler icin README.md "GameSense edition" bolumune bak.
     Dosya adi Nykle_win_gamesense.lua kalmali: GameSense script adindaki fazladan noktalari dosya yolu
     gibi okuyabiliyor (lua acilmaz), o yuzden ad alt cizgili.
 ]]
@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.65"
+local VERSION = "1.0.66"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -490,6 +490,10 @@ do
     refs.clantag_spammer = find({ { "MISC", "Miscellaneous", "Clan tag spammer" } }, true)
     -- V1.0.18: jump scout (yerinde ziplarken Air strafe kapatilir).
     refs.air_strafe = find({ { "MISC", "Movement", "Air strafe" } }, true)
+    -- V1.0.66: ping spike ve quick stop (secenekler Quick stop'un ucuncu ogesi).
+    refs.ping_spike, refs.ping_spike_key, refs.ping_spike_ms = find({ { "MISC", "Miscellaneous", "Ping spike" } }, true)
+    refs.quick_stop, refs.quick_stop_key, refs.quick_stop_opts = find({ { "RAGE", "Other", "Quick stop" },
+        { "RAGE", "Aimbot", "Quick stop" } }, true)
 end
 
 -- Hotkey referanslari: ui.get -> aktif mi, mod (0-3), tus. Ezerken { mode, key } verilir.
@@ -545,7 +549,7 @@ local override, is_overridden, user_value, reset_overrides, forget_overrides
 do
     local MODE_NAMES = { [0] = "Always on", "On hotkey", "Toggle", "Off hotkey" }
     -- Silah grubuna gore ayri tutulan rage ayarlari (GameSense "Weapon type").
-    local RAGE_SCOPED = { min_damage = true, prefer_safe = true, hit_chance = true }
+    local RAGE_SCOPED = { min_damage = true, prefer_safe = true, hit_chance = true, quick_stop = true, quick_stop_opts = true }
     local REJECT_RETRY = 5
     local overridden, rejected, reported = {}, {}, {}
 
@@ -1359,6 +1363,8 @@ menu.afk            = grp.peek_raw:switch("AFK mode (AI peek here + strafe, full
 -- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
 -- V1.0.45: varsayilan KAPALI (V1.0.42'de 43 roundda 19 kez acildi; acikken DT / defensive zorlar, cikista yuruyor).
 menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", false)
+-- V1.0.66: varsayilan ACIK, izlenmeyen grupta (bkz. resolver.quick_stop).
+menu.qs_early       = grp.peek_raw:switch("Quick stop: Early for scout / AWP", true)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
 -- V1.0.43: A/B sonucu (V1.0.42, 40 dusman mermisi): A (zorlanan defensive) 18 mermi 7 kafa (%39), %17 iska, 10 olum;
 -- B (zorlanmaz) 22 mermi 6 kafa (%27), %32 iska, 7 olum. V1.0.36'da da daha cok defensive -> daha cok kafa. Varsayilan
@@ -1553,6 +1559,8 @@ menu.fps_boost   = grp.movement:switch("FPS boost (shadows / 3D sky / post-proce
 -- V1.0.59 (istek: "fps arttirma"): istege bagli, varsayilan KAPALI. cl_disable_ragdolls 1: olen oyuncular yere
 -- yigilmadan kaybolur (coklu oldurme / round sonu fizik yukunu siler, 1% low'u iyilestirir). Hile bayrakli bir cvar
 -- (set_raw ile yazilir); kapatinca / unload'da senin degerin geri yazilir.
+-- V1.0.66: varsayilan ACIK (bkz. resolver.ping_spike).
+menu.ping_off = grp.movement:switch("Disable ping spike (backtrack always 0t, more prediction misses)", true)
 menu.fps_ragdolls = grp.movement:switch("  » Disable ragdolls (bodies vanish)", false, function() return on(menu.fps_boost) end)
 
 -- GameSense'in kendi AA ayarlari: lua acikken gizli (lua bunlari kendisi yaziyor, menusu de ayni kutuda),
@@ -1649,7 +1657,7 @@ for _, element in ipairs({ menu.enabled, menu.tab, menu.auto_exploit, menu.ai_pe
     menu.state, menu.spin, menu.safe_head, menu.anti_brute, menu.resolver, menu.hypotheses, menu.res_panel,
     menu.trash_talk, menu.tt_kill,
     -- V1.0.54: alt secenekleri olan diger anahtarlar (kapatinca alt ayarlar hemen gizlensin / acilsin).
-    menu.avoid_backstab, menu.roll, menu.crouch_cap, menu.safe_recharge, menu.own_res, menu.head_only }) do
+    menu.avoid_backstab, menu.roll, menu.crouch_cap, menu.safe_recharge, menu.own_res, menu.head_only, menu.fps_boost }) do
     if element ~= nil then
         element:set_callback(function() pcall(update_visibility) end)
     end
@@ -3381,7 +3389,8 @@ local current = { state = "Global", side = false, limit = 60, freestand = false,
     backstab = nil }
 
 -- Istatistigin yazilacagi grup; AA'si hareket durumundan farkli olan ozel durumlarda nil.
-brute.unlearned = { ["Safe head"] = true, Manual = true, ["Fake duck"] = true }
+-- V1.0.66 (denetim): merdiven / Legit (E) / Spin'de faz uygulanmiyor; oradaki vurulmalar faz istatistigine girmez.
+brute.unlearned = { ["Safe head"] = true, Manual = true, ["Fake duck"] = true, Ladder = true, Legit = true, Spin = true }
 brute.stat_group = function()
     if brute.unlearned[current.state] then
         return nil
@@ -4782,8 +4791,16 @@ do
                 local pos = origin_of(enemy)
                 if pos ~= nil then
                     local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
-                    if dx * dx + dy * dy + dz * dz < KNIFE_MD.dist * KNIFE_MD.dist then
-                        melee_near = enemy
+                    -- V1.0.66 (denetim): duvar / kat arkasindaki bicakli MD'yi dusurmesin; gorus cizgisi ve kat farki.
+                    if dx * dx + dy * dy + dz * dz < KNIFE_MD.dist * KNIFE_MD.dist and abs(dz) < 128 then
+                        local e1, e2 = eye_of(lp), eye_of(enemy)
+                        local fr, hit = nil, nil
+                        if e1 ~= nil and e2 ~= nil then
+                            fr, hit = trace_line(lp, e1, e2)
+                        end
+                        if fr ~= nil and (fr >= 0.97 or hit == enemy) then
+                            melee_near = enemy
+                        end
                     end
                 end
             end
@@ -4872,7 +4889,7 @@ do
         end
         -- Bicak / zeus tutan dusman yakin: senin yuksek Min. damage'in da gecici en fazla 30'a iner (override
         -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 30 + govde 75 = olu.
-        local knife_md = melee_near ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+        local knife_md = melee_near ~= nil and (target == nil or target == melee_near) and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
             and not md_override
         if knife_md then
             min_damage = (finite(user_md) and user_md > KNIFE_MD.value) and KNIFE_MD.value or nil
@@ -4905,7 +4922,58 @@ do
 
     -- Havada sniper: Minimum hit chance gecici menu.air_hc (V1.0.27). Yerde ya da baska silahta senin degerin
     -- geri gelir; senin degerin zaten daha dusukse dokunulmaz. Silah grubu seciliyken yazilir (rage_scope).
-    resolver.air_hitchance = function(lp, class)
+    -- V1.0.66 (exploit arastirmasi + loglar): ping spike kapali. GameSense surumundeki tum atislarda backtrack 0t (genis
+-- backtrack penceresi hic kullanilmadi), spike acikken skor tablosu pingi ~90 (kapaliyken 5-10), isabet ayni (%63.6 /
+-- %62), tahmin (prediction error) iskasi %6.9 / %1. Script kapaninca / unload'da senin ayarin geri gelir.
+resolver.ping_spike = function()
+    if on(menu.ping_off) then
+        override("ping_spike", false)
+        local map = try(globals.mapname)
+        if user_value("ping_spike") == true and resolver.ps_map ~= map and on(menu.hit_log) then
+            resolver.ps_map = map
+            print(("[%s] ping spike kapatildi (backtrack hep 0t; spike'ta tahmin iskasi %%6.9, kapaliyken %%1)"):format(SCRIPT))
+        end
+    else
+        override("ping_spike", nil)
+    end
+end
+
+-- V1.0.66: scout / AWP'de quick stop "Early" (isabet gorunmeden once frenlemeye baslar). Loglarda peek'te oldurucu
+-- hasar gorulmesinden atisa medyan 0.09 sn (~6 tick fren); "once gordum ama oldum" 40 olumun 36'si tek mermi. Senin
+-- diger secimlerin korunur, "Duck" eklenmez (kafani indirir). R8 haric.
+resolver.quick_stop = function(class)
+    local scope = rage_scope(class)
+    local opts, qs_on = nil, nil
+    if on(menu.qs_early) and scope ~= nil and (class == "CWeaponSSG08" or class == "CWeaponAWP") then
+        local user = user_value("quick_stop_opts")
+        if type(user) == "table" then
+            local has = false
+            for _, v in ipairs(user) do
+                if v == "Early" then
+                    has = true
+                end
+            end
+            if not has then
+                opts = { "Early" }
+                for _, v in ipairs(user) do
+                    opts[#opts + 1] = v
+                end
+            end
+        end
+        if user_value("quick_stop") == false then
+            qs_on = true
+        end
+        if opts ~= nil and on(menu.hit_log) and resolver.qs_logged ~= scope then
+            resolver.qs_logged = scope
+            print(("[%s] quick stop: %s icin Early eklendi (senin: %s)"):format(SCRIPT, tostring(scope),
+                #user > 0 and table.concat(user, "+") or "-"))
+        end
+    end
+    override("quick_stop", qs_on, scope)
+    override("quick_stop_opts", opts, scope)
+end
+
+resolver.air_hitchance = function(lp, class)
         local value = menu.air_hc ~= nil and menu.air_hc:get() or 0
         local scope = rage_scope(class)
         local wanted = nil
@@ -6756,6 +6824,8 @@ local function tick_prepare(cmd)
     local aim_target, resolver_raw = apply_resolver(class, present)
     apply_body_aim(lp, class, aim_target, resolver_raw, present)
     resolver.air_hitchance(lp, class)
+    resolver.ping_spike()
+    resolver.quick_stop(class)
     resolver.wait_apply(class, present)
     plist_release_missing(present)
     update_ai_peek(lp, cmd, class)
@@ -7713,7 +7783,7 @@ listen("player_hurt", protect("player_hurt", function(e)
             print(("[%s] roll: kafa yendi (roll %+d) -> roll tarafi ters"):format(SCRIPT, round(current.roll)))
         end
     end
-    if e.hitgroup == 1 and not melee and on(menu.anti_brute) then
+    if e.hitgroup == 1 and not melee and on(menu.anti_brute) and not brute.unlearned[current.state] then
         enemy.base, enemy.learned = brute.next(phase, true), true
     end
     -- V1.0.52: kafa yakinindaki mermi govdeye gelince de faz istatistigine "kafa degil" mermi olarak girer
@@ -8591,7 +8661,8 @@ listen("player_death", protect("player_death", function(e)
             end
         end
         reset_brute()
-        recharge.held = false
+        -- V1.0.66 (denetim): recharge.held burada silinmez; detayli olum satiri "sarj bekle"yi gorsun (own.dead_cleanup
+        -- olum satirindan sonra siler).
         ai_peek.reset()
     elseif attacker == lp and victim ~= nil and on(menu.enabled) and is_enemy(victim) then
         count_kd("kills")
@@ -8927,6 +8998,43 @@ D.setting = function(tab, box, name, alt_box)
         return #value > 0 and table.concat(value, "+") or "-"
     end
     return tostring(value)
+end
+
+-- V1.0.66 (denetim): ayni satirdaki tum ogeler (onay kutusu + tus + coklu secim / kaydirici). ui.reference birden cok
+-- deger doner; "Quick stop options" diye ayri bir oge yok, secenekler Quick stop'un ucuncu ogesi.
+D.setting_all = function(tab, box, name, alt_box)
+    local key = "all>" .. tab .. ">" .. box .. ">" .. name
+    local refs_ = D.refs[key]
+    if refs_ == nil then
+        local r = { pcall(ui.reference, tab, box, name) }
+        if not (r[1] and r[2] ~= nil) and alt_box ~= nil then
+            r = { pcall(ui.reference, tab, alt_box, name) }
+        end
+        refs_ = (r[1] and r[2] ~= nil) and { r[2], r[3], r[4] } or false
+        D.refs[key] = refs_
+    end
+    if refs_ == false then
+        return "?"
+    end
+    local parts = {}
+    for i = 1, 3 do
+        local ref = refs_[i]
+        if ref ~= nil then
+            local ok, value = pcall(ui.get, ref)
+            if ok and value ~= nil then
+                if type(value) == "table" then
+                    parts[#parts + 1] = "[" .. (#value > 0 and table.concat(value, "+") or "-") .. "]"
+                elseif i == 2 and type(value) == "boolean" then
+                    parts[#parts + 1] = "tus " .. tostring(value)
+                elseif type(value) == "number" and i == 3 then
+                    parts[#parts + 1] = ("%dms"):format(value)
+                else
+                    parts[#parts + 1] = tostring(value)
+                end
+            end
+        end
+    end
+    return #parts > 0 and table.concat(parts, " ") or "?"
 end
 
 D.ping = function(ent)
@@ -9465,7 +9573,7 @@ D.header = function()
 end
 
 D.settings = function()
-    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s | air strafe %s, jump scout %s | accuracy boost %s, delay shot %s, quick stop %s (%s), ping spike %s"):format(
+    return ("[%s] dbg ayarlar: tick %d | rage %s, hc %s, MD %s (%s) | DT %s, HS %s, DT fake lag %s | fake lag %s / %s | maxshift %s | lua: onerilen %s, sniper %s, auto exploit %s, gercek kayit bekle %s | air strafe %s, jump scout %s | accuracy boost %s, delay shot %s, quick stop %s, ping spike %s"):format(
         SCRIPT, round(1 / tick_interval()), D.setting("RAGE", "Aimbot", "Enabled"),
         D.setting("RAGE", "Aimbot", "Minimum hit chance"), tostring(get("min_damage")), tostring(get("weapon_type")),
         tostring(get("doubletap")), tostring(get("hideshots")), tostring(get("dt_fakelag")),
@@ -9475,8 +9583,7 @@ D.settings = function()
         refs.air_strafe ~= nil and tostring(user_value("air_strafe")) or "?", tostring(on(menu.jump_scout)),
         -- V1.0.54: GameSense'in dogruluk ayarlari ve ping spike (loglarda backtrack hep 0t: GS'nin kendi degeri).
         D.setting("RAGE", "Other", "Accuracy boost", "Aimbot"), D.setting("RAGE", "Other", "Delay shot", "Aimbot"),
-        D.setting("RAGE", "Other", "Quick stop", "Aimbot"), D.setting("RAGE", "Other", "Quick stop options", "Aimbot"),
-        D.setting("MISC", "Miscellaneous", "Ping spike"))
+        D.setting_all("RAGE", "Other", "Quick stop", "Aimbot"), D.setting_all("MISC", "Miscellaneous", "Ping spike"))
 end
 
 D.reset = function()
@@ -10337,6 +10444,9 @@ do
     -- V1.0.59: DT cifti kayitli config'te acik kaldiysa ilk config yuklemesinde bir kez kapatilir.
     local ok_p, done_p = pcall(database.read, "nykle_win_gs_dtpair59")
     own.aa.pair_migrate = not (ok_p and done_p == true)
+    -- V1.0.66: ping spike kapatma ve quick stop Early kayitli config'te kapaliysa ilk yuklemede bir kez acilir.
+    local ok_x, done_x = pcall(database.read, "nykle_win_gs_x66")
+    own.aa.x66_migrate = not (ok_x and done_x == true)
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             afk.migrate = false
@@ -10359,6 +10469,12 @@ do
             own.aa.pair_migrate = false
             pcall(menu.dt_pair.set, menu.dt_pair, false)
             pcall(database.write, "nykle_win_gs_dtpair59", true)
+        end
+        if own.aa.x66_migrate then
+            own.aa.x66_migrate = false
+            pcall(menu.ping_off.set, menu.ping_off, true)
+            pcall(menu.qs_early.set, menu.qs_early, true)
+            pcall(database.write, "nykle_win_gs_x66", true)
         end
         if afk.tt_migrate then
             afk.tt_migrate = false
