@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.77"
+local VERSION = "1.0.78"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1445,6 +1445,8 @@ menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records"
 -- V1.0.67: varsayilan ACIK, izlenmeyen grupta (bkz. apply_body_aim ext_md).
 menu.ext_body       = grp.protect_raw:switch("Body vs extended/roll (all head angles missed)", true)
 -- V1.0.75: varsayilan ACIK (bkz. apply_resolver).
+-- V1.0.78: varsayilan ACIK (bkz. apply_exploit, current.air_lc).
+menu.air_lc         = grp.protect_raw:switch("Air: break LC (DT / HS off in air, full fake lag)", true)
 menu.side_gs        = grp.protect_raw:switch("Sideways static enemy: no forced body yaw (head to GS resolver)", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -5405,6 +5407,18 @@ local function apply_exploit(s, class)
     end
     local user_dt = choice == "Binds" and user_value("doubletap") == true and get("doubletap_key")
     local hold = recharge.decide(choice == "Double tap" or user_dt)
+    -- V1.0.78 (northgard: "havada bt takiliyor, fl girip cikiyor, dt kapa ac yapinca normal"; hilesinin logu seni havada
+    -- delta=28t backtrack ile vurdu; tum loglar, havada yenen mermi (oto haric): DT dolu 189'da %52 kafa, DT %0 64'te %33,
+    -- HS 44'te %81): DT / HS acikken GameSense fake lag'i "DT fake lag limit"e (1) ceker, havada LC kirilmaz, kayit
+    -- geride takili kalir. Havadayken DT ve HS kapali: fake lag senin tam degerinde, LC kirilir. Yere inince geri acilir.
+    current.air_lc = on(menu.air_lc) and not afk.on and (current.state == "Air" or current.state == "Air crouch")
+    if current.air_lc then
+        override("doubletap", false)
+        override("doubletap_key", nil)
+        override("hideshots", false)
+        override("hideshots_key", nil)
+        return
+    end
     if choice == "Double tap" then
         override("doubletap", not hold)
         override("doubletap_key", ALWAYS_ON)
@@ -8956,7 +8970,9 @@ listen("paint", protect("left indicators", function()
     if current.forced then
         I.put(I.GREEN, "DEF")
     end
-    if current.lc then
+    if current.air_lc then
+        I.put(I.GREEN, "AIR LC")
+    elseif current.lc then
         I.put(I.YELLOW, "LC")
     end
     local md, umd = active_min_damage(), user_value("min_damage")

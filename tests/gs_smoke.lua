@@ -414,7 +414,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.77 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.78 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -468,6 +468,10 @@ fire("round_start")
 local hyp_ref = find_ref("  » Body yaw hypotheses (Force body yaw)")
 check(hyp_ref ~= nil and hyp_ref.value == false, "V1.0.77: body yaw zorlamasi (hipotez / kol / seri) varsayilan kapali")
 hyp_ref.value = true
+-- V1.0.78: havada LC kirma (DT / HS kapali) varsayilan acik; eski hava bolumleri icin kapali.
+local airlc_ref = find_ref("Air: break LC")
+check(airlc_ref ~= nil and airlc_ref.value == true, "V1.0.78: havada LC kirma secenegi var, varsayilan acik")
+airlc_ref.value = false
 local side_ref = find_ref("Sideways static enemy: no forced body yaw")
 check(side_ref ~= nil and side_ref.value == true, "V1.0.75: yan duran statik rakipte zorlama yok secenegi var, varsayilan acik")
 side_ref.value = false
@@ -2102,6 +2106,22 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.78: havadayken DT / HS kapali (fake lag tam, LC kirilir); yere inince DT geri
+-------------------------------------------------------------------------------
+do
+    airlc_ref.value = true
+    W.flags, W.speed, W.lag = 1, 0, 12
+    tick(20)
+    check(dt_ref.value == true, "V1.0.78 kurulum: yerde DT acik")
+    W.flags, W.speed = 0, 200
+    tick(10)
+    check(dt_ref.value == false, "V1.0.78: havada DT kapali (fake lag tam, LC kirilir) (" .. tostring(dt_ref.value) .. ")")
+    W.flags, W.speed = 1, 0
+    tick(20)
+    check(dt_ref.value == true, "V1.0.78: yere inince DT geri acik")
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -2111,7 +2131,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.77 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.78 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
