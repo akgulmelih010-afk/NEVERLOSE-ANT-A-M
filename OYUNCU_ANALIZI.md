@@ -17,6 +17,77 @@ Kullanıcı kuralı: oto silahla (SCAR-20 / G3SG1) gövdeye sıkanlar kafa arama
 | F 59-61 | 130 | 76 (58%) | 53 (40%) | 53/104 (50%) | 31 (23%) | 9 | 5 | 116 | 33 (28%) | 0 / 0 | 68 | 58 / 59 |
 | G 62-67 | 125 | 82 (65%) | 45 (36%) | 45/94 (47%) | 34 (27%) | 3 | 3 | 117 | 45 (38%) | 46 / 18 | 112 | 60 / 81 |
 
+## Kişi bazlı analiz (52 ajan, şüpheci kontrolüyle)
+
+### Oyuncu grubu özetleri
+
+**Grup A: Defensive ile peek atıp anında vuranlar (мопсик, бисмиля, BOKLU LUA, кибер тапка, чебуреки, Serpent1337, northgard'ın çoğu)**
+- **Seni yenenler:** мопсик 29/83, бисмиля 10/31, BOKLU 4/12, кибер тапка 4/24, чебуреки 10/18, northgard toplam 33/75.
+- **Neden kaybediyorsun:**
+  - Seni önce onlar görüyor. northgard'da "o gördü" ile "sen gördün" oranı yaklaşık 6:1. мопсик'te önde olduğu sürenin medyanı 0.08 sn. BOKLU 15 düelloda tek gören oydu.
+  - Vurdukları an kayıtları sahte. мопсик'in 117 isabetinin 109'u "DEF geri" ya da defensive bitişinde geldi.
+  - İsabetlerin büyük kısmında senin vurabileceğin bir nokta yoktu: мопсик'te 61/117, бисмиля'da 31/41 "vuramıyordun".
+- **Defensive'i zorlamak işe yaramıyor:**
+  - мопсик'in isabet oranı DEF açıkken %83, kapalıyken %82.
+  - V1.0.59 sonrası Peek'te sana gelen kafa payı DEF açıkken %35, kapalıyken %25.
+- **Sonuç:** Kayıpların çoğu oyuncu becerisi ve pozisyon (bu adamların tuttuğu açıya geniş peek ve zıplama). Script tarafında tek sağlam kaldıraç var: duran (hızı 0) bir hedefin sahte kaydına atılan ıskalar da öğrenmeye sayılsın (plan madde 3).
+
+**Grup B: Statik, yan duran, LBY 0, çoğu yüksek pingli "kafası çözülmeyen" rakipler (dominik, kent.apk, John Pork, kısmen azure ve кибер тапка)**
+- **Rakamlar:** dominik, kent ve John Pork'a yerde kafaya 0 isabet var. dominik'e kafa nişanı 1/16 (14 correction), kent 1/10, John Pork 1/12. Gövde atışları ise tuttu.
+- **Bunlar script'in sorunu.** V1.0.49'daki seri, V1.0.60'taki 0/±29 basamakları ve V1.0.67'deki gövde kuralı bunları çözmedi. V1.0.67 John Pork'a karşı hiç tetiklenemezdi: merdiven sadece "seri" atışlarında ilerliyor (satır 4243) ve 12 atışın sadece 3'ü seriydi.
+- **Düzeltme:** Hangi kol ateş ederse etsin, yerde 3 adil kafa ıskasından sonra o rakibe gövdeye geçilecek (madde 2).
+
+**Grup C: Zeus ya da bıçakla üstüne gelenler (northgard, furkan, kent.apk, Vice Luaaa, pride maverick, e)**
+- **Zeus kuralı zarar verdi.** MD 30 kuralı zeus'a karşı ters çalışıyor. Zeus tutan rakibe ölümcül olmayan 21 isabetin ardından 17 ölüm, sadece 2 kill geldi. northgard'ın 6 zeus öldürmesinin 6'sı da bu yüzden.
+- **Bıçakta kural işe yarıyor:** 14 kill'e karşı 15 ölüm. Ayrıca e'ye 2 kill, pride'a 7 atışta 6 isabet.
+- **Düzeltme:** Zeus'a karşı sadece öldürücü atış (madde 1). Bunun yanında yakın zeus ya da bıçak varken şarj bekletilmeyecek (madde 4).
+
+**Grup D: Duvardan vuranlar ve otomatik silahlılar (DUVARCI, kaTe, Marmok, pride, PhytoCannaBinoide, XJJKL)**
+- **Rakamlar:** DUVARCI 11/18, Marmok 3/10, Phyto 9/28, pride 15/17.
+- **Bu senin nişanın değil.** DUVARCI'ya isabetin %83, kaTe'ye %71. Kayıplar harita, pozisyon ve silah asimetrisinden geliyor: onun otomatiği duvardan 74-81 vuruyor, senin scout'un 24-57 görüyor. MD 100 kuralı (senin kuralın) orada atışı engelliyor.
+- **Log sorunu:** "iz duvardan" etiketi yaklaşık %40 yanlış (precision %62). Gerçek duvardan payı aşağı yukarı %43, %62-66 değil (madde 5). Eski "kayıp duvardan, resolver değil" sonuçları abartılı.
+
+**Grup E: DT çifti yüzünden takaslarda ölenler (XJJKL, MyTrashName, DUVARCI V1.0.57)**
+- **V1.0.59 bunu çözdü.** XJJKL: K/D 7/16'dan 9/6'ya. Sana gelen kafa 13/17'den 4/11'e indi.
+- **MyTrashName:** 9 DT-çifti atışından 0 ilk-atış kill, ardından 6 ölüm geldi.
+
+**Yendiğin rakipler**
+- i love sucking 21/12
+- PACo 14/7 (senin pingin 5 iken 8/2)
+- kaTe 15/11
+- psychologicaldecaycritism 14/12
+- вандал 23/18
+- furkan, ping 5 döneminde 11/6
+- Elmacı, HS'den DT'ye geçince 10/5
+
+Ortak nokta: gerçek kayıtta jitter veya statik AA, senin düşük pingin ve rakibin zıplayarak peek atması. Hava atışlarında furkan'a 20 atışta 17 isabet var.
+
+### Eski düzeltmelerin karnesi
+
+| Fix | Verdict | Evidence |
+|---|---|---|
+| V1.0.24 snipers use "Same as state" (DT) instead of auto-learned Hide shots | **Helped (strongest)** | Elmacı: head share on me 21/21 → 3/18, K/D 14/20 → 10/5. furkan: head share 100% → 33-44%. In 1.0.22-23, 76 of 77 мопсик hits on me came while HS was on. |
+| V1.0.22 safe recharge: no hold in Peek | **Helped, but incomplete** | Kreiton: hits at DT 0% went 12/19 → 1/14. мопсик: 5/23 → 0. Globally, melee hits during a hold went 29/41 → 3/20. HS was a confounder. The hold still applies in Standing/Freestanding: 2 SCAR heads on psych and Vice's zeus death came during holds (no melee or auto exception at L5226). |
+| V1.0.22 wait for real record | **Mixed** | Works when the enemy ends defensive. Against perma-defensive players it hits the 14-tick cap: мопсик 51%, бисмиля 66%, kaTe 108 full waits. Fake-record shots hit 58% (26% correction) against 66% (19%) on real records. |
+| V1.0.25 Smart defensive near / lookahead | **Partial** | "gormedi" went 36% → 19% against мопсик, but K/D did not improve (3/16). Forced defensive barely changes hit rate against strong resolvers (мопсик 83/82, BOKLU 75/91). DUVARCI is the exception (60% vs 88%). |
+| V1.0.26 DT pair counts as lethal (lowers MD 70-86) | **Hurt in v45-58, neutral in v26-33** | v45-58: n=45, 7 kills, 32 deaths. v26-33: n=14, 7 kills, 3 deaths. It also breaks the MD 100 rule. |
+| V1.0.59 DT pair off (plus migration) | **Helped, keep** | Same v51-58 lobbies: lowered-MD shots went 3 kills / 22 deaths; MD 100 shots went 29 kills / 10 deaths. The whole E→F outcome gain (kill rate 42 → 56%, death rate 39 → 23%) comes from removing these 29 shots. Hit rate did not improve. |
+| V1.0.27 anti-brute phase 8 | **Helped** | PACo: 0 heads in 7 hits during phase 8. Serpent in Air: phase 8 took 11 heads in 35 hits, other phases 54/106. |
+| V1.0.27/46 in-air hit chance 40 → V1.0.47 set to 0 | **Removal was right** | Serpent's 2 spread misses were at hc 43/48, and 4 of 4 low-hc air shots were spread. |
+| V1.0.47/48 charge fix | **Helped** | Half-charge rate went 41% → 11%. The "DT %90" misreads seen against Serpent are gone. |
+| V1.0.49 seri ladder / V1.0.60 0/±29 rungs | **No effect on the target class** | dominik, kent and John Pork: 0 ground head hits. Against John Pork the ladder never left step 0. Arms fired -58 five times and -29 never. |
+| V1.0.61 UCB nan fix (own arms work) | **No measurable gain** | Before it, 29 of 30 furkan B shots used res gs. After it, the arms fired against John Pork and all missed. kaTe's arm trials never fired. |
+| Level-2 safe-point "Force" | **No effect (capped)** | 0 of 120 same-state shots went out as Force. resolver.cap (~L3331) caps sniper head-only shots to Prefer. |
+| Fake-record misses excluded from learning (L8109) | **Hurt for stationary targets** | Standing fake-record correction rate is 25%, the same as the global 27%. The BOKLU series could never advance. There are 103 exclusions in total. |
+| Pattern-unstable ("kararsiz") detector, pre-V1.0.64 | **Hurt (noise)** | MyTrashName was 100% static and still got 38 pattern events. XJJKL got 149 "kararsiz" resets, Serpent 49 resets. V1.0.64's settle gate has not been measured. |
+| Knife branch of MD 30 | **Helped, keep** | 14 kills vs 11 + 4 deaths after non-lethal hits. pride 6/7, e 2 stomach kills. |
+| Zeus branch of MD 30 | **Hurt** | 21 non-lethal hits led to 17 deaths and 2 kills, across 11 players. |
+| V1.0.58 desync keeper | **Inconclusive** | DUVARCI head share went 29% → 14%, but he switched to autos. Against i love sucking, 4 of 8 heads came in peeks the keeper does not cover. |
+| V1.0.62/63 peek fake-record wait (air only) | **Neutral / unmeasured** | All of kaTe's peek waits ended "kayit hala sahte". Enemy defensive lasts about 11.4 ticks on average, so a 4-tick wait cannot outlast it. |
+| V1.0.64 pattern settle, V1.0.66 quick stop Early, V1.0.67 extended body | **Unmeasured** | There is no V1.0.67 log. By the code, V1.0.67 is not reachable against its own target. |
+| V1.0.66 ping spike off | **Likely helped (indirect)** | PACo: K/D 8/2 at my ping 5 vs 4/4 at 80-90. furkan: 11/6 vs 17/17. |
+
+
 ## Kişi bazında (en çok karşılaşılan 144 oyuncu)
 
 | # | Oyuncu | K / Ö | Atış | İsabet | Kafa | Correction | Spread | Diğer ıska | O→sen (kafa, duvardan) | Oto: isabet / öldürdü | Silahı | Ping | AA (ilk 2) | İlk gören: sen / o / aynı | Sürümler |

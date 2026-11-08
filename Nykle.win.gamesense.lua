@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.67"
+local VERSION = "1.0.68"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -4227,10 +4227,22 @@ resolver.streak.result = function(shot, head_hit, miss)
             S.list[key] = s
         elseif now < s.last or now - s.last > S.window then
             s.n, s.side, s.sign, s.bad, s.step, s.fail = 0, 0, -1, 0, 0, {}
+            s.gmiss, s.extended = 0, nil
         end
         s.step, s.fail = s.step or 0, s.fail or {}
         local was_on = S.armed(s)
         s.n, s.last = s.n + 1, now
+        -- V1.0.68 (kisi bazli analiz: dominik / kent.apk / John Pork yerde kafaya 0 isabet; V1.0.67 merdiveni sadece
+        -- "seri" atislarinda ilerledigi icin John Pork'ta hic tetiklenmedi): hangi kol atarsa atsin, statik desenli ve
+        -- yerdeki hedefe kafaya nisanli, yeterli hc'li 3 correction iskasi ust uste -> extended suphesi (govde).
+        if pattern == "static" and shot.ground and shot.hitgroup == 1
+            and (shot.hitchance or 0) >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
+            s.gmiss = (s.gmiss or 0) + 1
+            if s.gmiss >= 3 and not s.extended then
+                s.extended = true
+                say(("%d ardisik zemin kafa iskasi (statik, kollar denendi): extended / roll suphesi -> bu rakibe govde"):format(s.gmiss))
+            end
+        end
         if pattern == "static" and shot.side_on then
             s.side = (s.side or 0) + 1
         end
@@ -4286,8 +4298,10 @@ resolver.streak.result = function(shot, head_hit, miss)
         local forced = shot.streak_yaw or shot.hyp_yaw
         -- V1.0.60 (inceleme): suresi dolmus seride basamak / iska kaydi tasinmaz.
         if now < s.last or now - s.last > S.window then
-            s.step, s.fail = 0, {}
+            s.step, s.fail, s.gmiss, s.extended = 0, {}, 0, nil
         end
+        -- V1.0.68: kafa isabeti zemin kafa iskasi sayacini sifirlar.
+        s.gmiss = 0
         if forced ~= nil then
             -- Zorlanan aciyla kafa (0 dahil): o aci dogru; seri kapanmaz. Tam aciyla kafa merdiveni ve eski
             -- iskalari sifirlar (o taraf calisiyor); 0 / yarim aciyla kafa o basamakta tutar.
@@ -4306,7 +4320,7 @@ resolver.streak.result = function(shot, head_hit, miss)
             if S.armed(s) then
                 say("bitti (GS kafadan vurdu)")
             end
-            s.n, s.side, s.bad, s.step, s.fail, s.extended = 0, 0, 0, 0, {}, nil
+            s.n, s.side, s.bad, s.step, s.fail, s.extended, s.gmiss = 0, 0, 0, 0, {}, nil, 0
         end
     end
 end
@@ -4905,12 +4919,30 @@ do
         local knife_md = melee_near ~= nil and (target == nil or target == melee_near) and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
             and not md_override
         if knife_md then
-            min_damage = (finite(user_md) and user_md > KNIFE_MD.value) and KNIFE_MD.value or nil
+            -- V1.0.68 (tum loglar, kisi bazli analiz): zeus tutana MD 30 zarar verdi (oldurmeyen 21 isabetten sonra 17 olum,
+            -- 2 kill; zeus tek vurusta olduruyor, yarali birakmak isabet degil). Zeus'a sadece oldurucu atis (MD = cani);
+            -- bicakta MD 30 kalir (14 kill / 15 olum, ise yariyor).
+            local zeus = weapon_class(melee_near) == "CWeaponTaser"
+            local value = KNIFE_MD.value
+            if zeus then
+                local hp = prop(melee_near, "m_iHealth")
+                value = (finite(hp) and hp > 0) and hp or nil
+            end
+            if zeus and not (value ~= nil and finite(user_md) and user_md > value) then
+                -- Can MD'den az degil: normal kural (kafa / HP + 1) aynen kalir.
+                knife_md = false
+            else
+                min_damage = (value ~= nil and finite(user_md) and user_md > value) and value or nil
+            end
             local fresh = KNIFE_MD.who ~= melee_near or now < KNIFE_MD.seen or now - KNIFE_MD.seen > 2
             KNIFE_MD.who, KNIFE_MD.seen = melee_near, now
-            if min_damage ~= nil and on(menu.hit_log) and fresh then
-                print(("[%s] %s bicak/zeus ile yakinda: Min. damage gecici %d (oldurmese de vur)"):format(
-                    SCRIPT, player_name(melee_near), KNIFE_MD.value))
+            if knife_md and min_damage ~= nil and on(menu.hit_log) and fresh then
+                if zeus then
+                    print(("[%s] %s zeus ile yakinda: sadece oldurucu (MD %d)"):format(SCRIPT, player_name(melee_near), min_damage))
+                else
+                    print(("[%s] %s bicak ile yakinda: Min. damage gecici %d (oldurmese de vur)"):format(
+                        SCRIPT, player_name(melee_near), KNIFE_MD.value))
+                end
             end
         end
         -- Biri kafani goruyor, hedefin kafasi olduremiyor ama govdesi 70+ aliyor: gecici 70 (V1.0.22, secenek).
@@ -4933,7 +4965,7 @@ do
         -- govde hasarinin 1 altina iner (kafasi hicbir acidan vurulamayan rakip icin MD 100'un tek istisnasi).
         local ext_md = false
         if not knife_md and not md_override and on(menu.ext_body) and info ~= nil and info[4] and target ~= nil
-            and not target_lethal and resolver.streak.is_extended(player_id(target)) then
+            and not target_lethal and on_ground(target) and resolver.streak.is_extended(player_id(target)) then
             local chest = chest_damage(lp, target, info, true)
             if chest ~= nil and chest >= 60 then
                 local value = max(1, floor(chest) - 1)
@@ -5216,6 +5248,33 @@ recharge.after_hit = function(now)
     return h ~= nil and on(menu.fd_hit) and now >= h.time and now - h.time <= 3
 end
 
+-- V1.0.68 (kisi bazli analiz): "sarj bekle" sirasinda (DT kapali, defensive yok) bicak / zeus olumleri ve oto sniper
+-- kafalari (bekleme sirasinda oto isabetlerinin 8/15'i kafa, digerlerinde 19/128). Yakinda bicak (260u) / zeus (420u)
+-- varsa ya da elinde SCAR-20 / G3SG1 olan biri seni goruyorsa sarj bekletilmez. Donus: sebep metni ya da nil.
+recharge.threat = function()
+    local lp = local_player()
+    local mine = lp ~= nil and origin_of(lp) or nil
+    if mine == nil then
+        return nil
+    end
+    for _, enemy in ipairs(enemy_list()) do
+        local cls = weapon_class(enemy)
+        if cls == "CKnife" or cls == "CKnifeGG" or cls == "CWeaponTaser" then
+            local pos = origin_of(enemy)
+            if pos ~= nil then
+                local dx, dy = pos.x - mine.x, pos.y - mine.y
+                local lim = cls == "CWeaponTaser" and 420 or 260
+                if dx * dx + dy * dy < lim * lim then
+                    return cls == "CWeaponTaser" and "zeus yakin" or "bicak yakin"
+                end
+            end
+        elseif (cls == "CWeaponSCAR20" or cls == "CWeaponG3SG1") and sees_me(enemy) then
+            return "oto goruyor"
+        end
+    end
+    return nil
+end
+
 recharge.decide = function(wants_dt)
     local fakeduck = fd_on()
     if recharge.fakeduck and not fakeduck then
@@ -5223,7 +5282,12 @@ recharge.decide = function(wants_dt)
     end
     recharge.fakeduck = fakeduck
     local hold = false
+    recharge.no_hold = nil
     if wants_dt and on(menu.safe_recharge) and exposure.available and not fakeduck
+        and not recharge.after_hit(realtime()) and not recharge.exposed_anyway() then
+        recharge.no_hold = recharge.threat()
+    end
+    if wants_dt and on(menu.safe_recharge) and exposure.available and not fakeduck and recharge.no_hold == nil
         and not recharge.after_hit(realtime()) and not recharge.exposed_anyway() then
         local since = realtime() - max(own.last_shot, recharge.released)
         -- Tutulurken DT kapali, tahmini sarj 0: sinir yine 1.2 sn.
@@ -7535,6 +7599,8 @@ local function exploit_status()
         .. (own.aa.nojump and " zipla yok" or "")
     if recharge.held then
         parts[#parts + 1] = "sarj bekle"
+    elseif recharge.no_hold ~= nil and charge.value < 1 then
+        parts[#parts + 1] = "sarj bekleme yok: " .. recharge.no_hold
     end
     if current.pose then
         parts[#parts + 1] = "sarj pozu (" .. tostring(current.pose_reason) .. ")"
@@ -8024,6 +8090,8 @@ listen("aim_fire", protect("aim_fire", function(e)
             total_hits = lp ~= nil and prop(lp, "m_totalHitsOnServer") or nil, dealt_n = own.dealt_n or 0,
             exploit = not fd_on() and ((dt_on() and "dt") or (hs_on() and "hs")) or nil,
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw, side_on = resolver.streak.side_on(target),
+            -- V1.0.68: ates aninda hedef yerde mi / duruyor mu (extended sayaci, sabit hedefin sahte kaydi).
+            ground = on_ground(target), still = on_ground(target) and speed2d(target) < 5,
             hyp_slot = h ~= nil and h.seeded or nil,
             -- V1.0.50: ates anindaki canli taraf (brute acisi duvar tarafina gore aynalanir; log icin).
             hyp_side = hyp_yaw ~= nil and h.side or nil, hyp_kind = hyp_yaw ~= nil and h.kind or nil,
@@ -8106,7 +8174,10 @@ local function aim_result(e, reason)
         -- (sahte) kaydiydi (bizim takibimiz), ya da GameSense kaydin yerini tahmin etmisti (aim_fire'daki
         -- teleport / extrapolation bayraklari; NYKLE Resolver 2.5 de bunlari saymaz).
         local profile = shot ~= nil and shot.profile or nil
-        excluded = (profile ~= nil and profile.lc and "LC") or (profile ~= nil and profile.defensive_now and "sahte kayit")
+        -- V1.0.68 (kisi bazli analiz): duran hedefin sahte kaydinda correction orani %25, genel %27 ile ayni; sahte kayit
+        -- istisnasi sadece hedef hareketli / havadayken (duran hedefte seri / extended hic ilerleyemiyordu).
+        excluded = (profile ~= nil and profile.lc and "LC")
+            or (profile ~= nil and profile.defensive_now and not (shot ~= nil and shot.still) and "sahte kayit")
             or (shot ~= nil and shot.teleported and "teleport") or (shot ~= nil and shot.extrapolated and "extrapolation")
             or nil
         if excluded ~= nil then

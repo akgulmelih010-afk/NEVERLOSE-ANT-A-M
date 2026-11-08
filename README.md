@@ -712,6 +712,15 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.68** (bütün logların kişi bazlı analizi: 43 bin tekrarsız satır, 524 oyuncu, 52 ajan; ayrıntı `OYUNCU_ANALIZI.md`)
+
+| Değişiklik | Neden |
+|---|---|
+| **Zeus'a karşı sadece öldürücü atış** (zeus tutana MD = canı; can ≥ MD ise normal kafa kuralı). Bıçakta MD 30 kalır. | Zeus tutana MD 30: öldürmeyen 21 isabetten sonra 17 ölüm, 2 kill (11 oyuncu). Bıçakta kural işe yarıyor (14 kill / 15 ölüm). |
+| **Extended gövde kuralı her koldan:** statik desenli, yerdeki rakibe kafaya nişanlı, hc ≥ 70 üç correction ıskası üst üste (hangi kol atarsa atsın) → o rakibe gövde. Kafa isabeti sayacı sıfırlar. | V1.0.67'nin merdiveni sadece "seri" atışlarında ilerliyordu; John Pork'a 12 atışın 3'ü seriydi, kural hiç tetiklenmedi. dominik / kent.apk / John Pork: yerde kafaya 0 isabet. Simülasyonda yerde kafa isabeti kaybı 0. |
+| Duran (hız < 5, yerde) hedefin sahte kaydındaki correction ıskaları öğrenmeye sayılır | Duran hedefin sahte kaydında correction %25, genel %27 ile aynı; istisna yüzünden seri / extended hiç ilerleyemiyordu (103 istisna). |
+| **Şarj bekletme yok:** yakında bıçak (260u) / zeus (420u) ya da elinde SCAR-20 / G3SG1 olan biri seni görüyorsa. Logda `sarj bekleme yok: zeus yakin / bicak yakin / oto goruyor` | Bekleme sırasında (DT kapalı, defensive yok) bıçak / zeus ölümleri; oto sniper isabetlerinin beklemedeyken 8/15'i kafa, diğer zamanlarda 19/128. |
+
 **V1.0.67** (V1.0.66 logu: John Pork'a 12 atışta 1 isabet, 11 correction; kullanıcı: "yapabileceğimiz bir şey olmalı")
 
 | Değişiklik | Neden |
@@ -794,7 +803,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.67 kuralları (256 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.68 kuralları (257 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
