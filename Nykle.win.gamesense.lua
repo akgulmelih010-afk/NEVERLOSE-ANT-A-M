@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.75"
+local VERSION = "1.0.76"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1530,6 +1530,9 @@ menu.accent      = grp.indicators:color("Indicator color", { r = 150, g = 190, b
 menu.arrows      = grp.indicators:switch("Manual arrows", true)
 menu.arrow_color = grp.indicators:color("Arrow color", { r = 150, g = 190, b = 255, a = 255 })
 menu.stats_panel = grp.indicators:switch("Stats panel", false)
+-- V1.0.76 (istek: "solda neyin acik oldugunu goreyim, DT mi ne var, yesil yaziyordu, GS'ye ozel"): GameSense'in sol
+-- gosterge listesi (renderer.indicator). Varsayilan acik.
+menu.left_ind    = grp.indicators:switch("Left indicators (GameSense list: DT / HS / FD / DEF / MD ...)", true)
 menu.res_panel   = grp.panel:switch("Resolver panel", true)
 -- V1.0.39 (istek): varsayilan buyuk ve ekranin ortasinin biraz sag ustunde (binde 560 / 380).
 menu.panel_size  = grp.panel:slider("  » Panel size", 70, 200, 160, "%", function() return on(menu.res_panel) end)
@@ -8920,6 +8923,56 @@ listen("setup_command", protect("grenade helper", function(cmd)
                 end
             end
         end
+    end
+end))
+
+-- V1.0.76: sol gosterge listesi. Yesil = acik / hazir, sari = sarj oluyor / gecici, kirmizi = bos.
+own.ind = { GREEN = { 124, 195, 13 }, YELLOW = { 230, 200, 40 }, RED = { 230, 70, 70 }, WHITE = { 220, 220, 220 } }
+own.ind.put = function(col, text)
+    pcall(renderer.indicator, col[1], col[2], col[3], 255, text)
+end
+listen("paint", protect("left indicators", function()
+    if not on(menu.enabled) or not on(menu.left_ind) or type(renderer.indicator) ~= "function" then
+        return
+    end
+    local lp = local_player()
+    if lp == nil or not alive(lp) then
+        return
+    end
+    local I = own.ind
+    if fd_on() then
+        I.put(I.WHITE, "FD")
+    elseif dt_on() then
+        local v = charge.value or 0
+        I.put(v >= 1 and I.GREEN or (v > 0 and I.YELLOW or I.RED), "DT")
+    elseif hs_on() then
+        I.put(I.GREEN, "HS")
+    end
+    if current.forced then
+        I.put(I.GREEN, "DEF")
+    end
+    if current.lc then
+        I.put(I.YELLOW, "LC")
+    end
+    local md, umd = active_min_damage(), user_value("min_damage")
+    if finite(md) and finite(umd) and md ~= umd then
+        I.put(I.YELLOW, ("MD %d"):format(md))
+    elseif get("md_override") == true and get("md_override_key") == true then
+        I.put(I.WHITE, ("MD %d"):format(finite(md) and md or 0))
+    end
+    if get("force_body") == true then
+        I.put(I.WHITE, "BAIM")
+    end
+    if get("force_safe") == true then
+        I.put(I.WHITE, "SAFE")
+    end
+    if current.freestand then
+        I.put(I.GREEN, "FS")
+    end
+    if afk.on then
+        I.put(I.YELLOW, "AFK")
+    elseif get("peek_assist") == true and get("peek_assist_key") == true then
+        I.put(I.WHITE, "PEEK")
     end
 end))
 

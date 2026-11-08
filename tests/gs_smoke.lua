@@ -322,6 +322,8 @@ function globals.chokedcommands() return 0 end
 
 local renderer = {}
 function renderer.text() end
+local indicators = {}
+function renderer.indicator(r, g, b, a, text) indicators[#indicators + 1] = { r = r, g = g, text = text }; return 0 end
 function renderer.measure_text() return 10, 10 end
 function renderer.rectangle() end
 function renderer.triangle() end
@@ -412,7 +414,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.75 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.76 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -2060,6 +2062,21 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.76: sol gosterge listesi (renderer.indicator): DT yesil (dolu)
+-------------------------------------------------------------------------------
+do
+    local li = find_ref("Left indicators")
+    check(li ~= nil and li.value == true, "V1.0.76: sol gosterge secenegi var, varsayilan acik")
+    W.lag = 12
+    tick(40)
+    for k in pairs(indicators) do indicators[k] = nil end
+    fire("paint")
+    local dt = nil
+    for _, x in ipairs(indicators) do if x.text == "DT" then dt = x end end
+    check(dt ~= nil and dt.g == 195, "V1.0.76: DT doluyken solda yesil DT (" .. tostring(dt and dt.g) .. ")")
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -2069,7 +2086,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.75 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.76 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
