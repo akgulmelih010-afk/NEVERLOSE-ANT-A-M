@@ -5,6 +5,7 @@
 -- ARGV[1] = script kaynagi.
 local src = ARGV[1]
 local out, fails = {}, 0
+local function finite_num(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
 local function log(s) out[#out + 1] = tostring(s) end
 local function check(cond, msg)
     if cond then log("PASS " .. msg) else fails = fails + 1; log("FAIL " .. msg) end
@@ -411,7 +412,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.70 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.71 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -461,6 +462,7 @@ fire("level_init")
 fire("round_start")
 -- V1.0.37: otomatik AFK eski bolumleri bozmasin (8 sn tusa basilmiyor); kendi bolumunde acilir.
 local auto_ref = find_ref("  » Auto AFK (no input 8 s after spawn)")
+check(auto_ref ~= nil and auto_ref.value == true, "V1.0.71: otomatik AFK varsayilan acik")
 if auto_ref ~= nil then auto_ref.value = false end
 -- V1.0.42: defensive A/B testi eski bolumleri round sayisina bagli yapmasin; kendi bolumunde acilir.
 local ab_ref = find_ref("Defensive A/B test (even rounds: no forced defensive)")
@@ -1992,6 +1994,37 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.71: granat yardimcisi (nisangahtaki dusmana molotof; molotofun icindeyken sis ayaga)
+-------------------------------------------------------------------------------
+do
+    check(find_ref("Grenade helper: throw molly") ~= nil and find_ref("Grenade helper: throw molly").value == true
+        and find_ref("Grenade helper: smoke at feet") ~= nil, "V1.0.71: granat yardimcisi secenekleri var, varsayilan acik")
+    ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 2000, 0 }
+    W.cam_yaw, W.next_attack, W.flags, W.speed = 0, 0, 1, 0
+    tick(30)
+    W.weapon_class = "CMolotovGrenade"
+    before = #prints + 1
+    tick(1)
+    local l = printed("granat: molotof -> dusman2", before)
+    local pulled = last_cmd.in_attack == 1
+    tick(4)
+    local rel_pitch, rel_yaw, rel_attack = last_cmd.pitch, last_cmd.yaw, last_cmd.in_attack
+    check(l ~= nil and pulled and rel_attack == 0 and finite_num(rel_pitch) and rel_pitch > -10 and rel_pitch < 20 and math.abs(rel_yaw or 99) < 1,
+        "V1.0.71: nisangahtaki dusmana molotof (pim, sonra hesapli aci) (" .. tostring(l) .. ", pitch " .. tostring(rel_pitch) .. ", yaw " .. tostring(rel_yaw) .. ")")
+    tick(130)
+    W.weapon_class = "CSmokeGrenade"
+    before = #prints + 1
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 4, hitgroup = 0, weapon = "inferno" })
+    tick(1)
+    tick(4)
+    check(printed("granat: molotofun icindesin -> sis ayagina", before) ~= nil and last_cmd.pitch == 89,
+        "V1.0.71: molotofun icindeyken sis ayaga (pitch " .. tostring(last_cmd.pitch) .. ")")
+    W.weapon_class = "CWeaponSSG08"
+    ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 500, 0 }
+    tick(130)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -2001,7 +2034,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.70 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.71 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

@@ -712,6 +712,14 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.71** (istek: "granat yardımcısı: moly / bomba elimdeyken mouse'u adama tutunca ona atsın; molyde kalırsam sisi altıma atsın"; "oto AFK varsayılan açık")
+
+| Değişiklik | Not |
+|---|---|
+| **Granat yardımcısı – nişangahtaki düşmana at** ("Grenade helper: throw molly / HE at enemy under crosshair", Misc > Movement, **varsayılan açık**): elinde molotof / yangın bombası / HE varken nişangahın bir düşmanın 8 derece yakınındaysa (150–1400 birim) atış açısı hesaplanır ve otomatik atılır. Log: `granat: molotof -> <isim> (N birim, pitch P)` | Açı CS:GO'nun atış formülüne göre: hız 675, oyuncu hızı × 1.25, yer çekimi 0.4 × sv_gravity, bakış pitch'i atışta (90 − \|p\|) × 10/90 yukarı kayar. Düşük kavis; çarpışmasız simülasyonda düşüş hatası < 5 birim. Molotof hareketli hedefin uçuş süresi kadar önüne. Duvar / tavana çarpma hesaba katılmaz. Sen sol tıka basıyorsan karışmaz; atışlar arası 1.5 sn. |
+| **Granat yardımcısı – molotofta sis** ("Grenade helper: smoke at feet when standing in fire", **varsayılan açık**): ateşten hasar alınca sis varsa ele alınır ve ayağının dibine (pitch 89) atılır. Log: `granat: molotofun icindesin -> sis ayagina` | Sis ateşi söndürür. Sis yoksa bir şey yapmaz. |
+| **Oto AFK varsayılan açık** (doğduktan sonra 8 sn tuşa basmazsan AFK modu açılır, bir tuşa basınca kapanır); kayıtlı config'te kapalıysa ilk yüklemede bir kez açılır (`nykle_win_gs_afkauto71`) | V1.0.45'te kapatılmıştı (43 roundda 19 kez açılmıştı); kullanıcı açık istedi. |
+
 **V1.0.70** (istek: "bomba, sis, molotof alsın")
 
 | Değişiklik | Not |
@@ -819,7 +827,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.70 kuralları (260 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.71 kuralları (264 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

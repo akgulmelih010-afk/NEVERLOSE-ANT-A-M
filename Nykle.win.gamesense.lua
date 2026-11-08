@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.70"
+local VERSION = "1.0.71"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1362,7 +1362,9 @@ menu.afk            = grp.peek_raw:switch("AFK mode (AI peek here + strafe, full
 -- V1.0.37 (istek: "afk oldugumu anlasin, kendi kendine aktiflessin"): dogduktan sonra hareket / ziplama / egilme tusuna
 -- 8 sn basmazsan AFK modu kendiliginden acilir; bir tusa basinca kapanir (bir sonraki dogusa kadar).
 -- V1.0.45: varsayilan KAPALI (V1.0.42'de 43 roundda 19 kez acildi; acikken DT / defensive zorlar, cikista yuruyor).
-menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", false)
+-- V1.0.71 (istek: "oto afk varsayilan acik kalsin, afk kalirsam afk modu acilsin"): varsayilan ACIK; kayitli config'te
+-- kapaliysa ilk yuklemede bir kez acilir (nykle_win_gs_afkauto71).
+menu.afk_auto       = grp.peek_raw:switch("  » Auto AFK (no input 8 s after spawn)", true)
 -- V1.0.66: varsayilan ACIK, izlenmeyen grupta (bkz. resolver.quick_stop).
 menu.qs_early       = grp.peek_raw:switch("Quick stop: Early for scout / AWP", true)
 menu.anti_peek      = grp.defensive:switch("Defensive vs enemy peeks", true)
@@ -1553,6 +1555,10 @@ menu.jump_scout  = grp.movement:switch("Jump scout (no air strafe on standing ju
 -- V1.0.70 (istek: "bomba sis molotof alsin"): round basinda (DM'de dogusta) HE + sis + molotof (CT'de yangin bombasi)
 -- satin alinir. Para yetmezse / alim kapaliysa oyun reddeder, zarari yok. Varsayilan acik.
 menu.auto_buy    = grp.movement:switch("Auto buy grenades (HE + smoke + molotov)", true)
+-- V1.0.71 (istek: "moly / bomba elimdeyken mouse'u adama tutunca ona atsin; molyde kalirsam sisi altima atsin"):
+-- varsayilan acik.
+menu.nade_aim    = grp.movement:switch("Grenade helper: throw molly / HE at enemy under crosshair", true)
+menu.nade_smoke  = grp.movement:switch("Grenade helper: smoke at feet when standing in fire", true)
 -- V1.0.28: kalici sol el. Lua yuklenir yuklenmez cl_righthand 0 yazilir ve acik kaldikca oyle tutulur (oyun ya da
 -- config geri cevirse de); kapatinca / script kaldirilinca senin eski degerin geri gelir.
 menu.left_hand   = grp.movement:switch("Left hand (cl_righthand 0, permanent)", true)
@@ -8747,6 +8753,154 @@ own.buy_nades = function()
     end
 end
 
+-- V1.0.71: granat yardimcisi. Atis acisi CS:GO ThrowGrenade'e gore: hiz 750 * 0.9 = 675 (tam guc), + oyuncu hizi *
+-- 1.25, yer cekimi 0.4 * sv_gravity, atis pitch'i bakistan (90 - |p|) * 10 / 90 derece yukarida. Dusuk kavis; carpismasiz
+-- simulasyonda dusus hatasi < 5 birim, menzil ~1400 birim. Atis: pim 2 tick (sol tik), birakinca 12 tick acida tutulur.
+own.nade = { stage = nil, until_tick = 0, pitch = 0, yaw = 0, next_at = -1000, burn_at = -1000, use_at = -1000, logged = -1000 }
+own.nade.solve = function(dx, dy, dz, pv)
+    local d = sqrt(dx * dx + dy * dy)
+    if d < 1 then
+        return nil
+    end
+    local okg, gv = pcall(function() return cvar.sv_gravity:get_float() end)
+    local g = 0.4 * ((okg and finite(gv) and gv > 0) and gv or 800)
+    local ux, uy = dx / d, dy / d
+    local ph = (pv.x * ux + pv.y * uy) * 1.25
+    local best = nil
+    for th10 = -400, 800, 5 do
+        local th = math.rad(th10 / 10)
+        local vh = 675 * math.cos(th) + ph
+        local vz = 675 * math.sin(th) + pv.z * 1.25
+        if vh > 1 then
+            local t = d / vh
+            if vz * t - 0.5 * g * t * t >= dz then
+                best = th10 / 10
+                break
+            end
+        end
+    end
+    if best == nil then
+        return nil
+    end
+    local tp = -best
+    local pitch = tp >= -10 and (9 * tp + 90) / 10 or (9 * tp + 90) / 8
+    return max(-89, min(89, pitch)), math.deg(atan2(dy, dx)), d
+end
+
+-- Nisangahin 8 derece icindeki, 150-1400 birimdeki en yakin (aciya gore) dusman ve atis acisi.
+own.nade.target = function(lp)
+    local eye = eye_of(lp)
+    local cp, cy = try(client.camera_angles)
+    if eye == nil or not finite(cp) or not finite(cy) then
+        return nil
+    end
+    local best, best_fov = nil, 8
+    for _, enemy in ipairs(enemy_list()) do
+        local o = origin_of(enemy)
+        if o ~= nil then
+            local v = velocity_of(enemy)
+            local dx, dy = o.x - eye.x, o.y - eye.y
+            local dist = sqrt(dx * dx + dy * dy)
+            if dist >= 150 and dist <= 1400 then
+                local ay = math.deg(atan2(dy, dx))
+                local ap = -math.deg(atan2(o.z + 40 - eye.z, dist))
+                local fy = abs((ay - cy + 180) % 360 - 180)
+                local fov = sqrt(fy * fy + (ap - cp) * (ap - cp))
+                if fov < best_fov then
+                    -- Molotof yere degince yanar: ucus suresi kadar onune (hareket ediyorsa).
+                    local lead = dist / 600
+                    best, best_fov = { x = o.x + v.x * lead - eye.x, y = o.y + v.y * lead - eye.y, z = o.z + 2 - eye.z, ent = enemy }, fov
+                end
+            end
+        end
+    end
+    return best
+end
+
+own.nade.has_smoke = function(lp)
+    for i = 0, 63 do
+        local w = prop(lp, "m_hMyWeapons", i)
+        if w ~= nil and finite(w) and w > 0 and try(entity.get_classname, w) == "CSmokeGrenade" then
+            return true
+        end
+    end
+    return false
+end
+
+listen("setup_command", protect("grenade helper", function(cmd)
+    local N = own.nade
+    local lp = local_player()
+    if not on(menu.enabled) or lp == nil or not alive(lp) then
+        N.stage = nil
+        return
+    end
+    local now, tick = realtime(), tickcount()
+    local class = weapon_class(lp)
+    -- Atis devam ediyor: pim cekiliyor ya da birakildi, acilar tutuluyor.
+    if N.stage == "pull" then
+        cmd.in_attack = 1
+        if tick >= N.until_tick then
+            N.stage, N.until_tick = "release", tick + 12
+        end
+        return
+    elseif N.stage == "release" then
+        cmd.in_attack = 0
+        cmd.pitch, cmd.yaw = N.pitch, N.yaw
+        if tick >= N.until_tick then
+            N.stage, N.next_at = nil, now + 1.5
+        end
+        return
+    end
+    if pressed(cmd.in_attack) then
+        return
+    end
+    local weapon = weapon_of(lp)
+    local next_attack = weapon ~= nil and prop(weapon, "m_flNextPrimaryAttack") or nil
+    local ready = not finite(next_attack) or next_attack <= try(globals.curtime)
+    -- Molotofun icinde (ates hasari): sis eldeyse ona gec, ayaginin dibine at.
+    if on(menu.nade_smoke) and now >= N.burn_at and now - N.burn_at < 1.5 then
+        if class ~= "CSmokeGrenade" then
+            if now - N.use_at > 0.5 and own.nade.has_smoke(lp) then
+                N.use_at = now
+                pcall(client.exec, "use weapon_smokegrenade")
+            end
+            return
+        end
+        if ready then
+            local _, cy = try(client.camera_angles)
+            N.stage, N.until_tick, N.pitch, N.yaw = "pull", tick + 2, 89, finite(cy) and cy or 0
+            N.burn_at = -1000
+            cmd.in_attack = 1
+            if on(menu.hit_log) then
+                print(("[%s] granat: molotofun icindesin -> sis ayagina"):format(SCRIPT))
+            end
+        end
+        return
+    end
+    -- Molotof / HE elde, nisangahta dusman: ona dogru hesaplanmis aciyla at.
+    if on(menu.nade_aim) and ready and now >= N.next_at and (class == "CMolotovGrenade" or class == "CIncendiaryGrenade" or class == "CHEGrenade") then
+        local t = own.nade.target(lp)
+        if t ~= nil then
+            local pitch, yaw, d = own.nade.solve(t.x, t.y, t.z, velocity_of(lp))
+            if pitch ~= nil then
+                N.stage, N.until_tick, N.pitch, N.yaw = "pull", tick + 2, pitch, yaw
+                cmd.in_attack = 1
+                if on(menu.hit_log) then
+                    print(("[%s] granat: %s -> %s (%d birim, pitch %.1f)"):format(SCRIPT,
+                        class == "CHEGrenade" and "bomba" or "molotof", player_name(t.ent), floor(d + 0.5), pitch))
+                end
+            end
+        end
+    end
+end))
+
+listen("player_hurt", protect("grenade helper hurt", function(e)
+    local lp = local_player()
+    if lp ~= nil and userid_index(e.userid) == lp and tostring(e.weapon) == "inferno" then
+        own.nade.burn_at = realtime()
+    end
+end))
+
 listen("round_start", protect("round_start", function()
     -- V1.0.64 (inceleme): bu haritada round_start geldiyse DM yedegi devre disi (normal haritada dogus round_start'tan
     -- once gelir; uzun roundlardan sonra round isleri iki kez calisiyordu).
@@ -10590,6 +10744,10 @@ do
     -- her config yuklemesinde Auto AFK'yi kapatiyordu).
     local ok_m, done = pcall(database.read, "nykle_win_gs_afkauto45")
     afk.migrate = not (ok_m and done == true)
+    afk.migrate71 = not (function()
+        local ok, d = pcall(database.read, "nykle_win_gs_afkauto71")
+        return ok and d == true
+    end)()
     -- V1.0.47: In-air hit chance varsayilani 40 -> 0 (senin hc'n). Kayitli config'teki eski varsayilan 40 bir kez 0 olur;
     -- elle baska bir deger sectiysen dokunulmaz.
     -- Element olusurken varsayilan (0) yazilir; kayitli 40 ancak config yuklenince gelir. Bayrak ilk config yuklemesinde
@@ -10610,8 +10768,12 @@ do
     listen("post_config_load", protect("afk auto migrate", function()
         if afk.migrate then
             afk.migrate = false
-            pcall(menu.afk_auto.set, menu.afk_auto, false)
             pcall(database.write, "nykle_win_gs_afkauto45", true)
+        end
+        if afk.migrate71 then
+            afk.migrate71 = false
+            pcall(menu.afk_auto.set, menu.afk_auto, true)
+            pcall(database.write, "nykle_win_gs_afkauto71", true)
         end
         if resolver.air_migrate then
             resolver.air_migrate = false
