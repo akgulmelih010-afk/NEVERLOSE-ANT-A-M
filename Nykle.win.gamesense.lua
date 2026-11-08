@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.71"
+local VERSION = "1.0.72"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -5145,7 +5145,8 @@ end
 -- eslesmesi: negatif body yaw <-> sag yaw). hidden_pitch / hidden_yaw: defensive penceresinde gonderilen
 -- sahte acilar (nil: yok).
 local function apply(v, lp)
-    override("aa_enabled", true)
+    -- V1.0.72: granat yardimcisi atarken (pim + birakis) GameSense AA kapali: atis acisini ezmesin.
+    override("aa_enabled", not current.nade_throw)
     if v.hidden_pitch ~= nil and refs.pitch_value ~= nil then
         override("pitch", "Custom")
         override("pitch_value", clamp(round(v.hidden_pitch), -89, 89))
@@ -8830,8 +8831,9 @@ end
 listen("setup_command", protect("grenade helper", function(cmd)
     local N = own.nade
     local lp = local_player()
+    current.nade_throw = N.stage ~= nil
     if not on(menu.enabled) or lp == nil or not alive(lp) then
-        N.stage = nil
+        N.stage, current.nade_throw = nil, false
         return
     end
     local now, tick = realtime(), tickcount()
@@ -8869,6 +8871,7 @@ listen("setup_command", protect("grenade helper", function(cmd)
         if ready then
             local _, cy = try(client.camera_angles)
             N.stage, N.until_tick, N.pitch, N.yaw = "pull", tick + 2, 89, finite(cy) and cy or 0
+            current.nade_throw = true
             N.burn_at = -1000
             cmd.in_attack = 1
             if on(menu.hit_log) then
@@ -8884,6 +8887,7 @@ listen("setup_command", protect("grenade helper", function(cmd)
             local pitch, yaw, d = own.nade.solve(t.x, t.y, t.z, velocity_of(lp))
             if pitch ~= nil then
                 N.stage, N.until_tick, N.pitch, N.yaw = "pull", tick + 2, pitch, yaw
+                current.nade_throw = true
                 cmd.in_attack = 1
                 if on(menu.hit_log) then
                     print(("[%s] granat: %s -> %s (%d birim, pitch %.1f)"):format(SCRIPT,

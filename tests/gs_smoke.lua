@@ -412,7 +412,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.71 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.72 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -2009,6 +2009,8 @@ do
     local pulled = last_cmd.in_attack == 1
     tick(4)
     local rel_pitch, rel_yaw, rel_attack = last_cmd.pitch, last_cmd.yaw, last_cmd.in_attack
+    local aa_on = find_ref("Enabled").value
+    check(aa_on == false, "V1.0.72: granat atilirken GameSense AA kapali (" .. tostring(aa_on) .. ")")
     check(l ~= nil and pulled and rel_attack == 0 and finite_num(rel_pitch) and rel_pitch > -10 and rel_pitch < 20 and math.abs(rel_yaw or 99) < 1,
         "V1.0.71: nisangahtaki dusmana molotof (pim, sonra hesapli aci) (" .. tostring(l) .. ", pitch " .. tostring(rel_pitch) .. ", yaw " .. tostring(rel_yaw) .. ")")
     tick(130)
@@ -2022,6 +2024,7 @@ do
     W.weapon_class = "CWeaponSSG08"
     ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 500, 0 }
     tick(130)
+    check(find_ref("Enabled").value == true, "V1.0.72: atis bitince AA geri acik")
 end
 
 -------------------------------------------------------------------------------
@@ -2034,7 +2037,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.71 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.72 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
