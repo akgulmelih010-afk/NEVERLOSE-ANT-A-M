@@ -414,7 +414,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.78 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.79 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -472,6 +472,10 @@ hyp_ref.value = true
 local airlc_ref = find_ref("Air: break LC")
 check(airlc_ref ~= nil and airlc_ref.value == true, "V1.0.78: havada LC kirma secenegi var, varsayilan acik")
 airlc_ref.value = false
+-- V1.0.79: kafa saklayan rakibe govde varsayilan acik; eski bolumler icin kapali.
+local hider_ref = find_ref("Body vs head hiders")
+check(hider_ref ~= nil and hider_ref.value == true, "V1.0.79: kafa saklayana govde secenegi var, varsayilan acik")
+hider_ref.value = false
 local side_ref = find_ref("Sideways static enemy: no forced body yaw")
 check(side_ref ~= nil and side_ref.value == true, "V1.0.75: yan duran statik rakipte zorlama yok secenegi var, varsayilan acik")
 side_ref.value = false
@@ -2101,6 +2105,7 @@ do
         fire("aim_miss", { id = 7700 + i, target = 2, hitgroup = 1, reason = "?" })
     end
     check(printed("zemin kafa iskasi (statik", before) ~= nil, "V1.0.77: zorlama kapaliyken de GS kafa iskalarindan govde yedegi tetiklenir")
+    check(printed("GS yerine body yaw", before) == nil, "V1.0.79: hipotezler kapaliyken 'GS yerine body yaw' yazilmaz")
     W.sees[2], W.elby[2], W.head_dmg[2], W.body_dmg[2] = false, nil, 0, 0
     tick(10)
 end
@@ -2115,10 +2120,64 @@ do
     check(dt_ref.value == true, "V1.0.78 kurulum: yerde DT acik")
     W.flags, W.speed = 0, 200
     tick(10)
-    check(dt_ref.value == false, "V1.0.78: havada DT kapali (fake lag tam, LC kirilir) (" .. tostring(dt_ref.value) .. ")")
+    check(dt_ref.value == true, "V1.0.79: havada kimse gormuyorsa DT acik kalir (inince yeniden sarj yok) (" .. tostring(dt_ref.value) .. ")")
+    W.flags, W.speed = 1, 0
+    tick(20)
+    W.sees[2], W.head_dmg[2] = true, 120
+    tick(10)
+    W.flags, W.speed = 0, 200
+    tick(10)
+    check(dt_ref.value == false, "V1.0.78: havada (gorulurken) DT kapali (fake lag tam, LC kirilir) (" .. tostring(dt_ref.value) .. ")")
+    W.sees[2] = false
+    tick(4)
+    check(dt_ref.value == false, "V1.0.79: havada basladiysa inene kadar kapali kalir")
     W.flags, W.speed = 1, 0
     tick(20)
     check(dt_ref.value == true, "V1.0.78: yere inince DT geri acik")
+    W.head_dmg[2] = 0
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.79: kafa payi <= %35 (12+ sniper atisi) olan rakibe govde; her 4. atis kafa denemesi
+-------------------------------------------------------------------------------
+do
+    local ext_ref = find_ref("Body vs extended/roll")
+    local ext_was = ext_ref.value
+    ext_ref.value, hider_ref.value = false, true
+    W.sees[3], W.speed, W.flags, W.evel[3], W.head_dmg[3], W.body_dmg[3] = true, 0, 1, 0, 120, 86
+    tick(20)
+    before = #prints + 1
+    for i = 1, 12 do
+        tick(6)
+        fire("aim_fire", { id = 7900 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        if i % 4 == 0 then
+            fire("aim_hit", { id = 7900 + i, target = 3, hitgroup = 1, damage = 120 })
+        else
+            fire("aim_miss", { id = 7900 + i, target = 3, hitgroup = 1, reason = "?" })
+        end
+    end
+    check(printed("kafa payi 3/12 (25%): kafa saklayan rakip", before) ~= nil, "V1.0.79: 12 atista 3 kafa -> kafa saklayan rakip")
+    before = #prints + 1
+    tick(2)
+    local h79 = printed("kafa saklayan rakip (kafa payi <= %35)", before)
+    check(h79 ~= nil and h79:find("Min. damage gecici 85", 1, true) ~= nil and plist.get(3, "Override prefer body aim") == "Force",
+        "V1.0.79: kafa saklayana govde zorlanir, MD govde-1 (" .. tostring(h79) .. ", " .. tostring(plist.get(3, "Override prefer body aim")) .. ")")
+    for i = 1, 3 do
+        tick(6)
+        fire("aim_fire", { id = 7920 + i, target = 3, hitgroup = 2, damage = 86, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        fire("aim_miss", { id = 7920 + i, target = 3, hitgroup = 2, reason = "spread" })
+    end
+    tick(2)
+    check(plist.get(3, "Override prefer body aim") ~= "Force", "V1.0.79: her 4. atis kafa denemesi (govde zorlanmaz) ("
+        .. tostring(plist.get(3, "Override prefer body aim")) .. ")")
+    tick(6)
+    fire("aim_fire", { id = 7930, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    fire("aim_miss", { id = 7930, target = 3, hitgroup = 1, reason = "spread" })
+    tick(2)
+    check(plist.get(3, "Override prefer body aim") == "Force", "V1.0.79: deneme atisindan sonra yine govde")
+    ext_ref.value, hider_ref.value = ext_was, false
+    W.sees[3], W.head_dmg[3], W.body_dmg[3] = false, 0, 0
+    tick(10)
 end
 
 -------------------------------------------------------------------------------
@@ -2131,7 +2190,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.78 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.79 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2145,6 +2204,16 @@ do
     end
     check(type(saved) == "table" and saved.session == 1 and with_last > 0,
         "V1.0.64: hafiza kaydi oturum ve son gorulme tasir (oturum " .. tostring(type(saved) == "table" and saved.session) .. ", " .. with_last .. " oyuncu)")
+end
+do
+    local hd = nil
+    if type(saved) == "table" and type(saved.resolver) == "table" then
+        for _, e in pairs(saved.resolver) do
+            if type(e) == "table" and type(e.hider) == "table" then hd = e.hider end
+        end
+    end
+    check(hd ~= nil and hd.n == 12 and hd.h == 3 and hd.b == 4, "V1.0.79: kafa payi sayaci hafizaya yazildi ("
+        .. (hd ~= nil and (hd.h .. "/" .. hd.n .. " b" .. hd.b) or "yok") .. ")")
 end
 local arms = type(saved) == "table" and type(saved.own_res) == "table" and saved.own_res.arms or nil
 check(arms ~= nil and arms["lby+"] ~= nil and arms["lby+"].shots == 1 and arms["lby+"].hits == 1,

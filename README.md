@@ -712,6 +712,13 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.79** (northgard: "fakeduck + safe head, ateşten sonra kafayı saklıyor, sıktığım anda pozisyon alıp dodge'luyor". Tüm loglar: northgard'a fake duck'ta 14 atış %85 isabet, sorun değil; kafaya nişanlı 75 atışta 29 kafa (%39), 27 correction; gövdeye nişanlı 26 atışta %76 isabet, 0 correction)
+
+| Değişiklik | Neden |
+|---|---|
+| **Kafa saklayana gövde** ("Body vs head hiders (head share <= 35% over 12+ shots)", Protect, **varsayılan açık**): rakip başına hafızada kalan sayaç — yerdeki hedefe sniper ile kafaya nişanlı, hc yeterli atışların sonucu (isabet ya da correction). 12+ atışta kafa payı ≤ %35 ise o rakibe sniper ile gövde zorlanır, Min. damage gövde-1 (extended kuralıyla aynı yol); her 4. atış kafaya serbest (rakip taktiği bırakırsa sayaç düzelir); son 30 atış ağırlıklı. | Scout gövdesi 2 isabette öldürür: gövde isabeti %74 iken kafa payı ~%37'nin altındaysa gövde daha az atışta öldürür. Tüm loglarda ≤ %35 olanlar: dominik 1/16, Вася 1/13, John Pork 2/13, aimlarp 6/29, PhytoCannaBinoide 8/30, бисмиля 7/21 (gövdeye %72–76 isabet). northgard %39'da sınırda: kural şimdilik açılmaz; oturumda kafa payı düşerse kendiliğinden açılır. Kafaya zaten öldüren durumlar (can ≤ gövde hasarı), bıçak / zeus ve havadaki hedef etkilenmez. |
+| **Havada LC kırma düzeltmeleri** (V1.0.77/78 incelemesi, 13 ajan): (1) AA durumuna değil gerçek hava durumuna bakar — Manual yön, bıçakla Safe head ya da Freestanding açıkken de çalışır; "zıplama engeli" yerde DT'yi kapatmaz. (2) Sadece biri seni görüyorken / birazdan görecekken açılır (başladıysa inene kadar): kimse görmüyorsa DT açık kalır, inişte yeniden şarj ve ~14 tick donma olmaz. (3) Safe recharge havada karışmaz, `AIR LC` göstergesi fake duck'ta takılı kalmaz. (4) Hipotezler kapalıyken log "GS yerine body yaw" yazmaz (zorlama yok). | İncelemede doğrulanan 6 bulgu; 5 bulgu çürütüldü (Binds modunda da çalışması, diğer hava özelliklerinin etkisiz kalması, oto silah verisi, gizli hit chance, plist Force sayımı: tasarım gereği). |
+
 **V1.0.78** (northgard'ın sohbette söyledikleri: "havada bt takılıyor sonra tp atıyor", "fl girip çıkıyor", "dt kapa aç yapınca normal"; hilesinin logu seni havada `delta=28t` backtrack ile vurdu. İlk V1.0.77 oturumu: northgard'a 22 kill / 26 ölüm, 52 atışta 30 isabet, 20 kafa; V1.0.62–76'da aynı rakibe 5 / 18)
 
 | Değişiklik | Neden |
@@ -875,7 +882,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.78 kuralları (277 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.79 kuralları (286 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

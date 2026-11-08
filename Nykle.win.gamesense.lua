@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.78"
+local VERSION = "1.0.79"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1444,6 +1444,8 @@ menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
 -- V1.0.67: varsayilan ACIK, izlenmeyen grupta (bkz. apply_body_aim ext_md).
 menu.ext_body       = grp.protect_raw:switch("Body vs extended/roll (all head angles missed)", true)
+-- V1.0.79: kafa payi <= %35 (12+ sniper atisi, hafizada) olan rakibe sniper ile govde; izlenmeyen grup, varsayilan ACIK.
+menu.hider_body     = grp.protect_raw:switch("Body vs head hiders (head share <= 35% over 12+ shots)", true)
 -- V1.0.75: varsayilan ACIK (bkz. apply_resolver).
 -- V1.0.78: varsayilan ACIK (bkz. apply_exploit, current.air_lc).
 menu.air_lc         = grp.protect_raw:switch("Air: break LC (DT / HS off in air, full fake lag)", true)
@@ -2086,6 +2088,9 @@ do
 
     detect_movement = function(lp, cmd)
         motion.ground_ticks = on_ground(lp) and min(motion.ground_ticks + 1, 64) or 0
+        -- V1.0.79 (inceleme): gercek hava durumu (AA durumu Manual / Safe head / Freestanding olsa da, zipla engeli
+        -- tusu iptal etse de); havada LC kirma buna bakar.
+        exposure.airborne = motion.ground_ticks < LANDING_TICKS
 
         local speed = speed2d(lp)
         if speed > MOVE_ENTER then
@@ -4273,7 +4278,7 @@ resolver.streak.result = function(shot, head_hit, miss)
             if s.gmiss >= need and not s.extended then
                 s.extended, s.ext_at = true, now
                 say(("%d zemin kafa iskasi (statik%s): extended / yan durus taktigi -> bu rakibe govde"):format(s.gmiss,
-                    shot.side_on and ", yan duruyor" or ", kollar denendi"))
+                    shot.side_on and ", yan duruyor" or (on(menu.hypotheses) and ", kollar denendi" or ", GS kafa iskalari")))
             end
         end
         if pattern == "static" and shot.side_on then
@@ -4323,7 +4328,8 @@ resolver.streak.result = function(shot, head_hit, miss)
                 say(("-%d ve +%d ikisi de iskaladi (fake yaw / kucuk desync) -> body yaw 0"):format(lim, lim))
             end
         end
-        if not was_on and S.armed(s) then
+        -- V1.0.79 (inceleme): hipotezler kapaliyken body yaw zorlanmaz; "GS yerine body yaw" satiri yazilmaz.
+        if not was_on and S.armed(s) and on(menu.hypotheses) then
             say((s.n >= S.need and "%d resolver iskasi (durumdan bagimsiz)" or "%d iska, yan duruyor (statik)")
                 :format(s.n) .. (" -> GS yerine body yaw %s%d"):format(s.sign < 0 and "-" or "+", lim))
         end
@@ -4350,11 +4356,58 @@ resolver.streak.result = function(shot, head_hit, miss)
                 s.last = now
             end
         else
-            if S.armed(s) then
+            if S.armed(s) and on(menu.hypotheses) then
                 say("bitti (GS kafadan vurdu)")
             end
             s.n, s.side, s.bad, s.step, s.fail, s.extended, s.gmiss = 0, 0, 0, 0, {}, nil, 0
         end
+    end
+end
+
+-- V1.0.79 (tum loglar, kisi bazli: dominik 1/16, Вася 1/13, John Pork 2/13, aimlarp 6/29, PhytoCannaBinoide 8/30 kafa;
+-- ayni oyunculara govde nisani %72-76 isabet, %0 correction). Scout govdesi 2 isabette oldurur: kafa payi govde
+-- isabetinin yarisinin (~%37) altindaysa govde daha az atista oldurur. Dusman basina, hafizada kalan sayac: yerdeki
+-- hedefe sniper ile kafaya nisanli, yeterli hc'li atislarin sonucu (isabet ya da correction). n >= 12 ve kafa payi
+-- <= %35 -> govde (apply_body_aim ext yolu). Her 4. atis kafaya serbest (prob): rakip taktigi birakirsa sayac duzelir.
+resolver.hider = { min_n = 12, share = 0.35, cap = 30 }
+
+resolver.hider.raw = function(key)
+    local entry = key ~= nil and resolver.players[key] or nil
+    local d = entry ~= nil and entry.hider or nil
+    return d ~= nil and d.n >= resolver.hider.min_n and d.h <= d.n * resolver.hider.share, d
+end
+
+resolver.hider.is = function(key)
+    local raw, d = resolver.hider.raw(key)
+    return raw and floor(d.b or 0) % 4 ~= 3
+end
+
+resolver.hider.count = function(shot, target, head_hit, result, hit)
+    if shot == nil or not shot.sniper or not shot.ground or shot.hitgroup ~= 1 or target == nil or shot.target ~= target
+        or (shot.hitchance or 0) < (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
+        return
+    end
+    if not hit and result ~= "c" then
+        return
+    end
+    local entry = resolver_entry(target)
+    if entry == nil then
+        return
+    end
+    local d = entry.hider or { n = 0, h = 0, b = 0 }
+    entry.hider = d
+    local was = resolver.hider.raw(player_id(target))
+    d.n, d.h = d.n + 1, d.h + (head_hit and 1 or 0)
+    if d.n > resolver.hider.cap then
+        local k = resolver.hider.cap / d.n
+        d.n, d.h = d.n * k, d.h * k
+    end
+    persist.dirty = true
+    local now_on = resolver.hider.raw(player_id(target))
+    if now_on ~= was and on(menu.resolver_log) then
+        print(("[%s] resolver: %s kafa payi %d/%d (%d%%): %s"):format(SCRIPT, player_name(target), floor(d.h + 0.5),
+            floor(d.n + 0.5), floor(d.h / d.n * 100 + 0.5),
+            now_on and "kafa saklayan rakip -> sniper ile govde (her 4. atis kafa denemesi)" or "kafa tekrar tutuyor -> normal"))
     end
 end
 
@@ -5019,8 +5072,14 @@ do
         -- V1.0.67: extended / roll suphesi (seri butun acilari kafada iskaladi): o rakibe govde zorlanir ve Min. damage
         -- govde hasarinin 1 altina iner (kafasi hicbir acidan vurulamayan rakip icin MD 100'un tek istisnasi).
         local ext_md = false
-        if not knife_md and not zeus_near and not md_override and on(menu.ext_body) and info ~= nil and info[4] and target ~= nil
-            and not target_lethal and on_ground(target) and resolver.streak.is_extended(player_id(target)) then
+        local ext_why = nil
+        if target ~= nil and on_ground(target) then
+            local tkey = player_id(target)
+            ext_why = (on(menu.ext_body) and resolver.streak.is_extended(tkey) and "extended / roll suphesi (butun acilar kafada iskaladi)")
+                or (on(menu.hider_body) and resolver.hider.is(tkey) and "kafa saklayan rakip (kafa payi <= %35)") or nil
+        end
+        if not knife_md and not zeus_near and not md_override and ext_why ~= nil and info ~= nil and info[4] and target ~= nil
+            and not target_lethal then
             local chest = chest_damage(lp, target, info, true)
             if chest ~= nil and chest >= 60 then
                 local value = max(1, floor(chest) - 1)
@@ -5032,8 +5091,8 @@ do
                 end
                 if on(menu.hit_log) and (resolver.ext_logged ~= target or now - (resolver.ext_at or -1000) > 5) then
                     resolver.ext_logged, resolver.ext_at = target, now
-                    print(("[%s] %s: extended / roll suphesi (butun acilar kafada iskaladi): govde %d, Min. damage gecici %d"):format(
-                        SCRIPT, player_name(target), floor(chest + 0.5), value))
+                    print(("[%s] %s: %s: govde %d, Min. damage gecici %d"):format(
+                        SCRIPT, player_name(target), ext_why, floor(chest + 0.5), value))
                 end
             end
         end
@@ -5393,7 +5452,7 @@ local function apply_exploit(s, class)
                 sniper_hs = true
             end
         end
-        if sniper_hs and on(menu.sniper_air_dt) and (current.state == "Air" or current.state == "Air crouch") then
+        if sniper_hs and on(menu.sniper_air_dt) and exposure.airborne == true then
             sniper_hs = false
         end
         if sniper_hs then
@@ -5406,12 +5465,16 @@ local function apply_exploit(s, class)
         end
     end
     local user_dt = choice == "Binds" and user_value("doubletap") == true and get("doubletap_key")
-    local hold = recharge.decide(choice == "Double tap" or user_dt)
+    -- V1.0.79 (inceleme): AA durumuna degil gercek hava durumuna bakar; sadece biri seni goruyorken (ya da birazdan
+    -- gorecekken) ve bir kez basladiysa inene kadar. Kimse gormuyorsa DT acik kalir: inince yeniden sarj yok.
+    local airborne = exposure.airborne == true
+    current.air_lc = on(menu.air_lc) and not afk.on and airborne and (recharge.air_latch == true or seen_by_enemy())
+    recharge.air_latch = current.air_lc or nil
+    local hold = recharge.decide((choice == "Double tap" or user_dt) and not current.air_lc)
     -- V1.0.78 (northgard: "havada bt takiliyor, fl girip cikiyor, dt kapa ac yapinca normal"; hilesinin logu seni havada
     -- delta=28t backtrack ile vurdu; tum loglar, havada yenen mermi (oto haric): DT dolu 189'da %52 kafa, DT %0 64'te %33,
     -- HS 44'te %81): DT / HS acikken GameSense fake lag'i "DT fake lag limit"e (1) ceker, havada LC kirilmaz, kayit
     -- geride takili kalir. Havadayken DT ve HS kapali: fake lag senin tam degerinde, LC kirilir. Yere inince geri acilir.
-    current.air_lc = on(menu.air_lc) and not afk.on and (current.state == "Air" or current.state == "Air crouch")
     if current.air_lc then
         override("doubletap", false)
         override("doubletap_key", nil)
@@ -6960,6 +7023,7 @@ end
 local function tick_prepare(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     current.switching, current.knife_def, current.backstab, current.air_keep = false, false, nil, nil
+    current.air_lc = false
     own.aa.slowed, own.aa.stopped, own.aa.nojump, own.aa.inverted = nil, nil, nil, nil
     local rec, tick = recommended_state, tickcount()
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
@@ -8144,7 +8208,7 @@ listen("aim_fire", protect("aim_fire", function(e)
             end
         end
         local prof_now = enemy_watch.profile(target)
-        local streak_yaw = hyp_yaw == nil and resolver.streak.yaw(key, prof_now ~= nil and prof_now.pattern or nil, target) or nil
+        local streak_yaw = hyp_yaw == nil and on(menu.hypotheses) and resolver.streak.yaw(key, prof_now ~= nil and prof_now.pattern or nil, target) or nil
         if streak_yaw ~= nil and not (plist_get(target, PL.FORCE) == true and plist_get(target, PL.VALUE) == streak_yaw) then
             streak_yaw = nil
         end
@@ -8165,6 +8229,8 @@ listen("aim_fire", protect("aim_fire", function(e)
             hyp_key = key, hyp_candidate = hyp_yaw ~= nil and h.candidate or 0, hyp_yaw = hyp_yaw, streak_yaw = streak_yaw, side_on = resolver.streak.side_on(target),
             -- V1.0.68: ates aninda hedef yerde mi / duruyor mu (extended sayaci, sabit hedefin sahte kaydi).
             ground = on_ground(target), still = on_ground(target) and speed2d(target) < 5,
+            -- V1.0.79: kafa saklayan sayaci sadece sniper atislarini sayar.
+            sniper = SNIPERS[current.weapon] == true and current.weapon ~= "Revolver",
             hyp_slot = h ~= nil and h.seeded or nil,
             -- V1.0.50: ates anindaki canli taraf (brute acisi duvar tarafina gore aynalanir; log icin).
             hyp_side = hyp_yaw ~= nil and h.side or nil, hyp_kind = hyp_yaw ~= nil and h.kind or nil,
@@ -8173,6 +8239,11 @@ listen("aim_fire", protect("aim_fire", function(e)
                 and resolver.head_relaxed(target)) or nil }
         -- V1.0.47: sahte kayda giden atista gercek kayit beklemesi neden yoktu (ates aninda).
         local shot = resolver.shots[e.id]
+        -- V1.0.79: kafa saklayan rakibe atilan sniper atislari (her 4. atis kafa denemesi).
+        local hraw, hd = resolver.hider.raw(key)
+        if hraw and shot.sniper then
+            hd.b = floor(hd.b or 0) + 1
+        end
         if shot.profile ~= nil and shot.profile.defensive_now then
             local w = resolver.wait.enemies[target]
             shot.wait_why = not resolver.wait.enabled and "kapali" or (w ~= nil and w.why) or "?"
@@ -8282,6 +8353,9 @@ local function aim_result(e, reason)
         hypothesis.own.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
         if shot ~= nil then shot.hit_any = reason == nil end
         resolver.streak.result(shot, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
+        if on(menu.hider_body) then
+            resolver.hider.count(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result, reason == nil)
+        end
     end
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
     local lag = shot ~= nil and shot.lag or nil
@@ -8480,6 +8554,7 @@ persist.save = function(force)
             end
             data.resolver[key] = { name = entry.name, last = last_of(entry), results = copy(entry.results), states = states,
                 hits = entry.hits, misses = entry.misses, angles = angles, arms = arms,
+                hider = entry.hider ~= nil and { n = entry.hider.n, h = entry.hider.h, b = entry.hider.b } or nil,
                 profile = has_profile and { n = p.n, jitter = p.jitter, static = p.static, spin = p.spin,
                     xway = p.xway or 0, random = p.random or 0, def = p.def, fd = p.fd } or nil }
         end
@@ -8723,6 +8798,11 @@ persist.load = function()
                 end
                 entry.profile, entry.angles = persist.stored_profile(e.profile), persist.stored_angles(e.angles)
                 entry.arms = persist.stored_arms(e.arms, hypothesis.own.cap_enemy)
+                local hd = e.hider
+                if type(hd) == "table" and finite(hd.n) and finite(hd.h) and hd.n >= 0 and hd.n <= 1000
+                    and hd.h >= 0 and hd.h <= hd.n then
+                    entry.hider = { n = hd.n, h = hd.h, b = finite(hd.b) and hd.b >= 0 and hd.b <= 100000 and floor(hd.b) or 0 }
+                end
                 if #entry.results > 0 or entry.profile ~= nil or entry.angles ~= nil or entry.arms ~= nil then
                     entry.remembered = true
                     resolver.players[key] = entry
