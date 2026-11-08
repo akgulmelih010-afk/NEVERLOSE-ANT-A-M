@@ -412,7 +412,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.74 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.75 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -461,6 +461,10 @@ local before = #prints + 1
 fire("level_init")
 fire("round_start")
 -- V1.0.37: otomatik AFK eski bolumleri bozmasin (8 sn tusa basilmiyor); kendi bolumunde acilir.
+-- V1.0.75: yan duran statik rakipte body yaw zorlanmaz (varsayilan acik); eski kol / seri bolumleri icin kapali.
+local side_ref = find_ref("Sideways static enemy: no forced body yaw")
+check(side_ref ~= nil and side_ref.value == true, "V1.0.75: yan duran statik rakipte zorlama yok secenegi var, varsayilan acik")
+side_ref.value = false
 local auto_ref = find_ref("  » Auto AFK (no input 8 s after spawn)")
 check(auto_ref ~= nil and auto_ref.value == true, "V1.0.71: otomatik AFK varsayilan acik")
 if auto_ref ~= nil then auto_ref.value = false end
@@ -1499,8 +1503,8 @@ do
     end
     check(printed("-> GS yerine body yaw", before) ~= nil, "V1.0.49: farkli durumlarda iskalar seriyi acar")
     local zk = printed("zemin kafa iskasi (statik", before)
-    check(zk ~= nil and zk:find("1 zemin kafa iskasi (statik, yan duruyor)", 1, true) ~= nil,
-        "V1.0.68/74: yan duran statik rakibe 1 zemin kafa correction iskasi -> govde (" .. tostring(zk) .. ")")
+    check(zk ~= nil and zk:find("2 zemin kafa iskasi (statik, yan duruyor)", 1, true) ~= nil,
+        "V1.0.68/75: yan duran statik rakibe 2 zemin kafa correction iskasi -> govde (" .. tostring(zk) .. ")")
     -- V1.0.73: iskalar roundlara dagilsa da sayilir (round basi sayaci sifirlamaz).
     W.evel[3] = 0; tick(10)
     check(plist.get(3, "Force body yaw") == true and math.abs(plist.get(3, "Force body yaw value") or 0) == 58,
@@ -2035,6 +2039,27 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.75: yan duran statik rakipte kol / seri / brute body yaw zorlamaz, kafa GameSense'te
+-------------------------------------------------------------------------------
+do
+    side_ref.value = true
+    W.sees[3], W.head_dmg[3], W.evel[3] = true, 100, 0
+    W.eyaw = nil
+    tick(10)
+    before = #prints + 1
+    for i = 1, 4 do
+        tick(6)
+        fire("aim_fire", { id = 7500 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        fire("aim_miss", { id = 7500 + i, target = 3, hitgroup = 1, reason = "?" })
+    end
+    tick(6)
+    check(plist.get(3, "Force body yaw") ~= true and printed("yan duruyor (statik): body yaw zorlanmaz", before) ~= nil,
+        "V1.0.75: yan duran statik rakibe body yaw zorlanmaz (" .. tostring(plist.get(3, "Force body yaw")) .. ")")
+    W.head_dmg[3], W.sees[3] = 0, false
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -2044,7 +2069,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.74 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.75 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

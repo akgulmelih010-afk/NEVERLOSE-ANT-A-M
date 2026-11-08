@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.74"
+local VERSION = "1.0.75"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1439,6 +1439,8 @@ menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
 -- V1.0.67: varsayilan ACIK, izlenmeyen grupta (bkz. apply_body_aim ext_md).
 menu.ext_body       = grp.protect_raw:switch("Body vs extended/roll (all head angles missed)", true)
+-- V1.0.75: varsayilan ACIK (bkz. apply_resolver).
+menu.side_gs        = grp.protect_raw:switch("Sideways static enemy: no forced body yaw (head to GS resolver)", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
 -- giden 178 atis %57, gercek kayda giden %75 tuttu (correction iskasi %25'e karsi %9); scout'ta her iska
@@ -4256,7 +4258,8 @@ resolver.streak.result = function(shot, head_hit, miss)
             s.gmiss = (s.gmiss or 0) + 1
             -- V1.0.74 (tum loglar: V1.0.57'den beri statik + yan duran (|bak| 45-135) + yerdeki rakibe kafa nisani 27 atista
             -- %18 isabet / %77 correction; eskiden %64 / %25; govde nisani %78): yan duruyorsa 1 iska yeter.
-            local need = shot.side_on and 1 or 3
+            -- V1.0.75: yan durusta kafa artik GS'de (zorlama yok, %50 kafa): 2 iska, digerinde 3.
+            local need = shot.side_on and 2 or 3
             if s.gmiss >= need and not s.extended then
                 s.extended, s.ext_at = true, now
                 say(("%d zemin kafa iskasi (statik%s): extended / yan durus taktigi -> bu rakibe govde"):format(s.gmiss,
@@ -4462,6 +4465,24 @@ local function apply_resolver(class, present)
         if yaw == nil and on(menu.resolver) and on(menu.hypotheses) and plist_available(PL.FORCE) then
             local prof = enemy_watch.profile(enemy)
             yaw = resolver.streak.yaw(key, prof ~= nil and prof.pattern or nil, enemy)
+        end
+        -- V1.0.75 (tum loglar, statik + yerde + yan duran (|bak| 45-135) rakibe kafa nisani: GameSense'in kendi resolver'i
+        -- yeni loglarda %50 kafa / %37 correction, eskilerde %57 / %21; bizim zorladigimiz body yaw (kol / seri / brute,
+        -- +-58) yeni loglarda 19 atista %0 kafa / %94 correction, eskilerde %44 / %44): bu rakipte body yaw zorlanmaz,
+        -- kafa GameSense'e birakilir.
+        if yaw ~= nil and on(menu.side_gs) and on_ground(enemy) and resolver.streak.side_on(enemy) then
+            local prof_s = enemy_watch.profile(enemy)
+            if prof_s ~= nil and prof_s.pattern == "static" then
+                yaw = nil
+                local now_s = realtime()
+                resolver.side_logged = resolver.side_logged or {}
+                local last_s = resolver.side_logged[enemy] or -1000
+                if on(menu.resolver_log) and (now_s < last_s or now_s - last_s > 10) then
+                    resolver.side_logged[enemy] = now_s
+                    print(("[%s] resolver: %s yan duruyor (statik): body yaw zorlanmaz, kafa GS'de"):format(SCRIPT,
+                        player_name(enemy)))
+                end
+            end
         end
         if not hypothesis.apply(enemy, yaw) then
             yaw = nil
