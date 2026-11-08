@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.72"
+local VERSION = "1.0.73"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -8708,10 +8708,9 @@ end
 -- onu cagirir.
 own.round_begin = function()
     own.round_at = realtime()
-    -- V1.0.68: zemin kafa iskasi sayaci round basina (extended isareti kendi suresiyle kalir).
-    for _, st in pairs(resolver.streak.list) do
-        st.gmiss = 0
-    end
+    -- V1.0.73 (v72 logu: Строго: Вася 22 atista 13 correction, iskalar roundlara dagildigi icin sayac round basinda
+    -- sifirlanip extended hic tetiklenmedi): zemin kafa iskasi sayaci round basinda SIFIRLANMAZ; seri penceresi
+    -- (300 sn) ve isabetler sifirlar.
     own.summary()
     own.shot_summary()
     reset_brute()

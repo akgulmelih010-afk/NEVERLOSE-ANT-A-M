@@ -412,7 +412,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.72 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.73 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1493,11 +1493,13 @@ do
     local vels = { 0, 130, 250 }
     for i = 1, 3 do
         W.evel[3] = vels[i]; tick(40)
+        if i > 1 then fire("round_start") end
         fire("aim_fire", { id = 4900 + i, target = 3, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
         fire("aim_miss", { id = 4900 + i, target = 3, hitgroup = 1, reason = "?" })
     end
     check(printed("-> GS yerine body yaw", before) ~= nil, "V1.0.49: farkli durumlarda iskalar seriyi acar")
     check(printed("3 ardisik zemin kafa iskasi", before) ~= nil, "V1.0.68: hangi kol atarsa atsin 3 zemin kafa correction iskasi extended suphesi")
+    -- V1.0.73: iskalar roundlara dagilsa da sayilir (round basi sayaci sifirlamaz).
     W.evel[3] = 0; tick(10)
     check(plist.get(3, "Force body yaw") == true and math.abs(plist.get(3, "Force body yaw value") or 0) == 58,
         "V1.0.49: seri acikken body yaw +-58 (" .. tostring(plist.get(3, "Force body yaw")) .. ", " .. tostring(plist.get(3, "Force body yaw value")) .. ")")
@@ -2037,7 +2039,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.72 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.73 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
