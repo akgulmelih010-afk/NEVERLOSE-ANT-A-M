@@ -562,3 +562,18 @@ Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya 
 - 27 correction ıskasının 11'i tek rakipte: John Pork (statik, yan duruyor, lby 0, ping ~75): 12 atışta 1 isabet; GS, abs±, wall±, seri ±58, brute 0 / +29 hepsi ıskaladı (kent.apk ile aynı tablo). Body yaw açısı sorunu değil: rakip büyük olasılıkla extended / roll'lu desync kullanıyor (istemci hitbox'ı roll'suz). MD 100 kuralı yüzünden gövde (92) tam canlıyı öldürmüyor; kod değişikliği yapılmadı.
 - `deseni kararsiz` 7 kez (V1.0.63 DM oturumunda çok daha fazlaydı); `taban duzeltildi` 1 kez.
 
+### V1.0.66 oturumu kişi bazında
+
+| Rakip | K / Ö | Senin atışın (isabet / kafa / correction) | Onun sana isabeti (kafa, duvardan) | Silah | Ping | AA |
+|---|---|---|---|---|---|---|
+| kaTe | 15 / 10 | 24 (17 / 14 / 7) | 22 (7 kafa, 17 duvar) | ssg08 / deagle | 6 | x-way / ? |
+| BOKLU LUA | 5 / 12 | 10 (7 / 4 / 3) | 19 (9 kafa, 15 duvar) | ssg08 | 10 | jitter |
+| DUVARCI | 4 / 7 | 9 (6 / 3 / 1) | 22 (3 kafa, 15 duvar) | scar20 / g3sg1 | 27 | statik |
+| John Pork | 1 / 3 | 12 (1 / 1 / 11) | 5 (3 kafa) | deagle / ssg08 | 76 | statik (extended) |
+| alexd | 8 / 1 | 11 (11 / 7 / 0) | 4 (3 kafa) | g3sg1 | 9 | statik / x-way |
+| h | 0 / 5 | 6 (1 / 0 / 4) | 8 (2 kafa) | ssg08 / deagle | 5 | x-way / jitter |
+
+- Sana gelen 82 isabetin ~59'u duvardan (`iz duvardan`); BOKLU LUA'nın düellolarının 15'inde "sadece o gördü".
+- John Pork: düelloların 7'sinde sadece sen gördün ama 12 atışta 1 isabet → V1.0.67 extended gövde kuralı.
+- h: x-way / jitter, 6 atışta 4 correction (örnek küçük).
+
