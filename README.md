@@ -712,6 +712,14 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.77** (V1.0.76 logu: northgard'a 18 atış, 9 isabet, 7 correction; kullanıcı: "normal adamlara da ıskalıyor")
+
+| Değişiklik | Neden |
+|---|---|
+| **Body yaw zorlaması (hipotezler / kendi kollar / seri / brute) varsayılan kapalı**: kafa her rakipte GameSense'in kendi resolver'ında. Gövde yedeği (extended / yan duruş, GS kafa ıskalarından), Force safe point seviyeleri, gerçek kayıt bekleme ve MD 100 kuralı aynen çalışır. Kayıtlı config'te açıksa bir kez kapatılır (`nykle_win_gs_hyp77`). | Tüm loglar, kafaya nişanlı atışlar: **GameSense 1788 atışta %51 kafa / %23 correction**; bizim zorlamamız: kollar 60 atışta %43 / %43, seri 8 atışta %25 / %75, brute 7 atışta %28 / %57. Son loglarda statik rakipte GS %60 / %18, kollar %28 / %52. Her rakip tipinde zorlama GameSense'ten kötü. |
+
+v76 logunda ayrıca: northgard'ın correction ıskalarının çoğu defensive'in pitch'i yukarı oynattığı sahte kayıtlarda (tüm loglarda sahte kayıt + pitch < 30'a kafa: 112 atış, %50 isabet / %32 correction; normal kayıt + pitch < 30: %85 / %6).
+
 **V1.0.76** (istek: "solda neyin açık olduğunu göreyim, DT mi ne var, yeşil yazan GS'ye özel gösterge")
 
 | Değişiklik | Not |
@@ -861,7 +869,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.76 kuralları (270 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.77 kuralları (273 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

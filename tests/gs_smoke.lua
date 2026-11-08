@@ -414,7 +414,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.76 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.77 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -464,6 +464,10 @@ fire("level_init")
 fire("round_start")
 -- V1.0.37: otomatik AFK eski bolumleri bozmasin (8 sn tusa basilmiyor); kendi bolumunde acilir.
 -- V1.0.75: yan duran statik rakipte body yaw zorlanmaz (varsayilan acik); eski kol / seri bolumleri icin kapali.
+-- V1.0.77: body yaw hipotezleri / kendi kollar / seri varsayilan kapali; eski bolumler icin acilir.
+local hyp_ref = find_ref("  » Body yaw hypotheses (Force body yaw)")
+check(hyp_ref ~= nil and hyp_ref.value == false, "V1.0.77: body yaw zorlamasi (hipotez / kol / seri) varsayilan kapali")
+hyp_ref.value = true
 local side_ref = find_ref("Sideways static enemy: no forced body yaw")
 check(side_ref ~= nil and side_ref.value == true, "V1.0.75: yan duran statik rakipte zorlama yok secenegi var, varsayilan acik")
 side_ref.value = false
@@ -479,7 +483,7 @@ check(force_ref ~= nil and force_ref.value == true, "V1.0.45: gorulunce defensiv
 -- "Always use recommended settings" (64 tick'te bir varsayilana dondurur) eski bolumlerde kapali.
 local rec_ref = find_ref("Always use recommended settings")
 check(rec_ref ~= nil and rec_ref.value == true, "onerilen ayarlar varsayilan acik")
-rec_ref.value = false
+rec_ref.value = false; hyp_ref.value = true -- hyp
 if force_ref ~= nil then force_ref.value = true end
 -- V1.0.45: rastgele anti-brute sirasi ve defensive bekleme suresi eski (deterministik) bolumleri bozmasin; kendi
 -- bolumlerinde test edilir.
@@ -766,7 +770,7 @@ W.head_dmg[3], W.body_dmg[3] = 0, 0
 local own_ref, explore_ref = find_ref("  » Own resolver (LBY"), find_ref("  » Own resolver exploration")
 check(own_ref ~= nil and own_ref.value == true, "Own resolver secenegi var ve varsayilan acik")
 check(explore_ref ~= nil and explore_ref.value == 15, "deneme yuzdesi varsayilan 15")
-rec_ref.value = false -- onerilen ayarlar deneme yuzdesini geri yazmasin
+rec_ref.value = false; hyp_ref.value = true -- hyp -- onerilen ayarlar deneme yuzdesini geri yazmasin
 explore_ref.value = 0
 own_ref.value = false
 W.sees[2], W.speed, W.flags, W.elby[2] = true, 0, 1, 130 -- goz 180, LBY 130: fark 50, taraf L
@@ -1159,7 +1163,7 @@ do
     rec_ref.value = true
     tick(200)
     check(afk_ref.value == true, "V1.0.40: 'Always use recommended settings' acikken AFK acik kalir")
-    rec_ref.value = false
+    rec_ref.value = false; hyp_ref.value = true -- hyp
     random_ref.value, cooldown_ref.value, force_ref.value = false, false, true -- onerilen ayarlar varsayilana dondurdu
     afk_ref.value = false
     tick(10)
@@ -1277,7 +1281,7 @@ end
 -- V1.0.45: rastgele anti-brute sirasi ve defensive bekleme suresi
 -------------------------------------------------------------------------------
 do
-    rec_ref.value = false
+    rec_ref.value = false; hyp_ref.value = true -- hyp
     random_ref.value, cooldown_ref.value, force_ref.value = true, true, true
     -- Rastgele sira: art arda kafa vuruslarinda faz hep +1 ilerlemez.
     W.flags, W.speed, W.sees[2], W.lag = 1, 150, true, 12
@@ -1492,6 +1496,7 @@ end
 -- Correction kapaliyken yazilmaz; GS kafa isabeti seriyi bitirir
 -------------------------------------------------------------------------------
 do
+    rec_ref.value, hyp_ref.value = false, true
     W.sees[2], W.sees[3], W.speed, W.lag = false, false, 0, 12
     W.head_dmg[3] = 100
     tick(10)
@@ -1539,6 +1544,7 @@ end
 -- V1.0.60: seride -58 ve +58 ikisi de iskalarsa body yaw 0, o da iskalarsa -29 / +29, sonra yine tam aci
 -------------------------------------------------------------------------------
 do
+    rec_ref.value, hyp_ref.value = false, true
     local own2 = find_ref("  » Own resolver (LBY")
     local own_was = own2.value
     own2.value = false
@@ -1807,7 +1813,7 @@ do
     W.sees[2] = false
     tick(3)
     rm.value = false
-    rec_ref.value = false
+    rec_ref.value = false; hyp_ref.value = true -- hyp
     tick(10)
 end
 
@@ -2077,6 +2083,25 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.77: varsayilan ayarla (hipotez / kol / seri kapali) hicbir rakibe body yaw zorlanmaz; govde yedegi calisir
+-------------------------------------------------------------------------------
+do
+    hyp_ref.value = false
+    W.sees[2], W.speed, W.flags, W.elby[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 1, 130, 120, 86
+    tick(20)
+    check(plist.get(2, "Force body yaw") ~= true, "V1.0.77: varsayilan ayarla body yaw zorlanmaz (" .. tostring(plist.get(2, "Force body yaw")) .. ")")
+    before = #prints + 1
+    for i = 1, 3 do
+        tick(6)
+        fire("aim_fire", { id = 7700 + i, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+        fire("aim_miss", { id = 7700 + i, target = 2, hitgroup = 1, reason = "?" })
+    end
+    check(printed("zemin kafa iskasi (statik", before) ~= nil, "V1.0.77: zorlama kapaliyken de GS kafa iskalarindan govde yedegi tetiklenir")
+    W.sees[2], W.elby[2], W.head_dmg[2], W.body_dmg[2] = false, nil, 0, 0
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -2086,7 +2111,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.76 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.77 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

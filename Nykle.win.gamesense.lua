@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.76"
+local VERSION = "1.0.77"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1411,7 +1411,12 @@ menu.resolver       = grp.resolver:switch("Adaptive resolver", true)
 menu.low_hp_safe    = grp.resolver:switch("  » Finish low HP (<=30) with safe point", true, function() return on(menu.resolver) end)
 -- GameSense'e ozel (NYKLE Resolver 2.5): Force safe point'in de cozemedigi dusmanda Force body yaw ile
 -- aci hipotezleri denenir.
-menu.hypotheses     = grp.resolver:switch("  » Body yaw hypotheses (Force body yaw)", true, function() return on(menu.resolver) end)
+-- V1.0.77 (tum loglar, kafaya nisanli atislar: GameSense'in kendi resolver'i 1788 atista %51 kafa / %23 correction;
+-- bizim zorladigimiz body yaw: kollar 60 atista %43 / %43, seri 8 atista %25 / %75, brute 7 atista %28 / %57; son
+-- loglarda statik rakipte GS %60 / %18, kollar %28 / %52): varsayilan KAPALI. Kafa her rakipte GameSense'te; govde
+-- yedegi (extended / yan durus) ve Force safe point seviyeleri calismaya devam eder. Kayitli config'te acik kaldiysa
+-- ilk yuklemede bir kez kapatilir (nykle_win_gs_hyp77); onerilen ayarlar acikken zaten varsayilana doner.
+menu.hypotheses     = grp.resolver:switch("  » Body yaw hypotheses (Force body yaw)", false, function() return on(menu.resolver) end)
 menu.hyp_angle      = grp.resolver:slider("  » Hypothesis yaw limit", 10, 60, 58, DEG,
     function() return on(menu.resolver) and on(menu.hypotheses) end)
 menu.hyp_chance     = grp.resolver:slider("  » Hypothesis min hit chance", 50, 100, 70, "%",
@@ -10826,6 +10831,10 @@ do
     -- her config yuklemesinde Auto AFK'yi kapatiyordu).
     local ok_m, done = pcall(database.read, "nykle_win_gs_afkauto45")
     afk.migrate = not (ok_m and done == true)
+    afk.hyp77 = not (function()
+        local ok, d = pcall(database.read, "nykle_win_gs_hyp77")
+        return ok and d == true
+    end)()
     afk.nade74 = not (function()
         local ok, d = pcall(database.read, "nykle_win_gs_nade74")
         return ok and d == true
@@ -10855,6 +10864,11 @@ do
         if afk.migrate then
             afk.migrate = false
             pcall(database.write, "nykle_win_gs_afkauto45", true)
+        end
+        if afk.hyp77 then
+            afk.hyp77 = false
+            pcall(menu.hypotheses.set, menu.hypotheses, false)
+            pcall(database.write, "nykle_win_gs_hyp77", true)
         end
         if afk.nade74 then
             afk.nade74 = false
