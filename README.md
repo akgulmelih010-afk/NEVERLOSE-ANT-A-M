@@ -712,6 +712,16 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.69** (V1.0.68'in ayrı incelemesi: 14 ajan, 6 gerçek bulgu)
+
+| Düzeltme | Neden |
+|---|---|
+| Zeus tutan hedefe sonraki kurallar (gövde 70+, extended gövde) öldürmeyen MD yazamaz | Canı MD'den az değilken zeus kuralı devre dışı kalıp extended gövde kuralı MD'yi ~85'e indirebiliyordu. |
+| Zeus "sadece öldürücü" log satırı kural gerçekten devreye girince yazılır | Önceden bastırılabiliyordu. |
+| Şarj bekletme engeli: bıçak / zeus kat farkı (≤128) ve 3B mesafe; oto sniper sana son 32 tick'te ateş ettiyse de "görüyor" | Üst / alt kattaki bıçaklı beklemeyi kapatıyordu; sana sıkan oto sayılmıyordu. |
+| Tehdit kontrolü sadece gerçek bekleme adayında; logda yanlış "sarj bekleme yok" yok | Her tick çalışıyordu. |
+| Zemin kafa ıskası sayacı gerçekten ardışık (gövde isabeti de sıfırlar, round başında sıfır); extended işareti en fazla 180 sn | Sayaç araya giren isabetlerle sıfırlanmıyordu, işaret kendini canlı tutabiliyordu. |
+
 **V1.0.68** (bütün logların kişi bazlı analizi: 43 bin tekrarsız satır, 524 oyuncu, 52 ajan; ayrıntı `OYUNCU_ANALIZI.md`)
 
 | Değişiklik | Neden |
@@ -803,7 +813,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.68 kuralları (257 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.69 kuralları (257 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

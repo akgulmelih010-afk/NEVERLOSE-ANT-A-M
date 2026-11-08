@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.68"
+local VERSION = "1.0.69"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -4148,7 +4148,9 @@ resolver.streak = { list = {}, need = 3, side_need = 2, window = 300 }
 resolver.streak.is_extended = function(key)
     local s = key ~= nil and resolver.streak.list[key] or nil
     local now = realtime()
+    -- V1.0.68 (inceleme): supheli isareti en fazla 180 sn (kendi kendini canli tutmasin).
     return s ~= nil and s.extended == true and now >= s.last and now - s.last <= resolver.streak.window
+        and now >= (s.ext_at or now) and now - (s.ext_at or now) <= 180
 end
 
 -- Dusmanin bize gore bakisi (log'daki "bak" ile ayni), mutlak deger 0-180; okunamazsa nil.
@@ -4203,6 +4205,10 @@ end
 
 resolver.streak.result = function(shot, head_hit, miss)
     local key = shot ~= nil and shot.hyp_key or nil
+    -- V1.0.68 (inceleme): zemin kafa iskasi sayaci ardisik; her isabet (govde dahil) onu sifirlar.
+    if key ~= nil and not miss and resolver.streak.list[key] ~= nil and shot.hit_any then
+        resolver.streak.list[key].gmiss = 0
+    end
     if key == nil or not (head_hit or miss) then
         return
     end
@@ -4239,7 +4245,7 @@ resolver.streak.result = function(shot, head_hit, miss)
             and (shot.hitchance or 0) >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
             s.gmiss = (s.gmiss or 0) + 1
             if s.gmiss >= 3 and not s.extended then
-                s.extended = true
+                s.extended, s.ext_at = true, now
                 say(("%d ardisik zemin kafa iskasi (statik, kollar denendi): extended / roll suphesi -> bu rakibe govde"):format(s.gmiss))
             end
         end
@@ -4264,7 +4270,7 @@ resolver.streak.result = function(shot, head_hit, miss)
                 s.step, s.sign, s.bad, s.fail = 0, -1, 0, {}
                 -- V1.0.67 (John Pork / kent.apk: GS, kollar, seri +-58, 0, +-29 hepsi kafada iskaladi): butun acilar
                 -- denendi; extended / roll desync kafayi kaydiriyor -> bu rakibe govde (apply_body_aim, menu.ext_body).
-                s.extended = true
+                s.extended, s.ext_at = true, now
                 say(("+%d iskaladi -> butun acilar kafada iskaladi (extended / roll desync): bu rakibe govde"):format(half))
             end
         elseif forced ~= nil and forced ~= 0 and (forced > 0) == (s.sign > 0) and fair and s.step == 0 then
@@ -4918,6 +4924,8 @@ do
         -- tusun basiliysa onun degeri kalir). Bicakla gelen 1 sn icinde olduruyor; 30 + govde 75 = olu.
         local knife_md = melee_near ~= nil and (target == nil or target == melee_near) and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
             and not md_override
+        -- V1.0.68 (inceleme): zeus tutan hedefe sonraki kurallar (govde 70+, extended govde) oldurmeyen MD yazamaz.
+        local zeus_near = knife_md and weapon_class(melee_near) == "CWeaponTaser"
         if knife_md then
             -- V1.0.68 (tum loglar, kisi bazli analiz): zeus tutana MD 30 zarar verdi (oldurmeyen 21 isabetten sonra 17 olum,
             -- 2 kill; zeus tek vurusta olduruyor, yarali birakmak isabet degil). Zeus'a sadece oldurucu atis (MD = cani);
@@ -4935,7 +4943,9 @@ do
                 min_damage = (value ~= nil and finite(user_md) and user_md > value) and value or nil
             end
             local fresh = KNIFE_MD.who ~= melee_near or now < KNIFE_MD.seen or now - KNIFE_MD.seen > 2
-            KNIFE_MD.who, KNIFE_MD.seen = melee_near, now
+            if knife_md then
+                KNIFE_MD.who, KNIFE_MD.seen = melee_near, now
+            end
             if knife_md and min_damage ~= nil and on(menu.hit_log) and fresh then
                 if zeus then
                     print(("[%s] %s zeus ile yakinda: sadece oldurucu (MD %d)"):format(SCRIPT, player_name(melee_near), min_damage))
@@ -4947,7 +4957,7 @@ do
         end
         -- Biri kafani goruyor, hedefin kafasi olduremiyor ama govdesi 70+ aliyor: gecici 70 (V1.0.22, secenek).
         local body_md = false
-        if not knife_md and not md_override and on(menu.head_only) and on(menu.exposed_body) and info ~= nil and info[4]
+        if not knife_md and not zeus_near and not md_override and on(menu.head_only) and on(menu.exposed_body) and info ~= nil and info[4]
             and target ~= nil and not target_lethal and (exposure.now or exposure.any)
             and (not finite(user_md) or user_md > EXPOSED_BODY.value) then
             local chest = chest_damage(lp, target, info, true)
@@ -4964,7 +4974,7 @@ do
         -- V1.0.67: extended / roll suphesi (seri butun acilari kafada iskaladi): o rakibe govde zorlanir ve Min. damage
         -- govde hasarinin 1 altina iner (kafasi hicbir acidan vurulamayan rakip icin MD 100'un tek istisnasi).
         local ext_md = false
-        if not knife_md and not md_override and on(menu.ext_body) and info ~= nil and info[4] and target ~= nil
+        if not knife_md and not zeus_near and not md_override and on(menu.ext_body) and info ~= nil and info[4] and target ~= nil
             and not target_lethal and on_ground(target) and resolver.streak.is_extended(player_id(target)) then
             local chest = chest_damage(lp, target, info, true)
             if chest ~= nil and chest >= 60 then
@@ -5262,14 +5272,18 @@ recharge.threat = function()
         if cls == "CKnife" or cls == "CKnifeGG" or cls == "CWeaponTaser" then
             local pos = origin_of(enemy)
             if pos ~= nil then
-                local dx, dy = pos.x - mine.x, pos.y - mine.y
+                local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
                 local lim = cls == "CWeaponTaser" and 420 or 260
-                if dx * dx + dy * dy < lim * lim then
+                if dx * dx + dy * dy + dz * dz < lim * lim and abs(dz) < 128 then
                     return cls == "CWeaponTaser" and "zeus yakin" or "bicak yakin"
                 end
             end
-        elseif (cls == "CWeaponSCAR20" or cls == "CWeaponG3SG1") and sees_me(enemy) then
-            return "oto goruyor"
+        elseif cls == "CWeaponSCAR20" or cls == "CWeaponG3SG1" then
+            -- Seni goruyor ya da son 32 tick'te sana ates etti (mermi kafanin yanindan gecti).
+            local sh, t = exposure.shot, tickcount()
+            if sees_me(enemy) or (sh ~= nil and sh.index == enemy and t >= sh.tick and t - sh.tick <= 32) then
+                return "oto goruyor"
+            end
         end
     end
     return nil
@@ -5285,13 +5299,14 @@ recharge.decide = function(wants_dt)
     recharge.no_hold = nil
     if wants_dt and on(menu.safe_recharge) and exposure.available and not fakeduck
         and not recharge.after_hit(realtime()) and not recharge.exposed_anyway() then
-        recharge.no_hold = recharge.threat()
-    end
-    if wants_dt and on(menu.safe_recharge) and exposure.available and not fakeduck and recharge.no_hold == nil
-        and not recharge.after_hit(realtime()) and not recharge.exposed_anyway() then
         local since = realtime() - max(own.last_shot, recharge.released)
         -- Tutulurken DT kapali, tahmini sarj 0: sinir yine 1.2 sn.
         hold = charge.value < 1 and since >= 0 and since <= K.RECHARGE_HOLD_MAX and seen_by_enemy()
+        if hold then
+            -- V1.0.68: sadece gercek bekleme adayinda bakilir (her tick degil).
+            recharge.no_hold = recharge.threat()
+            hold = recharge.no_hold == nil
+        end
     end
     recharge.held = hold
     return hold
@@ -8207,6 +8222,7 @@ local function aim_result(e, reason)
         -- V1.0.34: kafaya nisan alinip gogse giden isabet kolun basarisi degil (v33b 18:33:58 "hedef head 288 |
         -- isabet chest -72 | res gs"); resolver penceresiyle ayni kural.
         hypothesis.own.result(shot, target, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
+        if shot ~= nil then shot.hit_any = reason == nil end
         resolver.streak.result(shot, reason == nil and event_number(e, "hitgroup") == 1, result == "c")
     end
     -- Kendi lag'imiz sirasinda sunucuda gecmeyen / kayan atislar: ayni turden ikincisinde o lag 10 sn durur.
@@ -8682,6 +8698,10 @@ end
 -- onu cagirir.
 own.round_begin = function()
     own.round_at = realtime()
+    -- V1.0.68: zemin kafa iskasi sayaci round basina (extended isareti kendi suresiyle kalir).
+    for _, st in pairs(resolver.streak.list) do
+        st.gmiss = 0
+    end
     own.summary()
     own.shot_summary()
     reset_brute()
