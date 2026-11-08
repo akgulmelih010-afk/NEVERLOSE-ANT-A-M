@@ -51,7 +51,7 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.1.8"
+local VERSION = "1.1.9"
 local DEG = "\194\176"
 
 -- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
@@ -546,6 +546,10 @@ menu.home_info      = grp.info:label("Ayarlara dokunmana gerek yok; binds: manua
 -- ayarlara girmez.
 menu.left_hand      = style.tip(grp.info:switch(style.title("hand", "Left hand (cl_righthand 0, permanent)"), true),
     "Silah sol elde tutulur ve oyle kalir; kapatinca eski deger geri gelir.")
+-- V1.1.9 (istek: "nl de 4.3 modu yok ayarlasana"; GameSense V1.0.35 ile ayni): r_aspectratio. Varsayilan 4:3; Off ya da
+-- script kaldirilinca senin degerin geri gelir. Tercih: onerilen ayarlara girmez.
+menu.aspect         = style.tip(grp.info:combo(style.title("display", "Aspect ratio"), { "4:3", "Off", "5:4", "16:10" }),
+    "Goruntu oranini (r_aspectratio) tutar; modeller genis gorunur. Off: senin degerin.")
 -- Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile harita degisince de
 -- kalir; bu dugme hepsini siler. Dugme API'si yoksa script'i dusurmesin.
 pcall(function()
@@ -6146,8 +6150,64 @@ lefthand.update = function()
     end
 end
 
+-- V1.1.9: aspect ratio (r_aspectratio, float). Okunamiyorsa console_exec ile bir kez yazilir.
+local aspect = { original = nil, applied = nil, RATIO = { ["4:3"] = 4 / 3, ["5:4"] = 5 / 4, ["16:10"] = 16 / 10 } }
+
+aspect.read = function()
+    local ok, c = pcall(function() return cvar.r_aspectratio end)
+    if not ok or c == nil then
+        return nil
+    end
+    local ok_v, v = pcall(function() return c:float() end)
+    if ok_v and type(v) == "number" then
+        return v
+    end
+    ok_v, v = pcall(function() return c:get_float() end)
+    if ok_v and type(v) == "number" then
+        return v
+    end
+    return nil
+end
+
+aspect.write = function(value)
+    local ok, c = pcall(function() return cvar.r_aspectratio end)
+    if ok and c ~= nil then
+        pcall(function() c:float(value) end)
+        local now = aspect.read()
+        if now ~= nil and math.abs(now - value) < 0.001 then
+            return true
+        end
+        pcall(function() c:set_float(value) end)
+        now = aspect.read()
+        if now ~= nil and math.abs(now - value) < 0.001 then
+            return true
+        end
+    end
+    return (pcall(function() utils.console_exec(("r_aspectratio %.4f"):format(value)) end))
+end
+
+aspect.update = function()
+    local choice = menu.enabled:get() and menu.aspect:get() or "Off"
+    local ratio = aspect.RATIO[choice]
+    if ratio ~= nil then
+        local v = aspect.read()
+        if (v == nil and aspect.applied ~= ratio) or (v ~= nil and math.abs(v - ratio) > 0.001) then
+            if aspect.applied == nil then
+                aspect.original = v
+            end
+            if aspect.write(ratio) then
+                aspect.applied = ratio
+            end
+        end
+    elseif aspect.applied ~= nil then
+        aspect.write(aspect.original or 0)
+        aspect.applied, aspect.original = nil, nil
+    end
+end
+
 events.render:set(protect("render", function()
     lefthand.update()
+    aspect.update()
     nlog.flush()
     if not menu.enabled:get() then
         return
@@ -6191,6 +6251,10 @@ events.shutdown:set(protect("shutdown", function()
     if lefthand.applied then
         lefthand.write(lefthand.original or 1)
         lefthand.applied = false
+    end
+    if aspect.applied ~= nil then
+        aspect.write(aspect.original or 0)
+        aspect.applied = nil
     end
     persist.save(true)
     nlog.save()

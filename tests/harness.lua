@@ -298,7 +298,8 @@ local env = {
         trace_hull = mode ~= "nohull" and function(from, to) return { fraction = world.hull(from, to) } end or nil } or nil,
     common = { is_button_down = function(key) return key == 1 and mouse_state.down end },
     -- V1.1: Neverlose cvar objects (cvar.name:int() reads, :int(v) writes); the test tracks cl_righthand.
-    cvar = { cl_righthand = { v = 1, int = function(self, value) if value ~= nil then self.v = value end return self.v end } },
+    cvar = { cl_righthand = { v = 1, int = function(self, value) if value ~= nil then self.v = value end return self.v end },
+        r_aspectratio = { v = 0, float = function(self, value) if value ~= nil then self.v = value end return self.v end } },
     -- V1.1: files.write for the log file; the test keeps what was written.
     files = { write = function(path, data) saved_files[path] = data end },
     vector = vector, color = color, bit = bit, math = math, table = table, string = string,
@@ -1458,7 +1459,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.1.8") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.9") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1489,7 +1490,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.1.8").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.9").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -4250,6 +4251,16 @@ do
     check(env.cvar.cl_righthand.v == 1, "V1.1: left hand off: your value (1) restored")
     M("switch", "Left hand (cl_righthand 0, permanent)"):set(true); draw()
     check(env.cvar.cl_righthand.v == 0, "V1.1: left hand on again")
+    -- V1.1.9: aspect ratio 4:3 by default; Off / disable restores your value.
+    check(math.abs(env.cvar.r_aspectratio.v - 4 / 3) < 0.001 and M("combo", "Aspect ratio"):get() == "4:3",
+          "V1.1.9: aspect ratio 4:3 from the first frame (default)")
+    env.cvar.r_aspectratio.v = 0; draw()
+    check(math.abs(env.cvar.r_aspectratio.v - 4 / 3) < 0.001, "V1.1.9: aspect ratio put back to 4:3 when reset")
+    M("combo", "Aspect ratio"):set("Off"); draw()
+    check(env.cvar.r_aspectratio.v == 0, "V1.1.9: aspect ratio Off: your value (0) restored")
+    M("combo", "Aspect ratio"):set("16:10"); draw()
+    check(math.abs(env.cvar.r_aspectratio.v - 1.6) < 0.001, "V1.1.9: aspect ratio 16:10")
+    M("combo", "Aspect ratio"):set("4:3"); draw()
 
     -- Teleport results: a hit within 1.5 s of a teleport counts; 2 of the last 3 on a map turn it off until the map changes.
     reset_world(); forget()
@@ -4380,6 +4391,7 @@ for _, r in pairs(refs) do if r.ov ~= nil then any = true end end
 check(not any, "disable resets every override (DT/HS included)")
 draw()
 check(env.cvar.cl_righthand.v == 1, "V1.1: disable restores cl_righthand")
+check(env.cvar.r_aspectratio.v == 0, "V1.1.9: disable restores r_aspectratio")
 M("switch", "Enable"):set(true); tick(0)
 check(ov("enabled") == true and ov("dt") == true, "re-enable applies again")
 handlers.shutdown()
