@@ -15,6 +15,7 @@ for f in files:
             seen[l]=cur; order.append(l)
         elif seen[l] is None and cur is not None:
             seen[l]=cur
+AUTOS={'scar20','g3sg1'}
 ZW=re.compile('[​‌‍⁠﻿]')
 def nm(s): return ZW.sub('',s).strip()
 def bucket(v):
@@ -24,7 +25,7 @@ def bucket(v):
         if lo<=n<=hi: return b
     return '?'
 def new(): return {'shots':0,'hits':0,'head_hits':0,'head_aim':0,'head_aim_head':0,'miss':Counter(),'aa':Counter(),'arm':Counter(),'state':Counter(),
-  'hit_me':0,'head_me':0,'dmg_me':0,'wall_me':0,'weap':Counter(),'kills':0,'deaths':0,'first':Counter(),'ping':[],'my_weapon':Counter(),'versions':Counter()}
+  'hit_me':0,'head_me':0,'auto_hit':0,'auto_death':0,'nonauto_hit':0,'nonauto_head':0,'dmg_me':0,'wall_me':0,'weap':Counter(),'kills':0,'deaths':0,'first':Counter(),'ping':[],'my_weapon':Counter(),'versions':Counter()}
 P=defaultdict(new); PB=defaultdict(lambda:defaultdict(new))
 lines_by=defaultdict(list)
 for l in order:
@@ -52,15 +53,20 @@ for l in order:
         for p in (P[who],PB[who][b]):
             p['hit_me']+=1; p['dmg_me']+=int(m.group(2)); p['weap'][m.group(3)]+=1
             if m.group(1)=='head': p['head_me']+=1
+            if m.group(3) in AUTOS: p['auto_hit']+=1
+            else:
+                p['nonauto_hit']+=1
+                if m.group(1)=='head': p['nonauto_head']+=1
     m=re.search(r'dbg vurulma-detay: (.+?) \S+(?: \S+)? -\d+ \S+ \| iz duvardan',l)
     if m:
         w=nm(m.group(1)); P[w]['wall_me']+=1; PB[w][b]['wall_me']+=1; who=who or w
     m=re.search(r'dbg kill-detay: (.+?) (?:[a-z0-9_]+)(?: headshot)?(?:, duvardan \(\d\))? \|',l)
     if m:
         w=nm(m.group(1)); P[w]['kills']+=1; PB[w][b]['kills']+=1; who=who or w
-    m=re.search(r'dbg olum-detay: (.+?) (?:[a-z0-9_]+)(?: headshot)?(?:, duvardan \(\d\))? \|',l)
+    m=re.search(r'dbg olum-detay: (.+?) ([a-z0-9_]+)(?: headshot)?(?:, duvardan \(\d\))? \|',l)
     if m:
         w=nm(m.group(1)); P[w]['deaths']+=1; PB[w][b]['deaths']+=1; who=who or w
+        if m.group(2) in AUTOS: P[w]['auto_death']+=1; PB[w][b]['auto_death']+=1
     m=re.search(r'dbg duello: (.+?) @.*?ilk goren: (sadece sen gordun|sadece o gordu|ayni anda|sen|o)\b',l)
     if m:
         w=nm(m.group(1)); P[w]['first'][m.group(2)]+=1; PB[w][b]['first'][m.group(2)]+=1; who=who or w
