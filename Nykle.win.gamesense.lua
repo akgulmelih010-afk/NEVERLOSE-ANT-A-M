@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.73"
+local VERSION = "1.0.74"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1557,8 +1557,9 @@ menu.jump_scout  = grp.movement:switch("Jump scout (no air strafe on standing ju
 menu.auto_buy    = grp.movement:switch("Auto buy grenades (HE + smoke + molotov)", true)
 -- V1.0.71 (istek: "moly / bomba elimdeyken mouse'u adama tutunca ona atsin; molyde kalirsam sisi altima atsin"):
 -- varsayilan acik.
-menu.nade_aim    = grp.movement:switch("Grenade helper: throw molly / HE at enemy under crosshair", true)
-menu.nade_smoke  = grp.movement:switch("Grenade helper: smoke at feet when standing in fire", true)
+-- V1.0.74 (kullanici: "granat yardimcisi kotu"): ikisi de varsayilan KAPALI; kayitli config'te acik kaldiysa bir kez kapatilir.
+menu.nade_aim    = grp.movement:switch("Grenade helper: throw molly / HE at enemy under crosshair", false)
+menu.nade_smoke  = grp.movement:switch("Grenade helper: smoke at feet when standing in fire", false)
 -- V1.0.28: kalici sol el. Lua yuklenir yuklenmez cl_righthand 0 yazilir ve acik kaldikca oyle tutulur (oyun ya da
 -- config geri cevirse de); kapatinca / script kaldirilinca senin eski degerin geri gelir.
 menu.left_hand   = grp.movement:switch("Left hand (cl_righthand 0, permanent)", true)
@@ -4253,9 +4254,13 @@ resolver.streak.result = function(shot, head_hit, miss)
         if pattern == "static" and shot.ground and shot.hitgroup == 1
             and (shot.hitchance or 0) >= (menu.hyp_chance ~= nil and menu.hyp_chance:get() or 70) then
             s.gmiss = (s.gmiss or 0) + 1
-            if s.gmiss >= 3 and not s.extended then
+            -- V1.0.74 (tum loglar: V1.0.57'den beri statik + yan duran (|bak| 45-135) + yerdeki rakibe kafa nisani 27 atista
+            -- %18 isabet / %77 correction; eskiden %64 / %25; govde nisani %78): yan duruyorsa 1 iska yeter.
+            local need = shot.side_on and 1 or 3
+            if s.gmiss >= need and not s.extended then
                 s.extended, s.ext_at = true, now
-                say(("%d ardisik zemin kafa iskasi (statik, kollar denendi): extended / roll suphesi -> bu rakibe govde"):format(s.gmiss))
+                say(("%d zemin kafa iskasi (statik%s): extended / yan durus taktigi -> bu rakibe govde"):format(s.gmiss,
+                    shot.side_on and ", yan duruyor" or ", kollar denendi"))
             end
         end
         if pattern == "static" and shot.side_on then
@@ -10747,6 +10752,10 @@ do
     -- her config yuklemesinde Auto AFK'yi kapatiyordu).
     local ok_m, done = pcall(database.read, "nykle_win_gs_afkauto45")
     afk.migrate = not (ok_m and done == true)
+    afk.nade74 = not (function()
+        local ok, d = pcall(database.read, "nykle_win_gs_nade74")
+        return ok and d == true
+    end)()
     afk.migrate71 = not (function()
         local ok, d = pcall(database.read, "nykle_win_gs_afkauto71")
         return ok and d == true
@@ -10772,6 +10781,12 @@ do
         if afk.migrate then
             afk.migrate = false
             pcall(database.write, "nykle_win_gs_afkauto45", true)
+        end
+        if afk.nade74 then
+            afk.nade74 = false
+            pcall(menu.nade_aim.set, menu.nade_aim, false)
+            pcall(menu.nade_smoke.set, menu.nade_smoke, false)
+            pcall(database.write, "nykle_win_gs_nade74", true)
         end
         if afk.migrate71 then
             afk.migrate71 = false

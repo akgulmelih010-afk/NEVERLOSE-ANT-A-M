@@ -412,7 +412,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.73 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.74 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1498,7 +1498,9 @@ do
         fire("aim_miss", { id = 4900 + i, target = 3, hitgroup = 1, reason = "?" })
     end
     check(printed("-> GS yerine body yaw", before) ~= nil, "V1.0.49: farkli durumlarda iskalar seriyi acar")
-    check(printed("3 ardisik zemin kafa iskasi", before) ~= nil, "V1.0.68: hangi kol atarsa atsin 3 zemin kafa correction iskasi extended suphesi")
+    local zk = printed("zemin kafa iskasi (statik", before)
+    check(zk ~= nil and zk:find("1 zemin kafa iskasi (statik, yan duruyor)", 1, true) ~= nil,
+        "V1.0.68/74: yan duran statik rakibe 1 zemin kafa correction iskasi -> govde (" .. tostring(zk) .. ")")
     -- V1.0.73: iskalar roundlara dagilsa da sayilir (round basi sayaci sifirlamaz).
     W.evel[3] = 0; tick(10)
     check(plist.get(3, "Force body yaw") == true and math.abs(plist.get(3, "Force body yaw value") or 0) == 58,
@@ -1999,8 +2001,10 @@ end
 -- V1.0.71: granat yardimcisi (nisangahtaki dusmana molotof; molotofun icindeyken sis ayaga)
 -------------------------------------------------------------------------------
 do
-    check(find_ref("Grenade helper: throw molly") ~= nil and find_ref("Grenade helper: throw molly").value == true
-        and find_ref("Grenade helper: smoke at feet") ~= nil, "V1.0.71: granat yardimcisi secenekleri var, varsayilan acik")
+    check(find_ref("Grenade helper: throw molly") ~= nil and find_ref("Grenade helper: throw molly").value == false
+        and find_ref("Grenade helper: smoke at feet") ~= nil and find_ref("Grenade helper: smoke at feet").value == false,
+        "V1.0.74: granat yardimcisi secenekleri var, varsayilan kapali")
+    find_ref("Grenade helper: throw molly").value, find_ref("Grenade helper: smoke at feet").value = true, true
     ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 2000, 0 }
     W.cam_yaw, W.next_attack, W.flags, W.speed = 0, 0, 1, 0
     tick(30)
@@ -2027,6 +2031,7 @@ do
     ORIGIN[2], ORIGIN[3] = { 500, 0, 0 }, { 0, 500, 0 }
     tick(130)
     check(find_ref("Enabled").value == true, "V1.0.72: atis bitince AA geri acik")
+    find_ref("Grenade helper: throw molly").value, find_ref("Grenade helper: smoke at feet").value = false, false
 end
 
 -------------------------------------------------------------------------------
@@ -2039,7 +2044,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.73 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.74 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

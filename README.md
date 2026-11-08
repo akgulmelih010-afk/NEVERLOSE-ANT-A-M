@@ -712,6 +712,13 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.74** (kullanıcı: "şu an herkes aynı taktikle oynuyor, kimseyi vuramıyorum"; "granat yardımcısı kötü")
+
+| Değişiklik | Neden |
+|---|---|
+| **Yan duran statik rakibe 1 kafa ıskasından sonra gövde** (extended gövde kuralı: statik AA, yerde, bize yan bakıyor (\|bak\| 45–135) → 1 zemin kafa correction ıskası yeter; yan değilse yine 3) | Tüm loglar: V1.0.57'den beri statik + yan + LBY 0 + yerdeki rakibe kafa nişanı **27 atışta %18 isabet, %77 correction** (eskiden aynı tip %64 / %25). Bu tipe gövde nişanı %78 tutuyor. Yeni "taktik" bu: kafa çözülmüyor, gövde çözülüyor. |
+| **Granat yardımcısı varsayılan kapalı** (iki seçenek de; kayıtlı config'te açıksa bir kez kapatılır, `nykle_win_gs_nade74`) | Kullanıcı istemedi. |
+
 **V1.0.73** (V1.0.72 logu, de_mirage: 23 kill / 54 ölüm, 83 atışta 34 isabet, 28 correction)
 
 | Değişiklik | Neden |
@@ -841,7 +848,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.73 kuralları (266 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.74 kuralları (266 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 
