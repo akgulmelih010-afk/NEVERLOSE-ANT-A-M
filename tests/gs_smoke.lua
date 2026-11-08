@@ -411,7 +411,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.66 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.67 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1554,7 +1554,14 @@ do
         "V1.0.60: seride iki taraf da iskalayinca body yaw 0 (" .. seq .. ")")
     check(printed("seri: body yaw 0 iskaladi -> body yaw -29", before) ~= nil and printed("seri: -29 iskaladi -> body yaw +29", before) ~= nil,
         "V1.0.60: 0 iskalayinca -29, sonra +29 (" .. seq .. ")")
-    check(printed("seri: +29 iskaladi -> yine tam aci, body yaw -58", before) ~= nil, "V1.0.60: yarim acilar da iskalayinca yine tam aci")
+    check(printed("seri: +29 iskaladi -> butun acilar kafada iskaladi (extended / roll desync)", before) ~= nil, "V1.0.60/67: yarim acilar da iskalayinca yine tam aci, rakip extended suphesi")
+    W.body_dmg[3] = 86
+    local before67 = #prints + 1
+    tick(2)
+    local e67 = printed("extended / roll suphesi", before67)
+    check(e67 ~= nil and e67:find("Min. damage gecici 85", 1, true) ~= nil and plist.get(3, "Override prefer body aim") == "Force",
+        "V1.0.67: butun acilar iskalanan rakibe govde zorlanir, MD govde-1 (" .. tostring(e67) .. ", " .. tostring(plist.get(3, "Override prefer body aim")) .. ")")
+    W.body_dmg[3] = 0
     check(seq:find("58 0 %-29 29") ~= nil, "V1.0.60: seri merdiveni plist'e yazilir: +58, 0, -29, +29 (" .. seq .. ")")
     -- Inceleme: tam aciyla kafa eski iskalari siler; tek bir sonraki iska merdiveni (0) baslatmaz.
     local function shoot(id, hit)
@@ -1963,7 +1970,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.66 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.67 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

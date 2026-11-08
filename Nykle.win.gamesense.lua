@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.66"
+local VERSION = "1.0.67"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1435,6 +1435,8 @@ menu.exposed_body   = grp.resolver:switch("  » Body 70+ while an enemy sees you
 -- kafa, dusman 0.13-0.37 sn sonra vurdu). Ustelik senin Min. damage 100'unu 72-86'ya indiriyordu. Acarsan eski davranis.
 menu.dt_pair        = grp.resolver:switch("  » DT pair counts as lethal (body x2 >= HP)", false, function() return on(menu.head_only) end)
 menu.fake_body      = grp.resolver:switch("Snipers: lethal body on fake records", true)
+-- V1.0.67: varsayilan ACIK, izlenmeyen grupta (bkz. apply_body_aim ext_md).
+menu.ext_body       = grp.protect_raw:switch("Body vs extended/roll (all head angles missed)", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
 -- giden 178 atis %57, gercek kayda giden %75 tuttu (correction iskasi %25'e karsi %9); scout'ta her iska
@@ -4142,6 +4144,13 @@ end
 -- +lim/2 denenir, sonra yine tam aci. s.step: 0 = +-lim, 1 = 0, 2 = +-lim/2; s.fail = tam acida iskalayan isaretler.
 resolver.streak = { list = {}, need = 3, side_need = 2, window = 300 }
 
+-- V1.0.67: seri merdiveni butun acilari kafada iskaladiysa (extended / roll suphesi), pencere icinde.
+resolver.streak.is_extended = function(key)
+    local s = key ~= nil and resolver.streak.list[key] or nil
+    local now = realtime()
+    return s ~= nil and s.extended == true and now >= s.last and now - s.last <= resolver.streak.window
+end
+
 -- Dusmanin bize gore bakisi (log'daki "bak" ile ayni), mutlak deger 0-180; okunamazsa nil.
 resolver.streak.bak = function(enemy)
     local lp = local_player()
@@ -4241,7 +4250,10 @@ resolver.streak.result = function(shot, head_hit, miss)
                 say(("-%d iskaladi -> body yaw +%d"):format(half, half))
             else
                 s.step, s.sign, s.bad, s.fail = 0, -1, 0, {}
-                say(("+%d iskaladi -> yine tam aci, body yaw -%d"):format(half, lim))
+                -- V1.0.67 (John Pork / kent.apk: GS, kollar, seri +-58, 0, +-29 hepsi kafada iskaladi): butun acilar
+                -- denendi; extended / roll desync kafayi kaydiriyor -> bu rakibe govde (apply_body_aim, menu.ext_body).
+                s.extended = true
+                say(("+%d iskaladi -> butun acilar kafada iskaladi (extended / roll desync): bu rakibe govde"):format(half))
             end
         elseif forced ~= nil and forced ~= 0 and (forced > 0) == (s.sign > 0) and fair and s.step == 0 then
             if ladder and abs(forced) == lim then
@@ -4286,6 +4298,7 @@ resolver.streak.result = function(shot, head_hit, miss)
             if abs(forced) == lim then
                 s.step, s.fail = 0, {}
             end
+            s.extended = nil
             if S.armed(s) then
                 s.last = now
             end
@@ -4293,7 +4306,7 @@ resolver.streak.result = function(shot, head_hit, miss)
             if S.armed(s) then
                 say("bitti (GS kafadan vurdu)")
             end
-            s.n, s.side, s.bad, s.step, s.fail = 0, 0, 0, 0, {}
+            s.n, s.side, s.bad, s.step, s.fail, s.extended = 0, 0, 0, 0, {}, nil
         end
     end
 end
@@ -4916,7 +4929,28 @@ do
                 end
             end
         end
-        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not body_md and not pair_md
+        -- V1.0.67: extended / roll suphesi (seri butun acilari kafada iskaladi): o rakibe govde zorlanir ve Min. damage
+        -- govde hasarinin 1 altina iner (kafasi hicbir acidan vurulamayan rakip icin MD 100'un tek istisnasi).
+        local ext_md = false
+        if not knife_md and not md_override and on(menu.ext_body) and info ~= nil and info[4] and target ~= nil
+            and not target_lethal and resolver.streak.is_extended(player_id(target)) then
+            local chest = chest_damage(lp, target, info, true)
+            if chest ~= nil and chest >= 60 then
+                local value = max(1, floor(chest) - 1)
+                if not finite(user_md) or user_md > value then
+                    ext_md, min_damage = true, value
+                end
+                if plist_user(target, PL.BODY) == nil or plist_user(target, PL.BODY) == "-" then
+                    plist_override(target, PL.BODY, "Force")
+                end
+                if on(menu.hit_log) and (resolver.ext_logged ~= target or now - (resolver.ext_at or -1000) > 5) then
+                    resolver.ext_logged, resolver.ext_at = target, now
+                    print(("[%s] %s: extended / roll suphesi (butun acilar kafada iskaladi): govde %d, Min. damage gecici %d"):format(
+                        SCRIPT, player_name(target), floor(chest + 0.5), value))
+                end
+            end
+        end
+        current.head_only = min_damage ~= nil and scope ~= nil and not knife_md and not body_md and not pair_md and not ext_md
         override("min_damage", min_damage, scope)
     end
 
