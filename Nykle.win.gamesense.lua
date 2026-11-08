@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.69"
+local VERSION = "1.0.70"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1550,6 +1550,9 @@ menu.tt_info     = grp.trash:label(DIM_HEX .. "English lines; one message set at
 -- V1.0.18 (yOndery paketindeki jumpscout.lua): scout'la yerinde ziplarken GameSense'in Air strafe'i kapatilir.
 -- Onerilen ayarlara girmez (kapatirsan kapali kalir).
 menu.jump_scout  = grp.movement:switch("Jump scout (no air strafe on standing jump)", true)
+-- V1.0.70 (istek: "bomba sis molotof alsin"): round basinda (DM'de dogusta) HE + sis + molotof (CT'de yangin bombasi)
+-- satin alinir. Para yetmezse / alim kapaliysa oyun reddeder, zarari yok. Varsayilan acik.
+menu.auto_buy    = grp.movement:switch("Auto buy grenades (HE + smoke + molotov)", true)
 -- V1.0.28: kalici sol el. Lua yuklenir yuklenmez cl_righthand 0 yazilir ve acik kaldikca oyle tutulur (oyun ya da
 -- config geri cevirse de); kapatinca / script kaldirilinca senin eski degerin geri gelir.
 menu.left_hand   = grp.movement:switch("Left hand (cl_righthand 0, permanent)", true)
@@ -8722,11 +8725,43 @@ own.round_begin = function()
     persist.save(false)
 end
 
+-- V1.0.70: bomba alimi. Round basinda oyuncu dogup parasi yazilsin diye kisa gecikmeyle; tek komutta hepsi.
+own.buy_cmd = "buy hegrenade; buy smokegrenade; buy molotov; buy incgrenade"
+own.buy_nades = function()
+    if not on(menu.enabled) or not on(menu.auto_buy) then
+        return
+    end
+    local now = realtime()
+    if own.bought_at ~= nil and now >= own.bought_at and now - own.bought_at < 3 then
+        return
+    end
+    own.bought_at = now
+    local function go()
+        local lp = local_player()
+        if lp ~= nil and alive(lp) then
+            pcall(client.exec, own.buy_cmd)
+        end
+    end
+    if not pcall(client.delay_call, 0.3, go) then
+        go()
+    end
+end
+
 listen("round_start", protect("round_start", function()
     -- V1.0.64 (inceleme): bu haritada round_start geldiyse DM yedegi devre disi (normal haritada dogus round_start'tan
     -- once gelir; uzun roundlardan sonra round isleri iki kez calisiyordu).
     own.round_seen = true
     own.round_begin()
+    own.buy_nades()
+end))
+
+-- V1.0.70: DM'de (round_start yok) her dogusta bomba alimi.
+listen("player_spawn", protect("dm buy", function(e)
+    local lp = local_player()
+    if own.round_seen or lp == nil or userid_index(e.userid) ~= lp then
+        return
+    end
+    own.buy_nades()
 end))
 
 -- Harita degisince slot numaralari degisir; Steam ID ile ogrenilenler korunur. Oyuncu listesi ezmeleri

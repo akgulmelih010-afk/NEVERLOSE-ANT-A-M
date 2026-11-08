@@ -411,7 +411,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.69 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.70 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -1962,6 +1962,36 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- V1.0.70: round basinda bomba alimi (HE + sis + molotof)
+-------------------------------------------------------------------------------
+do
+    local ab = find_ref("Auto buy grenades")
+    check(ab ~= nil and ab.value == true, "V1.0.70: bomba alimi secenegi var, varsayilan acik")
+    local dc = client.delay_call
+    client.delay_call = function(_, fn, ...) fn(...) end
+    local n0 = #execs
+    W.tick = W.tick + 64 * 5
+    fire("round_start")
+    local got = false
+    for i = n0 + 1, #execs do
+        if execs[i]:find("buy hegrenade", 1, true) and execs[i]:find("buy smokegrenade", 1, true) and execs[i]:find("buy molotov", 1, true) then got = true end
+    end
+    check(got, "V1.0.70: round basinda HE + sis + molotof alinir")
+    ab.value = false
+    n0 = #execs
+    W.tick = W.tick + 64 * 5
+    fire("round_start")
+    local again = false
+    for i = n0 + 1, #execs do
+        if execs[i]:find("buy hegrenade", 1, true) then again = true end
+    end
+    check(not again, "V1.0.70: secenek kapaliyken alim yok")
+    ab.value = true
+    client.delay_call = dc
+    tick(10)
+end
+
+-------------------------------------------------------------------------------
 -- Kapanis
 -------------------------------------------------------------------------------
 before = #prints + 1
@@ -1971,7 +2001,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.69 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.70 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
