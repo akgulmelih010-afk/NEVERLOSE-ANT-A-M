@@ -555,3 +555,10 @@ Aynı rakip (XJJKL) iki oturumda da var. DT çifti kapanınca scout hep kafa ya 
 - Peek beklemesi çalıştı: `serbest birakildi (peek: 4 tick beklendi)` 3 kez (kate, northgard havada). Henüz o etiketle atış yok.
 - Aynı oturumun devamı + DM (`dm_twentysixer_office_aurorahvh`, 1238 satır). DM kısmı: 17 kill / 25 ölüm; 34 atış, 25 isabet (%74), 8 kafa; 6 correction ıskasının 6'sı da jitter AA'lı hedefe (jitter 49–74; lunchbox1ng, kamazimport, x2ab), hepsi `res gs`. Düellolarda ilk gören: o 45, sen 4, aynı anda 6 (DM'de çok rakip, arkadan / yandan görülme doğal). Sana gelen 59 isabetin 15'i kafa (%25), 44'ü Peek'te.
 
+## V1.0.66 ilk oturumu (cs_office + de_mirage, 1698 satır)
+
+- 40 kill / 43 ölüm; 83 atış, 52 isabet, 34 kafa; sana gelen 82 isabetin 27'si kafa.
+- Ping spike kapatıldı: prediction error 83 atışta 1 (%1.2; önceki spike'lı oturumlarda %6.9). `ayarlanamadi` yok; quick stop seçenekleri zaten Early ile başlıyordu.
+- 27 correction ıskasının 11'i tek rakipte: John Pork (statik, yan duruyor, lby 0, ping ~75): 12 atışta 1 isabet; GS, abs±, wall±, seri ±58, brute 0 / +29 hepsi ıskaladı (kent.apk ile aynı tablo). Body yaw açısı sorunu değil: rakip büyük olasılıkla extended / roll'lu desync kullanıyor (istemci hitbox'ı roll'suz). MD 100 kuralı yüzünden gövde (92) tam canlıyı öldürmüyor; kod değişikliği yapılmadı.
+- `deseni kararsiz` 7 kez (V1.0.63 DM oturumunda çok daha fazlaydı); `taban duzeltildi` 1 kez.
+
