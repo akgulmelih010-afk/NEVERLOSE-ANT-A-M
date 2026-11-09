@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.4  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.5  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,18 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.5 (primordial edition): zorlanan defensive artik OLAY (yeni "Defensive: one shift per event (no repeat while
+        seen)", acik): Smart'ta dusman gorunmeye BASLAYINCA tek force_anti_exploit_shift, gorulme surerken tekrar yok,
+        sadece "yakin" hic tetiklemez (eskiden sarj dolar dolmaz yine zorlaniyordu: duello tick'lerinin %26'si, her
+        zorlamada isinlanma + takilma). Sebep basina aralik: smart 64, peek 48 (ilk gorus / tarama basi / hizli dusman),
+        silah degisimi 64, bicak 32 (tekrar eder), air lag ucus basina bir, AI peek yuruyus basina bir, AFK / Always
+        on 64, Tick based max(14, N); kapatinca eski her-tick davranis. Log: "def: shift (<sebep>) | sarj c/m", "def:
+        sarj N tick sonra doldu" / "def: shift sarj harcamadi" ve dbg sen ozetinde "shift N, dolum ort Nt". Uyanma
+        (dormant / olu / 32+ tick guncellenmeyen dusmanin ilk kaydi) artik LC sayilmaz: takip yeniden tabanlanir, 14
+        tick'lik gercek kayit beklemesi baslamaz; gercek kayit sadece defensive'de beklenir (LC'de degil), bekleme 3
+        tick'lik dogrulamada da 14'u asmaz, satirda (defensive) / (N kez). Vuruldun / olum satirinda "uyandi X.XXs
+        once" / "uykuda", "dbg uyandi" satiri, dbg teshis'te uyanma sayaclari. Takip tick basina dusman basina bir kez
+        orneklenir (SETUP_COMMAND yedegi sadece NET_UPDATE 1 tick'ten uzun susunca).
       V1.0.4 (primordial edition): Stats paneli GS duzeninde (N.stats): durum basina isabet / kafa / iska + DT dolu ve
         zorlanan DEF tick payi, AIM (atis / isabet / correction / spread / diger), LAG / TEMIZ, durum basina KD (sadece
         dusman, olay anindaki durum), AI PEEK (peek / atis / isabet / bos / vurulma), AA FAZ tablosu (* varsayilan faz,
@@ -67,7 +79,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.4", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.5", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -687,14 +699,24 @@ do
     end
 
     -- Bir log anahtari icin en fazla "every" saniyede bir satir.
-    L.limits = {}
-    L.every = function(key, every, text)
+    -- count = true: sure dolmadan gelen (yazilmayan) satirlar sayilir; sonraki satira " (N kez)" eklenir (N = o satir
+    -- dahil, son yazilandan beri kac kez).
+    L.limits, L.skipped = {}, {}
+    L.every = function(key, every, text, count)
         local now = U.now()
         local last = L.limits[key]
         if last ~= nil and now >= last and now - last < every then
+            if count then
+                L.skipped[key] = (L.skipped[key] or 0) + 1
+            end
             return false
         end
         L.limits[key] = now
+        local n = L.skipped[key]
+        if count and n ~= nil and n > 0 then
+            text = text .. fmt(" (%d kez)", n + 1)
+        end
+        L.skipped[key] = nil
         L.line(text)
         return true
     end
@@ -1556,6 +1578,7 @@ do
         B.sl("hidden_spin", "exploits", "Hidden spin speed", 1, 30, 10, true)
         B.cb("smart_force", "exploits", "Force defensive when seen / near (Smart)", true, true)
         B.cb("def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", true, true)
+        B.cb("def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", true, true)
         B.cb("anti_peek", "exploits", "Defensive vs enemy peeks", true, true)
         B.cb("switch_def", "exploits", "Defensive while switching weapons", true, true)
         B.cb("clean_shot", "exploits", "Clean shot (no lag while shooting)", true, true)
@@ -2450,7 +2473,10 @@ end
 -------------------------------------------------------------------------------
 do
     local U, T = N.util, N.track
-    T.p, T.updated_tick = {}, -1
+    T.p, T.updated_tick, T.net_tick = {}, -1, -1000
+    -- WAKE_GAP: bu kadar tick guncellenmeyen (ya da sim zamani bu kadar atlayan) dusman "uyandi" sayilir (16 tick'lik
+    -- en uzun bogmadan fazla); WAKE_SHOW: vuruldun / olum satirinda "uyandi X.XXs once" bu kadar tick gorunur.
+    T.WAKE_GAP, T.WAKE_SHOW = 32, 128
 
     T.get = function(idx)
         local t = T.p[idx]
@@ -2463,9 +2489,14 @@ do
         return t
     end
 
-    T.update = function()
+    -- net: NET_UPDATE'ten geldi (T.fallback sadece NET_UPDATE 1 tick'ten uzun susunca calisir). Bir dusman tick basina
+    -- en fazla bir kez orneklenir (t.upd_tick): ayni tick'te SETUP_COMMAND + NET_UPDATE iki ayri kayit uretmez.
+    T.update = function(net)
         local tick = U.tick()
         T.updated_tick = tick
+        if net then
+            T.net_tick = tick
+        end
         local lp = N.st.lp
         if lp == nil then
             return
@@ -2479,55 +2510,89 @@ do
             if idx ~= nil and U.alive(ent) and not U.dormant(ent) then
                 local t = T.get(idx)
                 t.ent = ent
-                local simt = U.num(ent, "m_flSimulationTime")
-                if simt ~= nil then
-                    local okt, sim = pcall(client.time_to_ticks, simt)
-                    if not okt or not U.finite(sim) then
-                        sim = floor(simt / U.ipt() + 0.5)
+                if t.upd_tick ~= tick then
+                    T.sample(t, ent, tick)
+                    t.upd_tick = tick
+                end
+            elseif idx ~= nil then
+                -- Uykuda (dormant) ya da olu: sonraki ilk guncelleme "uyanma" (T.wake), LC / defensive karsilastirmasi yok.
+                local t = T.p[idx]
+                if t ~= nil and not t.slept then
+                    t.slept, t.sleep_from = true, tick
+                end
+            end
+        end
+    end
+
+    -- Uyanma (N1): dormant / olu kaldiktan ya da WAKE_GAP tick'ten uzun guncellenmedikten sonraki ilk kayit. Takip
+    -- yeniden tabanlanir (son konum, sim zamani, yaw gecmisi); LC / defensive bayragi KURULMAZ (uyanan dusmanin
+    -- konumu 64 birimden fazla "atlamis" gorunur ama bu isinlanma degil; 14 tick'lik gercek kayit beklemesi baslamaz).
+    T.wake = function(t, ent, tick, sim)
+        local org = U.origin(ent)
+        local from = t.sleep_from or t.upd_tick
+        t.slept_ticks = (from ~= nil and tick >= from) and tick - from or nil
+        t.last_sim = sim
+        t.last_origin = org ~= nil and { x = org.x, y = org.y, z = org.z } or nil
+        t.yaws = {}
+        t.def_until, t.def_start, t.lc_until = -1, nil, -1
+        t.wake_tick, t.slept, t.sleep_from, t.wake_new = tick, false, nil, true
+        N.diag.wake()
+    end
+
+    T.sample = function(t, ent, tick)
+        local simt = U.num(ent, "m_flSimulationTime")
+        if simt == nil then
+            return
+        end
+        local okt, sim = pcall(client.time_to_ticks, simt)
+        if not okt or not U.finite(sim) then
+            sim = floor(simt / U.ipt() + 0.5)
+        end
+        t.record_age = max(0, tick - sim)
+        local stale = t.upd_tick ~= nil and (tick - t.upd_tick > T.WAKE_GAP or tick < t.upd_tick)
+        if t.slept or stale or (t.last_sim ~= nil and sim - t.last_sim > T.WAKE_GAP) then
+            T.wake(t, ent, tick, sim)
+            return
+        end
+        if t.last_sim ~= nil then
+            if sim < t.last_sim then
+                -- Simulasyon zamani geri gitti: sahte kayit (defensive).
+                t.def_back = min(16, t.last_sim - sim)
+                t.def_until = tick + t.def_back
+                t.def_start = t.def_start or tick
+                if tick - t.def_start > 64 then
+                    -- 1 sn'den uzun "geride" kalan kayit defensive degil (dogus vb.): sifirla.
+                    t.def_until, t.def_start, t.last_sim = -1, nil, sim
+                end
+            elseif sim > t.last_sim then
+                T.fakeduck(t, ent, tick, sim - t.last_sim)
+                local org = U.origin(ent)
+                if org ~= nil and t.last_origin ~= nil then
+                    local dx, dy, dz = org.x - t.last_origin.x, org.y - t.last_origin.y,
+                        org.z - t.last_origin.z
+                    if dx * dx + dy * dy + dz * dz > 4096 then
+                        t.lc_until = tick + 16
                     end
-                    t.record_age = max(0, tick - sim)
-                    if t.last_sim ~= nil then
-                        if sim < t.last_sim then
-                            -- Simulasyon zamani geri gitti: sahte kayit (defensive).
-                            t.def_back = min(16, t.last_sim - sim)
-                            t.def_until = tick + t.def_back
-                            t.def_start = t.def_start or tick
-                            if tick - t.def_start > 64 then
-                                -- 1 sn'den uzun "geride" kalan kayit defensive degil (dogus vb.): sifirla.
-                                t.def_until, t.def_start, t.last_sim = -1, nil, sim
-                            end
-                        elseif sim > t.last_sim then
-                            T.fakeduck(t, ent, tick, sim - t.last_sim)
-                            local org = U.origin(ent)
-                            if org ~= nil and t.last_origin ~= nil then
-                                local dx, dy, dz = org.x - t.last_origin.x, org.y - t.last_origin.y,
-                                    org.z - t.last_origin.z
-                                if dx * dx + dy * dy + dz * dz > 4096 then
-                                    t.lc_until = tick + 16
-                                end
-                            end
-                            if org ~= nil then
-                                t.last_origin = { x = org.x, y = org.y, z = org.z }
-                            end
-                            if tick > t.def_until then
-                                t.def_start = nil
-                                local yaw = U.prop(ent, "m_angEyeAngles[1]")
-                                if U.finite(yaw) then
-                                    local ys = t.yaws
-                                    ys[#ys + 1] = yaw
-                                    if #ys > 8 then
-                                        tremove(ys, 1)
-                                    end
-                                    T.classify(t)
-                                end
-                            end
+                end
+                if org ~= nil then
+                    t.last_origin = { x = org.x, y = org.y, z = org.z }
+                end
+                if tick > t.def_until then
+                    t.def_start = nil
+                    local yaw = U.prop(ent, "m_angEyeAngles[1]")
+                    if U.finite(yaw) then
+                        local ys = t.yaws
+                        ys[#ys + 1] = yaw
+                        if #ys > 8 then
+                            tremove(ys, 1)
                         end
-                    end
-                    if t.last_sim == nil or sim >= t.last_sim or tick > t.def_until then
-                        t.last_sim = sim
+                        T.classify(t)
                     end
                 end
             end
+        end
+        if t.last_sim == nil or sim >= t.last_sim or tick > t.def_until then
+            t.last_sim = sim
         end
     end
 
@@ -2623,10 +2688,38 @@ do
         end
     end
 
+    -- SETUP_COMMAND: NET_UPDATE 1 tick'ten uzun gelmediyse (callback yok / durdu) takip buradan guncellenir.
     T.fallback = function()
-        if T.updated_tick ~= U.tick() then
-            T.update()
+        local tick = U.tick()
+        if tick - T.net_tick > 1 or tick < T.net_tick then
+            T.update(false)
         end
+    end
+
+    -- Sadece defensive (sim zamani geri gitti): gercek kayit beklenebilen tek durum (LC backtrack kaydi degildir).
+    T.def = function(idx)
+        local t = T.p[idx]
+        return t ~= nil and U.tick() <= t.def_until
+    end
+
+    -- Sahte kaydin turu (log icin): "defensive" / "LC" / nil.
+    T.fake_kind = function(idx)
+        local t = T.p[idx]
+        if t == nil then
+            return nil
+        end
+        local tick = U.tick()
+        return (tick <= t.def_until and "defensive") or (tick <= t.lc_until and "LC") or nil
+    end
+
+    -- Dusman son n tick icinde uyandi mi (dormant / olu / guncellenmeyen -> ilk kayit).
+    T.woke = function(idx, n)
+        local t = T.p[idx]
+        if t == nil or t.wake_tick == nil then
+            return false
+        end
+        local tick = U.tick()
+        return tick >= t.wake_tick and tick - t.wake_tick <= n
     end
 
     T.fake = function(idx)
@@ -4283,6 +4376,12 @@ do
     X.forced, X.forced_tick, X.scan_tick, X.anti_until, X.smart_hold = false, -1000, -1000, -1000, -1000
     X.clean, X.shot_tick, X.after_shot = false, -1000, false
     X.hidden_tick = -1000
+    -- A1 (def_edge): zorlanan defensive bir OLAY (tick basina durum degil). shift_last: son basarili zorlamanin
+    -- tick'i; want_prev: sebep basina tetik kosulu onceki tick'te dogru muydu (yukselen kenar); scan_start: HITSCAN
+    -- tarama dizisinin basladigi tick (16 tick'ten uzun aradan sonra); GAP: sebep basina iki zorlama arasi en az tick
+    -- (air: ucus basina bir, tick: max(14, def_ticks)).
+    X.shift_last, X.want_prev, X.scan_start = -1000, {}, -1000
+    X.GAP = { smart = 64, peek = 48, switch = 64, knife = 32, aipeek = 48, afk = 64, always = 64 }
     X.switch = { name = nil, at = -1000 }
     -- flight_tp: bu ucustaki teleport sayisi (bekci); c0 / cmin: teleport oncesi sarj ve sonraki en dusuk sarj (G26).
     X.air = { was_air = false, used = false, latched = false, takeoff_z = 0, left = 0, calls = 0, maxchoke = 0,
@@ -4354,12 +4453,23 @@ do
         if not N.ref.dt_ready() or X.clean or N.st.fd or X.air.latched or X.land.flight then
             return false
         end
+        -- Sarj cagridan ONCE okunur (cagri sarji ayni tick'te harcayabilir; log ve sarj izi icin).
+        local c, m = N.ref.charge()
         local ok = pcall(exploits.force_anti_exploit_shift)
         if ok then
+            local streak = tick - X.shift_last == 1
             X.shift_tick, X.forced, X.forced_tick, X.forced_why = tick, true, tick, why
+            X.shift_last = tick
             N.charge.forced(why)
+            N.charge.shifted(why, tick, streak, c, m)
         end
         return ok
+    end
+
+    -- def_edge: son basarili zorlamadan beri en az gap tick gecti mi (tick geri gittiyse evet).
+    X.gap_ok = function(tick, gap)
+        local since = tick - X.shift_last
+        return since < 0 or since >= gap
     end
 
     X.dt_warning = function()
@@ -4395,11 +4505,23 @@ do
         return nxt ~= nil and nxt > U.cur() and nxt - U.cur() < 2
     end
 
-    -- SETUP_COMMAND: defensive karari.
+    -- SETUP_COMMAND: defensive karari. "Defensive: one shift per event" (def_edge) acikken X.shift sadece yeni bir
+    -- olayda ve sebebin GAP'i dolduysa cagrilir (her tick degil): sarj dolar dolmaz yeniden zorlamak "shift, dolum
+    -- beklemesi, shift" dongusune giriyordu (duello tick'lerinin %26'si, saniyede 0.8 zorlama, her birinde takilma).
+    --   smart : (su an goruluyor ya da goruldu) yukselen kenari; sadece "yakin" artik TETIKLEMEZ.        GAP 64
+    --   peek  : yeni dusmanin ilk gorusu (2 tick), tarama dizisinin basi, hizli dusman yukselen kenari.   GAP 48
+    --   switch: silah degisiminin yukselen kenari.                                                       GAP 64
+    --   knife : bicakli dusman menzildeyken tekrar eder.                                                 GAP 32
+    --   air   : ucus basina bir kez (kosulun saglandigi ilk havadaki tick).
+    --   aipeek: AI peek yuruyusu basina bir kez.                                                         GAP 48
+    --   afk / always: tekrar eder.                                                                       GAP 64
+    --   tick  : tekrar eder.                                                              GAP max(14, def_ticks)
+    -- Kapaliyken eski davranis aynen (istek surdukce, sarj dolu olan her tick).
     X.defensive = function()
         local st, E = N.st, N.exposure
         local tick = U.tick()
         local now = U.now()
+        local P = X.want_prev
         X.forced = X.forced_tick == tick
         -- Kendi defensive bitis zamani (re-arm cooldown icin).
         local def = X.own_def_active()
@@ -4418,21 +4540,23 @@ do
             X.smart_hold = tick + 8
         end
         -- X5: yeni goren dusman (ilk gorus) ya da goren dusman hizli -> 8 tick zorla.
+        local fast, first = false, false
         if N.on("anti_peek") then
-            local fast = false
             for _, enemy in ipairs(E.enemies()) do
                 local idx = U.index(enemy)
                 if idx ~= nil and E.sees_now(idx) and U.speed(enemy) > 150 then
                     fast = true
                 end
             end
-            if E.first_sight_within(2) or fast then
+            first = E.first_sight_within(2)
+            if first or fast then
                 X.anti_until = tick + 8
             end
         end
         local anti = tick <= X.anti_until and tick >= X.anti_until - 8
         local onpeek = (tick - X.scan_tick <= 1 and tick >= X.scan_tick) or anti
         local want, why = false, nil
+        local every = 14
         if mode == 2 then
             want, why = onpeek, "peek"
         elseif mode == 3 then
@@ -4450,7 +4574,7 @@ do
         elseif mode == 4 then
             want, why = true, "always"
         elseif mode == 5 then
-            local every = max(2, floor(N.xv(state, "def_ticks") or 14))
+            every = max(2, floor(N.xv(state, "def_ticks") or 14))
             want, why = tick % every == 0, "tick"
         end
         if mode ~= 1 then
@@ -4463,27 +4587,67 @@ do
         end
         -- X14 (GS: air_lag sadece Smart penceresini genisletir): havada, gorulmuyorken her tick; gorulurken havayi
         -- Air LC yonetir; DT'li ucusta (inis teleportu) ve merdivende yok.
-        if mode == 3 and N.on("air_lag") and st.airborne and not st.ladder and not X.land.flight
-            and not (E.now or E.soon) then
+        local air = mode == 3 and N.on("air_lag") and st.airborne and not st.ladder and not X.land.flight
+            and not (E.now or E.soon)
+        if air then
             want, why = true, "air"
         end
-        if N.on("peek_defensive") and N.peek.mode == "walk" then
+        local walk = N.on("peek_defensive") and N.peek.mode == "walk"
+        if walk then
             want, why = true, "aipeek"
         end
         if N.afk.on then
             want, why = true, "afk"
+        end
+        -- A1: olay kapisi (def_edge). Kenarlar her tick guncellenir (istek olmasa da, baska sebep oncelikli olsa da).
+        local seen = E.now or E.seen
+        if want and N.on("def_edge") then
+            local fresh, gap = true, X.GAP[why] or 0
+            if why == "smart" then
+                fresh = seen and not P.smart
+            elseif why == "peek" then
+                fresh = first or (fast and not P.fast) or (tick >= X.scan_start and tick - X.scan_start <= 1)
+            elseif why == "switch" then
+                fresh = not P.switch
+            elseif why == "air" then
+                fresh = not P.air
+            elseif why == "aipeek" then
+                fresh = not P.aipeek
+            elseif why == "tick" then
+                gap = max(14, every)
+            end
+            if not fresh or not X.gap_ok(tick, gap) then
+                want = false
+                -- Istek var ama olay yok: "DT kapali" uyarisi yine round basina bir kez (X.shift'e gidilmedigi icin).
+                if not X.paused("DEF") and not N.ref.on("dt") then
+                    X.dt_warning()
+                end
+            end
+        end
+        P.smart, P.fast, P.switch, P.aipeek = seen, fast, switching, walk
+        if not st.airborne then
+            P.air = false
+        elseif air then
+            P.air = true
         end
         if want then
             X.shift(why)
         end
     end
 
-    -- HITSCAN: ragebot bir hedefi tariyor = peek (MS:4374).
+    -- HITSCAN: ragebot bir hedefi tariyor = peek (MS:4374). def_edge acikken sadece tarama dizisinin basinda (16
+    -- tick'ten uzun aradan sonraki ilk tarama) ve peek GAP'i dolduysa zorlanir.
     X.onpeek_trigger = function()
         local tick = U.tick()
+        if tick - X.scan_tick > 16 or tick < X.scan_tick then
+            X.scan_start = tick
+        end
         X.scan_tick = tick
         local mode = X.mode_for(N.st.state)
         if mode == 2 or mode == 3 then
+            if N.on("def_edge") and (X.scan_start ~= tick or not X.gap_ok(tick, X.GAP.peek)) then
+                return
+            end
             X.shift("peek")
         end
     end
@@ -4944,6 +5108,7 @@ do
         X.air.map_logged = false
         X.shift_tick, X.own_def_until, X.last_sim = -1, -1, nil
         X.forced_tick, X.scan_tick, X.anti_until, X.smart_hold, X.shot_tick = -1000, -1000, -1000, -1000, -1000
+        X.shift_last, X.want_prev, X.scan_start = -1000, {}, -1000
         X.def_end, X.def_was = -1000, false
         X.aim = { target = nil, time = -1000 }
         X.land_reset()
@@ -5116,11 +5281,15 @@ do
     -- GS V1.0.19 yogunlugu (sniper.REJECT): arka plan ret orani HS %9 / DT %14; "60 sn'de 2" ve daha gevsek kurallar
     -- 3 saatte 4 kez bos yere tetiklendi, bu kural V1.0.10-1.0.17 loglarinin hicbirinde tetiklenmiyor.
     CH.REJECT = { last = 4, need = 3, window = 120, distinct = 2, pause = 300 }
+    -- Zorlanan shift'in sarj izi (A1): at / why / c0 = zorlama tick'i, sebebi, o anki sarj; dropped = 3 tick icinde
+    -- sarj dustu; undr = bu haritada yazilan "harcamadi" satiri (en fazla 3).
+    CH.sw = { on = false, at = -1000, why = "?", c0 = 0, dropped = false, undr = 0 }
 
     -- Round sayaclari (dbg sen ozeti). def_end_at: son sayilan defensive bitisi (X.def_end).
     CH.round_new = function()
         CH.r = { ticks = 0, dt = 0, forced = 0, switch = 0, knife = 0, seen = 0, both = 0, tp = 0, tp_hit = 0,
-            partial = 0, partial_seen = 0, def_ends = 0, def_end_at = X.def_end, top = 0 }
+            partial = 0, partial_seen = 0, def_ends = 0, def_end_at = X.def_end, top = 0, refill_n = 0, refill_sum = 0 }
+        CH.sw.on = false
     end
     CH.round_new()
 
@@ -5195,6 +5364,7 @@ do
             N.diag.g5(CH.c, c)
         end
         CH.held_was, CH.c, CH.m = held, c, m
+        CH.shift_watch(tick, c, m)
         r.ticks = r.ticks + 1
         if dt then
             r.dt = r.dt + 1
@@ -5230,6 +5400,52 @@ do
         end
     end
 
+    -- X.shift basarili (c / m: cagridan onceki sarj): "def: shift (<sebep>) | sarj c/m" (Detailed log; ardisik
+    -- tick'lerdeki tekrar yazilmaz: def_edge kapaliyken her tick zorlanir) ve sarj izlemesi baslar (suren izleme
+    -- varsa o devam eder).
+    CH.shifted = function(why, tick, streak, c, m)
+        local w = CH.sw
+        if N.on("debug_log") and not streak then
+            N.log.line(fmt("def: shift (%s) | sarj %d/%d", tostring(why), U.R(c), U.R(m)))
+        end
+        if not w.on then
+            w.on, w.at, w.why, w.c0, w.dropped = true, tick, tostring(why), c, false
+        end
+    end
+
+    -- CH.tick: zorlamadan sonraki 3 tick icinde sarj dustu mu. Dustuyse yeniden dolunca "def: sarj N tick sonra doldu"
+    -- (round ortalamasina girer); hic dusmediyse "def: shift sarj harcamadi" (haritada en fazla 3 kez). Oyunda
+    -- force_anti_exploit_shift'in sarji harcayip harcamadigini bu iki satir gosterir. 256 tick'te dolmazsa izleme biter.
+    CH.shift_watch = function(tick, c, m)
+        local w = CH.sw
+        if not w.on then
+            return
+        end
+        local age = tick - w.at
+        if age < 0 or age > 256 then
+            w.on = false
+            return
+        end
+        if not w.dropped then
+            if c < w.c0 then
+                w.dropped = true
+            elseif age >= 3 then
+                w.on = false
+                if w.undr < 3 and N.on("debug_log") then
+                    w.undr = w.undr + 1
+                    N.log.line(fmt("def: shift sarj harcamadi (%s)", w.why))
+                end
+            end
+        end
+        if w.on and w.dropped and m > 0 and c >= m then
+            w.on = false
+            CH.r.refill_n, CH.r.refill_sum = CH.r.refill_n + 1, CH.r.refill_sum + age
+            if N.on("debug_log") then
+                N.log.line(fmt("def: sarj %d tick sonra doldu (%s)", U.R(age), w.why))
+            end
+        end
+    end
+
     CH.on_teleport = function()
         CH.r.tp = CH.r.tp + 1
     end
@@ -5257,8 +5473,9 @@ do
             or "")
         N.log.line(fmt("dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen (sim) %d,"
             .. " zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken"
-            .. " %d), defensive bitisi %d | sarj tavani %d", r.ticks, r.dt, r.forced, extra, r.seen, r.both, r.tp, r.tp_hit,
-            off, r.partial, r.partial_seen, r.def_ends, U.R(r.top)))
+            .. " %d), defensive bitisi %d | sarj tavani %d | shift %d, dolum ort %st", r.ticks, r.dt, r.forced, extra, r.seen,
+            r.both, r.tp, r.tp_hit, off, r.partial, r.partial_seen, r.def_ends, U.R(r.top), r.forced,
+            r.refill_n > 0 and fmt("%.1f", r.refill_sum / r.refill_n) or "?"))
     end
 
     -- Yerde 1. tick: bu ucusun inis tahmininin sapmasi (|e| <= 64; daha fazlasi = ucus kesildi) ve 10 inis'te bir
@@ -5366,6 +5583,7 @@ do
     -- Harita degisimi: tick'e bagli round sayaclari ve paket konumu silinir (oturum sayaclari kalir).
     CH.map_reset = function()
         CH.round_new()
+        CH.sw.undr = 0
         CH.sent = { x = nil, y = 0, z = 0, choked = 0 }
         CH.held_was = false
     end
@@ -5385,7 +5603,7 @@ do
         DG.c = { ticks = 0, ord_n = 0, ord_setup = 0, aa_calls = 0, aa_cmds = 0, aa_max = 0, ht_n = 0, ht_hs = 0,
             unpred_ok = 0, unpred_n = 0, filter = 0, reasons = {}, shots = 0, held = 0, lv_ticks = { 0, 0 },
             lv_shots = { 0, 0 }, g5 = 0, use_aa = 0, use_setup = 0, unch = { 0, 0, 0, 0 }, undrained = 0,
-            tr_sum = 0, tr_ticks = 0, tr_max = 0 }
+            tr_sum = 0, tr_ticks = 0, tr_max = 0, wake = 0, wake_hurt = 0, wake_wait = 0 }
         DG.p1 = { id = nil, first = nil, done = true }
         DG.p2 = { tick = nil, first = nil, done = true }
         DG.aa_id, DG.aa_cur, DG.lvt, DG.tr_tick = nil, 0, {}, nil
@@ -5396,6 +5614,18 @@ do
     -- G-satiri: oturumda bir kez (N.dlog.settle ile ayni anahtar alani).
     DG.settle = function(key, text)
         N.dlog.settle(key, text)
+    end
+
+    -- N4 (uyku / dormancy): uyanma (T.wake), uyanmadan sonraki 1 sn icinde vurulma, uyanmadan sonraki 32 tick
+    -- icinde baslamayan gercek kayit beklemesi (N1 oncesi burada 14 tick beklenirdi).
+    DG.wake = function()
+        DG.c.wake = DG.c.wake + 1
+    end
+    DG.wake_hurt = function()
+        DG.c.wake_hurt = DG.c.wake_hurt + 1
+    end
+    DG.wake_wait = function()
+        DG.c.wake_wait = DG.c.wake_wait + 1
     end
 
     -- DG.cb pcall icinde calisir: komut nesnesi bozuksa o cagrinin sayaci atlanir.
@@ -5639,11 +5869,13 @@ do
                 .. " unpred bayrak %d/%d, olay filtresi ihlal %d, iska sebepleri %s (jitter %s), bekleme ihlali %d/%d,"
                 .. " seviye2 %.1f atis/sn (%d tick) seviye1 %.1f atis/sn (%d tick), sarj kilitliyken artis %d tick,"
                 .. " USE basiliyken aa %d/%d, uncharge tick 1:%d 2:%d 3:%d 4:%d (harcanmadi %d), DT tus modu %s,"
-                .. " iz/tick ort %.1f max %d (%d tick)", c.ord_setup, c.ord_n, c.aa_cmds > 0 and c.aa_calls / c.aa_cmds or 0,
+                .. " iz/tick ort %.1f max %d (%d tick), uyanma %d (1 sn icinde vurulma %d, uyaninca bekleme atlandi %d)",
+                c.ord_setup, c.ord_n, c.aa_cmds > 0 and c.aa_calls / c.aa_cmds or 0,
                 c.aa_max, c.ht_hs, c.ht_n, c.unpred_ok, c.unpred_n, c.filter, #hist > 0 and concat(hist, ", ") or "yok",
                 DG.reasons_seen.jitter and "var" or "yok", c.held, c.shots, DG.rate(2), c.lv_ticks[2], DG.rate(1),
                 c.lv_ticks[1], c.g5, c.use_aa, c.use_setup, c.unch[1], c.unch[2], c.unch[3], c.unch[4], c.undrained,
-                DG.dt_mode(), trt > 0 and (c.tr_sum + cur * DG.trn) / trt or 0, max(c.tr_max, cur * DG.trn), trt))
+                DG.dt_mode(), trt > 0 and (c.tr_sum + cur * DG.trn) / trt or 0, max(c.tr_max, cur * DG.trn), trt,
+                c.wake, c.wake_hurt, c.wake_wait))
         end
         local tick = DG.tr_tick
         DG.reset()
@@ -5716,8 +5948,8 @@ do
         w.done_at = U.now()
         if w.kind == "real" then
             if N.on("resolver_log") then
-                N.log.every("wait:" .. idx, 15, fmt("resolver: %s sahte kayitta (defensive): %d tick gercek kayit beklendi, %s",
-                    U.name(ent), w.ticks, reason))
+                N.log.every("wait:" .. idx, 15, fmt("resolver: %s sahte kayitta (%s): %d tick gercek kayit beklendi, %s",
+                    U.name(ent), w.flag or "defensive", w.ticks, reason), true)
             end
         else
             if N.on("resolver_log") then
@@ -5750,7 +5982,8 @@ do
                     RG.wait[idx] = w
                 end
                 local t = T.p[idx]
-                local fake = T.fake(idx)
+                -- N1: sadece defensive (sim zamani geri) beklenir; LC backtrack kaydi degildir, beklemek duzeltmez.
+                local fake = T.def(idx)
                 local sees = E.sees(idx)
                 local duel = sees or (t ~= nil and now >= t.we_shot and now - t.we_shot <= 1.5)
                 if N.on("wait_real") then
@@ -5764,6 +5997,9 @@ do
                             w.real_at = w.real_at or tick
                             if tick - w.real_at >= 3 then
                                 RG.end_wait(idx, w, "gercek kayit geldi", ent)
+                            elseif w.ticks >= limit then
+                                -- 3 tick'lik dogrulama da siniri asamaz (log 2: 16-17 tick'lik beklemeler).
+                                RG.end_wait(idx, w, "sinir doldu (gercek kayit dogrulanirken)", ent)
                             end
                         elseif w.ticks >= limit then
                             RG.end_wait(idx, w, "sinir doldu, kayit hala sahte", ent)
@@ -5781,8 +6017,15 @@ do
                             w.nowait = "biri seni goruyor"
                         elseif tick < w.free_until and tick >= w.free_until - 32 then
                             w.nowait = "cooldown"
+                        elseif T.woke(idx, T.WAKE_GAP) then
+                            -- Yeni uyanan dusman (dormant'tan cikti): ilk 32 tick bekleme baslamaz.
+                            if w.nowait ~= "yeni uyandi" then
+                                N.diag.wake_wait()
+                            end
+                            w.nowait = "yeni uyandi"
                         else
                             w.active, w.ticks, w.real_at, w.nowait = true, 0, nil, nil
+                            w.flag = T.fake_kind(idx) or "defensive"
                         end
                     else
                         w.nowait = nil
@@ -5992,7 +6235,8 @@ do
         end
         -- R9: sniper, hedef sahte kayitta ve govde olduruyor -> kafa gercek kayda (en fazla 12 tick, sonra 0.5 sn).
         local t = RG.get(idx)
-        if N.on("fake_body") and U.is_bolt(wname) and N.track.fake(idx) and body >= hp and now >= t.fake_free then
+        if N.on("fake_body") and U.is_bolt(wname) and N.track.def(idx) and not N.track.woke(idx, N.track.WAKE_GAP)
+            and body >= hp and now >= t.fake_free then
             if t.fake_window == nil then
                 t.fake_window, t.fake_ticks = tick, 0
                 if N.on("resolver_log") then
@@ -6010,7 +6254,7 @@ do
             else
                 t.fake_window, t.fake_free = nil, now + 0.5
             end
-        elseif t.fake_window ~= nil and not N.track.fake(idx) then
+        elseif t.fake_window ~= nil and not N.track.def(idx) then
             t.fake_window = nil
         end
         -- Min. damage kurallari. Senin override tusun basiliyken hicbiri (R2-R7) calismaz.
@@ -6577,7 +6821,7 @@ do
             end
             if now >= PK.wait_until then
                 local idx = PK.target_idx
-                if not PK.extra_used and idx ~= nil and N.track.fake(idx) then
+                if not PK.extra_used and idx ~= nil and N.track.def(idx) and not N.track.woke(idx, N.track.WAKE_GAP) then
                     PK.extra_used, PK.wait_until = true, PK.wait_until + 0.2
                     return
                 end
@@ -6839,6 +7083,13 @@ do
             end
             parts[#parts + 1] = "gormedi (" .. how .. ")"
         end
+        -- N4: saldiran su an uykuda (dormant; iz eski konumundan atildi) ya da az once uyandi.
+        local tr = idx ~= nil and N.track.p[idx] or nil
+        if ent ~= nil and U.dormant(ent) then
+            parts[#parts + 1] = "uykuda"
+        elseif tr ~= nil and N.track.woke(idx, N.track.WAKE_SHOW) then
+            parts[#parts + 1] = fmt("uyandi %.2fs once", (U.tick() - tr.wake_tick) * U.ipt())
+        end
         return concat(parts, ", ")
     end
 
@@ -7094,6 +7345,10 @@ do
             N.log.every("fd_sniper", 5, fmt("fake duck: %s %s ile vurdu -> fake duck'i birak", name, weapon))
         end
         local info = S.attacker_info(attacker)
+        local aidx = U.index(attacker)
+        if aidx ~= nil and N.track.woke(aidx, 64) then
+            N.diag.wake_hurt()
+        end
         if not melee then
             ST.enemy_hit(st.label, hitgroup == 1)
             S.count(st.label, phase, hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
@@ -7409,6 +7664,7 @@ do
     -- round_def: round boyunca dusman adina bolum ozeti; last_def: son bolumun bittigi tick; shots: dusman atislari.
     D.vis, D.nxt, D.def, D.round_def, D.round_order, D.last_def, D.shots = {}, {}, {}, {}, {}, {}, {}
     D.last_header, D.header_n, D.map_pending, D.map_printed, D.probe = nil, -1, "load", nil, {}
+    D.wake_log = {}
     D.MANUAL = { [1] = "sol", [2] = "arka", [3] = "sag" }
 
     D.on = function()
@@ -7706,8 +7962,35 @@ do
         end
         local tick = U.tick()
         D.map_header()
+        D.wakes(N.st.lp, tick)
         D.scan(N.st.lp, tick)
         D.track_def(tick)
+    end
+
+    -- N4: az once uyanan (dormant / olu -> ilk kayit, T.wake) dusman NEAR icindeyse "dbg uyandi" (dusman basina 5
+    -- sn'de bir). Ilk gorus: uyandigi anda kafami goruyor mu (E.check, tahminsiz).
+    D.wakes = function(lp, tick)
+        local now = U.now()
+        local mine, head = nil, nil
+        for idx, t in pairs(N.track.p) do
+            if t.wake_new then
+                t.wake_new = nil
+                local last = D.wake_log[idx]
+                if t.wake_tick ~= nil and tick >= t.wake_tick and tick - t.wake_tick <= 2
+                    and (last == nil or now < last or now - last >= 5) then
+                    mine = mine or U.origin(lp)
+                    local o = U.origin(t.ent)
+                    local dist = (mine ~= nil and o ~= nil) and U.dist(o, mine) or nil
+                    if dist ~= nil and dist <= N.K.NEAR then
+                        D.wake_log[idx] = now
+                        head = head or U.hitbox(lp, "HEAD")
+                        N.log.line(fmt("dbg uyandi: %s %d u, %s sn uyudu, ilk gorus %s", U.name(t.ent), U.R(dist),
+                            t.slept_ticks ~= nil and fmt("%.1f", t.slept_ticks * U.ipt()) or "?",
+                            N.exposure.check(t.ent, lp, head, false) and "goruyor" or "gormuyor"))
+                    end
+                end
+            end
+        end
     end
 
     -- AIMBOT_SHOOT: vurulabilirlik kayitlarinda atis sayilari, ates anindaki detay satiri (sonuc satirinin altina).
@@ -9242,7 +9525,7 @@ do
                 return
             end
             st.lp = lp
-            N.track.update()
+            N.track.update(true)
             N.ex.own_update()
         end)
         C.on("PAINT", "paint", function()

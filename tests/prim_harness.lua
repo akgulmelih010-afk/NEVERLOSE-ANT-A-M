@@ -16,11 +16,14 @@
 --   T-OV-1..5 §3.4 Override + A23 degerleri     T-RC-1..3 §3.5 sarj sahibi + watchdog
 --   T-AA-1..18 §1.2 A1-A23                      T-BR-1..5 §1.3 B1-B5
 --   T-EX-1..16 §1.4 X1-X14 (+ V1.0.80 inis teleportu, merdiven, harita degisimi, cagrilabilir tetik)
+--   T-EX-17..19 V1.0.5 A1: zorlanan defensive olay basina bir (def_edge), sebep GAP'leri, "def: shift" satirlari.
+--     T-EX-1..16'da siklik olcen kontroller iki yolda da kosar: def_edge kapali (eski her-tick) + varsayilan (olay).
 --   T-RAGE-1..22 §1.5 R1-R11 + U3 (+ R5 / R6 tabani, ardisik seri, R10 tazelik, R1 harita)
+--   T-RAGE-27..29 V1.0.5 N1: uyanma LC degil, LC beklenmez, bekleme siniri, "(N kez)", takip tick basina bir ornek
 --   T-MEM-1 hafiza 64 siniri                     T-OVR-1 override tusu yeniden cozulur
 --   T-PEEK-1..4 §1.6                             T-LOG-1..10 §4 / §5 / §6
 --   T-MISC-1..7 §1.8                             T-DRAW-1..2 §1.7
---   T-DLOG-1..12 R1-B1 detayli log (N.dlog; her modda)
+--   T-DLOG-1..12 R1-B1 detayli log (N.dlog; her modda)   T-DLOG-13 V1.0.5 N4 uyku (uyandi / uykuda / dbg uyandi)
 --   T-PROF-1..12 R1-B2 dusman profili + hafiza v2 (N.profile; desen full, dosya ffi'li modlar, T-PROF-11 noffi)
 --   X-API-1..5 §3.1 / §3.2 (yasak API, liste disi API, kati enum, %d, kacan hata)
 local MODE, SRC = ARGV[1], ARGV[2]
@@ -28,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.4"
+H.VER = "V1.0.5"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -386,6 +389,7 @@ H.EL = {
     { "hidden_spin", "exploits", "Hidden spin speed", "sl", 10, 1, 30 },
     { "smart_force", "exploits", "Force defensive when seen / near (Smart)", "cb", true },
     { "def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", "cb", true },
+    { "def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", "cb", true },
     { "anti_peek", "exploits", "Defensive vs enemy peeks", "cb", true },
     { "switch_def", "exploits", "Defensive while switching weapons", "cb", true },
     { "clean_shot", "exploits", "Clean shot (no lag while shooting)", "cb", true },
@@ -620,7 +624,7 @@ function H.make(opts)
     H.G.insts = H.G.insts + 1
     local mode = opts.mode or H.mode
     local T = { opts = opts, mode = mode, name = opts.name or "?", prints = {}, aa = {}, hs = {}, ts = {}, moves = {},
-        cmds = {}, natw = {}, cvw = {}, shift = {}, unch = {}, rmjump = {}, blk = {}, alw = {}, ftexts = {}, delays = {}, cbs = {},
+        cmds = {}, natw = {}, cvw = {}, shift = {}, simreads = {}, unch = {}, rmjump = {}, blk = {}, alw = {}, ftexts = {}, delays = {}, cbs = {},
         in_cb = 0, in_paint = false, fed = { ext = {}, extw = {}, hider = {}, shots = {} }, dsy = {}, ign_n = 0, cmdno = 100,
         group_col = {}, group_vis = {}, els = {}, el_list = {}, groups = {}, refcache = {}, find_unknown = {},
         props_unknown = {}, clantags = {}, shot_id = 0, tb = {}, wrote = {}, raw_err = {}, ents = {}, fs = { h = {}, n = 0,
@@ -758,6 +762,11 @@ function H.make(opts)
         elseif name == "m_MoveType" then return p.movetype
         elseif name == "m_flNextAttack" then return p.next_attack or 0
         elseif name == "m_flSimulationTime" or name == "m_flOldSimulationTime" then
+            -- simreads[idx][tick]: dusmanin sim zamanini sadece takip (T.sample) okur -> tick basina ornek sayisi.
+            if name == "m_flSimulationTime" and p.idx ~= 1 then
+                T.simreads[p.idx] = T.simreads[p.idx] or {}
+                T.simreads[p.idx][W.tick] = (T.simreads[p.idx][W.tick] or 0) + 1
+            end
             -- sim_every: dusman paketleri bogar (fake duck), simulasyon zamani sim_every tick'te bir ilerler.
             local st = W.tick - p.sim_shift - (name == "m_flOldSimulationTime" and (p.sim_every or 1) or 0)
             if p.sim_every then st = st - st % p.sim_every end
@@ -1931,7 +1940,8 @@ function H.make(opts)
             if W.hs_first then scan() end
             T.fire("TARGET_SELECTION", tctx, cmd, nil)
             if not W.hs_first then scan() end
-            T.fire("NET_UPDATE")
+            -- no_net: NET_UPDATE hic gelmiyor (takip SETUP_COMMAND'dan guncellenmeli, T-RAGE-29).
+            if not W.no_net then T.fire("NET_UPDATE") end
             T.frame = {}
             T.in_paint = true
             T.fire("PAINT")
@@ -2063,6 +2073,17 @@ function H.mem_lines(T, kind)
     return r, true
 end
 function H.seen_by(W, idx, d) W.sees[idx] = d or 60 end
+-- "Defensive: one shift per event" kapali (eski yol: istek surdukce her tick). Izlenen oge: rec_off ile birlikte.
+function H.edge_off(T) T.set("def_edge", false) end
+-- V1.0.4'te (def_edge yokken) T-EX-17'nin "300 tick goruluyor" sahnesindeki force_anti_exploit_shift sayisi.
+H.OLD_SEEN_300 = 302
+-- Butun ornek boyunca force_anti_exploit_shift cagri sayisi ve cagri tick'leri (sirali).
+function H.shift_all(T)
+    local ticks, n = {}, 0
+    for t, c in pairs(T.shift) do ticks[#ticks + 1] = t; n = n + c end
+    table.sort(ticks)
+    return n, ticks
+end
 function H.knife_enemy(W, idx, dist, wname, class)
     local p = W.p[idx]
     p.weapon = H.weapon(wname or "knife", class)
@@ -3065,30 +3086,51 @@ function H.jump_hit(T, delay, extra)
 end
 function C.exploits()
     H.run("T-EX-1", function()
-        local T = H.boot({ name = "ex-1" })
+        -- Eski yol (def_edge kapali): goruluyorken sarj dolu olan her tick.
+        local T = H.boot({ name = "ex-1", rec_off = true, setup = H.edge_off })
         local W = T.W
         W.sees[2] = 60
         T.tick(70)
         local ticks = T.shifts(W.tick - 59, W.tick)
         local mx = H.max_per_tick(T, W.tick - 59, W.tick)
-        H.check("T-EX-1", ticks >= 45 and mx == 1, "Smart + goruluyor + DT dolu: force_anti_exploit_shift " .. ticks
-            .. "/60 tick, tick basina en fazla 1 (" .. mx .. ")")
-        local U = H.boot({ name = "ex-1-dolmamis" })
-        U.W.sees[2] = 60; U.W.auto_recharge = false; U.W.charge = 5
-        U.tick(40)
-        local t2 = U.shifts(U.W.tick - 30, U.W.tick)
-        H.check("T-EX-1", t2 == 0, "DT dolu degil: hic tetik yok (" .. t2 .. ")")
+        H.check("T-EX-1", ticks >= 45 and mx == 1, "def_edge kapali: Smart + goruluyor + DT dolu: force_anti_exploit_shift "
+            .. ticks .. "/60 tick, tick basina en fazla 1 (" .. mx .. ")")
+        -- Varsayilan (V1.0.5, def_edge acik): ayni sahne -> tek zorlama, gorusten sonraki ilk 4 tick icinde.
+        local E = H.boot({ name = "ex-1-olay" })
+        local e0 = E.W.tick
+        E.W.sees[2] = 60
+        E.tick(70)
+        local en = H.shift_all(E)
+        local _, early = E.shifts(e0 + 1, e0 + 4)
+        H.check("T-EX-1", en == 1 and early == 1, "varsayilan (olay basina bir): Smart + goruluyor + DT dolu, 70 tick -> "
+            .. en .. " zorlama (1), ilk 4 tick'te " .. early)
+        for _, edge in ipairs({ true, false }) do
+            local U = H.boot({ name = "ex-1-dolmamis-" .. tostring(edge), rec_off = true,
+                setup = function(T) if not edge then H.edge_off(T) end end })
+            U.W.sees[2] = 60; U.W.auto_recharge = false; U.W.charge = 5
+            U.tick(40)
+            local t2 = edge and H.shift_all(U) or U.shifts(U.W.tick - 30, U.W.tick)
+            H.check("T-EX-1", t2 == 0, "DT dolu degil (def_edge " .. tostring(edge) .. "): hic tetik yok (" .. t2 .. ")")
+        end
     end)
     H.run("T-EX-2", function()
-        local T = H.boot({ name = "ex-2" })
+        local T = H.boot({ name = "ex-2", rec_off = true, setup = H.edge_off })
         local W = T.W
         W.sees[2] = 60; W.can_fire = true; W.head_dmg[2] = 120
         T.tick(40)
         local sh = T.shifts(W.tick - 30, W.tick)
         local fl = H.frac(T.recs(W.tick - 30, W.tick), function(r) return r.fakelag == false end)
-        H.check("T-EX-2", sh == 0 and fl >= 0.5, "temiz atis (ates edebilir, kafa 120 >= gereken 100): tetik yok (" .. sh
-            .. "), set_fakelag(false) (" .. H.f1(fl * 100) .. "%)")
-        local U = H.boot({ name = "ex-2-sonra" })
+        H.check("T-EX-2", sh == 0 and fl >= 0.5, "def_edge kapali: temiz atis (ates edebilir, kafa 120 >= gereken 100): tetik"
+            .. " yok (" .. sh .. "), set_fakelag(false) (" .. H.f1(fl * 100) .. "%)")
+        -- Varsayilan (def_edge acik): ilk gorus olayi temiz atisa denk gelir -> hic zorlama yok (temiz degilken 1: T-EX-1).
+        local Tn = H.boot({ name = "ex-2-olay" })
+        Tn.W.sees[2] = 60; Tn.W.can_fire = true; Tn.W.head_dmg[2] = 120
+        Tn.tick(40)
+        local tn = H.shift_all(Tn)
+        local fn = H.frac(Tn.recs(Tn.W.tick - 30, Tn.W.tick), function(r) return r.fakelag == false end)
+        H.check("T-EX-2", tn == 0 and fn >= 0.5, "varsayilan: temiz atista ilk gorus olayi da zorlamaz (" .. tn
+            .. "), set_fakelag(false) (" .. H.f1(fn * 100) .. "%)")
+        local U = H.boot({ name = "ex-2-sonra", rec_off = true, setup = H.edge_off })
         local W2 = U.W
         W2.sees[2] = 60; W2.head_dmg[2] = 50
         U.tick(70)
@@ -3097,8 +3139,19 @@ function C.exploits()
         U.tick(40)
         local hold = U.shifts(t + 1, t + 6)
         local after = U.shifts(t + 12, t + 40)
-        H.check("T-EX-2", hold == 0 and after >= 5, "atistan sonra 6 tick temiz tutulur (" .. hold .. " tetik), sonra Smart"
-            .. " devam eder (" .. after .. ")")
+        H.check("T-EX-2", hold == 0 and after >= 5, "def_edge kapali: atistan sonra 6 tick temiz tutulur (" .. hold
+            .. " tetik), sonra Smart devam eder (" .. after .. ")")
+        -- Varsayilan: atistan once tek zorlama (ilk gorus); atistan sonra gorulme surerken yeni olay yok -> 0.
+        local Un = H.boot({ name = "ex-2-sonra-olay" })
+        Un.W.sees[2] = 60; Un.W.head_dmg[2] = 50
+        Un.tick(70)
+        local tu = Un.W.tick
+        local before = H.shift_all(Un)
+        Un.shoot(2)
+        Un.tick(40)
+        local _, late = Un.shifts(tu + 1, tu + 40)
+        H.check("T-EX-2", before == 1 and late == 0, "varsayilan: atistan once " .. before .. " zorlama (1), atistan sonraki 40"
+            .. " tick'te gorulme surerken tekrar yok (" .. late .. ")")
         local function hid(clean, name)
             local X = H.boot({ name = name })
             local W3 = X.W
@@ -3117,8 +3170,8 @@ function C.exploits()
         local _ = id
     end)
     H.run("T-EX-3", function()
-        local function inst(name, first_sight)
-            local T = H.boot({ name = name })
+        local function inst(name, first_sight, edge)
+            local T = H.boot({ name = name, rec_off = true, setup = function(T) if not edge then H.edge_off(T) end end })
             local W = T.W
             W.sees[2] = 60
             T.tick(70)
@@ -3133,40 +3186,59 @@ function C.exploits()
         local T, t0 = inst("ex-3")
         local quiet = T.shifts(t0 + 14, t0 + 60)
         local back = T.shifts(t0 + 85, t0 + 130)
-        H.check("T-EX-3", quiet == 0 and back >= 5, "kendi defensive'imiz goruluyorken bitti: 1 sn yeniden tetik yok ("
-            .. quiet .. "), sonra devam (" .. back .. ")")
+        H.check("T-EX-3", quiet == 0 and back >= 5, "def_edge kapali: kendi defensive'imiz goruluyorken bitti: 1 sn yeniden"
+            .. " tetik yok (" .. quiet .. "), sonra devam (" .. back .. ")")
         local U, u0 = inst("ex-3-ilk-gorus", true)
         local fs = U.shifts(u0 + 20, u0 + 28)
-        H.check("T-EX-3", fs >= 1, "bekleme sirasinda yeni dusmanin ilk gorusu bekleme suresini deler (" .. fs .. " tetik)")
+        H.check("T-EX-3", fs >= 1, "def_edge kapali: bekleme sirasinda yeni dusmanin ilk gorusu bekleme suresini deler (" .. fs
+            .. " tetik)")
+        -- Varsayilan (def_edge acik): gorulme surerken yeni olay yok -> bekleme bitse de tekrar yok; bekleme sirasinda
+        -- yeni dusmanin ilk gorusu yeni olaydir (peek, GAP 48 dolmus) -> tam 1.
+        local Tn, n0 = inst("ex-3-olay", false, true)
+        local _, nq = Tn.shifts(n0 + 1, n0 + 140)
+        local Un, m0 = inst("ex-3-ilk-gorus-olay", true, true)
+        local _, nf = Un.shifts(m0 + 20, m0 + 28)
+        local _, nrest = Un.shifts(m0 + 29, m0 + 140)
+        H.check("T-EX-3", nq == 0 and nf == 1 and nrest == 0, "varsayilan: kendi defensive'imiz bittikten sonra 140 tick"
+            .. " gorulme surer -> " .. nq .. " zorlama (0); yeni dusmanin ilk gorusu -> " .. nf .. " (1), sonrasi " .. nrest)
     end)
     H.run("T-EX-4", function()
-        local T = H.boot({ name = "ex-4", rec_off = true })
-        local W = T.W
-        T.xset("Standing", "Defensive", 2)
-        T.tick(70)
-        local base = T.shifts(W.tick - 50, W.tick)
-        local t0 = W.tick
-        W.sees[2] = 60
-        T.tick(50)
-        local a = T.shifts(t0, t0 + 12)
-        local b = T.shifts(t0 + 16, t0 + 50)
-        H.check("T-EX-4", base == 0 and a >= 4 and b == 0, "On peek: ilk gorus (bosluk > 24 tick) 8 tick tetikler ("
-            .. a .. "), oncesi " .. base .. ", sonrasi " .. b)
-        -- kisa bosluk (10 tick) yeni ilk gorus sayilmaz; uzun bosluk (60 tick, > 24) sayilir
-        W.sees[2] = 0
-        T.tick(10)
-        local t1 = W.tick
-        W.sees[2] = 60
-        T.tick(20)
-        local short = T.shifts(t1, t1 + 20)
-        W.sees[2] = 0
-        T.tick(60)
-        local t2 = W.tick
-        W.sees[2] = 60
-        T.tick(20)
-        local long = T.shifts(t2, t2 + 12)
-        H.check("T-EX-4", short == 0 and long >= 4, "gorus 10 tick kesilip donunce tetik yok (" .. short
+        local function inst(name, edge)
+            local T = H.boot({ name = name, rec_off = true, setup = function(T) if not edge then H.edge_off(T) end end })
+            local W = T.W
+            T.xset("Standing", "Defensive", 2)
+            T.tick(70)
+            local base = T.shifts(W.tick - 50, W.tick)
+            local t0 = W.tick
+            W.sees[2] = 60
+            T.tick(50)
+            local a = T.shifts(t0, t0 + 12)
+            local b = T.shifts(t0 + 16, t0 + 50)
+            -- kisa bosluk (10 tick) yeni ilk gorus sayilmaz; uzun bosluk (60 tick, > 24) sayilir
+            W.sees[2] = 0
+            T.tick(10)
+            local t1 = W.tick
+            W.sees[2] = 60
+            T.tick(20)
+            local short = T.shifts(t1, t1 + 20)
+            W.sees[2] = 0
+            T.tick(60)
+            local t2 = W.tick
+            W.sees[2] = 60
+            T.tick(20)
+            local long = T.shifts(t2, t2 + 12)
+            return base, a, b, short, long
+        end
+        local base, a, b, short, long = inst("ex-4", false)
+        H.check("T-EX-4", base == 0 and a >= 4 and b == 0, "def_edge kapali: On peek: ilk gorus (bosluk > 24 tick) 8 tick"
+            .. " tetikler (" .. a .. "), oncesi " .. base .. ", sonrasi " .. b)
+        H.check("T-EX-4", short == 0 and long >= 4, "def_edge kapali: gorus 10 tick kesilip donunce tetik yok (" .. short
             .. "), 60 tick (> 24) kesilip donunce yine 8 tick (" .. long .. ")")
+        -- Varsayilan (def_edge acik): ilk gorus bir olaydir -> 8 tick degil tek zorlama.
+        local nb, na, nb2, ns, nl = inst("ex-4-olay", true)
+        H.check("T-EX-4", nb == 0 and na == 1 and nb2 == 0 and ns == 0 and nl == 1, "varsayilan: On peek ilk gorus tek"
+            .. " zorlama (" .. na .. "), oncesi " .. nb .. ", sonrasi " .. nb2 .. "; 10 tick kesilip donunce " .. ns
+            .. " (0), 60 tick kesilip donunce " .. nl .. " (1)")
     end)
     H.run("T-EX-5", function()
         local T = H.boot({ name = "ex-5" })
@@ -3287,20 +3359,43 @@ function C.exploits()
         H.check("T-EX-8", tp ~= nil and n == 1 and fl >= 0.9 and blk and not W.rc_blocked,
             "havada goruldu: uncharge " .. n .. " kez, inise kadar her tick kilit (" .. tostring(blk) .. ") ve set_fakelag(true) ("
             .. H.f1(fl * 100) .. "%), iniste birakilir")
-        local U = H.boot({ name = "ex-8-gorulmedi", rec_off = true, setup = function(T) T.set("air_teleport", false) end })
-        U.tick(40)
-        local uu0 = #U.unch
-        local ta = U.W.tick
-        U.jump(300)
-        for _ = 1, 200 do
-            U.tick(1)
-            if U.W.p[1].ground then break end
+        local function unseen(name, edge)
+            local U = H.boot({ name = name, rec_off = true, setup = function(T)
+                T.set("air_teleport", false)
+                if not edge then H.edge_off(T) end
+            end })
+            U.tick(40)
+            local uu0 = #U.unch
+            local ta = U.W.tick
+            local g0 = H.shift_all(U)
+            U.jump(300)
+            for _ = 1, 200 do
+                U.tick(1)
+                if U.W.p[1].ground then break end
+            end
+            local sh, calls = U.shifts(ta + 2, U.W.tick - 1)
+            local _, first = U.shifts(ta + 1, ta + 2)
+            return #U.unch - uu0, U.W.tick - ta - 1, sh, calls, first, g0
         end
-        local un = #U.unch - uu0
-        local air_ticks = U.W.tick - ta - 1
-        local sh = U.shifts(ta + 2, U.W.tick - 1)
-        H.check("T-EX-8", un == 0 and sh >= air_ticks * 0.5, "havada gorulmedi: uncharge yok (" .. un .. "), bunun yerine air lag"
-            .. " defensive (" .. sh .. "/" .. air_ticks .. " tick)")
+        local un, air_ticks, sh = unseen("ex-8-gorulmedi", false)
+        H.check("T-EX-8", un == 0 and sh >= air_ticks * 0.5, "def_edge kapali: havada gorulmedi: uncharge yok (" .. un
+            .. "), bunun yerine air lag defensive (" .. sh .. "/" .. air_ticks .. " tick)")
+        -- Varsayilan (def_edge acik): air lag ucus basina bir kez, havadaki ilk tick'lerde; yerde "yakin" tetiklemez.
+        local en, eair, _, _, efirst, eg0 = unseen("ex-8-gorulmedi-olay", true)
+        local E2 = H.boot({ name = "ex-8-iki-ucus", rec_off = true, setup = function(T) T.set("air_teleport", false) end })
+        E2.tick(40)
+        for _ = 1, 2 do
+            E2.jump(300)
+            for _ = 1, 200 do
+                E2.tick(1)
+                if E2.W.p[1].ground then break end
+            end
+            E2.tick(10)
+        end
+        local two = H.shift_all(E2)
+        H.check("T-EX-8", en == 0 and eg0 == 0 and efirst == 1 and two == 2, "varsayilan: havada gorulmedi: uncharge yok ("
+            .. en .. "), yerde (yakin, gorulmuyor) " .. eg0 .. " zorlama (0), ucusta (" .. eair .. " tick) air lag tek zorlama,"
+            .. " ilk 2 tick'te (" .. efirst .. "); iki ucus -> " .. two .. " (2)")
     end)
     H.run("T-EX-9", function()
         local T = H.boot({ name = "ex-9", setup = function(T) T.set("air_lc", false) end })
@@ -4211,7 +4306,9 @@ function C.dlog()
         local m = T.mark()
         T.event("round_start", {})
         local l = H.bare(T.printed("dbg def ozeti: Alpha", m))
-        H.check("T-DLOG-6", l == "dbg def ozeti: Alpha 3 kez, toplam 12t, ort 4.0t, en uzun 6t, 0 tanesi hareketliyken"
+        -- V1.0.5: takip tick basina bir kez ve NET_UPDATE'ten (T.fallback sadece NET_UPDATE susunca); bu harnes'te
+        -- NET_UPDATE SETUP_COMMAND'dan sonra geldigi icin bolum SETUP'ta bir tick gec gorulur: 4 / 6 / 2 -> 3 / 5 / 1.
+        H.check("T-DLOG-6", l == "dbg def ozeti: Alpha 3 kez, toplam 9t, ort 3.0t, en uzun 5t, 0 tanesi hareketliyken"
             and T.printed("dbg def ozeti: Bravo", m) == nil, "4 / 6 / 2 tick'lik uc sahte kayit bolumu -> " .. tostring(l))
     end)
     H.run("T-DLOG-7", function()
@@ -4278,8 +4375,50 @@ function C.dlog()
         T.tick(64 * 3 + 20)
         local l = H.bare(T.printed("dbg duello: Bravo", m))
         local re = "^dbg duello: %S.* @.*| %d+%.%d%ds | ilk goren: .* | def %d+ kez %d+t %(%%%d+%)"
-        H.check("T-DLOG-10", l ~= nil and l:find(re) ~= nil and l:find("ilk goren: sadece o gordu | def 1 kez 4t (%", 1, true) ~= nil
+        H.check("T-DLOG-10", l ~= nil and l:find(re) ~= nil and l:find("ilk goren: sadece o gordu | def 1 kez 3t (%", 1, true) ~= nil
             and l:find("| ayrildi", 1, true) ~= nil, "duello satiri GS duzenine uyar: " .. tostring(l))
+    end)
+    H.run("T-DLOG-13", function()
+        -- N4: uyku (dormancy) loglarda. Saldiran 2 sn dormant, uyanir, 13 tick (0.20 sn) sonra vurur.
+        local T = H.boot({ name = "dlog-13" })
+        local W = T.W
+        T.tick(20)
+        local base = H.hurt_line(T, 2)
+        W.p[2].dormant = true
+        T.tick(128)
+        W.p[2].dormant = false
+        local m = T.mark()
+        T.tick(14)
+        local woke = H.hurt_line(T, 2)
+        local dbg = H.bare(T.printed("dbg uyandi:", m))
+        -- 5 sn dolmadan ikinci uyanma: satir yok; saldiran uykudayken gelen isabet: "uykuda".
+        W.p[2].dormant = true
+        T.tick(20)
+        local asleep = H.hurt_line(T, 2)
+        W.p[2].dormant = false
+        T.tick(5)
+        local n5 = T.count("dbg uyandi:", m)
+        W.real_off = W.real_off + 6
+        W.p[3].dormant = true
+        T.tick(64)
+        W.sees[3] = 60
+        W.p[3].dormant = false
+        T.tick(5)
+        local dbg3 = H.bare(T.printed("dbg uyandi: Bravo", m))
+        T.tick(140)
+        local late = H.hurt_line(T, 3)
+        T.shutdown()
+        local _, tl = H.teshis(T)
+        H.check("T-DLOG-13", base ~= nil and not H.has(base, "uyandi") and not H.has(base, "uykuda")
+            and woke ~= nil and woke:find("uyandi 0%.2%ds once") ~= nil and H.has(asleep, ", uykuda)")
+            and late ~= nil and not H.has(late, "uyandi"), "vuruldun satiri: uyanmadan 0.2 sn sonra 'uyandi 0.2Xs once' ("
+            .. tostring(woke and woke:match("uyandi [%d%.]+s once")) .. "), dormant saldiran 'uykuda' ("
+            .. tostring(H.has(asleep, ", uykuda)")) .. "), hic uyumayan / 2 sn'den eski uyanma etiketsiz")
+        H.check("T-DLOG-13", dbg == "dbg uyandi: Alpha 500 u, 2.0 sn uyudu, ilk gorus gormuyor" and n5 == 1
+            and dbg3 == "dbg uyandi: Bravo 500 u, 1.0 sn uyudu, ilk gorus goruyor", "dbg uyandi: " .. tostring(dbg)
+            .. "; 5 sn icinde ikinci uyanma satirsiz (" .. n5 .. "); goren dusman: " .. tostring(dbg3))
+        H.check("T-DLOG-13", tl ~= nil and H.has(tl, "uyanma 3 (1 sn icinde vurulma 2, uyaninca bekleme atlandi 0)"),
+            "dbg teshis uyanma sayaclari: " .. tostring(tl and tl:match("uyanma.*$")))
     end)
     H.run("T-DLOG-11", function()
         local T = H.boot({ name = "dlog-11", pre = function(T, W)
@@ -4538,19 +4677,31 @@ function C.review()
         H.check("T-EX-13", ru.n == 0 and ush == 0, "gorulmeyen DT'li ucus: teleport yok (" .. ru.n .. "), air lag / Smart"
             .. " defensive yok, sarj teleporta kalir (" .. ush .. ")")
         -- X14 sadece Smart'ta (GS): eski yolda (Teleport in air kapali) Air durumu Off iken air lag zorlamaz.
-        local O = H.boot({ name = "ex-13-off", rec_off = true, setup = function(T)
-            T.set("air_teleport", false); T.xset("Air", "Defensive", 1); T.xset("Air crouch", "Defensive", 1)
-        end })
-        O.tick(40)
-        local ro = H.flight(O, 0, false)
-        local osh = O.shifts(ro.t0 + 2, ro.land - 1)
-        local Sm = H.boot({ name = "ex-13-smart", rec_off = true, setup = function(T) T.set("air_teleport", false) end })
-        Sm.W.p[2].origin = V.v3(5000, 0, 0); Sm.W.p[3].origin = V.v3(0, 5000, 0)
-        Sm.tick(40)
-        local rm = H.flight(Sm, 0, false)
-        local msh = Sm.shifts(rm.t0 + 2, rm.land - 1)
-        H.check("T-EX-13", osh == 0 and msh >= 10, "air lag sadece Smart'ta: Air durumu Off -> " .. osh .. " tetik; Smart (kimse"
-            .. " yakin degil) -> " .. msh .. " tetik")
+        local function airlag(name, edge)
+            local O = H.boot({ name = name .. "-off", rec_off = true, setup = function(T)
+                T.set("air_teleport", false); T.xset("Air", "Defensive", 1); T.xset("Air crouch", "Defensive", 1)
+                if not edge then H.edge_off(T) end
+            end })
+            O.tick(40)
+            local ro = H.flight(O, 0, false)
+            local Sm = H.boot({ name = name .. "-smart", rec_off = true, setup = function(T)
+                T.set("air_teleport", false)
+                if not edge then H.edge_off(T) end
+            end })
+            Sm.W.p[2].origin = V.v3(5000, 0, 0); Sm.W.p[3].origin = V.v3(0, 5000, 0)
+            Sm.tick(40)
+            local rm = H.flight(Sm, 0, false)
+            local _, oall = O.shifts(ro.t0 + 1, ro.land)
+            local _, mall = Sm.shifts(rm.t0 + 1, rm.land)
+            return O.shifts(ro.t0 + 2, ro.land - 1), Sm.shifts(rm.t0 + 2, rm.land - 1), oall, mall
+        end
+        local osh, msh = airlag("ex-13", false)
+        H.check("T-EX-13", osh == 0 and msh >= 10, "def_edge kapali: air lag sadece Smart'ta: Air durumu Off -> " .. osh
+            .. " tetik; Smart (kimse yakin degil) -> " .. msh .. " tetik")
+        -- Varsayilan (def_edge acik): Off -> ucusun tamaminda 0; Smart -> ucus basina tam 1.
+        local _, _, eo, em = airlag("ex-13-olay", true)
+        H.check("T-EX-13", eo == 0 and em == 1, "varsayilan: air lag sadece Smart'ta: Air durumu Off -> " .. eo
+            .. " zorlama (0); Smart (kimse yakin degil) -> ucusta " .. em .. " (1)")
     end)
     H.run("T-EX-14", function()
         -- Merdiven hava sayilmaz: Air LC / teleport / air lag / tam choke / jump scout yok.
@@ -4566,19 +4717,26 @@ function C.review()
         local an, ab = #A.unch - u0, A.calls_in(A.blk, t0, A.W.tick)
         local fl = H.frac(A.recs(t0 + 2, A.W.tick), function(r) return r.fakelag == true end)
         local sw = A.script_writes("misc/main/movement/autostrafer")
-        local B = H.boot({ name = "ex-14-uzak" })
-        B.W.p[2].origin = V.v3(5000, 0, 0); B.W.p[3].origin = V.v3(0, 5000, 0)
-        B.tick(30)
-        local b0 = B.W.tick
-        B.tick(60, ladder)
-        local bs = B.shifts(b0 + 2, B.W.tick)
+        -- def_edge kapali (her tick) ve acik (ucus basina bir, ilk tick dahil): merdivende air lag yok.
+        local bs = 0
+        for _, edge in ipairs({ false, true }) do
+            local B = H.boot({ name = "ex-14-uzak-" .. tostring(edge), rec_off = true,
+                setup = function(T) if not edge then H.edge_off(T) end end })
+            B.W.p[2].origin = V.v3(5000, 0, 0); B.W.p[3].origin = V.v3(0, 5000, 0)
+            B.tick(30)
+            local b0 = B.W.tick
+            B.tick(60, ladder)
+            local _, n = B.shifts(b0 + (edge and 1 or 2), B.W.tick)
+            bs = bs + n
+        end
         H.check("T-EX-14", an == 0 and ab == 0 and fl < 0.5 and sw == 0 and bs == 0, "merdivende (m_MoveType 9, yerde degil):"
             .. " goruluyorken uncharge " .. an .. ", sarj kilidi " .. ab .. ", tam choke %" .. H.f1(fl * 100) .. ", autostrafer"
-            .. " yazimi " .. sw .. "; kimse yakin degilken air lag tetigi " .. bs)
+            .. " yazimi " .. sw .. "; kimse yakin degilken air lag tetigi (def_edge kapali + acik) " .. bs)
     end)
     H.run("T-EX-15", function()
         -- Harita degisimi: tickcount bastan baslar; eski Smart tutma / anti-peek tick'leri yeni haritada surmez.
-        local T = H.boot({ name = "ex-15", tick = 150000 })
+        -- Eski yolda (def_edge kapali) bakilir: orada Smart tutma / anti-peek penceresi her tick zorlar.
+        local T = H.boot({ name = "ex-15", tick = 150000, rec_off = true, setup = H.edge_off })
         local W = T.W
         W.sees[2] = 60
         T.tick(40)
@@ -4592,7 +4750,7 @@ function C.review()
         T.tick(40)
         local a = T.shifts(10001, 10040)
         -- game_newmap gelmese de: yerel oyuncu bir kare yok, sonra tick geri.
-        local U = H.boot({ name = "ex-15-olaysiz", tick = 150000 })
+        local U = H.boot({ name = "ex-15-olaysiz", tick = 150000, rec_off = true, setup = H.edge_off })
         local Wu = U.W
         Wu.sees[2] = 60
         U.tick(40)
@@ -4605,17 +4763,373 @@ function C.review()
         local b = U.shifts(10001, 10040)
         H.check("T-EX-15", a == 0 and b == 0, "yeni haritada (tick 150000 -> 10000) kimse gormuyor / yakin degil: Smart tetigi"
             .. " game_newmap ile " .. a .. ", olaysiz (tick geri) " .. b)
+        -- Varsayilan (def_edge acik): eski haritanin son zorlama tick'i (X.shift_last) yeni haritada GAP'i kilitlemez;
+        -- yeni haritadaki ilk gorus yine tek zorlama (game_newmap ile ve olaysiz).
+        local function fresh(name, event)
+            local F = H.boot({ name = name, tick = 150000 })
+            local Wf = F.W
+            Wf.sees[2] = 60
+            F.tick(40)
+            local old = H.shift_all(F)
+            Wf.sees[2] = 0
+            F.tick(5)
+            Wf.real_off = Wf.real_off + (Wf.tick - 10000) * Wf.interval
+            Wf.tick = 10000
+            if event then F.event("game_newmap", { mapname = "de_nuke" }) end
+            F.tick(10)
+            Wf.sees[2] = 60
+            F.tick(100)
+            local _, new = F.shifts(10001, 10200)
+            return old, new
+        end
+        local o1, n1 = fresh("ex-15-olay", true)
+        local o2, n2 = fresh("ex-15-olay-olaysiz", false)
+        H.check("T-EX-15", o1 == 1 and n1 == 1 and o2 == 1 and n2 == 1, "varsayilan: eski haritada " .. o1 .. " / " .. o2
+            .. " zorlama (1), yeni haritada (tick geri) ilk gorus yine " .. n1 .. " (game_newmap) / " .. n2 .. " (olaysiz)")
     end)
     H.run("T-EX-16", function()
         -- force_anti_exploit_shift cagrilabilir ama 'function' olmayan bir nesne olsa da defensive acik kalir.
-        local T = H.boot({ name = "ex-16", pre = function(T, W)
-            T.EX.force_anti_exploit_shift = setmetatable({}, { __call = function() T.shift[W.tick] = (T.shift[W.tick] or 0) + 1 end })
-        end })
-        T.W.sees[2] = 60
+        local function callable(name, edge)
+            local T = H.boot({ name = name, rec_off = true, pre = function(T, W)
+                T.EX.force_anti_exploit_shift = setmetatable({}, { __call = function() T.shift[W.tick] = (T.shift[W.tick] or 0) + 1 end })
+            end, setup = function(T) if not edge then H.edge_off(T) end end })
+            T.W.sees[2] = 60
+            T.tick(40)
+            return T, T.shifts(T.W.tick - 30, T.W.tick), H.shift_all(T)
+        end
+        local T, n = callable("ex-16", false)
+        H.check("T-EX-16", n >= 20 and T.printed("defensive yok", 1) == nil, "def_edge kapali: cagrilabilir tablo olarak"
+            .. " defensive tetigi: Smart + goruluyor -> " .. n .. "/31 tick, '(defensive yok' yazilmaz")
+        local Te, _, all = callable("ex-16-olay", true)
+        H.check("T-EX-16", all == 1 and Te.printed("defensive yok", 1) == nil, "varsayilan: cagrilabilir tablo olarak"
+            .. " defensive tetigi: Smart + goruluyor 40 tick -> " .. all .. " zorlama (1)")
+    end)
+    H.run("T-EX-17", function()
+        -- A1: zorlanan defensive bir OLAY. Smart (Standing, varsayilan), DT dolu, sahte shift sarji harcamaz.
+        local A = H.boot({ name = "ex-17-surekli" })
+        A.W.sees[2] = 60
+        A.tick(300)
+        local a, at = H.shift_all(A)
+        H.check("T-EX-17", a == 1, "dusman 300 tick kesintisiz goruyor (Smart): force_anti_exploit_shift " .. a
+            .. " kez (1; tick " .. table.concat(at, ",", 1, math.min(#at, 6)) .. ")")
+        local B = H.boot({ name = "ex-17-yakin" })
+        B.tick(300)
+        local b = H.shift_all(B)
+        H.check("T-EX-17", b == 0, "dusman 300 tick sadece yakin (500 u, gormuyor): " .. b .. " zorlama (0)")
+        local Cn = H.boot({ name = "ex-17-kayip" })
+        Cn.W.sees[2] = 60
+        Cn.tick(100)
+        local c1 = H.shift_all(Cn)
+        Cn.W.sees[2] = 0
+        Cn.tick(100)
+        local c2 = H.shift_all(Cn)
+        Cn.W.sees[2] = 60
+        Cn.tick(100)
+        local c3 = H.shift_all(Cn)
+        H.check("T-EX-17", c1 == 1 and c2 == 1 and c3 == 2, "goruldu (100 tick) -> " .. c1 .. " (1), 100 tick kayip -> " .. c2
+            .. " (1), yeniden goruldu (100 tick) -> " .. c3 .. " (2)")
+        -- anti-peek kapali: ayni olay "smart" sebebiyle (yukselen kenar), yine tek.
+        local S = H.boot({ name = "ex-17-smart", rec_off = true, setup = function(T) T.set("anti_peek", false) end })
+        S.W.sees[2] = 60
+        S.tick(300)
+        local sn = H.shift_all(S)
+        H.check("T-EX-17", sn == 1 and S.count("def: shift (smart) | sarj 14/14") == 1, "anti-peek kapali: 300 tick goruluyor -> "
+            .. sn .. " zorlama (1), 'def: shift (smart) | sarj 14/14' " .. S.count("def: shift (smart)"))
+        -- Bicakli dusman menzilde: tekrar eder, GAP 32.
+        local K = H.boot({ name = "ex-17-bicak" })
+        K.tick(20)
+        local k0 = K.W.tick
+        H.knife_enemy(K.W, 3, 200)
+        K.tick(128)
+        local kn, kt = H.shift_all(K)
+        local even = #kt == 4
+        for i = 2, #kt do if kt[i] - kt[i - 1] ~= 32 then even = false end end
+        H.check("T-EX-17", kn == 4 and even and kt[1] ~= nil and kt[1] - k0 <= 2, "bicakli dusman 128 tick 200 birimde: " .. kn
+            .. " zorlama (4), araliklar 32 tick (" .. tostring(even) .. "; tick " .. table.concat(kt, ",") .. ", baslangic "
+            .. k0 .. ")")
+        -- def_edge kapali: eski her-tick sayisi (V1.0.4 ile ayni sahnede 302: 2 isinma + 300 tick, her biri).
+        local O = H.boot({ name = "ex-17-kapali", rec_off = true, setup = H.edge_off })
+        O.W.sees[2] = 60
+        O.tick(300)
+        local on = H.shift_all(O)
+        H.check("T-EX-17", on == H.OLD_SEEN_300, "def_edge kapali: 300 tick goruluyor -> " .. on .. " zorlama (eski davranis: "
+            .. H.OLD_SEEN_300 .. ")")
+    end)
+    H.run("T-EX-18", function()
+        -- A1 log: zorlama satiri, sarj harcanmadi (sahte shift sarja dokunmaz; haritada en fazla 3), sarj dolum suresi.
+        local T = H.boot({ name = "ex-18-harcamadi" })
+        local W = T.W
+        T.tick(10)
+        local m = T.mark()
+        H.knife_enemy(W, 3, 200)
+        T.tick(170)
+        local sh = H.shift_all(T)
+        local l1 = T.count("def: shift (knife) | sarj 14/14", m)
+        local l2 = T.count("def: shift sarj harcamadi (knife)", m)
+        local l3 = T.count("tick sonra doldu", m)
+        T.event("game_newmap", { mapname = "de_nuke" })
+        W.map = "de_nuke"
+        local m2 = T.mark()
         T.tick(40)
-        local n = T.shifts(T.W.tick - 30, T.W.tick)
-        H.check("T-EX-16", n >= 20 and T.printed("defensive yok", 1) == nil, "cagrilabilir tablo olarak defensive tetigi:"
-            .. " Smart + goruluyor -> " .. n .. "/31 tick, '(defensive yok' yazilmaz")
+        local again = T.count("def: shift sarj harcamadi (knife)", m2)
+        H.check("T-EX-18", sh == 6 and l1 == 6 and l2 == 3 and l3 == 0 and again >= 1, "sarji harcamayan shift: " .. sh
+            .. " zorlama (6), 'def: shift (knife) | sarj 14/14' " .. l1 .. " (6), 'def: shift sarj harcamadi (knife)' " .. l2
+            .. " (haritada en fazla 3), 'doldu' " .. l3 .. "; yeni haritada yine yazilir (" .. again .. ")")
+        -- Sarji harcayan shift: cagri sarji sifirlar, tick basina 1 dolar -> 14 tick sonra dolu.
+        local D = H.boot({ name = "ex-18-doldu", pre = function(T, W)
+            T.EX.force_anti_exploit_shift = function()
+                T.shift[W.tick] = (T.shift[W.tick] or 0) + 1
+                W.charge = 0
+            end
+        end })
+        local Wd = D.W
+        D.tick(10)
+        D.event("round_start", {})
+        local dm = D.mark()
+        Wd.sees[2] = 60
+        D.tick(60)
+        local dn = H.shift_all(D)
+        local a = D.count("def: shift (peek) | sarj 14/14", dm)
+        local b = D.count("def: sarj 14 tick sonra doldu (peek)", dm)
+        local c = D.count("harcamadi", dm)
+        D.event("round_start", {})
+        local line = D.printed("dbg sen ozeti:", dm)
+        H.check("T-EX-18", dn == 1 and a == 1 and b == 1 and c == 0 and H.has(line, " | shift 1, dolum ort 14.0t"),
+            "sarji harcayan shift: " .. dn .. " zorlama (1), 'def: shift (peek) | sarj 14/14' " .. a
+            .. ", 'def: sarj 14 tick sonra doldu (peek)' " .. b .. ", 'harcamadi' " .. c .. "; sen ozeti: " .. tostring(line))
+        -- Detailed log kapali: uc satir da yazilmaz (zorlama yine olur).
+        local Q = H.boot({ name = "ex-18-sessiz", setup = function(T) T.set("debug_log", false) end })
+        Q.W.sees[2] = 60
+        Q.tick(40)
+        H.check("T-EX-18", H.shift_all(Q) == 1 and Q.count("def: shift") == 0, "Detailed log kapali: zorlama " .. H.shift_all(Q)
+            .. " (1), 'def: shift' satiri " .. Q.count("def: shift") .. " (0)")
+    end)
+    H.run("T-EX-19", function()
+        -- A1: diger sebepler. Silah degisimi (yukselen kenar, GAP 64).
+        local Sw = H.boot({ name = "ex-19-silah" })
+        local W = Sw.W
+        Sw.tick(20)
+        W.p[1].weapon = H.weapon("deagle")
+        Sw.tick(100)
+        local s1 = H.shift_all(Sw)
+        W.p[1].weapon = H.weapon("ssg08")
+        Sw.tick(100)
+        local s2 = H.shift_all(Sw)
+        H.check("T-EX-19", s1 == 1 and s2 == 2 and Sw.count("def: shift (switch)") == 2, "silah degisimi (0.5 sn suren istek):"
+            .. " degisim basina tek zorlama (" .. s1 .. " / " .. s2 .. "; beklenen 1 / 2)")
+        -- Always on: tekrar eder, GAP 64.
+        local Al = H.boot({ name = "ex-19-always", rec_off = true, setup = function(T) T.xset("Standing", "Defensive", 4) end })
+        Al.tick(260)
+        local an, at = H.shift_all(Al)
+        local a64 = #at >= 4
+        for i = 2, #at do if at[i] - at[i - 1] ~= 64 then a64 = false end end
+        H.check("T-EX-19", a64 and an == #at, "Always on 262 tick: " .. an .. " zorlama, hepsi 64 tick arayla (" .. tostring(a64)
+            .. "; tick " .. table.concat(at, ",") .. ")")
+        -- Tick based 4: tick % 4 == 0 ve en az 14 tick ara -> 16 tick'te bir.
+        local Tk = H.boot({ name = "ex-19-tick", rec_off = true, setup = function(T)
+            T.xset("Standing", "Defensive", 5); T.xset("Standing", "Defensive every", 4)
+        end })
+        Tk.tick(160)
+        local tn, tt = H.shift_all(Tk)
+        local t16 = #tt >= 9
+        for i = 2, #tt do if tt[i] - tt[i - 1] ~= 16 then t16 = false end end
+        H.check("T-EX-19", t16 and tn == #tt, "Tick based 4, 162 tick: " .. tn .. " zorlama, hepsi 16 tick arayla (max(14, 4) ve"
+            .. " tick % 4; " .. tostring(t16) .. "; tick " .. table.concat(tt, ",", 1, math.min(#tt, 5)) .. ")")
+        -- On peek: tarama dizisi (HITSCAN her tick) -> dizinin basinda tek; 10 tick ara yeni dizi degil, 20 tick ara yeni dizi.
+        local Sc = H.boot({ name = "ex-19-tarama", rec_off = true, setup = function(T) T.xset("Standing", "Defensive", 2) end })
+        local Ws = Sc.W
+        Sc.tick(20)
+        Ws.scan[2] = true
+        Sc.tick(100)
+        local c1 = H.shift_all(Sc)
+        Ws.scan[2] = false; Sc.tick(10); Ws.scan[2] = true; Sc.tick(60)
+        local c2 = H.shift_all(Sc)
+        Ws.scan[2] = false; Sc.tick(20); Ws.scan[2] = true; Sc.tick(60)
+        local c3 = H.shift_all(Sc)
+        H.check("T-EX-19", c1 == 1 and c2 == 1 and c3 == 2, "On peek + 100 tick tarama: " .. c1 .. " zorlama (1); 10 tick aradan"
+            .. " sonra " .. c2 .. " (1); 20 tick (> 16) aradan sonra " .. c3 .. " (2)")
+        -- Hizli dusman (goruyor, > 150 u/s) yukselen kenari: gorulme surerken yeni olay.
+        local F = H.boot({ name = "ex-19-hizli" })
+        local Wf = F.W
+        Wf.sees[2] = 60
+        F.tick(80)
+        local f1 = H.shift_all(F)
+        Wf.p[2].vel = V.v3(0, 200, 0)
+        F.tick(80)
+        local f2 = H.shift_all(F)
+        H.check("T-EX-19", f1 == 1 and f2 == 2, "goruluyor (80 tick) -> " .. f1 .. " (1); goren dusman 200 u/s'ye cikti, 80 tick"
+            .. " hizli kaldi -> " .. f2 .. " (2)")
+        -- AFK: tekrar eder, GAP 64.
+        local Af = H.boot({ name = "ex-19-afk", setup = function(T) T.set("afk", true) end })
+        Af.tick(260)
+        local fn, ft = H.shift_all(Af)
+        local f64 = #ft >= 3
+        for i = 2, #ft do if ft[i] - ft[i - 1] < 64 then f64 = false end end
+        H.check("T-EX-19", f64 and fn == #ft and Af.count("def: shift (afk)") >= 3, "AFK 262 tick: " .. fn .. " zorlama, aralar"
+            .. " >= 64 tick (" .. tostring(f64) .. "; tick " .. table.concat(ft, ",") .. "), 'def: shift (afk)' "
+            .. Af.count("def: shift (afk)"))
+        -- AI peek: yuruyus basina bir (GAP 48); eski yolda yuruyus boyunca her tick.
+        local Pk = H.boot({ name = "ex-19-aipeek" })
+        H.peek_world(Pk, Pk.W)
+        Pk.tick(400)
+        local pn, pt = H.shift_all(Pk)
+        local p48 = #pt >= 1
+        for i = 2, #pt do if pt[i] - pt[i - 1] < 48 then p48 = false end end
+        H.check("T-EX-19", p48 and pn == #pt and Pk.count("def: shift (aipeek)") >= 1, "AI peek 400 tick: " .. pn
+            .. " zorlama, aralar >= 48 tick (" .. tostring(p48) .. "; tick " .. table.concat(pt, ",") .. "), 'def: shift (aipeek)' "
+            .. Pk.count("def: shift (aipeek)"))
+    end)
+    H.run("T-RAGE-27", function()
+        -- N1: uyanma LC degil. Dusman 2 sn dormant, 300 birim otede yeniden gorunur: bekleme / ignore_target yok.
+        local T = H.boot({ name = "rage-27" })
+        local W = T.W
+        W.head_dmg[2] = 50
+        T.tick(30)
+        W.p[2].dormant = true
+        T.tick(128)
+        W.p[2].origin = V.v3(500, 300, 0)
+        W.p[2].dormant = false
+        local t0 = W.tick
+        local m = T.mark()
+        T.tick(40)
+        local ign = T.ignored(2, t0 + 1, t0 + 40)
+        local off = H.any(T.hsr(2, t0 + 1, t0 + 40), H.all_off)
+        local id = T.shoot(2)
+        T.tick(1)
+        T.hit(id, { hg = 2, dmg = 20, no_event = true })
+        T.tick(2)
+        local det = T.printed("dbg atis-detay:", m)
+        H.check("T-RAGE-27", ign == 0 and not off and det ~= nil and det:find("LC", 1, true) == nil
+            and T.count("gercek kayit beklendi", m) == 0, "2 sn dormant + 300 u otede uyanma: ignore_target " .. ign
+            .. " (0), grup kapatma " .. tostring(off) .. ", kayitta LC yok: " .. tostring(det))
+        -- Uyanmadan sonraki 32 tick icinde defensive: bekleme baslamaz (teshis sayaci); 32 tick'ten sonra baslar.
+        local U = H.boot({ name = "rage-27-def" })
+        local Wu = U.W
+        Wu.head_dmg[2] = 50
+        U.tick(30)
+        Wu.p[2].dormant = true
+        U.tick(128)
+        Wu.p[2].dormant = false
+        U.tick(5)
+        local u0 = Wu.tick
+        Wu.p[2].sim_shift = 6
+        U.tick(1)
+        Wu.p[2].sim_shift = 0
+        U.tick(40)
+        local early = U.ignored(2, u0 + 1, u0 + 30)
+        local u1 = Wu.tick
+        Wu.p[2].sim_shift = 6
+        U.tick(1)
+        Wu.p[2].sim_shift = 0
+        U.tick(30)
+        local late = U.ignored(2, u1 + 1, u1 + 12)
+        U.shutdown()
+        local _, tl = H.teshis(U)
+        H.check("T-RAGE-27", early == 0 and late >= 3 and H.has(tl, "uyanma 1 (1 sn icinde vurulma 0, uyaninca bekleme atlandi 1)"),
+            "uyanmadan 5 tick sonra sahte kayit: bekleme yok (" .. early .. "); 46 tick sonra: bekleme var (" .. late
+            .. "); teshis: " .. tostring(tl and tl:match("uyanma.*$")))
+    end)
+    H.run("T-RAGE-28", function()
+        -- N1: LC (64 birimden uzun atlama, sim zamani ileri) gercek kayit beklemesi baslatmaz; defensive baslatir.
+        local T = H.boot({ name = "rage-28-lc" })
+        local W = T.W
+        W.head_dmg[2] = 50
+        T.tick(30)
+        local t0 = W.tick
+        local m = T.mark()
+        W.p[2].origin = V.v3(500, 200, 0)
+        T.tick(30)
+        local lc = T.ignored(2, t0 + 1, t0 + 30)
+        local id = T.shoot(2)
+        T.tick(1)
+        T.hit(id, { hg = 2, dmg = 20, no_event = true })
+        T.tick(2)
+        W.p[2].origin = V.v3(500, 400, 0)
+        T.tick(2)
+        local id2 = T.shoot(2)
+        T.tick(1)
+        T.hit(id2, { hg = 2, dmg = 20, no_event = true })
+        T.tick(2)
+        local seen_lc = false
+        for _, l in ipairs(H.lines_with(T, "dbg atis-detay:", m)) do if l:find("LC", 1, true) then seen_lc = true end end
+        -- Iki atistan sonra 1.5 sn "duello" (bekleme yok) gecsin.
+        local t1 = W.tick + 120
+        T.tick(120)
+        W.p[2].sim_shift = 6
+        T.tick(1)
+        W.p[2].sim_shift = 0
+        T.tick(30)
+        local def = T.ignored(2, t1 + 1, t1 + 12)
+        H.check("T-RAGE-28", lc == 0 and seen_lc and def >= 3, "LC (200 u atlama, sim ileri; kayitta LC " .. tostring(seen_lc)
+            .. "): bekleme yok (" .. lc .. "); sim zamani geri gidince bekleme var (" .. def .. ")")
+        -- Dogrulama (gercek kayittan sonraki 3 tick) siniri asamaz: 13 tick sahte + dogrulama -> 14'te biter.
+        local L = H.boot({ name = "rage-28-sinir" })
+        local Wl = L.W
+        Wl.head_dmg[2] = 50
+        L.tick(30)
+        local lm = L.mark()
+        local l0 = Wl.tick
+        Wl.p[2].sim_shift = 14
+        L.tick(1)
+        Wl.p[2].sim_shift = 0
+        L.tick(40)
+        local line = H.bare(L.printed("gercek kayit beklendi", lm))
+        local span = L.ignored(2, l0 + 1, l0 + 40)
+        H.check("T-RAGE-28", line == "resolver: Alpha sahte kayitta (defensive): 14 tick gercek kayit beklendi, sinir doldu"
+            .. " (gercek kayit dogrulanirken)" and span <= 15, "13 tick sahte kayit + dogrulama: " .. tostring(line)
+            .. " (ignore_target " .. span .. " tick)")
+        -- 15 sn'lik satir siniri: yazilmayan beklemeler sonraki satira "(N kez)" olarak eklenir.
+        local function episode(T, W)
+            W.p[2].sim_shift = 6
+            T.tick(1)
+            W.p[2].sim_shift = 0
+            T.tick(60)
+        end
+        local R = H.boot({ name = "rage-28-kez" })
+        R.W.head_dmg[2] = 50
+        R.tick(30)
+        local rm = R.mark()
+        episode(R, R.W); episode(R, R.W)
+        local first = R.count("gercek kayit beklendi", rm)
+        R.W.real_off = R.W.real_off + 16
+        episode(R, R.W)
+        local lines = H.lines_with(R, "gercek kayit beklendi", rm)
+        H.check("T-RAGE-28", first == 1 and #lines == 2 and lines[1]:find(" kez)", 1, true) == nil
+            and lines[2]:sub(-8) == " (2 kez)", "15 sn icinde 2 bekleme -> " .. first .. " satir; 16 sn sonra 3. bekleme: "
+            .. tostring(lines[2]))
+    end)
+    H.run("T-RAGE-29", function()
+        -- Takip tick basina dusman basina bir kez (SETUP_COMMAND yedegi + NET_UPDATE ayni tick'te iki ornek almaz).
+        local T = H.boot({ name = "rage-29" })
+        local W = T.W
+        local t0 = W.tick
+        T.tick(50)
+        local mx, mn = 0, 99
+        for t = t0 + 1, W.tick do
+            local n = (T.simreads[2] or {})[t] or 0
+            mx, mn = math.max(mx, n), math.min(mn, n)
+        end
+        H.check("T-RAGE-29", mx == 1 and mn == 1, "NET_UPDATE calisirken dusman 2'nin sim zamani tick basina " .. mn .. ".."
+            .. mx .. " kez okunur (1)")
+        -- NET_UPDATE hic gelmezse yedek her tick calisir (iki tick'te bir degil) ve defensive yine yakalanir.
+        local F = H.boot({ name = "rage-29-yedek", pre = function(T, W) W.no_net = true end })
+        local Wf = F.W
+        Wf.head_dmg[2] = 50
+        local f0 = Wf.tick
+        F.tick(50)
+        local fx, fn = 0, 99
+        for t = f0 + 1, Wf.tick do
+            local n = (F.simreads[2] or {})[t] or 0
+            fx, fn = math.max(fx, n), math.min(fn, n)
+        end
+        local f1 = Wf.tick
+        Wf.p[2].sim_shift = 6
+        F.tick(1)
+        Wf.p[2].sim_shift = 0
+        F.tick(20)
+        local held = F.ignored(2, f1 + 1, f1 + 10)
+        H.check("T-RAGE-29", fx == 1 and fn == 1 and held >= 3, "NET_UPDATE yokken yedek: tick basina " .. fn .. ".." .. fx
+            .. " ornek (1), sahte kayit beklemesi " .. held .. " tick")
     end)
     H.run("T-RAGE-19", function()
         -- R5 / R6 tabani (GS ext_why): yerde, govde >= 60, govde oldurmuyor; yoksa kafa acik, MD dokunulmaz.
@@ -5281,7 +5795,10 @@ function C.chg()
             .. " defbitti yok, sebep '?' (" .. tostring(b) .. ")")
     end)
     H.run("T-CHG-3", function()
-        local T = H.boot({ name = "chg-3", rec_off = true, setup = function(T) T.xset("Standing", "Defensive", 4) end })
+        -- def_edge kapali: Always on dolu oldugu her tick zorlar (sayaclar tick tick dogrulanir).
+        local T = H.boot({ name = "chg-3", rec_off = true, setup = function(T)
+            T.xset("Standing", "Defensive", 4); H.edge_off(T)
+        end })
         local W = T.W
         T.tick(40)
         W.auto_recharge = false
@@ -5299,7 +5816,7 @@ function C.chg()
         local line = T.printed("dbg sen ozeti:", m)
         local want = "dbg sen ozeti: 40 tick canli, DT acik 40 | defensive zorlanan 10 tick, gorulen (sim) 0, zorlanip gorulen 0"
             .. " | teleport 0, sonrasi 1.5 sn icinde vurulma 0 | yarim sarj 7 tick (goruluyorken 2), defensive bitisi 0"
-            .. " | sarj tavani 14"
+            .. " | sarj tavani 14 | shift 10, dolum ort ?t"
         -- Ikinci round: inis teleportu + 1.5 sn icinde vurulma + kendi defensive bitisi.
         W.auto_recharge = true
         W.sees[2], W.sees[3] = 0, 0
@@ -5393,7 +5910,8 @@ function C.chg()
     end)
     H.run("T-CHG-6", function()
         local function inst(name, order)
-            local T = H.boot({ name = name })
+            -- def_edge kapali: bekci DEF etiketli atis ister (goruluyorken her tick zorlanan defensive).
+            local T = H.boot({ name = name, rec_off = true, setup = H.edge_off })
             local W = T.W
             W.sees[2], W.sees[3] = 60, 60
             T.tick(40)
@@ -5439,7 +5957,7 @@ function C.chg()
             .. " (" .. tostring(back ~= nil) .. "); 3 ret 1 dusmanda: bekci yok, 11 sn sonra defensive " .. bs)
     end)
     H.run("T-CHG-7", function()
-        local T = H.boot({ name = "chg-7" })
+        local T = H.boot({ name = "chg-7", rec_off = true, setup = H.edge_off })
         local W = T.W
         W.sees[2], W.sees[3] = 60, 60
         W.head_dmg[2] = 50; W.body_dmg[2] = 40
@@ -5480,7 +5998,7 @@ function C.chg()
         local clean = A.count("sunucu atislari reddediyor", am)
         local untagged = A.count("sen ssg08 temiz", am) + A.count("sen ssg08 |", am)
         -- (b) GS V1.0.19 arka plan ret orani (%12, tekrarlanabilir): 300 atis, 2 dusman, varsayilan ayarlar -> hic tetik yok.
-        local B = H.boot({ name = "chg-8-arka-plan" })
+        local B = H.boot({ name = "chg-8-arka-plan", rec_off = true, setup = H.edge_off })
         local Wb = B.W
         Wb.sees[2], Wb.sees[3] = 60, 60
         B.tick(40)
@@ -5759,6 +6277,7 @@ function C.stat_full()
         local T = H.boot({ name = "stat-1", rec_off = true, setup = function(T)
             T.xset("Standing", "Defensive", 4)
             T.set("stats_panel", true)
+            H.edge_off(T)
         end })
         local W = T.W
         T.tick(40)

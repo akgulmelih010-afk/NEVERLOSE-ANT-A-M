@@ -1123,6 +1123,9 @@
      "Defensive while switching weapons": {
       "is active": true
      },
+     "Defensive: one shift per event (no repeat while seen)": {
+      "is active": true
+     },
      "Force defensive when seen / near (Smart)": {
       "is active": true
      },
