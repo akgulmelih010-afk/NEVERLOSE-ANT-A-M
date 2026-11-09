@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.5"
+H.VER = "V1.0.6"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -1018,6 +1018,16 @@ function H.make(opts)
         local oa, ob = owner_of(a, 80), owner_of(b, 80)
         if oa ~= nil and ob ~= nil and oa ~= ob and (W.wall[oa] or W.wall[ob]) and (oa == 1 or ob == 1) then
             return { fraction = 0.5, entity = nil }
+        end
+        -- A1: dusman gozu -> benim kafam cizgisi mock'ta mermi iziyle ayni dunyayi anlatir: dusman beni gormuyorsa
+        -- (W.sees 0, see_fn yok) arada duvar var sayilir. W.open_line[i] = true: mermi izi 0 ama cizgi acik (G31).
+        if oa ~= nil and ob == 1 and oa ~= 1 and P[oa] ~= nil and P[oa].enemy and skip ~= nil and rawget(skip, "_i") == oa
+            and b.z - P[1].origin.z >= 58 and (b.x - P[1].origin.x) ^ 2 + (b.y - P[1].origin.y) ^ 2 <= 36
+            and not (W.open_line and W.open_line[oa]) then
+            local fn = W.see_fn[oa]
+            local d = 0
+            if fn ~= nil then d = fn(b, a) or 0 else d = W.sees[oa] or 0 end
+            if d <= 0 then return { fraction = 0.5, entity = nil } end
         end
         if W.block_line ~= nil then
             local f = W.block_line(a, b)
@@ -4804,6 +4814,36 @@ function C.review()
         H.check("T-EX-16", all == 1 and Te.printed("defensive yok", 1) == nil, "varsayilan: cagrilabilir tablo olarak"
             .. " defensive tetigi: Smart + goruluyor 40 tick -> " .. all .. " zorlama (1)")
     end)
+    H.run("T-EX-20", function()
+        -- V1.0.6 A1: mermi izi 0 ama dusman gozunden kafama duz cizgi acik -> goruyor sayilir (tek olay) + teshis G31.
+        local A = H.boot({ name = "ex-20-cizgi" })
+        A.W.open_line = { [2] = true }
+        A.tick(300)
+        local a = H.shift_all(A)
+        H.check("T-EX-20", a == 1 and A.count("teshis: G31") == 1, "mermi izi 0, duz cizgi acik (300 tick): " .. a
+            .. " zorlama (1), 'teshis: G31' " .. A.count("teshis: G31") .. " (1)")
+        -- N2: yakinda (500 u) uyanan dusman (2 sn dormant) gormese de ilk gorus kenari: uyaninca tek zorlama.
+        local B = H.boot({ name = "ex-20-uyanma" })
+        B.tick(20)
+        B.W.p[2].dormant = true
+        B.tick(128)
+        local b0 = H.shift_all(B)
+        B.W.p[2].dormant = false
+        B.tick(60)
+        local b1 = H.shift_all(B)
+        H.check("T-EX-20", b0 == 0 and b1 == 1, "dormant iken " .. b0 .. " zorlama (0); 500 u'da uyaninca " .. b1 .. " (1)")
+        -- Uzakta (2500 u > NEAR) uyanan dusman kenar saymaz.
+        local Cn = H.boot({ name = "ex-20-uzak" })
+        Cn.W.p[2].origin.x, Cn.W.p[3].origin.x = 2500, 2600
+        Cn.tick(20)
+        Cn.W.p[2].dormant = true
+        Cn.tick(128)
+        Cn.W.p[2].dormant = false
+        Cn.tick(60)
+        local c = H.shift_all(Cn)
+        H.check("T-EX-20", c == 0, "2500 u'da uyanan dusman: " .. c .. " zorlama (0)")
+    end)
+
     H.run("T-EX-17", function()
         -- A1: zorlanan defensive bir OLAY. Smart (Standing, varsayilan), DT dolu, sahte shift sarji harcamaz.
         local A = H.boot({ name = "ex-17-surekli" })

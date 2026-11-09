@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.5  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.6  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,11 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.6 (primordial edition): ilk iki oyun logundan. Desync isareti varsayilani oyunda olculen yon (+ = sol; her
+        yuklemede 10-45 sn ters kaliyordu). "Goruyor" tespiti: dusman gozunden kafama mermi izi 0 donse de duz cizgi
+        aciksa goruyor sayilir (bize gelen mermilerin %50-81'i "gormedi" yaziliyordu; "teshis: G31" + dbg teshis
+        sayaci). Yakinda (NEAR) uyanan (dormant'tan cikan) dusman ilk gorus kenari sayilir (tek defensive olayi) ve
+        16 tick boyunca her tick kontrol edilir (sirasini beklemez). Sol liste 28 piksel iceriden (kenarda kesikti).
       V1.0.5 (primordial edition): zorlanan defensive artik OLAY (yeni "Defensive: one shift per event (no repeat while
         seen)", acik): Smart'ta dusman gorunmeye BASLAYINCA tek force_anti_exploit_shift, gorulme surerken tekrar yok,
         sadece "yakin" hic tetiklemez (eskiden sarj dolar dolmaz yine zorlaniyordu: duello tick'lerinin %26'si, her
@@ -79,7 +84,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.5", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.6", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -3112,6 +3117,10 @@ do
     E.sight, E.now_set, E.soon_set = {}, {}, {}
     E.now, E.soon, E.seen, E.near = false, false, false, false
     E.turn, E.last_tick, E.first_edge = 0, -1000, {}
+    -- N2: wake_edge[idx] = islenen son uyanma tick'i (T.wake). Yeni uyanan dusman (dormant'tan cikti) NEAR icindeyse
+    -- ilk gorus kenari sayilir (sunucu gorunmeyen dusmani gondermiyor: uyanma = peek) ve 16 tick boyunca her tick
+    -- kontrol edilir (sira beklemez).
+    E.wake_edge = {}
 
     E.enemies = function()
         local st = N.st
@@ -3161,7 +3170,17 @@ do
                 return true
             end
         end
-        return false
+        -- A1 (log 1-2: bize gelen mermilerin %50-81'i "gormedi"): mermi izi 0 dondu ama gozunden kafama duz cizgi
+        -- aciksa (lp'ye carpiyor ya da yol %97 acik) goruyor sayilir; trace.bullet'in lp hedefiyle 0 dondugu durumlar
+        -- (teshis: G31 sayaclari) artik "gorulmedi" yazilmaz.
+        -- Tahminli (birazdan gorecek) kontrolde yedek yok: sadece su anki konumlar icin.
+        if predict then
+            return false
+        end
+        local f, hit, okl = U.tline(from, vec3_t(hx, hy, hz), enemy)
+        local open = okl == true and (f >= 0.97 or (hit ~= nil and hit == lp))
+        N.diag.g31(open)
+        return open
     end
 
     E.update = function()
@@ -3171,28 +3190,47 @@ do
         local list = E.enemies()
         local mine = U.origin(lp)
         local near = false
+        local check = {}
         if mine ~= nil then
             for _, enemy in ipairs(list) do
                 local o = U.origin(enemy)
-                if o ~= nil and U.dist(o, mine) <= N.K.NEAR then
+                local close = o ~= nil and U.dist(o, mine) <= N.K.NEAR
+                if close then
                     near = true
+                end
+                local idx = U.index(enemy)
+                local tr = idx ~= nil and N.track.p[idx] or nil
+                if tr ~= nil and tr.wake_tick ~= nil and tick >= tr.wake_tick and tick - tr.wake_tick <= 16 then
+                    check[#check + 1] = enemy
+                    -- slept_ticks nil: tick geri gitti (yeni harita), gercek bir uyanma degil.
+                    if close and tr.slept_ticks ~= nil and E.wake_edge[idx] ~= tr.wake_tick then
+                        E.wake_edge[idx] = tr.wake_tick
+                        E.first_edge[idx] = tick
+                    end
                 end
             end
         end
         E.near = near
-        if tick - E.last_tick >= N.K.EXPOSE_EVERY or tick < E.last_tick then
-            E.last_tick = tick
+        local due = tick - E.last_tick >= N.K.EXPOSE_EVERY or tick < E.last_tick
+        if due or #check > 0 then
             local head = U.hitbox(lp, "HEAD")
-            local threat = st.threat
-            local check = {}
-            if threat ~= nil then
-                check[#check + 1] = threat
-            end
-            if #list > 0 then
-                E.turn = E.turn % #list + 1
-                local other = list[E.turn]
-                if other ~= threat then
-                    check[#check + 1] = other
+            if due then
+                E.last_tick = tick
+                local threat = st.threat
+                local function add(enemy)
+                    for _, e in ipairs(check) do
+                        if e == enemy then
+                            return
+                        end
+                    end
+                    check[#check + 1] = enemy
+                end
+                if threat ~= nil then
+                    add(threat)
+                end
+                if #list > 0 then
+                    E.turn = E.turn % #list + 1
+                    add(list[E.turn])
                 end
             end
             for _, enemy in ipairs(check) do
@@ -3261,7 +3299,7 @@ do
     end
 
     E.reset = function()
-        E.sight, E.now_set, E.soon_set, E.first_edge = {}, {}, {}, {}
+        E.sight, E.now_set, E.soon_set, E.first_edge, E.wake_edge = {}, {}, {}, {}, {}
         E.now, E.soon, E.seen = false, false, false
     end
 end
@@ -3437,7 +3475,7 @@ do
     local K = N.K
     A.flip = { side = false, packets = 0, extra = 0, step = 0, mstep = 0, yaw_n = 0, mod_n = 0, limit_n = 0,
         rand_side = false, cmdn = nil }
-    A.sign_mul = 1
+    A.sign_mul = -1
     A.cal = { n = 0, agree = 0, prev = nil, done = false, nil_n = 0, phase = 1, invert = false }
     A.cover, A.cover_auto, A.cover_tick = nil, false, -1000
     A.spin_angle, A.spin_cmdn, A.hspin = 0, nil, 0
@@ -5603,7 +5641,7 @@ do
         DG.c = { ticks = 0, ord_n = 0, ord_setup = 0, aa_calls = 0, aa_cmds = 0, aa_max = 0, ht_n = 0, ht_hs = 0,
             unpred_ok = 0, unpred_n = 0, filter = 0, reasons = {}, shots = 0, held = 0, lv_ticks = { 0, 0 },
             lv_shots = { 0, 0 }, g5 = 0, use_aa = 0, use_setup = 0, unch = { 0, 0, 0, 0 }, undrained = 0,
-            tr_sum = 0, tr_ticks = 0, tr_max = 0, wake = 0, wake_hurt = 0, wake_wait = 0 }
+            tr_sum = 0, tr_ticks = 0, tr_max = 0, wake = 0, wake_hurt = 0, wake_wait = 0, g31_open = 0, g31_n = 0 }
         DG.p1 = { id = nil, first = nil, done = true }
         DG.p2 = { tick = nil, first = nil, done = true }
         DG.aa_id, DG.aa_cur, DG.lvt, DG.tr_tick = nil, 0, {}, nil
@@ -5626,6 +5664,17 @@ do
     end
     DG.wake_wait = function()
         DG.c.wake_wait = DG.c.wake_wait + 1
+    end
+    -- G31: dusman gozunden kafama mermi izi 0 dondugunde duz cizgi acik miydi (acik = trace.bullet guvenilmez).
+    DG.g31 = function(open)
+        DG.c.g31_n = DG.c.g31_n + 1
+        if open then
+            DG.c.g31_open = DG.c.g31_open + 1
+            if not DG.g31_said then
+                DG.g31_said = true
+                N.log.line("teshis: G31 dusman->ben mermi izi 0 ama duz cizgi acik: goruyor sayildi (iz yedegi calisiyor)")
+            end
+        end
     end
 
     -- DG.cb pcall icinde calisir: komut nesnesi bozuksa o cagrinin sayaci atlanir.
@@ -5869,13 +5918,14 @@ do
                 .. " unpred bayrak %d/%d, olay filtresi ihlal %d, iska sebepleri %s (jitter %s), bekleme ihlali %d/%d,"
                 .. " seviye2 %.1f atis/sn (%d tick) seviye1 %.1f atis/sn (%d tick), sarj kilitliyken artis %d tick,"
                 .. " USE basiliyken aa %d/%d, uncharge tick 1:%d 2:%d 3:%d 4:%d (harcanmadi %d), DT tus modu %s,"
-                .. " iz/tick ort %.1f max %d (%d tick), uyanma %d (1 sn icinde vurulma %d, uyaninca bekleme atlandi %d)",
+                .. " iz/tick ort %.1f max %d (%d tick), uyanma %d (1 sn icinde vurulma %d, uyaninca bekleme atlandi %d),"
+                .. " G31 mermi izi 0 iken duz cizgi acik %d/%d",
                 c.ord_setup, c.ord_n, c.aa_cmds > 0 and c.aa_calls / c.aa_cmds or 0,
                 c.aa_max, c.ht_hs, c.ht_n, c.unpred_ok, c.unpred_n, c.filter, #hist > 0 and concat(hist, ", ") or "yok",
                 DG.reasons_seen.jitter and "var" or "yok", c.held, c.shots, DG.rate(2), c.lv_ticks[2], DG.rate(1),
                 c.lv_ticks[1], c.g5, c.use_aa, c.use_setup, c.unch[1], c.unch[2], c.unch[3], c.unch[4], c.undrained,
                 DG.dt_mode(), trt > 0 and (c.tr_sum + cur * DG.trn) / trt or 0, max(c.tr_max, cur * DG.trn), trt,
-                c.wake, c.wake_hurt, c.wake_wait))
+                c.wake, c.wake_hurt, c.wake_wait, c.g31_open, c.g31_n))
         end
         local tick = DG.tr_tick
         DG.reset()
@@ -9092,9 +9142,10 @@ do
         for _, item in ipairs(items) do
             local ok, size = pcall(render.get_text_size, D.big, item[1])
             local w = (ok and size ~= nil) and size.x or 60
-            pcall(render.rect_fade, vec2_t(4, y - 2), vec2_t(w + 24, 28), color_t(0, 0, 0, 120), color_t(0, 0, 0, 0),
+            -- V1.0.6: ekran goruntusunde yazi sol kenarda kesikti (x = 10): 28 piksel iceriden.
+            pcall(render.rect_fade, vec2_t(0, y - 2), vec2_t(w + 60, 28), color_t(0, 0, 0, 120), color_t(0, 0, 0, 0),
                 true)
-            D.text(D.big, item[1], 10, y, item[2], false)
+            D.text(D.big, item[1], 28, y, item[2], false)
             y = y - 30
         end
     end
