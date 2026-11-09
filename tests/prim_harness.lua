@@ -20,13 +20,17 @@
 --   T-MEM-1 hafiza 64 siniri                     T-OVR-1 override tusu yeniden cozulur
 --   T-PEEK-1..4 §1.6                             T-LOG-1..10 §4 / §5 / §6
 --   T-MISC-1..7 §1.8                             T-DRAW-1..2 §1.7
+--   T-DLOG-1..12 R1-B1 detayli log (N.dlog; her modda)
+--   T-PROF-1..12 R1-B2 dusman profili + hafiza v2 (N.profile; desen full, dosya ffi'li modlar, T-PROF-11 noffi)
 --   X-API-1..5 §3.1 / §3.2 (yasak API, liste disi API, kati enum, %d, kacan hata)
 local MODE, SRC = ARGV[1], ARGV[2]
 if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
+-- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
+H.VER = "V1.0.4"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
-    global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, insts = 0 }
+    global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
 function H.log(s)
     local t = tostring(s):gsub("[\r\n]", " ")
@@ -619,8 +623,8 @@ function H.make(opts)
         cmds = {}, natw = {}, cvw = {}, shift = {}, unch = {}, rmjump = {}, blk = {}, alw = {}, ftexts = {}, delays = {}, cbs = {},
         in_cb = 0, in_paint = false, fed = { ext = {}, extw = {}, hider = {}, shots = {} }, dsy = {}, ign_n = 0, cmdno = 100,
         group_col = {}, group_vis = {}, els = {}, el_list = {}, groups = {}, refcache = {}, find_unknown = {},
-        props_unknown = {}, clantags = {}, shot_id = 0, wrote = {}, raw_err = {}, ents = {}, fs = { h = {}, n = 0,
-        written = 0, pathids = {} }, fonts = 0, badnames = {}, sel_range = {}, el_set_bad = {} }
+        props_unknown = {}, clantags = {}, shot_id = 0, tb = {}, wrote = {}, raw_err = {}, ents = {}, fs = { h = {}, n = 0,
+        written = 0, pathids = {} }, fonts = 0, badnames = {}, sel_range = {}, el_set_bad = {}, ntr = {}, pread = {} }
     H.live[#H.live + 1] = T
     local W = { tick = opts.tick or 10000, interval = 1 / 64, choke_cycle = 4, choked = 0, charge = 14, max_charge = 14,
         auto_recharge = true, rc_blocked = false, keys = { dt = true, aa = true }, manual = 0, menu_open = false,
@@ -689,8 +693,25 @@ function H.make(opts)
     ENT.is_alive = function(o) local p = pl(o); return p ~= nil and p.alive and p.health > 0 end
     ENT.is_dormant = function(o) local p = pl(o); return p ~= nil and p.dormant == true end
     ENT.is_enemy = function(o) local p = pl(o); return p ~= nil and p.enemy == true end
-    ENT.get_name = function(o) local p = pl(o); return p and p.name or "" end
-    ENT.get_steamids = function(o) local p = pl(o); return "[U:1:" .. p.idx .. "]", p.steam64 end
+    -- T.pread[tick]: PAINT icindeki isim / Steam ID / iz / dusman varlik okumalari (T-STAT-7, FPS kurali).
+    local function paint_read(kind)
+        if T.in_paint then
+            local r = T.pread[W.tick] or { name = 0, sid = 0, trace = 0, ent = 0 }
+            T.pread[W.tick] = r
+            r[kind] = r[kind] + 1
+        end
+    end
+    -- Dusman varliginin her metot okumasi (get_index haric) PAINT'te sayilir.
+    local ent_index = ENT_MT.__index
+    ENT_MT.__index = function(o, k)
+        if T.in_paint and k ~= "get_index" then
+            local p = P[rawget(o, "_i")]
+            if p ~= nil and p.enemy then paint_read("ent") end
+        end
+        return ent_index(o, k)
+    end
+    ENT.get_name = function(o) paint_read("name"); local p = pl(o); return p and p.name or "" end
+    ENT.get_steamids = function(o) paint_read("sid"); local p = pl(o); return "[U:1:" .. p.idx .. "]", p.steam64 end
     ENT.get_class_name = function(o) return rawget(o, "_class") or "CCSPlayer" end
     ENT.is_player = function(o) return pl(o) ~= nil end
     ENT.is_valid = function() return true end
@@ -736,8 +757,11 @@ function H.make(opts)
         elseif name == "m_flDuckAmount" then return p.duck
         elseif name == "m_MoveType" then return p.movetype
         elseif name == "m_flNextAttack" then return p.next_attack or 0
-        elseif name == "m_flSimulationTime" then return (W.tick - p.sim_shift) * W.interval
-        elseif name == "m_flOldSimulationTime" then return (W.tick - 1 - p.sim_shift) * W.interval
+        elseif name == "m_flSimulationTime" or name == "m_flOldSimulationTime" then
+            -- sim_every: dusman paketleri bogar (fake duck), simulasyon zamani sim_every tick'te bir ilerler.
+            local st = W.tick - p.sim_shift - (name == "m_flOldSimulationTime" and (p.sim_every or 1) or 0)
+            if p.sim_every then st = st - st % p.sim_every end
+            return st * W.interval
         elseif name == "m_angEyeAngles" or name == "m_angEyeAngles[1]" or name == "m_angEyeAngles[0]" then
             if T.mode == "nofeature" then return nil end
             if name == "m_angEyeAngles[1]" or i == 1 then return p.eye_yaw end
@@ -754,6 +778,7 @@ function H.make(opts)
         elseif name == "m_vecViewOffset[2]" then return 64
         elseif name == "m_bDucking" then return p.ducking and 1 or 0
         elseif name == "m_flMaxspeed" then return 250
+        elseif name == "m_szLastPlaceName" then return p.place or ""
         end
         T.props_unknown[tostring(name)] = true
         return 0
@@ -914,7 +939,7 @@ function H.make(opts)
     local function near(a, b, r) return (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 + (a.z - b.z) ^ 2 <= r * r end
     local function owner_of(v, r)
         local best, bd = nil, r * r
-        for i = 1, 3 do
+        for i = 1, #P do
             local o = P[i].origin
             local d = (o.x - v.x) ^ 2 + (o.y - v.y) ^ 2
             if d <= bd and v.z >= o.z - 20 and v.z <= o.z + 90 then best, bd = i, d end
@@ -922,7 +947,17 @@ function H.make(opts)
         return best
     end
     local TR = {}
+    -- T.ntr[tick]: script'in bu tick'te attigi iz sayisi (T-DIAG-6 iz sayacini dogrular).
+    local function count_trace()
+        T.ntr[W.tick] = (T.ntr[W.tick] or 0) + 1
+        if T.in_paint then
+            local r = T.pread[W.tick] or { name = 0, sid = 0, trace = 0, ent = 0 }
+            T.pread[W.tick] = r
+            r.trace = r.trace + 1
+        end
+    end
     TR.bullet = function(from, to, skip, target)
+        count_trace()
         if type(from) ~= "table" or type(to) ~= "table" then error("trace.bullet: vec3 bekleniyor", 2) end
         local s = skip ~= nil and rawget(skip, "_i") or owner_of(from, 60)
         local t = target ~= nil and rawget(target, "_i") or owner_of(to, 40)
@@ -940,6 +975,9 @@ function H.make(opts)
         end
         local d = 0
         if s == 1 and P[t].enemy then
+            local seen = T.tb[W.tick] or {}
+            T.tb[W.tick] = seen
+            seen[t] = true
             local o = P[t].origin
             local head = (to.z - o.z) >= 58
             if W.ldmg ~= nil then
@@ -959,10 +997,12 @@ function H.make(opts)
         return res
     end
     TR.line = function(a, b, skip, mask)
+        count_trace()
         if type(a) ~= "table" or type(b) ~= "table" then error("trace.line: vec3 bekleniyor", 2) end
         local horiz = (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2
         if horiz < 4 and b.z < a.z then
-            local fz = W.no_floor and -10000 or W.floor_z
+            -- trace_dz: izin gordugu zemin fizik zemininden yuksek (inis tahmini sapmasi, T-CHG-4).
+            local fz = W.no_floor and -10000 or (W.floor_z + (W.trace_dz or 0))
             if fz <= a.z and fz >= b.z then return { fraction = (a.z - fz) / (a.z - b.z), entity = nil } end
             return { fraction = 1, entity = nil }
         end
@@ -1166,7 +1206,7 @@ function H.make(opts)
         return W.keys[kk] == true
     end
     KEY.get_key = function(k) return 5 end
-    KEY.get_mode = function(k) return 1 end
+    KEY.get_mode = function(k) return W.dt_mode or 1 end
     KEY.set = function(k, v)
         H.G.native_bad[#H.G.native_bad + 1] = T.name .. ": keybind :set " .. rawget(k, "_k") .. " <- " .. tostring(v)
     end
@@ -1237,7 +1277,7 @@ function H.make(opts)
         if W.raise_choked then error("enjekte test hatasi") end
         return W.choked
     end
-    ENG.get_latency = function() return 0.05 end
+    ENG.get_latency = function() return W.latency or 0.05 end
     ENG.is_in_game = function() return not W.no_local end
     ENG.is_connected = function() return not W.no_local end
     ENG.execute_cmd = function(s) T.cmds[#T.cmds + 1] = { tick = W.tick, s = tostring(s) } end
@@ -1347,10 +1387,12 @@ function H.make(opts)
     RN.text = function(font, s, pos, col, cx, cy)
         in_paint("text")
         if type(pos) ~= "table" then error("render.text: konum vec2 olmali", 2) end
-        T.frame[#T.frame + 1] = { s = tostring(s), x = pos.x, y = pos.y, cx = cx }
+        T.frame[#T.frame + 1] = { s = tostring(s), x = pos.x, y = pos.y, cx = cx,
+            fs = type(font) == "table" and font.size or nil }
     end
     RN.get_text_size = function(font, s) return V.v2(#tostring(s) * 7, 12) end
-    RN.get_screen_size = function() return V.v2(1920, 1080) end
+    -- W.screen_h: ekran yuksekligi (T-STAT-9, DPI'li stats paneli yazisi).
+    RN.get_screen_size = function() return V.v2(W.screen_w or 1920, W.screen_h or 1080) end
     RN.rect_filled = function() in_paint("rect_filled") end
     RN.rect_fade = function() in_paint("rect_fade") end
     RN.triangle_filled = function(pos)
@@ -1403,7 +1445,7 @@ function H.make(opts)
         if n == "m_bFreezePeriod" then return W.freeze and 1 or 0 end
         if n == "m_bWarmupPeriod" then return W.warmup and 1 or 0 end
         if n == "m_gamePhase" then return 2 end
-        if n == "m_totalRoundsPlayed" then return 3 end
+        if n == "m_totalRoundsPlayed" then return W.rounds or 3 end
         return 0
     end
 
@@ -1517,7 +1559,7 @@ function H.make(opts)
             get_local_player = function() if W.no_local then return nil end return T.ent(1) end,
             get_players = function(enemies_only)
                 local r = {}
-                for i = 1, 3 do if not enemies_only or P[i].enemy then r[#r + 1] = T.ent(i) end end
+                for i = 1, #P do if not enemies_only or P[i].enemy then r[#r + 1] = T.ent(i) end end
                 return r
             end,
             get_player_from_userid = function(u)
@@ -1550,7 +1592,13 @@ function H.make(opts)
             get_mouse_pos = function() return V.v2(0, 0) end }, {}),
         debug_overlay = H.ns("debug_overlay", {}, {}),
         materials = H.ns("materials", {}, {}),
-        player_resource = H.ns("player_resource", { get_prop = function() return 0 end }, {}),
+        -- missing modunda hic yok (ping yazilmaz, hata yok); index ile oyuncunun ping'i.
+        player_resource = mode ~= "missing" and H.ns("player_resource", { get_prop = function(n, i)
+            if type(n) ~= "string" then error("player_resource.get_prop: ad metin olmali", 2) end
+            local p = P[tonumber(i) or -1]
+            if n == "m_iPing" and p ~= nil then return p.ping or 0 end
+            return 0
+        end }, H.set_of({ "get_prop" })) or nil,
         vec2_t = H.vec2_t, vec3_t = H.vec3_t, angle_t = H.angle_t, color_t = H.color_t,
     }
     for k, v in pairs(H.ENUMS) do A[k] = v end
@@ -1582,7 +1630,7 @@ function H.make(opts)
             date = function() return "01/01/24 10:00:00" end },
     }
     for k, v in pairs(A) do base[k] = v end
-    local OPTIONAL = { ffi = true, memory = true, require = true, print = true }
+    local OPTIONAL = { ffi = true, memory = true, require = true, print = true, player_resource = mode == "missing" }
     local env = setmetatable({}, {
         __index = function(_, k)
             local w = T.wrote[k]
@@ -1701,7 +1749,8 @@ function H.make(opts)
         for k, v in pairs(fields or {}) do ev[k] = v end
         local list = T.cbs[H.CB.EVENT] or {}
         for _, h in ipairs(list) do
-            if h.filter == nil or h.filter == name then T.call(h.fn, ev) end
+            -- ignore_filter: oyun 3. argumani yok sayiyormus gibi her olay her islemciye (G24, T-DIAG-1).
+            if h.filter == nil or h.filter == name or W.ignore_filter then T.call(h.fn, ev) end
         end
     end
     function T.uid(i) return 100 + i end
@@ -1818,9 +1867,12 @@ function H.make(opts)
                 end
             end
             if W.choke_fixed ~= nil then W.choked = W.choke_fixed else W.choked = W.tick % W.choke_cycle end
-            if W.auto_recharge and W.keys.dt and not W.rc_blocked and W.charge < W.max_charge then
+            -- rc_leak: block_recharge sarji durdurmuyor (G5, T-DIAG-7).
+            if W.auto_recharge and W.keys.dt and (not W.rc_blocked or W.rc_leak) and W.charge < W.max_charge then
                 W.charge = W.charge + 1
             end
+            -- drain_at: force_uncharge sarji cagridan bir tick sonra bosaltir (H.lag_drain, G26 / T-CHG-9).
+            if W.drain_at ~= nil and W.tick >= W.drain_at then W.charge, W.drain_at = 0, nil end
             if #T.delays > 0 then
                 local keep = {}
                 local due = {}
@@ -1835,12 +1887,15 @@ function H.make(opts)
             T.last_cmd = cmd
             local aar = { tick = W.tick, choked = W.choked, n = 0 }
             local actx = setmetatable({ _r = aar }, AAC_MT)
+            -- aa_first: ANTIAIM SETUP_COMMAND'dan once; aa_twice: ANTIAIM ayni komutta iki kez (G1 / G27).
             if W.aa_first then
                 T.fire("ANTIAIM", actx, cmd, nil)
+                if W.aa_twice then T.fire("ANTIAIM", actx, cmd, nil) end
                 T.fire("SETUP_COMMAND", cmd)
             else
                 T.fire("SETUP_COMMAND", cmd)
                 T.fire("ANTIAIM", actx, cmd, nil)
+                if W.aa_twice then T.fire("ANTIAIM", actx, cmd, nil) end
             end
             local mv = (not W.raise_cmd) and cmd.move or nil
             if type(mv) == "table" then T.moves[W.tick] = { x = mv.x or 0, y = mv.y or 0 } end
@@ -1861,9 +1916,9 @@ function H.make(opts)
                 T.dsy[#T.dsy + 1] = { real = real, fake = real - s * 58 }
             end
             local tctx = setmetatable({}, TSC_MT)
-            T.fire("TARGET_SELECTION", tctx, cmd, nil)
-            if lp.alive and not W.no_local then
-                for i = 2, 3 do
+            local function scan()
+                if not lp.alive or W.no_local then return end
+                for i = 2, #P do
                     local p = P[i]
                     if p.alive and not p.dormant and (W.scan[i] or (W.head_dmg[i] or 0) > 0 or (W.body_dmg[i] or 0) > 0) then
                         local r = { tick = W.tick, idx = i, sp = {}, groups = {}, mds = {} }
@@ -1872,6 +1927,10 @@ function H.make(opts)
                     end
                 end
             end
+            -- hs_first: HITSCAN TARGET_SELECTION'dan once (sira sayaci, T-DIAG-1).
+            if W.hs_first then scan() end
+            T.fire("TARGET_SELECTION", tctx, cmd, nil)
+            if not W.hs_first then scan() end
             T.fire("NET_UPDATE")
             T.frame = {}
             T.in_paint = true
@@ -1912,6 +1971,7 @@ function H.make(opts)
             end
         end
         if T.ok and W.rc_blocked then H.G.rc_left[#H.G.rc_left + 1] = T.name end
+        for _, l in ipairs(H.nonascii(T)) do H.G.nonascii[#H.G.nonascii + 1] = T.name .. ": " .. l end
         for _, x in ipairs(T.sel_range) do H.G.forbidden["secim araligi disinda :set (" .. x .. ")"] = true end
         for _, x in ipairs(T.el_set_bad) do H.G.forbidden["checkbox'a bool olmayan :set (" .. x .. ")"] = true end
     end
@@ -2015,8 +2075,8 @@ end
 function C.load_full()
     H.run("T-LOAD-1", function()
         local T = H.make({ name = "load", raw = true })
-        H.check("T-LOAD-1", T.ok and T.printed("V1.0.0 (primordial edition) yuklendi") ~= nil,
-            "derlenir, yuklenir ve '[Nykle.win] V1.0.0 (primordial edition) yuklendi' basilir"
+        H.check("T-LOAD-1", T.ok and T.printed(H.VER .. " (primordial edition) yuklendi") ~= nil,
+            "derlenir, yuklenir ve '[Nykle.win] " .. H.VER .. " (primordial edition) yuklendi' basilir"
             .. (T.ok and "" or (": " .. tostring(T.load_err))))
         if not T.ok then error("yuklenemedi") end
         -- T-LOAD-3: tablo §2'nin kopyasi
@@ -3843,15 +3903,15 @@ function C.logs()
         T.event("round_start", {})
         T.tick(2)
         local f = files["nykle_log.txt"] or ""
-        local has = f:find("vuruldun:", 1, true) ~= nil and f:find("] V1.0.0 (primordial edition) yuklendi", 1, true) ~= nil
+        local has = f:find("vuruldun:", 1, true) ~= nil and f:find("] " .. H.VER .. " (primordial edition) yuklendi", 1, true) ~= nil
         T.press("log_clear")
         T.tick(2)
         local g = files["nykle_log.txt"] or ""
-        local cleared = g:find("vuruldun:", 1, true) == nil and g:find("] V1.0.0 (primordial edition) yuklendi", 1, true) ~= nil
+        local cleared = g:find("vuruldun:", 1, true) == nil and g:find("] " .. H.VER .. " (primordial edition) yuklendi", 1, true) ~= nil
         H.check("T-LOG-4", reset and has and cleared, "eski surum dosyasi yuklemede sifirlanir (" .. tostring(reset)
             .. "), round_start'ta satirlar dosyada (" .. tostring(has) .. "), Clear saved logs isareti birakir ("
             .. tostring(cleared) .. ")")
-        local keep = { ["nykle_log.txt"] = "10:00:00 [Nykle.win] V1.0.0 (primordial edition) yuklendi (hafiza: 0 oyuncu)\n10:00:01 [Nykle.win] TUT BENI\n" }
+        local keep = { ["nykle_log.txt"] = "10:00:00 [Nykle.win] " .. H.VER .. " (primordial edition) yuklendi (hafiza: 0 oyuncu)\n10:00:01 [Nykle.win] TUT BENI\n" }
         local U = H.boot({ name = "log-4-ayni", files = keep })
         U.event("round_start", {})
         U.tick(2)
@@ -3926,32 +3986,48 @@ function C.logs()
             .. " round_start'ta (" .. n .. ") DT / fake ping / FL / MD alanlariyla; fake ping acik -> uyari: " .. l:sub(1, 120))
     end)
     H.run("T-LOG-10", function()
-        local big = "10:00:00 [Nykle.win] V1.0.0 (primordial edition) yuklendi (hafiza: 0 oyuncu)\n" .. string.rep("x", 4200000) .. "\n"
+        local big = "10:00:00 [Nykle.win] " .. H.VER .. " (primordial edition) yuklendi (hafiza: 0 oyuncu)\n" .. string.rep("x", 4200000) .. "\n"
         local files = { ["nykle_log.txt"] = big }
         local T = H.boot({ name = "log-10-buyuk", files = files })
         T.event("round_start", {})
         T.tick(2)
         local f = files["nykle_log.txt"] or ""
         local said = T.printed("onceki log 4 MB'yi gecmisti") ~= nil or f:find("onceki log 4 MB'yi gecmisti", 1, true) ~= nil
-        H.check("T-LOG-10", #f < 100000 and said and f:find("] V1.0.0 (primordial edition) yuklendi", 1, true) ~= nil,
+        H.check("T-LOG-10", #f < 100000 and said and f:find("] " .. H.VER .. " (primordial edition) yuklendi", 1, true) ~= nil,
             "4 MB ustu log yuklemede yukleme satiri + 'onceki log 4 MB'yi gecmisti' ile yeniden yazilir (" .. #f .. " bayt)")
+        -- Oturumda 2 MB: siniri gecen toplu yazmanin sigan kismi + not dosyaya; sonra sadece ozet satirlari (harita /
+        -- dusman ozeti, teshis, kapanis) 128 KB yedek payla.
         local files2 = {}
         local U = H.boot({ name = "log-10-oturum", files = files2 })
         U.tick(2)
+        local cap = 2 * 1024 * 1024
+        local note = "log dosyasi bu oturumda 2 MB'yi gecti"
         local size_at, k = nil, 0
-        for i = 1, 30 do
+        for i = 1, 40 do
             for _ = 1, 1000 do U.hurt_me(2, 2, 1) end
             U.event("round_end", { winner = 2 })
-            if U.printed("sadece hafizada") and size_at == nil then size_at = #(files2["nykle_log.txt"] or "") end
+            if U.printed(note) and size_at == nil then size_at = #(files2["nykle_log.txt"] or "") end
             if size_at ~= nil then
                 k = k + 1
                 if k >= 2 then break end
             end
         end
-        local final = #(files2["nykle_log.txt"] or "")
-        H.check("T-LOG-10", size_at ~= nil and U.count("sadece hafizada") == 1 and final == size_at and final <= 2300000,
-            "oturumda 2 MB'den sonra tek 'sadece hafizada' satiri (" .. U.count("sadece hafizada") .. ") ve dosyaya ekleme yok ("
-            .. tostring(size_at) .. " -> " .. final .. " bayt)")
+        local mid = #(files2["nykle_log.txt"] or "")
+        U.tick(70)
+        U.event("game_newmap", { mapname = "de_nuke" })
+        U.W.map = "de_nuke"
+        U.tick(5)
+        U.shutdown()
+        local f = files2["nykle_log.txt"] or ""
+        local _, notes = f:gsub("log dosyasi bu oturumda 2 MB'yi gecti", "")
+        local tail = f:sub(size_at and size_at + 1 or 1)
+        local _, vur = tail:gsub("vuruldun:", "")
+        H.check("T-LOG-10", size_at ~= nil and size_at > cap - 400 and size_at <= cap + 400 and U.count(note) == 1
+            and notes == 1 and mid == size_at and vur == 0 and H.has(tail, "harita ozeti: ")
+            and f:find("script kaldirildi[^\n]*\n$") ~= nil and #f <= cap + 128 * 1024,
+            "2 MB'de dosya " .. tostring(size_at) .. " bayt (sigan kisim yazildi), not dosyada " .. notes .. " / konsolda "
+            .. U.count(note) .. ", sonra normal satir yok (" .. tostring(mid) .. ", vuruldun " .. vur .. "); harita ozeti ve"
+            .. " kapanis yine dosyada (" .. #f .. " bayt)")
     end)
 end
 function C.log_noffi()
@@ -3964,6 +4040,278 @@ function C.log_noffi()
         local again = T.printed("yuklendi", m) ~= nil
         H.check("T-LOG-5", l:find("log dosyasi yok", 1, true) ~= nil and again and #T.raw_err == 0,
             "ffi yok: hata yok, yukleme satiri '(log dosyasi yok' der, Print all logs halkayi basar: " .. l:sub(1, 120))
+    end)
+end
+
+-------------------------------------------------------------------------------
+-- Detayli log (R1-B1, N.dlog): T-DLOG-1..12, her modda.
+-------------------------------------------------------------------------------
+-- Satirin "[Nykle.win] " onekini at.
+function H.bare(l) return l and (l:gsub("^%[Nykle%.win%] ", "")) or nil end
+-- s icinde parcalar bu sirayla geciyor mu (duz metin).
+function H.in_order(s, parts)
+    if s == nil then return false end
+    local at = 1
+    for _, p in ipairs(parts) do
+        local i = s:find(p, at, true)
+        if i == nil then return false end
+        at = i + #p
+    end
+    return true
+end
+function H.nonascii(T)
+    local bad = {}
+    for _, l in ipairs(T.prints) do
+        if (l:find("dbg ", 1, true) or l:find("teshis:", 1, true)) and l:find("[\128-\255]") then bad[#bad + 1] = l end
+    end
+    return bad
+end
+-- Dusmana tek tick'lik sahte kayit: simulasyon zamani k tick geri (track'te k tick defensive: SETUP'ta k-1 geri,
+-- def_until = tick + k - 1).
+function H.def_episode(T, idx, k)
+    T.W.p[idx].sim_shift = k
+    T.tick(1)
+    T.W.p[idx].sim_shift = 0
+    T.tick(k + 4)
+end
+function C.dlog()
+    local missing = H.mode == "missing"
+    H.run("T-DLOG-1", function()
+        local T = H.boot({ name = "dlog-1" })
+        local W = T.W
+        W.head_dmg[2] = 60; W.body_dmg[2] = 40; W.can_fire = true; W.sees[2] = 60
+        T.tick(12)
+        local res = {}
+        for _, kind in ipairs({ "hit", "miss", "expire" }) do
+            local m = T.mark()
+            local id = T.shoot(2, { hc = 80, bt = 2 })
+            T.tick(2)
+            if kind == "hit" then T.hit(id, { hg = 1, dmg = 50 }) elseif kind == "miss" then T.miss(id, "spread") else T.tick(64 * 5 + 30) end
+            T.tick(2)
+            local a, ai = T.printed("atis: Alpha", m)
+            local d, di = T.printed("dbg atis-detay: Alpha @", m)
+            local ok = a ~= nil and d ~= nil and di == ai + 1 and H.in_order(d, { "aimbot bt 2t hc 80%", "vurulabilir" })
+                and d:find("| ben @", 1, true) ~= nil and d:find("nisan z+64", 1, true) ~= nil
+            res[#res + 1] = kind .. "=" .. tostring(ok)
+            if not ok then res[#res + 1] = tostring(d) end
+        end
+        H.check("T-DLOG-1", table.concat(res, " "):find("false", 1, true) == nil, "her atis sonucunun (isabet / iska / sonuc yok)"
+            .. " hemen altinda 'dbg atis-detay: <isim> @...' bt / hc / nisan z / vurulabilir / ben @ ile: " .. table.concat(res, " "))
+        -- Detailed log kapali: hicbir dbg / teshis satiri yok, atis satiri yine var.
+        T.set("debug_log", false)
+        local m = T.mark()
+        local id = T.shoot(2); T.tick(2); T.hit(id, { hg = 1, dmg = 50 }); T.tick(2)
+        W.wall[2] = true; T.hurt_me(2, 1, 20); W.wall[2] = nil
+        T.event("weapon_fire", { userid = 102, weapon = "weapon_ak47" }); T.event("weapon_fire", { userid = 102, weapon = "weapon_ak47" })
+        T.hurt_me(2, 2, 10); T.tick(70)
+        T.event("player_death", { userid = 103, attacker = 101, weapon = "ssg08", headshot = 1 })
+        T.event("round_end", { winner = 3 }); T.event("round_start", {}); T.event("round_start", {})
+        T.event("game_newmap", { mapname = "de_dust2" }); T.tick(10)
+        T.event("player_death", { userid = 101, attacker = 102, weapon = "ak47", penetrated = 1 })
+        T.tick(2)
+        local n = T.count("dbg ", m) + T.count("teshis: yer adi", m) + T.count("teshis: ping", m)
+        H.check("T-DLOG-1", n == 0 and T.printed("atis: Alpha", m) ~= nil, "Detailed log kapali: yeni dbg satiri yok ("
+            .. n .. ": " .. tostring(T.printed("dbg ", m)) .. "), atis satiri var")
+    end)
+    H.run("T-DLOG-2", function()
+        local T = H.boot({ name = "dlog-2" })
+        local P = T.W.p
+        local a = P[2]
+        a.place = "BombsiteA"; a.origin = V.v3(500, 0, 40); a.ground = false; a.vel = V.v3(30, 40, -120); a.duck = 0.8
+        a.ping = 35
+        T.tick(4)
+        local m = T.mark()
+        T.hurt_me(2, 1, 30, "ak47")
+        T.tick(1)
+        local l = T.printed("dbg vurulma-detay: Alpha", m)
+        local where = H.in_order(l, { "| @BombsiteA(500,0,40) 502u h+40 v50 havada vz-120 duck80", " hp100 ak47" })
+        local ping
+        if missing then
+            ping = l ~= nil and l:find("ping", 1, true) == nil
+        else
+            ping = H.in_order(l, { "ak47 ping35 |" })
+        end
+        H.check("T-DLOG-2", where and ping and #T.raw_err == 0 and T.printed("hata verdi") == nil, "konum bicimi"
+            .. " '@YerAdi(x,y,z) <mesafe>u h+dz v havada vz duck .. hp silah" .. (missing and "' (player_resource yok: ping yazilmaz, hata yok)"
+            or " ping35'") .. ": " .. tostring(l))
+        local own = H.in_order(l, { "| ben @", "(0,0,0) v0 hp100 ssg08" })
+        H.check("T-DLOG-2", own and l:find("| ben @%S+%(0,0,0%) %d+u") == nil, "ben: kendi konumun mesafesiz / bakissiz: " .. tostring(l))
+    end)
+    H.run("T-DLOG-3", function()
+        local T = H.boot({ name = "dlog-3" })
+        local W = T.W
+        T.tick(4)
+        local m = T.mark()
+        W.wall[2] = true
+        T.hurt_me(2, 1, 30)
+        local wall = T.printed("dbg vurulma-detay:", m)
+        W.wall[2] = nil
+        local m2 = T.mark()
+        T.event("weapon_fire", { userid = 102, weapon = "weapon_ssg08" })
+        W.real_off = W.real_off + 0.15
+        T.event("weapon_fire", { userid = 102, weapon = "weapon_ssg08" })
+        T.hurt_me(2, 2, 30)
+        local open = T.printed("dbg vurulma-detay:", m2)
+        H.check("T-DLOG-3", H.in_order(wall, { "dbg vurulma-detay: Alpha head -30 ssg08 | iz duvardan | @" })
+            and H.in_order(open, { "dbg vurulma-detay: Alpha chest -30 ssg08 | iz acik | @", "| son iki atisi arasi 0.15s (DT) ",
+            "| sen onu vuramiyordun | ben @" }), "vurulma-detay: duvar -> 'iz duvardan', acik -> 'iz acik', 0.15 sn arayla iki atis"
+            .. " -> 'son iki atisi arasi 0.15s (DT)': " .. tostring(wall) .. " / " .. tostring(open))
+    end)
+    H.run("T-DLOG-4", function()
+        local T = H.boot({ name = "dlog-4" })
+        T.tick(4)
+        local m = T.mark()
+        T.event("player_death", { userid = 103, attacker = 101, weapon = "ssg08", thrusmoke = true, attackerblind = 1 })
+        T.W.p[3].alive = false
+        T.tick(1)
+        T.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08", headshot = 1, penetrated = 1, noscope = 1 })
+        T.W.p[1].alive = false
+        T.tick(1)
+        local d = T.printed("dbg olum-detay:", m)
+        local k = T.printed("dbg kill-detay:", m)
+        H.check("T-DLOG-4", H.in_order(d, { "dbg olum-detay: Alpha ssg08 headshot, duvardan (1), noscope | @", "| AA ", "| ben @" })
+            and H.in_order(k, { "dbg kill-detay: Bravo ssg08 smoke icinden, kor | @" }), "olum / kill etiketleri: " .. tostring(d)
+            .. " / " .. tostring(k))
+    end)
+    H.run("T-DLOG-5", function()
+        local T = H.boot({ name = "dlog-5" })
+        local W = T.W
+        W.sees[2] = 60; W.sees[3] = 60
+        T.tick(10)
+        local m = T.mark()
+        local id = T.shoot(2)
+        T.tick(1)
+        T.event("player_death", { userid = 102, attacker = 101, weapon = "ssg08", headshot = true })
+        T.hit(id, { hg = 1, dmg = 120, no_event = true })
+        W.p[2].alive = false
+        T.tick(2)
+        local l = H.bare(T.printed("dbg duello: Alpha", m))
+        -- Bomba ile olum: bekleyen atis olsa da isabet sayilmaz.
+        local id2 = T.shoot(3)
+        T.tick(1)
+        T.event("player_death", { userid = 103, attacker = 101, weapon = "hegrenade" })
+        T.miss(id2, "spread")
+        T.tick(2)
+        local g = H.bare(T.printed("dbg duello: Bravo", m))
+        H.check("T-DLOG-5", l ~= nil and l:find("| sen: 1 ates 1 isabet | oldurdun", 1, true) ~= nil
+            and g ~= nil and g:find("| sen: 1 ates 0 isabet | oldurdun", 1, true) ~= nil, "player_death AIMBOT_HIT'ten once:"
+            .. " olduren isabet sayilir (" .. tostring(l) .. "), bomba ile olumde sayilmaz (" .. tostring(g) .. ")")
+    end)
+    H.run("T-DLOG-6", function()
+        local T = H.boot({ name = "dlog-6" })
+        T.tick(4)
+        H.def_episode(T, 2, 4)
+        H.def_episode(T, 2, 6)
+        local m0 = T.mark()
+        T.W.p[2].sim_shift = 2
+        T.tick(1)
+        local during = T.printed("dbg ", m0)
+        T.W.p[2].sim_shift = 0
+        T.tick(7)
+        local m = T.mark()
+        T.event("round_start", {})
+        local l = H.bare(T.printed("dbg def ozeti: Alpha", m))
+        H.check("T-DLOG-6", l == "dbg def ozeti: Alpha 3 kez, toplam 12t, ort 4.0t, en uzun 6t, 0 tanesi hareketliyken"
+            and T.printed("dbg def ozeti: Bravo", m) == nil, "4 / 6 / 2 tick'lik uc sahte kayit bolumu -> " .. tostring(l))
+    end)
+    H.run("T-DLOG-7", function()
+        local T = H.boot({ name = "dlog-7" })
+        T.tick(4)
+        local m = T.mark()
+        T.event("round_start", {})
+        T.event("round_start", {})
+        local n1, a1 = T.count("dbg ===== round", m), T.count("dbg ayarlar:", m)
+        T.hurt_me(3, 2, 10)
+        T.event("round_start", {})
+        local n2 = T.count("dbg ===== round", m)
+        local h = H.bare(T.printed("dbg ===== round", m))
+        H.check("T-DLOG-7", n1 == 1 and a1 == 1 and n2 == 2 and h == "dbg ===== round 4 | de_mirage | sen CT | ping 50ms =====",
+            "arka arkaya iki round_start: baslik " .. n1 .. " / ayarlar " .. a1 .. " kez; araya satir girince yine (" .. n2
+            .. "): " .. tostring(h))
+        local hm = T.count("dbg ===== harita de_mirage =====")
+        local m2 = T.mark()
+        T.event("game_newmap", { mapname = "de_nuke" })
+        T.W.map = "de_nuke"
+        T.tick(3)
+        H.check("T-DLOG-7", hm == 1 and T.printed("dbg ===== harita de_nuke =====", m2) ~= nil
+            and T.printed("dbg ayarlar:", m2) ~= nil, "harita basligi yuklemeden sonra bir kez (" .. hm .. "), harita degisince"
+            .. " yeni basik + dbg ayarlar")
+    end)
+    H.run("T-DLOG-8", function()
+        local T = H.boot({ name = "dlog-8" })
+        T.tick(2)
+        local m = T.mark()
+        T.event("round_end", { winner = 3, reason = 8 })
+        T.event("round_end", { winner = 2, reason = 9 })
+        T.event("round_end", { winner = 1, reason = 16 })
+        local a, b, c = T.printed("dbg round sonu:", m)
+        local lines = H.lines_with(T, "dbg round sonu:", m)
+        local want = { "dbg round sonu: CT kazandi (senin takimin)", "dbg round sonu: T kazandi",
+            "dbg round sonu: kazanan yok (oyun basi / yeniden baslatma)" }
+        local ok = #lines == 3
+        for i = 1, 3 do ok = ok and H.bare(lines[i]) == want[i] end
+        H.check("T-DLOG-8", ok, "round_end kazanan 3 / 2 / 1, takimin CT: " .. H.list(lines, 3))
+    end)
+    H.run("T-DLOG-9", function()
+        local T = H.boot({ name = "dlog-9" })
+        local W, P = T.W, T.W.p
+        W.can_fire = true; W.body_dmg[2] = 40
+        P[1].ground = false
+        T.tick(70, function(T, W) W.p[2].sim_shift = W.p[2].sim_shift + 2 end)
+        local l = T.printed("dbg sikmadi: Alpha") or ""
+        local need = { "onun kaydi sahte (DEF)", "sen havadasin", "kafa kapali" }
+        if not missing then need[#need + 1] = "hasar 40 < " end
+        local miss = {}
+        for _, x in ipairs(need) do if not l:find(x, 1, true) then miss[#miss + 1] = x end end
+        H.check("T-DLOG-9", #miss == 0 and l:find("sebep bilinmiyor", 1, true) == nil
+            and H.in_order(l, { "ates yok | ", " | MD ", " | sen ssg08 | silah ", " | @", " | DEF geri ", " AA ", " | ben @" }),
+            "sikmadi butun sebepler + silah / konum / kayit / sen kuyrugu (eksik: " .. H.list(miss, 4) .. "): " .. l)
+    end)
+    H.run("T-DLOG-10", function()
+        local T = H.boot({ name = "dlog-10" })
+        local W = T.W
+        W.sees[3] = 60
+        T.tick(6)
+        H.def_episode(T, 3, 4)
+        W.sees[3] = 0
+        local m = T.mark()
+        T.tick(64 * 3 + 20)
+        local l = H.bare(T.printed("dbg duello: Bravo", m))
+        local re = "^dbg duello: %S.* @.*| %d+%.%d%ds | ilk goren: .* | def %d+ kez %d+t %(%%%d+%)"
+        H.check("T-DLOG-10", l ~= nil and l:find(re) ~= nil and l:find("ilk goren: sadece o gordu | def 1 kez 4t (%", 1, true) ~= nil
+            and l:find("| ayrildi", 1, true) ~= nil, "duello satiri GS duzenine uyar: " .. tostring(l))
+    end)
+    H.run("T-DLOG-11", function()
+        local T = H.boot({ name = "dlog-11", pre = function(T, W)
+            W.p[4] = H.mkplayer(4, "Charlie", -500, 0, 0, true, "ak47")
+            W.p[5] = H.mkplayer(5, "Delta", 0, -500, 0, true, "ak47")
+            W.p[6] = H.mkplayer(6, "Echo", 400, 400, 0, true, "ak47")
+        end })
+        T.tick(10)
+        local t0 = T.W.tick + 1
+        T.tick(40)
+        local sum, mx, per = 0, 0, {}
+        for t = t0, t0 + 39 do
+            local n = 0
+            for i in pairs(T.tb[t] or {}) do n = n + 1; per[i] = (per[i] or 0) + 1 end
+            sum = sum + n
+            if n > mx then mx = n end
+        end
+        local all = true
+        for i = 2, 6 do if (per[i] or 0) < 8 then all = false end end
+        local avg = sum / 40
+        H.check("T-DLOG-11", avg <= 2.0 + 1e-9 and mx <= 3 and all, "5 dusman: tick basina ortalama " .. H.f1(avg)
+            .. " (<= 2), en fazla " .. mx .. " (<= 3) dusmana iz; her dusman 4 tick'te bir taranir (" .. tostring(all) .. ")")
+    end)
+    H.run("T-DLOG-12", function()
+        local T = H.boot({ name = "dlog-12", keep_afk = true })
+        H.sweep(T)
+        local kinds = {}
+        for _, k in ipairs({ "dbg atis-detay:", "dbg vurulma-detay:", "dbg olum-detay:", "dbg kill-detay:", "dbg duello:",
+            "dbg round sonu:", "dbg ===== round", "dbg ===== harita" }) do
+            if T.printed(k) == nil then kinds[#kinds + 1] = k end
+        end
+        H.check("T-DLOG-12", #kinds == 0, "genis taramada her dbg satir turu var (eksik: " .. H.list(kinds, 8) .. ")")
     end)
 end
 
@@ -4402,7 +4750,10 @@ function C.review()
         W.p[1].weapon = H.weapon("deagle")
         W.head_dmg[2] = 50
         T.tick(20)
-        local id = T.shoot(2); T.tick(2); T.miss(id, "resolver"); T.tick(5)
+        local id = T.shoot(2); T.tick(2); T.miss(id, "resolver")
+        -- 2 sn: profil ornegi her iki dusmanin hafiza kaydina saniyede bir dokunur (R1-B2); dosyadaki oturumu bu
+        -- oturumdan buyuk kayitlar yine de yeni rakibi atmaz.
+        T.tick(130)
         T.event("round_end", { winner = 2 })
         T.tick(2)
         local found, n = nil, 0
@@ -4433,8 +4784,1287 @@ function C.review()
 end
 
 -------------------------------------------------------------------------------
+-- Dusman profili ve hafiza v2 (R1-B2, N.profile): T-PROF-1..12. Desen / profil kontrolleri full modda (nofeature'da
+-- goz yaw'i yok), dosya kontrolleri ffi'li modlarda, oturumluk hafiza noffi'de.
+-------------------------------------------------------------------------------
+H.SID2, H.SID3 = "76561198000000002", "76561198000000003"
+-- Surum 2 hafiza metni: baslik + kayitlar + END <kayit sayisi>.
+function H.mem2(lines, session)
+    return "NYKLEMEM\t2\t" .. tostring(session or 5) .. "\n" .. (#lines > 0 and (table.concat(lines, "\n") .. "\n") or "")
+        .. "END\t" .. #lines .. "\n"
+end
+function H.pline(sid, name) return "P\t" .. sid .. "\t" .. name .. "\t5\t\t\t0,0,0\t0" end
+-- R: n static jitter xway spin random def fd
+function H.rline(sid, n, st, ji, xw, sp, ra, def, fd)
+    return table.concat({ "R", sid, n, st or 0, ji or 0, xw or 0, sp or 0, ra or 0, def or 0, fd or 0 }, "\t")
+end
+-- Hafiza dosyasinda bir kaydin alanlari (ilk eslesen), yoksa nil.
+function H.mem_rec(T, kind, key)
+    for _, f in ipairs((H.mem_lines(T, kind))) do
+        if key == nil or f[2] == key then return f end
+    end
+    return nil
+end
+-- Dusmanin goz yaw'ini her tick seq'ten (tick'e gore dongu) ver.
+function H.yaw_hook(idx, seq)
+    return function(T, W) W.p[idx].eye_yaw = seq[W.tick % #seq + 1] end
+end
+-- Atis + isabet: atis satirindaki desen ("AA ... dsy?").
+function H.shot_pattern(T, idx)
+    local m = T.mark()
+    local id = T.shoot(idx)
+    T.hit(id, { hg = 2, dmg = 1, no_event = true })
+    local l = T.printed("atis: ", m) or ""
+    return l:match("| (AA [^|]-) dsy%?") or ("? [" .. l:sub(1, 60) .. "]")
+end
+-- Dusmanlar gorunmez (dormant): hafiza dosyasi hic dokunulmadan yeniden yazilir (gidis-donus).
+function H.no_enemies(T, W) W.p[2].dormant = true; W.p[3].dormant = true end
+
+function C.prof()
+    local mode = H.mode
+    local files_ok = mode ~= "noffi"
+    if mode == "full" then
+        H.run("T-PROF-1", function()
+            local function cls(name, seq, def)
+                local T = H.boot({ name = "prof-1-" .. name })
+                local P = T.W.p
+                local hook = H.yaw_hook(2, seq)
+                T.tick(20, hook)
+                if def then
+                    -- Defensive penceresi (sahte kayit + gercek kayda donus sonrasi def_until) boyunca uc yaw 90.
+                    P[2].sim_shift = 6
+                    T.tick(3, function(T2, W) W.p[2].eye_yaw = 90 end)
+                    P[2].sim_shift = 0
+                    T.tick(2, function(T2, W) W.p[2].eye_yaw = 90 end)
+                    T.tick(4, hook)
+                end
+                return H.shot_pattern(T, 2)
+            end
+            local spin = {}
+            for i = 1, 9 do spin[i] = 180 + 40 * i end
+            local got = {
+                cls("static", { 170, 190 }), cls("jitter", { 140, 220 }), cls("xway", { 120, 180, 240 }),
+                cls("spin", spin), cls("random", { 180, 255, 200, 330, 275, 120, 213, 60 }),
+                cls("jitter-def", { 140, 220 }, true),
+            }
+            local want = { "AA statik", "AA jitter 80", "AA x-way", "AA spin", "AA random", "AA jitter 80" }
+            local ok = true
+            for i = 1, #want do if got[i] ~= want[i] then ok = false end end
+            H.check("T-PROF-1", ok, "desen sinifi (statik +-10, jitter +-40, -60/0/60, +40/tick, random, jitter + defensive"
+                .. " penceresinde yaw 90): " .. table.concat(got, " / "))
+        end)
+        H.run("T-PROF-2", function()
+            -- (a) 240'i gecince butun sayilar yariya.
+            local A = H.boot({ name = "prof-2-yari", files = { ["nykle_memory.txt"] = H.mem2({ H.pline(H.SID2, "Alpha"),
+                H.rline(H.SID2, 240, 240) }) } })
+            A.tick(80)
+            A.event("round_end", { winner = 2 }); A.tick(2)
+            local r = H.mem_rec(A, "R", H.SID2) or {}
+            local n, st = tonumber(r[3]) or 0, tonumber(r[4]) or 0
+            local halved = n >= 120 and n < 125 and st >= 120 and st < 123
+            -- (b) aliskanlik esikleri: ilk taramada (canli desen yok) safe point Head sadece gecerli aliskanlikta.
+            local function first_sp(name, rl)
+                local T = H.boot({ name = "prof-2-" .. name, files = { ["nykle_memory.txt"] = H.mem2({ H.pline(H.SID2, "Alpha"), rl }) } })
+                T.W.head_dmg[2] = 50
+                T.tick(1)
+                local recs = T.hsr(2, 0)
+                return #recs > 0 and H.sp_head(recs[1])
+            end
+            local h60 = first_sp("60", H.rline(H.SID2, 10, 4, 6))
+            -- Yuklemede bir ornek daha alinir (desen henuz "?"): 8 + 1 = 9 ornek.
+            local n9 = first_sp("n9", H.rline(H.SID2, 8, 0, 8))
+            local p50 = first_sp("50", H.rline(H.SID2, 10, 4, 5, 0, 0, 1))
+            local k7 = first_sp("k7", H.rline(H.SID2, 12, 0, 7))
+            -- (c) fake duck: yerde egilme 0.5, 8 tick'te bir guncelleme -> kayitta FD, profilde fd.
+            local F = H.boot({ name = "prof-2-fd" })
+            F.W.p[2].duck = 0.5; F.W.p[2].sim_every = 8
+            F.W.head_dmg[2] = 50; F.W.body_dmg[2] = 30
+            F.tick(70)
+            local m = F.mark()
+            local id = F.shoot(2); F.tick(1); F.hit(id, { hg = 2, dmg = 1, no_event = true })
+            local det = F.printed("dbg atis-detay: Alpha", m) or ""
+            F.event("round_end", { winner = 2 }); F.tick(2)
+            local fr = H.mem_rec(F, "R", H.SID2) or {}
+            local fd_ok = det:find(" FD AA ", 1, true) ~= nil and (tonumber(fr[10]) or 0) >= 1
+            H.check("T-PROF-2", halved and h60 and not n9 and not p50 and not k7 and fd_ok, "240 ustu yariya (R n "
+                .. tostring(r[3]) .. ", statik " .. tostring(r[4]) .. "); aliskanlik: 10 ornek %60 jitter -> Head ("
+                .. tostring(h60) .. "), 9 ornek yok (" .. tostring(not n9) .. "), %50 yok (" .. tostring(not p50)
+                .. "), 7 bilinen yok (" .. tostring(not k7) .. "); fake duck kayitta FD + profil fd " .. tostring(fr[10])
+                .. " (" .. det:sub(1, 90) .. ")")
+        end)
+    end
+    if mode == "full" or mode == "nofeature" then
+        H.run("T-PROF-3", function()
+            local seed = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 20, 2, 18) })
+            local T = H.boot({ name = "prof-3-hafiza", files = { ["nykle_memory.txt"] = seed } })
+            T.W.head_dmg[2] = 50
+            T.tick(1)
+            local first = T.hsr(2, 0)[1]
+            local on = first ~= nil and H.sp_head(first)
+            T.tick(100)
+            local n = T.count("resolver: Alpha jitter -> safe point Head (veri yok, hafizadan, dogrulanacak)")
+            local still = H.any(T.hsr(2, T.W.tick - 2), H.sp_head)
+            local B = H.boot({ name = "prof-3-yeni" })
+            B.W.head_dmg[2] = 50
+            B.tick(1)
+            local bfirst = B.hsr(2, 0)[1]
+            local boff = bfirst ~= nil and not H.sp_head(bfirst) and #bfirst.sp == 0
+            -- nofeature: canli desen hic gelmez -> on bilgi surer; full: canli desen statik -> on bilgi biter.
+            local want_still = mode == "nofeature"
+            H.check("T-PROF-3", on and n == 1 and still == want_still and boff, "hafizada jitter aliskanligi + canli desen"
+                .. " yok: ilk taramada set_safepoint_state(true, HEAD) (" .. tostring(on) .. "), 'hafizadan, dogrulanacak'"
+                .. " satiri " .. n .. " kez, 100 tick sonra on bilgi " .. tostring(still) .. " (beklenen " .. tostring(want_still)
+                .. "); hafizasiz rakip ilk taramada safe point yok (" .. tostring(boff) .. ")")
+        end)
+    end
+    if mode == "full" then
+        H.run("T-PROF-4", function()
+            local seed = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 20, 2, 18) })
+            local A = H.boot({ name = "prof-4-tutmadi", files = { ["nykle_memory.txt"] = seed } })
+            A.W.head_dmg[2] = 50
+            A.tick(30)
+            local miss = A.printed("resolver: Alpha hafiza tutmadi: genelde jitter, simdi statik (canli desen kullaniliyor, aliskanlik duzeltildi)")
+            local prior_off = not H.any(A.hsr(2, A.W.tick - 10), H.sp_head)
+            A.event("round_end", { winner = 2 }); A.tick(2)
+            local r = H.mem_rec(A, "R", H.SID2) or {}
+            local B = H.boot({ name = "prof-4-dogrulandi", files = { ["nykle_memory.txt"] = seed } })
+            B.W.head_dmg[2] = 50
+            B.tick(30, H.yaw_hook(2, { 140, 220 }))
+            local hit = B.printed("resolver: Alpha hafiza dogrulandi: genelde jitter, simdi ")
+            B.event("round_end", { winner = 2 }); B.tick(2)
+            local rb = H.mem_rec(B, "R", H.SID2) or {}
+            H.check("T-PROF-4", miss ~= nil and r[5] == "9" and prior_off and A.count("hafiza tutmadi") == 1 and hit ~= nil
+                and (tonumber(rb[5]) or 0) >= 18, "canli statik vs aliskanlik jitter -> tutmadi (" .. tostring(miss ~= nil)
+                .. "), jitter sayisi 18 -> " .. tostring(r[5]) .. ", on bilgi kalkti (" .. tostring(prior_off) .. ");"
+                .. " canli jitter -> dogrulandi (" .. tostring(hit ~= nil) .. "), sayilar yarilanmaz (" .. tostring(rb[5]) .. ")")
+        end)
+        H.run("T-PROF-5", function()
+            local seed = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 20, 20),
+                table.concat({ "K", H.SID2, 3, 1, 2, 10, 4, 2, 3, 5, 2 }, "\t") })
+            local T = H.boot({ name = "prof-5", files = { ["nykle_memory.txt"] = seed } })
+            T.tick(130)
+            -- Yeni rakibin de bu oturumda verisi olsun (kariyer): yine de taninmaz (dosyadan gelmedi).
+            local id = T.shoot(3); T.tick(2); T.hit(id, { hg = 1, dmg = 50 }); T.tick(2)
+            local want = "resolver: Alpha tanindi (hafiza): genelde statik (dogrulanacak), gecmis 3 harita, K/D 1/2,"
+                .. " atis 4/10 (kafa 2), correction 3"
+            local first = T.printed("tanindi (hafiza)")
+            local n1 = T.count("Alpha tanindi (hafiza)")
+            T.event("game_newmap", { mapname = "de_nuke" })
+            T.tick(130)
+            local n2, bravo = T.count("Alpha tanindi (hafiza)"), T.count("Bravo tanindi")
+            local second = H.lines_with(T, "Alpha tanindi (hafiza)")[2] or ""
+            H.check("T-PROF-5", first ~= nil and H.bare(first) == want and n1 == 1 and bravo == 0 and n2 == 2
+                and second:find("gecmis 4 harita", 1, true) ~= nil, "hafizadaki rakip haritada bir kez taninir ("
+                .. n1 .. " / yeni haritada toplam " .. n2 .. "), yeni rakip hic (" .. bravo .. "): " .. tostring(H.bare(first)))
+        end)
+        H.run("T-PROF-6", function()
+            local T = H.boot({ name = "prof-6" })
+            local P = T.W.p
+            local jit, stat = H.yaw_hook(2, { 140, 220 }), H.yaw_hook(2, { 180 })
+            T.tick(200)
+            -- Durum degisimi (egildi) + 0.6 sn jitter + statik: 1.5 sn oturma icinde, sayilmaz.
+            local m0 = T.mark()
+            P[2].duck = 1
+            T.tick(40, jit)
+            T.tick(200, stat)
+            local quiet = T.count("AA deseni", m0)
+            -- Kalici degisim (durum ayni): yazilir; 2 sn arayla 3 degisim daha: 10 sn sinirinda yazilmaz, 4. degisimde
+            -- kararsiz.
+            local m1 = T.mark()
+            T.tick(128, jit)
+            T.tick(128, stat)
+            T.tick(128, jit)
+            T.tick(128, stat)
+            local changed = H.lines_with(T, "AA deseni degisti", m1)
+            local unstable = H.lines_with(T, "AA deseni kararsiz", m1)
+            H.check("T-PROF-6", quiet == 0 and #changed == 1 and changed[1]:find("Alpha AA deseni degisti (statik -> ", 1, true)
+                ~= nil and #unstable == 1 and unstable[1]:find("(20 sn'de 4 degisim)", 1, true) ~= nil, "durum degisiminden"
+                .. " sonraki 1.5 sn'deki gecici desen sayilmaz (" .. quiet .. " satir); kalici degisim 1 kez yazilir ("
+                .. #changed .. ": " .. tostring(H.bare(changed[1])) .. "), 10 sn siniri, 4 degisimde kararsiz (" .. #unstable
+                .. ": " .. tostring(H.bare(unstable[1])) .. ")")
+        end)
+        H.run("T-PROF-7", function()
+            local files = {}
+            local A = H.boot({ name = "prof-7-a", files = files })
+            A.tick(10)
+            local id = A.shoot(2); A.tick(2); A.hit(id, { hg = 1, dmg = 50 }); A.tick(2)
+            id = A.shoot(2); A.tick(2); A.hit(id, { hg = 2, dmg = 30 }); A.tick(2)
+            id = A.shoot(2); A.tick(2); A.miss(id, "resolver"); A.tick(2)
+            A.hurt_me(2, 1, 20); A.tick(2); A.hurt_me(2, 2, 10); A.tick(2)
+            A.event("player_death", { userid = 102, attacker = 101, weapon = "ssg08", headshot = 1 })
+            A.tick(2)
+            A.event("player_death", { userid = 101, attacker = 102, weapon = "ak47" })
+            A.tick(70)
+            A.shutdown()
+            local want = "dusman ozeti: Alpha | K/D 1/1 | atis 3, isabet 2 (kafa 1), correction 1 | sana 2 mermi (kafa 1) | desen statik"
+            local la = H.bare(A.printed("dusman ozeti: Alpha"))
+            local order = H.lines_with(A, "dusman ozeti: ")
+            local B = H.boot({ name = "prof-7-b", files = files })
+            B.tick(70)
+            local tan = H.bare(B.printed("Alpha tanindi (hafiza)")) or ""
+            B.shutdown()
+            local lb = H.bare(B.printed("dusman ozeti: Alpha"))
+            H.check("T-PROF-7", la == want and lb == want and #order == 2 and order[1]:find("Alpha", 1, true) ~= nil
+                and tan:find("gecmis 1 harita, K/D 1/1, atis 2/3 (kafa 1), correction 1", 1, true) ~= nil, "kariyer: "
+                .. tostring(la) .. " | yeniden yuklemeden sonra ayni (" .. tostring(lb == want) .. "), olumune gore sirali ("
+                .. #order .. "), tanindi: " .. tan)
+        end)
+    end
+    if files_ok then
+        H.run("T-PROF-8", function()
+            -- (a) v1 dosyasi: P / F aynen okunur, v2 olarak yazilir, v1 metni .bak'a gider.
+            local pl = "P\t76561198000000077\tOld\t4\t3\tAir=c;Standing=chc\t12,4.50,7\t2"
+            local fl = "F\tstill\t1\t10\t3"
+            local v1 = "NYKLEMEM\t1\t5\n" .. pl .. "\n" .. fl .. "\n"
+            local V = H.boot({ name = "prof-8-v1", files = { ["nykle_memory.txt"] = v1 }, pre = H.no_enemies })
+            local load = V.printed("yuklendi") or ""
+            local bak1 = V.file("nykle_memory.bak")
+            V.shutdown()
+            local out = V.file("nykle_memory.txt") or ""
+            local v1_ok = load:find("(hafiza: 1 oyuncu)", 1, true) ~= nil and out:find("\n" .. pl .. "\n", 1, true) ~= nil
+                and out:find("\n" .. fl .. "\n", 1, true) ~= nil and out:sub(1, 13) == "NYKLEMEM\t2\t6\n"
+                and out:find("\nEND\t2\n$") ~= nil and bak1 == v1
+            -- (b) v2 gidis-donus: yaz, yukle, yaz -> sadece baslik oturumu degisir.
+            local files = { ["nykle_memory.txt"] = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 240, 240, 0, 0, 0, 0, 3, 1) }) }
+            local A = H.boot({ name = "prof-8-a", files = files })
+            A.tick(10)
+            local id = A.shoot(2); A.tick(2); A.hit(id, { hg = 1, dmg = 50 }); A.tick(2)
+            id = A.shoot(2); A.tick(2); A.miss(id, "resolver"); A.tick(70)
+            A.shutdown()
+            local f1 = files["nykle_memory.txt"]
+            local B = H.boot({ name = "prof-8-b", files = files, pre = H.no_enemies })
+            B.tick(5)
+            B.shutdown()
+            local f2 = files["nykle_memory.txt"]
+            local C2 = H.boot({ name = "prof-8-c", files = files, pre = H.no_enemies })
+            C2.tick(5)
+            C2.shutdown()
+            local f3 = files["nykle_memory.txt"]
+            local s1 = tonumber(f1:match("^NYKLEMEM\t2\t(%d+)\n")) or -1
+            local function body(f) return (f:gsub("^[^\n]*\n", "")) end
+            local rt = body(f1) == body(f2) and body(f2) == body(f3) and f2:match("^[^\n]*")
+                == "NYKLEMEM\t2\t" .. (s1 + 1) and f1:find("\nR\t" .. H.SID2 .. "\t", 1, true) ~= nil
+                and f1:find("\nK\t" .. H.SID2 .. "\t", 1, true) ~= nil and f1:find("%.50\t") ~= nil
+            H.check("T-PROF-8", v1_ok and rt, "v1 dosyasi aynen okunur ve v2 yazilir (" .. tostring(v1_ok) .. ": "
+                .. load:match("%(hafiza[^)]*%)") .. "); v2 yaz -> yukle -> yaz bayt bayt ayni, sadece oturum +1 ("
+                .. tostring(rt) .. ": " .. f1:gsub("\n", " / "):sub(1, 140) .. ")")
+        end)
+        H.run("T-PROF-9", function()
+            local good = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 20, 20) })
+            -- (a) ana dosya yarida kesik (END yok), .bak saglam.
+            local cut = good:sub(1, #good - 30)
+            local A = H.boot({ name = "prof-9-yedek", files = { ["nykle_memory.txt"] = cut, ["nykle_memory.bak"] = good },
+                pre = H.no_enemies })
+            local la = A.printed("yuklendi") or ""
+            local note = A.printed("hafiza dosyasi bozuk (END yok) -> yedek kullanildi (nykle_memory.bak)")
+            local main = A.file("nykle_memory.txt") or ""
+            local a_ok = la:find("(hafiza: 1 oyuncu, yedekten)", 1, true) ~= nil and note ~= nil
+                and main:find("\nEND\t%d+\n$") ~= nil and A.file("nykle_memory.bak") == good
+            -- (b) ikisi de bozuk: bos hafiza, hata yok.
+            local bad = "NYKLEMEM\t2\t5\n" .. H.pline(H.SID2, "Alpha") .. "\nEND\t5\n"
+            local B = H.boot({ name = "prof-9-bos", files = { ["nykle_memory.txt"] = bad, ["nykle_memory.bak"] = "cop" } })
+            local lb = B.printed("yuklendi") or ""
+            local nb = B.printed("hafiza dosyasi bozuk (kayit sayisi 5 != 1) -> bos hafiza (yedek de bozuk)")
+            -- (c) normal yazim: once onceki gecerli metin .bak'a.
+            local C2 = H.boot({ name = "prof-9-yaz", files = { ["nykle_memory.txt"] = good } })
+            local m1 = C2.file("nykle_memory.txt")
+            local c_ok = C2.file("nykle_memory.bak") == good and m1 ~= good
+            C2.tick(70)
+            C2.event("round_end", { winner = 2 }); C2.tick(2)
+            c_ok = c_ok and C2.file("nykle_memory.bak") == m1 and C2.file("nykle_memory.txt") ~= m1
+            -- (d) daha yeni surumun dosyasi (eski surume donuldu): okunmaz, hic yazilmaz.
+            local v3 = "NYKLEMEM\t3\t9\nX\tyeni\nEND\t1\n"
+            local D = H.boot({ name = "prof-9-v3", files = { ["nykle_memory.txt"] = v3 } })
+            D.tick(70)
+            D.event("round_end", { winner = 2 }); D.tick(2)
+            D.shutdown()
+            local d_ok = D.file("nykle_memory.txt") == v3 and D.printed("hafiza dosyasi daha yeni bir surumden (surum 3)") ~= nil
+            H.check("T-PROF-9", a_ok and lb:find("(hafiza: 0 oyuncu)", 1, true) ~= nil and nb ~= nil and B.ok
+                and #B.raw_err == 0 and c_ok and d_ok, "kesik ana dosya -> .bak (" .. tostring(a_ok) .. ": " .. tostring(la:match("%(hafiza[^)]*%)"))
+                .. "); ikisi de bozuk -> bos hafiza, hata yok (" .. tostring(nb ~= nil) .. "); yazimda once eski metin .bak'a ("
+                .. tostring(c_ok) .. "); yeni surumun dosyasina dokunulmaz (" .. tostring(d_ok) .. ")")
+        end)
+        H.run("T-PROF-10", function()
+            -- Oyun cokmus: config'te 4:3 (1.3333) kalmis, asil deger 1.7778 hafizada.
+            local seed = H.mem2({ "C\tr_aspectratio\t1.7778\t1", "C\tcl_disable_ragdolls\t0\t0" })
+            local function crashed(T, W) W.cv.r_aspectratio = 1.3333; W.cv.cl_disable_ragdolls = 1 end
+            local A = H.boot({ name = "prof-10-kapanis", files = { ["nykle_memory.txt"] = seed }, pre = crashed })
+            local rag = A.W.cv.cl_disable_ragdolls
+            A.shutdown()
+            local a = A.W.cv.r_aspectratio
+            local mem = A.file("nykle_memory.txt") or ""
+            local B = H.boot({ name = "prof-10-kapat", files = { ["nykle_memory.txt"] = seed }, pre = crashed })
+            B.set("enabled", false)
+            B.tick(3)
+            local b = B.W.cv.r_aspectratio
+            -- Uctan uca: senin degerin 1.7778, script 4:3 yazar, oyun coker (kapanis yok); sonraki oturum config'teki
+            -- 1.3333'u degil 1.7778'i geri yazar. Temiz kapanista C kaydi silinir.
+            local D = H.boot({ name = "prof-10-yeni", pre = function(T, W) W.cv.r_aspectratio = 1.7778 end })
+            local first = H.mem_rec(D, "C", "r_aspectratio")
+            local crash = { ["nykle_memory.txt"] = D.file("nykle_memory.txt") }
+            D.shutdown()
+            local gone = H.mem_rec(D, "C", "r_aspectratio") == nil
+            local E = H.boot({ name = "prof-10-cokme", files = crash, pre = function(T, W) W.cv.r_aspectratio = 1.3333 end })
+            E.shutdown()
+            local e = E.W.cv.r_aspectratio
+            H.check("T-PROF-10", math.abs(a - 1.7778) < 1e-4 and math.abs(b - 1.7778) < 1e-4 and rag == 0
+                and not mem:find("\nC\tr_aspectratio", 1, true) and first ~= nil and first[3] == "1.7778" and gone
+                and math.abs(e - 1.7778) < 1e-6,
+                "cokmeden kalan 1.3333 yerine asil deger hafizadan: kapanis " .. H.f1(a) .. " (" .. tostring(a) .. "), kapatma "
+                .. tostring(b) .. "; tutulmayan cvar (ragdoll) yuklemede geri (" .. tostring(rag) .. "); C kaydi ilk yazimda"
+                .. " var (" .. tostring(first and first[3]) .. "), temiz birakista silinir (" .. tostring(gone) .. "); cokme sonrasi"
+                .. " oturum " .. tostring(e))
+        end)
+        H.run("T-PROF-12", function()
+            local seed = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 20, 20),
+                table.concat({ "K", H.SID2, 3, 1, 2, 10, 4, 2, 3, 5, 2 }, "\t"), "F\tstill\t1\t10\t3",
+                "C\tr_aspectratio\t1.7778\t1" })
+            local T = H.boot({ name = "prof-12", files = { ["nykle_memory.txt"] = seed } })
+            T.tick(5)
+            local before = T.file("nykle_memory.txt")
+            T.press("stats_reset")
+            T.tick(2)
+            local same = T.file("nykle_memory.txt") == before
+            local m = T.mark()
+            T.press("forget")
+            T.tick(2)
+            local f = T.file("nykle_memory.txt") or ""
+            local learned = #H.mem_lines(T, "P") + #H.mem_lines(T, "R") + #H.mem_lines(T, "K") + #H.mem_lines(T, "F")
+            local c = H.mem_rec(T, "C", "r_aspectratio")
+            local bak = T.file("nykle_memory.bak") or ""
+            H.check("T-PROF-12", same and learned == 0 and c ~= nil and c[3] == "1.7778" and f:find("\nEND\t%d+\n$") ~= nil
+                and bak == f and T.count("ogrenilen dusmanlar unutuldu", m) == 1, "Reset stats hafizaya dokunmaz ("
+                .. tostring(same) .. "); Forget: P / R / K / F silinir (" .. learned .. " kaldi), C kalir (" .. tostring(c and c[3])
+                .. "), .bak da yeni metin (" .. tostring(bak == f) .. "), bir satir")
+        end)
+    else
+        H.run("T-PROF-11", function()
+            local T = H.boot({ name = "prof-11-noffi" })
+            T.tick(10)
+            local id = T.shoot(2); T.tick(2); T.hit(id, { hg = 1, dmg = 50 }); T.tick(2)
+            T.hurt_me(2, 2, 10)
+            T.tick(70)
+            local shot = H.lines_with(T, "atis: Alpha")[1] or ""
+            T.shutdown()
+            local load = T.printed("yuklendi") or ""
+            local want = "dusman ozeti: Alpha | K/D 0/0 | atis 1, isabet 1 (kafa 1), correction 0 | sana 1 mermi (kafa 0) | desen statik"
+            H.check("T-PROF-11", load:find("(hafiza: dosya yok)", 1, true) ~= nil and T.printed("hafiza dosyasi") == nil
+                and H.bare(T.printed("dusman ozeti: Alpha")) == want and shot:find("| AA statik dsy? ground", 1, true) ~= nil
+                and #T.raw_err == 0, "ffi yok: profil ve kariyer oturumluk, dosya satiri yok, hata yok: "
+                .. tostring(H.bare(T.printed("dusman ozeti: Alpha"))))
+        end)
+    end
+    H.run("T-PROF-13", function()
+        -- Mac sonu paneli: ozet bir kez; ara surede (canli, dusman gorunur) yeniden karsilasma / ozet yok; game_newmap
+        -- ve kapanis yazilani tekrar yazmaz. Ayni haritada yeni mac (round_start) yeni harita sayilir.
+        local files = {}
+        local T = H.boot({ name = "prof-13", files = files_ok and files or nil })
+        T.tick(10)
+        local id = T.shoot(2); T.tick(2); T.hit(id, { hg = 1, dmg = 50 }); T.tick(70)
+        T.event("cs_win_panel_match", {})
+        T.tick(200)
+        local m = T.mark()
+        -- Yeni haritada dusman gorulmez: kapanista yeni harita ozeti olmasin (sadece eski haritanin tekrari aranir).
+        H.no_enemies(T, T.W)
+        T.event("game_newmap", { mapname = "de_nuke" })
+        T.W.map = "de_nuke"
+        T.tick(70)
+        local a = T.count("dusman ozeti: Alpha", 1)
+        local after = T.count("dusman ozeti: Alpha", m)
+        T.shutdown()
+        local enc = files_ok and H.mem_rec(T, "K", H.SID2) or nil
+        local b = T.count("dusman ozeti: Alpha", 1)
+        -- game_newmap'siz yeni mac: panel, round_start, yeni karsilasma -> ikinci ozet kapanista.
+        local U = H.boot({ name = "prof-13-ayni-harita", files = files_ok and {} or nil })
+        U.tick(10)
+        id = U.shoot(2); U.tick(2); U.hit(id, { hg = 1, dmg = 50 }); U.tick(70)
+        U.event("cs_win_panel_match", {})
+        U.tick(100)
+        U.event("round_start", {})
+        U.tick(70)
+        U.shutdown()
+        local u = U.count("dusman ozeti: Alpha", 1)
+        local uenc = files_ok and H.mem_rec(U, "K", H.SID2) or nil
+        H.check("T-PROF-13", a == 1 and after == 0 and b == 1 and u == 2 and (not files_ok or (enc ~= nil and enc[3] == "1"
+            and uenc ~= nil and uenc[3] == "2")), "panel + 200 tick + game_newmap + kapanis: 'dusman ozeti' " .. b .. " kez"
+            .. " (newmap'te " .. after .. "), kariyer harita " .. tostring(enc and enc[3]) .. "; ayni haritada yeni mac: ozet "
+            .. u .. ", harita " .. tostring(uenc and uenc[3]))
+    end)
+end
+
+-------------------------------------------------------------------------------
+-- R1-B3: sarj analizi (N.charge) ve teshis (N.diag)
+-------------------------------------------------------------------------------
+-- Son "vuruldun:" satiri (hurt_me ile).
+function H.hurt_line(T, att, hg)
+    local m = T.mark()
+    T.hurt_me(att or 2, hg or 2, 20, "ak47")
+    return T.printed("vuruldun:", m), m
+end
+-- "dbg teshis:" satirlarinin sayisi ve sonuncusu.
+function H.teshis(T, since)
+    local n, last = 0, nil
+    for i = since or 1, #T.prints do
+        if T.prints[i]:find("dbg teshis:", 1, true) then n, last = n + 1, T.prints[i] end
+    end
+    return n, last
+end
+function H.has(s, part) return s ~= nil and s:find(part, 1, true) ~= nil end
+-- force_uncharge sarji hic dusurmez (G26, T-CHG-5).
+function H.no_drain(T, W) T.EX.force_uncharge = function() T.unch[#T.unch + 1] = W.tick end end
+-- force_uncharge sarji bir tick sonra bosaltir (G26 belirsizligi, T-CHG-9).
+function H.lag_drain(T, W)
+    T.EX.force_uncharge = function()
+        T.unch[#T.unch + 1] = W.tick
+        if W.drain_at == nil then W.drain_at = W.tick + 1 end
+    end
+end
+-- Ayni tick'te birden fazla force_uncharge cagrisi (i0'dan sonraki cagrilar).
+function H.unch_dup(T, i0)
+    local seen, dup = {}, 0
+    for i = i0 + 1, #T.unch do
+        if seen[T.unch[i]] then dup = dup + 1 end
+        seen[T.unch[i]] = true
+    end
+    return dup
+end
+-- Basit LCG (tekrarlanabilir arka plan reddi, T-CHG-8).
+function H.lcg(seed)
+    local x = seed
+    return function()
+        x = (x * 1103515245 + 12345) % 2147483648
+        return x / 2147483648
+    end
+end
+
+function C.chg()
+    H.run("T-CHG-1", function()
+        local T = H.boot({ name = "chg-1" })
+        local W = T.W
+        T.tick(250)
+        W.keys.dt = false
+        T.tick(10)
+        W.keys.dt = true
+        T.tick(78)
+        W.auto_recharge = false
+        W.charge = 5
+        local a, ai = H.hurt_line(T)
+        local d = T.printed("dbg vurulma-detay:", ai)
+        W.charge = 14
+        local b = H.hurt_line(T)
+        H.check("T-CHG-1", H.in_order(a, { "DT %36", "sh 5/14", "dtac 1.20s", "sarj: dtac" }) and not H.has(a, "defbitti")
+            and H.has(d, "sh 5/14") and b ~= nil and H.has(b, "DT dolu") and not H.has(b, "sh ") and not H.has(b, "dtac")
+            and not H.has(b, "defbitti") and not H.has(b, "sarj:"), "DT 5/14, DT 1.20 sn once acildi: vuruldun / dbg satirinda"
+            .. " 'sh 5/14, dtac 1.20s, sarj: dtac' (" .. tostring(a) .. "); dolu sarjda hicbiri (" .. tostring(b) .. ")")
+    end)
+    H.run("T-CHG-2", function()
+        local T = H.boot({ name = "chg-2" })
+        local W = T.W
+        T.tick(250)
+        W.p[1].sim_shift = 10
+        local t0 = W.tick
+        T.tick(10)
+        T.tick(20)
+        W.auto_recharge = false
+        W.charge = 7
+        local a = H.hurt_line(T)
+        local U = H.boot({ name = "chg-2-gec" })
+        U.tick(250)
+        U.W.p[1].sim_shift = 10
+        U.tick(10 + 120)
+        U.W.auto_recharge = false
+        U.W.charge = 7
+        local b = H.hurt_line(U)
+        H.check("T-CHG-2", H.in_order(a, { "sh 7/14", "defbitti 0.30s", "sarj: def" }) and not H.has(a, "dtac")
+            and H.has(b, "sh 7/14") and not H.has(b, "defbitti") and H.has(b, "sarj: ?"), "kendi defensive'imiz bitti, 0.30 sn"
+            .. " sonra yarim sarjda vuruldun -> 'defbitti 0.30s, sarj: def' (" .. tostring(a) .. "); 1.5 sn'den sonra"
+            .. " defbitti yok, sebep '?' (" .. tostring(b) .. ")")
+    end)
+    H.run("T-CHG-3", function()
+        local T = H.boot({ name = "chg-3", rec_off = true, setup = function(T) T.xset("Standing", "Defensive", 4) end })
+        local W = T.W
+        T.tick(40)
+        W.auto_recharge = false
+        T.event("round_start", {})
+        local t0 = W.tick
+        local m = T.mark()
+        T.tick(40, function(T, W)
+            local k = W.tick - t0
+            -- 1-10 dolu (Always on -> 10 zorlama), 31-35 yarim gorulmeden, 36-37 bos goruluyor, 38-39 yarim goruluyor.
+            W.charge = (k <= 10) and 14 or (((k >= 31 and k <= 35) or k == 38 or k == 39) and 7 or 0)
+            local s = (k >= 36 and k <= 39) and 60 or 0
+            W.sees[2], W.sees[3] = s, s
+        end)
+        T.event("round_start", {})
+        local line = T.printed("dbg sen ozeti:", m)
+        local want = "dbg sen ozeti: 40 tick canli, DT acik 40 | defensive zorlanan 10 tick, gorulen (sim) 0, zorlanip gorulen 0"
+            .. " | teleport 0, sonrasi 1.5 sn icinde vurulma 0 | yarim sarj 7 tick (goruluyorken 2), defensive bitisi 0"
+            .. " | sarj tavani 14"
+        -- Ikinci round: inis teleportu + 1.5 sn icinde vurulma + kendi defensive bitisi.
+        W.auto_recharge = true
+        W.sees[2], W.sees[3] = 0, 0
+        T.tick(30)
+        local m2 = T.mark()
+        local r = H.flight(T, 250, true)
+        T.hurt_me(2, 2, 10, "ak47")
+        W.sees[2] = 0
+        W.p[1].sim_shift = 8
+        T.tick(40)
+        T.event("round_start", {})
+        local l2 = T.printed("dbg sen ozeti:", m2)
+        H.check("T-CHG-3", H.bare(line) == want and r.tp ~= nil and H.in_order(l2, { "teleport 1, sonrasi 1.5 sn icinde"
+            .. " vurulma 1", "defensive bitisi 1" }) and l2:find("gorulen %(sim%) [1-9]") ~= nil, "round basinda tam sayaclar: "
+            .. tostring(line) .. " | teleport + vurulma + kendi defensive: " .. tostring(l2))
+    end)
+    H.run("T-CHG-4", function()
+        local T = H.boot({ name = "chg-4" })
+        local W = T.W
+        W.max_charge = 9
+        W.trace_dz = 6
+        T.tick(40)
+        local m = T.mark()
+        -- S 9 -> inise 9 - 3 = 6 tick kala; izin zemini 6 u yukarida -> tahmin erken, gercek inis 1 tick sonra.
+        local r = H.flight(T, 420, true)
+        local tp = T.printed("teleport: inise ", m)
+        local res = T.printed("teleport sonucu: tahmin", m)
+        local gap = r.tp and (r.land - r.tp) or -1
+        for _ = 1, 9 do H.flight(T, 420, false) end
+        local n = T.count("inis tahmini:", m)
+        local est = T.printed("inis tahmini:", m)
+        H.check("T-CHG-4", H.has(tp, "inise 6 tick kala") and gap == 7 and H.in_order(res, { "tahmin 6, sapma +1 tick",
+            "ilk paket 2D ", "paket yerde ", "inis tick +", "tekrar ziplama hayir" }) and n == 1
+            and H.has(est, "inis tahmini: 10 ziplama, ort +"), "S 9: inise 6 tick kala atildi, " .. gap .. " tick sonra"
+            .. " indi -> " .. tostring(res) .. "; 10 iniste bir kez (" .. n .. "): " .. tostring(est))
+    end)
+    H.run("T-CHG-5", function()
+        local T = H.boot({ name = "chg-5", pre = H.no_drain })
+        local W = T.W
+        T.tick(40)
+        local m = T.mark()
+        local flights = {}
+        for i = 1, 5 do
+            local u0 = #T.unch
+            H.flight(T, 250, true)
+            flights[i] = #T.unch - u0
+            T.tick(20)
+        end
+        local nd = T.count("teleport: sarj harcanmadi (force_uncharge 4 tick, sarj 14/14)", m)
+        local off = T.count("teleport: force_uncharge calismiyor -> bu oturum havada teleport kapali", m)
+        local g26 = T.count("teshis: G26 force_uncharge sarji bosaltmadi", 1)
+        -- Oturum kapaliyken DT inise saklanmaz (politika kapali, eski yol da teleportsuz): "inise yok" yazilmaz.
+        local _, offi = T.printed("bu oturum havada teleport kapali", m)
+        local idle = offi and T.count("teleport: inise yok", offi) or -1
+        -- Kismen bosaltan force_uncharge (uncharge_partial) harcandi sayilir.
+        local P = H.boot({ name = "chg-5-kismi" })
+        P.W.uncharge_partial = 3
+        P.tick(40)
+        local pm = P.mark()
+        for _ = 1, 3 do H.flight(P, 250, true); P.tick(20) end
+        local pn = P.count("sarj harcanmadi", pm)
+        H.check("T-CHG-5", flights[1] == 4 and flights[2] == 4 and flights[3] == 4 and flights[4] == 0 and flights[5] == 0
+            and nd == 3 and off == 1 and g26 == 1 and pn == 0 and idle == 0 and T.count("bu ziplamada", 1) == 0, "sarji dusurmeyen"
+            .. " force_uncharge: ucus basina cagri " .. table.concat(flights, "/") .. " (4/4/4/0/0), 'harcanmadi' " .. nd
+            .. ", oturum kapali satiri " .. off .. " (sonra 'inise yok' " .. idle .. "), teshis G26 " .. g26 .. "; kismen bosaltan -> harcanmadi " .. pn)
+        -- Ucus basina tek teleport bekcisi: eski yolda (Air LC kapali) teleport, ucusta Air LC acilip sarj dolsa da
+        -- inis teleportu ikinci kez atilmaz.
+        local G = H.boot({ name = "chg-5-bekci", rec_off = true, setup = function(T) T.set("air_lc", false) end })
+        G.tick(40)
+        local gm = G.mark()
+        local u0 = #G.unch
+        local first = nil
+        G.W.sees[2] = 60
+        G.W.p[1].vel = V.v3(250, 0, 0)
+        G.W.charge = G.W.max_charge
+        G.jump(300)
+        for _ = 1, 200 do
+            G.tick(1, function(T, W)
+                if first ~= nil then W.charge = W.max_charge end
+            end)
+            if first == nil and #G.unch > u0 then
+                first = G.W.tick
+                G.set("air_lc", true)
+            end
+            if G.W.p[1].ground then break end
+        end
+        G.tick(5)
+        H.check("T-CHG-5", first ~= nil and #G.unch - u0 == 1 and G.count("teleport: bu ziplamada 2 kez", gm) == 1,
+            "ayni ucusta ikinci teleport engellenir: uncharge " .. (#G.unch - u0) .. ", bekci satiri "
+            .. G.count("teleport: bu ziplamada", gm))
+    end)
+    H.run("T-CHG-6", function()
+        local function inst(name, order)
+            local T = H.boot({ name = name })
+            local W = T.W
+            W.sees[2], W.sees[3] = 60, 60
+            T.tick(40)
+            local m = T.mark()
+            -- Bekci sadece kendi lag'imizla (DEF) atilan atislari sayar; atislar arasi 11 sn: X13 (10 sn'de 2) devreye
+            -- girmez, her atis yeniden DEF'li gider.
+            for i, idx in ipairs(order) do
+                local id = T.shoot(idx)
+                T.tick(2)
+                T.miss(id, "server rejection")
+                T.tick(2)
+                if i < #order then W.real_off = W.real_off + 11; T.tick(62) end
+            end
+            return T, m
+        end
+        local A, am = inst("chg-6", { 2, 3, 2 })
+        local W = A.W
+        local line = A.printed("sunucu atislari reddediyor", am)
+        local t1 = W.tick
+        A.tick(60)
+        local s1 = A.shifts(t1 + 1, W.tick)
+        W.real_off = W.real_off + 280
+        local t2 = W.tick
+        A.tick(30)
+        local s2 = A.shifts(t2 + 1, W.tick)
+        local paint = A.has_text(t2 + 1, W.tick, "PAUSE")
+        W.real_off = W.real_off + 25
+        local t3 = W.tick
+        local rm = A.mark()
+        A.tick(30)
+        local s3 = A.shifts(t3 + 1, W.tick)
+        local back = A.printed("sunucu reddi: 5 dk doldu, DEF / LC / TP tekrar acik", rm)
+        local B, bm = inst("chg-6-tek", { 2, 2, 2 })
+        local Wb = B.W
+        Wb.real_off = Wb.real_off + 11
+        local b0 = Wb.tick
+        B.tick(30)
+        local bs = B.shifts(b0 + 1, Wb.tick)
+        H.check("T-CHG-6", H.bare(line) == "sunucu atislari reddediyor (son 3 atisin 3'i, 2 dusmanda, son: server rejection)"
+            .. " -> DEF / LC / TP 5 dk kapali" and s1 == 0 and s2 == 0 and paint and s3 >= 10 and back ~= nil
+            and B.printed("sunucu atislari reddediyor", bm) == nil and bs >= 10, "3 ret 2 dusmanda: " .. tostring(line)
+            .. "; defensive 0-1 sn " .. s1 .. ", 280 sn " .. s2 .. " (PAUSE " .. tostring(paint) .. "), 305 sn sonra " .. s3
+            .. " (" .. tostring(back ~= nil) .. "); 3 ret 1 dusmanda: bekci yok, 11 sn sonra defensive " .. bs)
+    end)
+    H.run("T-CHG-7", function()
+        local T = H.boot({ name = "chg-7" })
+        local W = T.W
+        W.sees[2], W.sees[3] = 60, 60
+        W.head_dmg[2] = 50; W.body_dmg[2] = 40
+        T.tick(40)
+        local m = T.mark()
+        for i, idx in ipairs({ 3, 2, 3 }) do
+            local id = T.shoot(idx)
+            T.tick(2)
+            T.miss(id, "server rejection")
+            T.tick(2)
+            if i < 3 then W.real_off = W.real_off + 11; T.tick(62) end
+        end
+        local paused = T.printed("sunucu atislari reddediyor", m) ~= nil
+        local t0 = W.tick
+        T.tick(60)
+        local recs = T.hsr(2, t0 + 1, W.tick)
+        local ign = T.ignored(2, t0 + 1, W.tick)
+        local off = H.any(recs, H.all_off) or H.any(recs, H.head_off)
+        H.check("T-CHG-7", paused and #recs >= 50 and ign == 0 and not off and not H.any_md(recs), "bekci acikken (" ..
+            tostring(paused) .. ") hedef her tick taranir (" .. #recs .. "), ignore_target " .. ign .. ", grup kapatma "
+            .. tostring(off) .. ", set_min_dmg " .. tostring(H.any_md(recs)))
+    end)
+    H.run("T-CHG-8", function()
+        -- (a) Lag'siz atislardaki ret lag'imizdan olamaz: DT kapali (defensive / teleport yok), 3 ret 2 dusmanda -> bekci yok.
+        local A = H.boot({ name = "chg-8-temiz", setup = function(T) H.def_off(T) end })
+        local W = A.W
+        W.sees[2], W.sees[3] = 60, 60
+        W.keys.dt = false
+        A.tick(40)
+        local am = A.mark()
+        for i, idx in ipairs({ 2, 3, 2 }) do
+            local id = A.shoot(idx)
+            A.tick(2)
+            A.miss(id, "server rejection")
+            A.tick(2)
+            if i < 3 then W.real_off = W.real_off + 11; A.tick(62) end
+        end
+        local clean = A.count("sunucu atislari reddediyor", am)
+        local untagged = A.count("sen ssg08 temiz", am) + A.count("sen ssg08 |", am)
+        -- (b) GS V1.0.19 arka plan ret orani (%12, tekrarlanabilir): 300 atis, 2 dusman, varsayilan ayarlar -> hic tetik yok.
+        local B = H.boot({ name = "chg-8-arka-plan" })
+        local Wb = B.W
+        Wb.sees[2], Wb.sees[3] = 60, 60
+        B.tick(40)
+        local bm = B.mark()
+        local rnd = H.lcg(20261109)
+        local rej, lagged = 0, 0
+        for _ = 1, 300 do
+            local idx = rnd() < 0.5 and 2 or 3
+            local id = B.shoot(idx, { hg = 2 })
+            B.tick(1)
+            if rnd() < 0.12 then
+                rej = rej + 1
+                B.miss(id, "server rejection")
+            else
+                B.hit(id, { hg = 2, dmg = 1, no_event = true })
+            end
+            Wb.real_off = Wb.real_off + 1 + rnd() * 3
+            B.tick(4 + math.floor(rnd() * 12))
+        end
+        lagged = B.count(" DEF | AA", bm)
+        local trig = B.count("sunucu atislari reddediyor", bm)
+        H.check("T-CHG-8", clean == 0 and untagged == 3 and trig == 0 and rej >= 25 and lagged >= 50, "temiz atislarda 3 ret"
+            .. " 2 dusmanda: bekci " .. clean .. " (atislar etiketsiz " .. untagged .. "/3); %12 arka plan reddi: 300 atista "
+            .. rej .. " ret (" .. lagged .. " DEF'li atis) -> bekci " .. trig .. " kez")
+    end)
+    H.run("T-CHG-9", function()
+        -- force_uncharge sarji bir tick sonra bosaltir: inis teleportunda tick basina tek cagri, tek cagrida bitti.
+        local T = H.boot({ name = "chg-9", pre = H.lag_drain })
+        T.tick(40)
+        local m = T.mark()
+        local u0 = #T.unch
+        local r = H.flight(T, 250, true)
+        local n, dup = #T.unch - u0, H.unch_dup(T, u0)
+        local done = H.bare(T.printed("teleport: inis teleportu bitti", m))
+        local g26 = T.count("teshis: G26 force_uncharge sarji 1 cagrida bosaltti", 1)
+        -- Hic bosaltmayan force_uncharge: 4 cagri, 4 ayri tick.
+        local Z = H.boot({ name = "chg-9-bosaltmaz", pre = H.no_drain })
+        Z.tick(40)
+        local z0 = #Z.unch
+        H.flight(Z, 250, true)
+        local zn, zdup = #Z.unch - z0, H.unch_dup(Z, z0)
+        H.check("T-CHG-9", r.tp ~= nil and n == 1 and dup == 0 and done == "teleport: inis teleportu bitti (1. kez,"
+            .. " uncharge 1 tick)" and g26 == 1 and zn == 4 and zdup == 0 and T.count("sarj harcanmadi", m) == 0,
+            "bir tick gec bosalan sarj: " .. n .. " cagri (ayni tick'te " .. dup .. "), " .. tostring(done) .. ", G26 '1 cagrida' "
+            .. g26 .. "; bosaltmayan: " .. zn .. " cagri, ayni tick'te " .. zdup)
+    end)
+end
+
+function C.diag()
+    local full = H.mode == "full"
+    H.run("T-DIAG-5", function()
+        local T = H.boot({ name = "diag-5" })
+        local W = T.W
+        T.tick(50)
+        local m = T.mark()
+        W.no_local = true
+        T.tick(5)
+        W.no_local = false
+        T.event("game_newmap", { mapname = "de_nuke" })
+        T.tick(50)
+        local n1 = H.teshis(T, m)
+        T.event("game_newmap", { mapname = "de_nuke" })
+        local n2 = H.teshis(T, m)
+        T.tick(20)
+        T.shutdown()
+        local n3 = H.teshis(T, m)
+        local Q = H.boot({ name = "diag-5-kapali" })
+        Q.set("debug_log", false)
+        Q.tick(50)
+        Q.event("game_newmap", { mapname = "de_nuke" })
+        Q.shutdown()
+        local q = H.teshis(Q, 1)
+        local g = Q.count("teshis: G1 SETUP_COMMAND ANTIAIM'den once calisiyor", 1)
+        H.check("T-DIAG-5", n1 == 1 and n2 == 2 and n3 == 3 and q == 0 and g == 1, "dbg teshis: yerel oyuncu gidip"
+            .. " gelince + game_newmap -> 1 (" .. n1 .. "), yeni haritada 50 tick sonra game_newmap -> 2 (" .. n2
+            .. "), SHUTDOWN -> 3 (" .. n3 .. "); Detailed log kapali -> 0 (" .. q .. "), 'teshis: G1' yine bir kez (" .. g .. ")")
+    end)
+    if not full then return end
+    H.run("T-DIAG-1", function()
+        local function inst(name, set)
+            local T = H.boot({ name = name, setup = function(T, W) set(W) end })
+            T.W.head_dmg[2] = 50
+            T.tick(60)
+            T.event("game_newmap", { mapname = "de_inferno" })
+            local _, l = H.teshis(T, 1)
+            return T, l
+        end
+        local A, la = inst("diag-1", function() end)
+        local B, lb = inst("diag-1-aa", function(W) W.aa_first = true end)
+        local Cn, lc = inst("diag-1-hs", function(W) W.hs_first = true end)
+        local D, ld = inst("diag-1-olay", function(W) W.ignore_filter = true end)
+        local na = la and tonumber(la:match("siralama setup>aa (%d+)/")) or -1
+        local da = la and tonumber(la:match("siralama setup>aa %d+/(%d+)")) or -1
+        H.check("T-DIAG-1", na == da and da >= 60 and H.has(lb, "siralama setup>aa 0/" .. da)
+            and A.count("teshis: G1 SETUP_COMMAND ANTIAIM'den once calisiyor", 1) == 1
+            and B.count("teshis: G1 SETUP_COMMAND ANTIAIM'den sonra calisiyor", 1) == 1
+            and H.has(la, "hitscan>hedef secimi 0/") and lc ~= nil and lc:match("hitscan>hedef secimi (%d+)/(%d+)") ~= nil
+            and lc:match("hitscan>hedef secimi (%d+)/") == lc:match("hitscan>hedef secimi %d+/(%d+)")
+            and tonumber(lc:match("hitscan>hedef secimi (%d+)/")) >= 50 and H.has(la, "olay filtresi ihlal 0")
+            and (tonumber(ld and ld:match("olay filtresi ihlal (%d+)") or 0) or 0) >= 1
+            and D.count("teshis: G24 olay filtresi yok sayiliyor", 1) == 1, "siralama: varsayilan " .. tostring(la)
+            .. " | aa once: " .. tostring(lb) .. " | hitscan once: " .. tostring(lc) .. " | filtre yok: " .. tostring(ld))
+    end)
+    H.run("T-DIAG-2", function()
+        local A = H.boot({ name = "diag-2" })
+        A.tick(80)
+        A.event("game_newmap", { mapname = "de_inferno" })
+        local _, la = H.teshis(A, 1)
+        local B = H.boot({ name = "diag-2-iki", setup = function(T, W) W.aa_twice = true end })
+        B.tick(80)
+        B.event("game_newmap", { mapname = "de_inferno" })
+        local _, lb = H.teshis(B, 1)
+        H.check("T-DIAG-2", H.has(la, "aa/komut ort 1.00 max 1") and H.has(lb, "aa/komut ort 2.00 max 2")
+            and A.count("teshis: G27 ANTIAIM komut basina bir kez", 1) == 1
+            and B.count("teshis: G27 ANTIAIM ayni komutta birden fazla", 1) == 1 and H.has(la, "unpred bayrak 0/")
+            and A.count("teshis: G23 ANTIAIM'e unpredicted_data gelmiyor", 1) == 1, "ANTIAIM komut basina: tek "
+            .. tostring(la and la:match("aa/komut [^,]*")) .. ", iki kez " .. tostring(lb and lb:match("aa/komut [^,]*")))
+    end)
+    H.run("T-DIAG-3", function()
+        local T = H.boot({ name = "diag-3" })
+        T.W.head_dmg[2] = 50
+        T.tick(20)
+        for _, r in ipairs({ "spread", "resolver", "spread", "server rejection" }) do
+            local id = T.shoot(2)
+            T.tick(2)
+            T.miss(id, r)
+            T.tick(2)
+        end
+        T.event("game_newmap", { mapname = "de_inferno" })
+        local _, l1 = H.teshis(T, 1)
+        T.tick(20)
+        local id = T.shoot(2); T.tick(2); T.miss(id, "jitter"); T.tick(2)
+        id = T.shoot(2); T.tick(2); T.miss(id, "jitter"); T.tick(2)
+        T.shutdown()
+        local _, l2 = H.teshis(T, 1)
+        H.check("T-DIAG-3", H.has(l1, "iska sebepleri spread 2, resolver 1, server rejection 1 (jitter yok)")
+            and H.has(l2, "iska sebepleri jitter 2 (jitter var)") and T.count("teshis: G17 iska sebebi 'spread' (ilk kez)", 1) == 1
+            and T.count("teshis: G17 iska sebebi 'jitter' (ilk kez)", 1) == 1, "iska sebebi histogrami: "
+            .. tostring(l1 and l1:match("iska sebepleri [^)]*%)")) .. " | " .. tostring(l2 and l2:match("iska sebepleri [^)]*%)")))
+    end)
+    H.run("T-DIAG-4", function()
+        local T = H.boot({ name = "diag-4" })
+        local W = T.W
+        W.head_dmg[2] = 50
+        T.tick(30)
+        W.p[2].sim_shift = 6
+        T.tick(2)
+        local held = T.ignored(2, W.tick, W.tick)
+        local m = T.mark()
+        local id = T.shoot(2); T.tick(1); T.hit(id, { hg = 1, dmg = 50 })
+        local g1 = T.count("teshis: G8 bekletilen hedefe atis geldi (Alpha, real bekleme)", m)
+        T.event("game_newmap", { mapname = "de_inferno" })
+        local _, l1 = H.teshis(T, 1)
+        W.p[2].sim_shift = 0
+        W.p[2].health = 100
+        T.tick(40)
+        W.p[2].sim_shift = 6
+        T.tick(2)
+        id = T.shoot(2); T.tick(1); T.miss(id, "spread")
+        T.shutdown()
+        local _, l2 = H.teshis(T, 1)
+        H.check("T-DIAG-4", held == 1 and g1 == 1 and H.has(l1, "bekleme ihlali 1/1") and H.has(l2, "bekleme ihlali 1/1")
+            and T.count("teshis: G8", 1) == 1, "bekletilen hedefe (ignore_target " .. held .. ") atis: " ..
+            tostring(l1 and l1:match("bekleme ihlali [%d/]+")) .. ", teshis G8 bir kez (" .. T.count("teshis: G8", 1)
+            .. "); yeni haritada " .. tostring(l2 and l2:match("bekleme ihlali [%d/]+")))
+    end)
+    H.run("T-DIAG-7", function()
+        -- G6: seviye 2 (dusuk can, tufek) vurulabilir hedefte 64 tick, 2 atis -> 2.0 atis/sn; G12 USE basili; G10 tus modu.
+        local T = H.boot({ name = "diag-7", setup = function(T, W) W.dt_mode = 2 end })
+        local W = T.W
+        W.p[1].weapon = H.weapon("ak47")
+        W.p[2].health = 25
+        W.head_dmg[2] = 50; W.body_dmg[2] = 20
+        T.tick(32)
+        local id = T.shoot(2); T.tick(2); T.miss(id, "spread")
+        T.tick(16)
+        id = T.shoot(2); T.tick(2); T.miss(id, "spread")
+        T.tick(10)
+        W.buttons.USE = true
+        T.tick(6)
+        W.buttons.USE = nil
+        T.event("game_newmap", { mapname = "de_inferno" })
+        local _, l = H.teshis(T, 1)
+        local lv2, lt2 = nil, nil
+        if l then lv2, lt2 = l:match("seviye2 ([%d%.]+) atis/sn %((%d+) tick%)") end
+        local rate = lt2 and tonumber(lt2) > 0 and 2 / (tonumber(lt2) / 64) or -1
+        -- G5: block_recharge sizdiriyor -> eski yolda (Air LC + havada teleport) kilit tutulurken sarj artar.
+        local G = H.boot({ name = "diag-7-sizinti", rec_off = true, setup = function(T, W)
+            T.set("air_teleport", false); W.rc_leak = true
+        end })
+        G.tick(30)
+        H.seen_jump(G, 300)
+        G.tick(5)
+        G.event("game_newmap", { mapname = "de_inferno" })
+        local _, lg = H.teshis(G, 1)
+        local Q = H.boot({ name = "diag-7-kilit", rec_off = true, setup = function(T) T.set("air_teleport", false) end })
+        Q.tick(30)
+        H.seen_jump(Q, 300)
+        Q.tick(5)
+        Q.event("game_newmap", { mapname = "de_inferno" })
+        local _, lq = H.teshis(Q, 1)
+        local g5 = tonumber(lg and lg:match("sarj kilitliyken artis (%d+) tick") or -1)
+        H.check("T-DIAG-7", lv2 ~= nil and tonumber(lt2) >= 40 and math.abs(tonumber(lv2) - rate) <= 0.051
+            and H.has(l, "USE basiliyken aa 6/6") and T.count("teshis: G12 USE basiliyken ANTIAIM calisiyor", 1) == 1
+            and H.has(l, "DT tus modu 2") and T.count("teshis: G10 DT tus modu 2", 1) == 1 and g5 >= 5
+            and G.count("teshis: G5 block_recharge tutulurken sarj artti", 1) == 1 and H.has(lq, "sarj kilitliyken artis 0 tick"),
+            "seviye 2: " .. tostring(lv2) .. " atis/sn (" .. tostring(lt2) .. " tick, beklenen " .. H.f1(rate) .. "), USE: "
+            .. tostring(l and l:match("USE basiliyken aa [%d/]+")) .. ", " .. tostring(l and l:match("DT tus modu %d")) ..
+            "; sizan kilit " .. tostring(g5) .. " tick, tutan kilit " .. tostring(lq and lq:match("sarj kilitliyken artis %d+")))
+    end)
+    H.run("T-DIAG-6", function()
+        local T = H.boot({ name = "diag-6" })
+        local W = T.W
+        local start = 10001
+        W.head_dmg[2] = 50; W.body_dmg[2] = 40; W.sees[2] = 60
+        T.tick(60)
+        W.sees[2] = 0; W.head_dmg[2] = 0; W.body_dmg[2] = 0
+        T.tick(40)
+        local sum, mx, n = 0, 0, 0
+        for t = start, W.tick do
+            local c = T.ntr[t] or 0
+            sum, mx, n = sum + c, math.max(mx, c), n + 1
+        end
+        local before = T.ntr[W.tick] or 0
+        T.event("game_newmap", { mapname = "de_inferno" })
+        local after = T.ntr[W.tick] or 0
+        local _, l = H.teshis(T, 1)
+        local avg, lmax, lt = nil, nil, nil
+        if l then avg, lmax, lt = l:match("iz/tick ort ([%d%.]+) max (%d+) %((%d+) tick%)") end
+        H.check("T-DIAG-6", avg ~= nil and avg:match("^%d+%.%d$") ~= nil and math.abs(tonumber(avg) - sum / n) <= 0.051
+            and tonumber(lmax) == mx and tonumber(lt) == n and after == before and sum > 0, "iz / tick: satir "
+            .. tostring(avg) .. " max " .. tostring(lmax) .. " (" .. tostring(lt) .. " tick), mock " .. H.f1(sum / n) .. " max "
+            .. mx .. " (" .. n .. " tick); satiri yazmak iz atmaz (" .. before .. " -> " .. after .. ")")
+    end)
+end
+
+-------------------------------------------------------------------------------
 -- Toplu kontroller (her modda, tum ornekler uzerinde)
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- Stats paneli (GS draw_stats), resolver paneli cozum / HIT, harita ozeti (R1-B4)
+-------------------------------------------------------------------------------
+-- Ayni tick'te n kare daha (oyunda PAINT tick'ten sik gelir; FPS kurali T-STAT-7).
+function H.paint(T, n)
+    for _ = 1, n do
+        T.in_paint = true
+        T.fire("PAINT")
+        T.in_paint = false
+    end
+end
+-- Bu tick'te cizilen ve s'yi iceren ilk yazi.
+function H.text_at(T, s)
+    for _, x in ipairs(T.texts(T.W.tick, T.W.tick)) do
+        if x.s:find(s, 1, true) then return x end
+    end
+    return nil
+end
+-- Stats paneli satirlari (sag ust, resolver panelinin sagi: x > 1100) bu tick'te, " ; " ile.
+function H.stat_rows(T)
+    local r = {}
+    for _, x in ipairs(T.texts(T.W.tick, T.W.tick, function(x) return x.x > 1100 and x.y < 1000 and x.y >= 300 end)) do
+        r[#r + 1] = x.s
+    end
+    return table.concat(r, " ; ")
+end
+-- Butun durumlarda defensive Off (DEF payi sadece betigin zorladigi tick'ler).
+function H.def_off(T)
+    for _, st in ipairs({ "Standing", "Moving", "Slow walk", "Crouching", "Crouch move", "Peek", "Air", "Air crouch",
+        "Manual", "Freestanding", "Safe head" }) do
+        if T.el("x:" .. st .. ":Defensive") then T.xset(st, "Defensive", 1) end
+    end
+end
+
+function C.stat_full()
+    H.run("T-STAT-1", function()
+        local T = H.boot({ name = "stat-1", rec_off = true, setup = function(T)
+            T.xset("Standing", "Defensive", 4)
+            T.set("stats_panel", true)
+        end })
+        local W = T.W
+        T.tick(40)
+        W.auto_recharge = false
+        T.press("stats_reset")
+        local t0 = W.tick
+        local shift = T.EX.force_anti_exploit_shift
+        -- Always on: 1-6 dolu; 4-6'da force_anti_exploit_shift hata (zorlanamadi) -> 3 zorlama; 7-10 yarim sarj.
+        T.EX.force_anti_exploit_shift = function()
+            local k = W.tick - t0
+            if k >= 4 and k <= 6 then error("red") end
+            return shift()
+        end
+        T.tick(10, function(T, W) W.charge = (W.tick - t0 <= 6) and 14 or 7 end)
+        local rows = H.stat_rows(T)
+        H.check("T-STAT-1", rows:find("STANDING   0 / 0 / 0 / 60% / 30%", 1, true) ~= nil
+            and rows:find("AA STATS   HIT / HEAD / MISS / DT / DEF", 1, true) ~= nil,
+            "10 tick Standing, DT dolu 6, DEF zorlanan 3 -> 'STANDING   0 / 0 / 0 / 60% / 30%': " .. rows)
+    end)
+    H.run("T-STAT-2", function()
+        local T = H.boot({ name = "stat-2", setup = function(T) T.set("stats_panel", true) end })
+        T.tick(20)
+        local function shot(res, reason)
+            local id = T.shoot(2)
+            T.tick(1)
+            if res == "hit" then T.hit(id, { hg = 2, dmg = 20, no_event = true }) else T.miss(id, reason) end
+            T.tick(2)
+        end
+        shot("hit"); shot("hit"); shot("miss", "resolver"); shot("miss", "spread"); shot("miss", "prediction error")
+        T.tick(1)
+        local rows = H.stat_rows(T)
+        local lh, ls, ch, cs = rows:match("LAG   (%d+) / (%d+)   TEMIZ   (%d+) / (%d+)")
+        local split = lh ~= nil and tonumber(lh) + tonumber(ch) == 2 and tonumber(ls) + tonumber(cs) == 5
+        -- Kaydi bilinmeyen atisin sonucu (id yok): ALL'a girer, LAG / TEMIZ'e girmez.
+        T.miss(999, "spread")
+        T.tick(1)
+        local rows2 = H.stat_rows(T)
+        local ls2, cs2 = rows2:match("LAG   %d+ / (%d+)   TEMIZ   %d+ / (%d+)")
+        H.check("T-STAT-2", rows:find("AIM   SHOT / HIT / CORR / SPREAD / OTHER ; ALL   5 / 2 / 1 / 1 / 1", 1, true) ~= nil
+            and split and rows2:find("ALL   6 / 2 / 1 / 2 / 1", 1, true) ~= nil and ls2 ~= nil
+            and tonumber(ls2) + tonumber(cs2) == 5, "5 atis (2 isabet, resolver, spread, prediction error) -> 'ALL   5 / 2 /"
+            .. " 1 / 1 / 1', lag + temiz = 2/5; kaydi olmayan sonuc lag / temize girmez: " .. rows2)
+    end)
+    H.run("T-STAT-3", function()
+        local T = H.boot({ name = "stat-3", setup = function(T) T.set("stats_panel", true) end })
+        local W = T.W
+        local function respawn()
+            W.p[1].alive = true; W.p[1].ground = true; W.p[1].air_phys = false; W.p[1].health = 100
+            W.p[1].origin = V.v3(0, 0, 0); W.p[1].vel = V.v3(0, 0, 0)
+            T.event("player_spawn", { userid = 101 })
+            T.tick(20)
+        end
+        T.tick(20)
+        local st1 = T.probe_state()
+        T.event("player_death", { userid = 102, attacker = 101, weapon = "ssg08", headshot = true })
+        T.jump(300)
+        T.tick(6)
+        local st2 = T.probe_state()
+        T.event("player_death", { userid = 101, attacker = 103, weapon = "ak47" })
+        W.p[1].alive = false
+        T.tick(2)
+        respawn()
+        -- Intihar ve dunya (saldiran yok): sayilmaz.
+        T.event("player_death", { userid = 101, attacker = 101, weapon = "hegrenade" })
+        W.p[1].alive = false
+        T.tick(2)
+        respawn()
+        T.event("player_death", { userid = 101, attacker = 0, weapon = "world" })
+        W.p[1].alive = false
+        T.tick(2)
+        respawn()
+        local rows = H.stat_rows(T)
+        local m = T.mark()
+        T.event("game_newmap", { mapname = "de_nuke" })
+        local line = T.printed("harita ozeti:", m)
+        H.check("T-STAT-3", st1 == "Standing" and st2 == "Air" and rows:find("KD   OLDURDUN / OLDUN ; STANDING   1 / 0 ;"
+            .. " AIR   0 / 1 ;", 1, true) ~= nil and H.has(line, "| KD 1/1 (Standing 1/0, Air 0/1) |"), "Standing'de kill,"
+            .. " Air'de dusmana olum, intihar / dunya sayilmaz (" .. tostring(st1) .. ", " .. tostring(st2) .. "): " .. rows
+            .. " | " .. tostring(line))
+    end)
+    H.run("T-STAT-4", function()
+        local T = H.boot({ name = "stat-4", setup = function(T) T.set("stats_panel", true) end })
+        local W = T.W
+        H.peek_world(T, W)
+        local m = T.mark()
+        local started = nil
+        for _ = 1, 300 do
+            T.tick(1)
+            if T.printed("ai peek: sol", m) or T.printed("ai peek: sag", m) then started = W.tick; break end
+        end
+        T.tick(3)
+        T.hurt_me(2, 2, 10, "ak47")
+        local id = T.shoot(2)
+        T.tick(1)
+        T.hit(id, { hg = 1, dmg = 30, no_event = true })
+        local res = nil
+        for _ = 1, 200 do
+            T.tick(1)
+            res = T.printed("ai peek sonucu:", m)
+            if res then break end
+        end
+        local row = nil
+        for _ = 1, 400 do
+            T.tick(1)
+            local x = H.text_at(T, "AI PEEK   2 / 1 / 1 / 1 / 1")
+            if x then row = x.s; break end
+        end
+        local m2 = T.mark()
+        T.event("game_newmap", { mapname = "de_nuke" })
+        local line = T.printed("harita ozeti:", m2)
+        H.check("T-STAT-4", started ~= nil and res ~= nil and row ~= nil and H.has(line, "| ai peek 2/1/1/1/1 |")
+            and T.printed("atis olmadi", m) ~= nil, "peek -> vurulma -> atis -> isabet -> donus, sonra bos peek: 'AI PEEK"
+            .. "   2 / 1 / 1 / 1 / 1' (" .. tostring(row) .. "), ozet: " .. tostring(line))
+    end)
+    H.run("T-STAT-5", function()
+        local mem = H.mem2({ "F\tstill\t0\t14\t10", "F\tmove\t3\t5\t1" })
+        local T = H.boot({ name = "stat-5", files = { ["nykle_memory.txt"] = mem },
+            setup = function(T) T.set("stats_panel", true) end })
+        T.tick(5)
+        local rows = H.stat_rows(T)
+        H.check("T-STAT-5", rows:find("AA FAZ   KAFA ISABETI / MERMI ; STILL   0x 10/14   1* 0/0   2 0/0", 1, true) ~= nil
+            and rows:find("MOVE   0* 0/0   1 0/0   2 0/0   3 1/5   4 0/0", 1, true) ~= nil
+            and rows:find("AIR   0* 0/0", 1, true) ~= nil, "faz 0 14 mermide 10 kafa (kotu bilinen) -> '0x', varsayilan faz"
+            .. " 1 -> '1*'; 5 mermili faz kotu degil: " .. rows)
+    end)
+    H.run("T-STAT-6", function()
+        local A = H.boot({ name = "stat-6-bos" })
+        A.tick(20)
+        local a1, a2 = H.text_at(A, "cozum %"), H.text_at(A, "HIT %")
+        local B = H.boot({ name = "stat-6-jit" })
+        local W = B.W
+        B.tick(30, H.yaw_hook(2, { 120, 240 }))
+        W.p[2].ground = false
+        W.p[2].sim_shift = 10
+        B.tick(1, H.yaw_hook(2, { 120, 240 }))
+        local b1, b2 = H.text_at(B, "cozum %"), H.text_at(B, "HIT %")
+        local Cc = H.boot({ name = "stat-6-corr" })
+        Cc.tick(20)
+        for _, r in ipairs({ "hit", "resolver", "hit", "resolver" }) do
+            local id = Cc.shoot(2)
+            Cc.tick(1)
+            if r == "hit" then Cc.hit(id, { hg = 2, dmg = 1, no_event = true }) else Cc.miss(id, r) end
+            Cc.tick(2)
+        end
+        Cc.tick(70)
+        local c1, c2 = H.text_at(Cc, "cozum %"), H.text_at(Cc, "HIT %")
+        local function s(x) return x and x.s or "yok" end
+        H.check("T-STAT-6", s(a1) == "cozum %80" and s(a2) == "HIT %72" and s(b1) == "cozum %29" and s(b2) == "HIT %26"
+            and s(c1) == "cozum %60" and s(c2) == "HIT %56", "veri yok: " .. s(a1) .. " " .. s(a2) .. " (80 / 72); jitter 120 +"
+            .. " havada + sahte kayit: " .. s(b1) .. " " .. s(b2) .. " (29 / 26); son 4 sonucun 2'si correction: " .. s(c1) .. " "
+            .. s(c2) .. " (60 / 56)")
+    end)
+    H.run("T-STAT-7", function()
+        local T = H.boot({ name = "stat-7", setup = function(T) T.set("stats_panel", true) end })
+        local W = T.W
+        W.sees[2] = 60
+        local function worst(t0, t1)
+            local w = { name = 0, sid = 0, trace = 0, ent = 0 }
+            for t = t0, t1 do
+                for k, v in pairs(T.pread[t] or {}) do if v > w[k] then w[k] = v end end
+            end
+            return w
+        end
+        T.tick(10)
+        local b0 = W.tick + 1
+        T.tick(70)
+        local one = worst(b0, W.tick)
+        local t0 = W.tick + 1
+        for _ = 1, 130 do
+            T.tick(1)
+            H.paint(T, 2)
+        end
+        local w = worst(t0, W.tick)
+        local drawn = H.text_at(T, "cozum %") ~= nil and H.text_at(T, "AA STATS") ~= nil
+        H.check("T-STAT-7", drawn and w.name <= 1 and w.sid <= 1 and w.trace == 0 and one.ent > 0 and w.ent <= one.ent,
+            "tick basina 3 kare, paneller acik: PAINT'te tick basina en fazla 1 isim / 1 Steam ID okumasi, hic iz, dusman"
+            .. " okumasi tek karelik tick kadar (isim " .. w.name .. ", sid " .. w.sid .. ", iz " .. w.trace .. ", dusman "
+            .. w.ent .. " / tek kare " .. one.ent .. ", cizildi " .. tostring(drawn) .. ")")
+    end)
+    H.run("T-STAT-8", function()
+        local T = H.boot({ name = "stat-8", rec_off = true, setup = function(T) H.def_off(T) end })
+        local W = T.W
+        T.tick(40)
+        T.press("stats_reset")
+        T.tick(20)
+        T.event("round_start", {})
+        T.tick(5)
+        local id = T.shoot(2)
+        T.tick(1)
+        T.hit(id, { hg = 2, dmg = 20, no_event = true })
+        T.tick(2)
+        id = T.shoot(2)
+        T.tick(1)
+        T.miss(id, "spread")
+        T.tick(2)
+        T.event("player_death", { userid = 102, attacker = 101, weapon = "ssg08" })
+        T.tick(70)
+        T.event("round_start", {})
+        T.tick(5)
+        W.real_off = W.real_off + 120
+        T.tick(5)
+        local m = T.mark()
+        T.event("game_newmap", { mapname = "de_nuke" })
+        -- Ayni harita degisiminde yerel oyuncu yok / geri gelir: N.map_reset iki kez daha, satir yine tek.
+        W.map = "de_nuke"
+        W.no_local = true; T.tick(3); W.no_local = false; T.tick(3)
+        local line = H.bare(T.printed("harita ozeti:", m))
+        local again = T.count("harita ozeti:", m)
+        local want = "harita ozeti: de_mirage 2 dk, 2 round | KD 1/0 (Standing 1/0) | atis 2 isabet 1 correction 0"
+            .. " spread 1 diger 0 | lag 0/0 temiz 1/2 | ai peek 0/0/0/0/0 | DT dolu %100 DEF %0 | faz kafa still 0:0/0"
+            .. " move 0:0/0 peek 0:0/0 air 0:0/0"
+        -- Yeni harita: sayac sifirdan (sadece bu haritanin olaylari); Reset stats harita kumesini de sifirlar
+        -- (kapanis satiri sifirli).
+        T.tick(10)
+        id = T.shoot(2)
+        T.tick(1)
+        T.hit(id, { hg = 2, dmg = 20, no_event = true })
+        T.event("player_death", { userid = 103, attacker = 101, weapon = "ssg08" })
+        T.tick(5)
+        local m1 = T.mark()
+        T.event("game_newmap", { mapname = "de_inferno" })
+        local nuke = H.bare(T.printed("harita ozeti:", m1))
+        W.map = "de_inferno"
+        T.tick(10)
+        id = T.shoot(2)
+        T.tick(1)
+        T.miss(id, "spread")
+        T.tick(5)
+        T.press("stats_reset")
+        T.tick(70)
+        local m2 = T.mark()
+        T.shutdown()
+        local z = H.bare(T.printed("harita ozeti:", m2))
+        -- Iki log da kapali: satir yok. 20 roundda bir ara ozet.
+        local Q = H.boot({ name = "stat-8-kapali" })
+        Q.set("hit_log", false)
+        Q.set("shot_log", false)
+        Q.tick(80)
+        local qm = Q.mark()
+        Q.event("game_newmap", { mapname = "de_nuke" })
+        Q.shutdown()
+        local R = H.boot({ name = "stat-8-20" })
+        R.set("debug_log", false)
+        R.tick(10)
+        local rm = R.mark()
+        for _ = 1, 41 do
+            R.event("round_start", {})
+            R.tick(4)
+        end
+        local n20 = R.count("harita ozeti:", rm)
+        local l20 = H.bare(R.printed("harita ozeti:", rm))
+        H.check("T-STAT-8", line == want and again == 1 and H.has(nuke, "harita ozeti: de_nuke 0 dk, 0 round | KD 1/0"
+            .. " (Standing 1/0) | atis 1 isabet 1 correction 0 spread 0 diger 0 | lag 0/0 temiz 1/1 |")
+            and H.has(z, "harita ozeti: de_inferno 0 dk, 0 round | KD 0/0 | atis 0"
+            .. " isabet 0 correction 0 spread 0 diger 0 | lag 0/0 temiz 0/0 | ai peek 0/0/0/0/0 |")
+            and Q.count("harita ozeti:", qm) == 0 and n20 == 2 and H.has(l20, " 20 round |"), "harita degisiminde tam satir ("
+            .. tostring(line) .. ", " .. again .. " kez); sonraki harita sadece kendi olaylari: " .. tostring(nuke)
+            .. "; Reset stats sonrasi kapanis: " .. tostring(z) .. "; loglar kapali: "
+            .. Q.count("harita ozeti:", qm) .. "; 41 roundda " .. n20 .. " ara ozet (" .. tostring(l20) .. ")")
+    end)
+    H.run("T-STAT-10", function()
+        -- API 7.4: safe point'li atisin spread iskasi "spread (missed safe)" -> SPREAD (diger degil), teshis aynen.
+        local T = H.boot({ name = "stat-10", rec_off = true, setup = function(T) T.set("stats_panel", true) end })
+        T.tick(20)
+        T.press("stats_reset")
+        T.tick(2)
+        local id = T.shoot(2)
+        T.tick(1)
+        T.miss(id, "spread (missed safe)")
+        T.tick(2)
+        id = T.shoot(2)
+        T.tick(1)
+        T.miss(id, "occlusion")
+        T.tick(2)
+        local rows = H.stat_rows(T)
+        local g17 = H.bare(T.printed("teshis: G17 iska sebebi 'spread"))
+        local m = T.mark()
+        T.event("game_newmap", { mapname = "de_nuke" })
+        local line = H.bare(T.printed("harita ozeti:", m)) or ""
+        H.check("T-STAT-10", rows:find("ALL   2 / 0 / 0 / 1 / 1", 1, true) ~= nil and g17 == "teshis: G17 iska sebebi"
+            .. " 'spread (missed safe)' (ilk kez)" and H.has(line, "atis 2 isabet 0 correction 0 spread 1 diger 1 |"),
+            "'spread (missed safe)' + occlusion -> ALL 2/0/0/1/1 (" .. rows:sub(1, 160) .. "); " .. tostring(g17) .. "; "
+            .. line:sub(1, 120))
+    end)
+end
+function C.stat()
+    H.run("T-STAT-9", function()
+        local T = H.boot({ name = "stat-9" })
+        T.tick(10)
+        local off = H.text_at(T, "AA STATS") == nil
+        T.set("stats_panel", true)
+        T.tick(2)
+        local x = H.text_at(T, "AA STATS   HIT / HEAD / MISS / DT / DEF")
+        local ok1 = x ~= nil and x.x > 960 and x.fs == 12
+        local K = H.boot({ name = "stat-9-4k", setup = function(T) T.set("stats_panel", true) end })
+        K.W.screen_w, K.W.screen_h = 3840, 2160
+        K.tick(3)
+        local y = H.text_at(K, "AA STATS")
+        local y2 = H.text_at(K, "AA FAZ")
+        local ok2 = y ~= nil and y.fs == 24 and y.x > 1920 and y2 ~= nil and y2.fs == 24
+        H.check("T-STAT-9", off and ok1 and ok2, "Stats panel kapali: yazi yok (" .. tostring(off) .. "); acik: sagda, 1080p'de"
+            .. " 12 px (" .. tostring(x and x.fs) .. "), 2160p'de 24 px (" .. tostring(y and y.fs) .. "); PAINT disi render"
+            .. " X-API-1'de")
+    end)
+end
+
 function C.aggregate()
     local G = H.G
     H.check("T-LOAD-2", next(G.global_write) == nil and next(G.unknown_global) == nil,
@@ -4452,6 +6082,8 @@ function C.aggregate()
     H.check("X-API-2", next(G.offlist) == nil, "§3.2 listesi disinda API yok: " .. H.list(H.keys(G.offlist), 8))
     H.check("X-API-3", next(G.enum_bad) == nil, "kati enumlar: native olmayan uye yok (STOMACH / RELOAD / SNIPER): "
         .. H.list(H.keys(G.enum_bad), 6))
+    H.check("T-DLOG-12", #G.nonascii == 0, "her ornekte dbg / teshis satirlari ASCII (" .. #G.nonascii .. ": "
+        .. H.list(G.nonascii, 2) .. ")")
     H.check("X-API-4", next(G.fmt_bad) == nil, "%d / %x yalnizca tam sayiyla (LuaJIT): " .. H.list(H.keys(G.fmt_bad), 4))
     H.check("X-API-5", #G.raw_err == 0, "hicbir hata dagiticidan disari kacmaz (" .. #G.raw_err .. ")"
         .. (#G.raw_err > 0 and (": " .. H.list(G.raw_err, 3)) or ""))
@@ -4483,11 +6115,17 @@ function H.main()
     else
         H.run("T-LOAD-1", function()
             local T = H.make({ name = "yukle-" .. MODE })
-            H.check("T-LOAD-1", T.ok and T.printed("V1.0.0 (primordial edition) yuklendi") ~= nil,
+            H.check("T-LOAD-1", T.ok and T.printed(H.VER .. " (primordial edition) yuklendi") ~= nil,
                 "mod " .. MODE .. ": yuklenir ve yukleme satiri basilir" .. (T.ok and "" or (": " .. tostring(T.load_err))))
         end)
         if MODE == "noffi" then C.log_noffi() end
     end
+    C.dlog()
+    C.prof()
+    if MODE == "full" then C.chg() end
+    C.diag()
+    if MODE == "full" then C.stat_full() end
+    C.stat()
     C.sweep_mode()
     C.aggregate()
 end

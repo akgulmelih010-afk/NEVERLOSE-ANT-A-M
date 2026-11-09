@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.0  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.4  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,38 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.4 (primordial edition): Stats paneli GS duzeninde (N.stats): durum basina isabet / kafa / iska + DT dolu ve
+        zorlanan DEF tick payi, AIM (atis / isabet / correction / spread / diger), LAG / TEMIZ, durum basina KD (sadece
+        dusman, olay anindaki durum), AI PEEK (peek / atis / isabet / bos / vurulma), AA FAZ tablosu (* varsayilan faz,
+        x kotu bilinen faz); yazi ekran yuksekligine gore (1080 = 12 px), satirlar tick basina bir kez. Resolver
+        panelinde "cozum %N" ve "HIT %N" (NL V1.0 modeli: %80 x0.8 jitter >= 120 x0.9 havada x0.5 sahte kayit x
+        correction payi; HIT spread / diger on bilgisi %2 / %8), tick basina bir kez hesaplanir (karede isim / hafiza
+        okumasi yok). "harita ozeti:" satiri (harita degisiminde, kapanista, 20 roundda bir) panel sayilarini loga
+        tasir; Reset stats oturum ve harita sayaclarini sifirlar.
+      V1.0.3 (primordial edition): sarj analizi (N.charge): DT yarim sarjken exploit durumunda "sh c/m", "dtac X.XXs",
+        "defbitti X.XXs", "sarj: atis|teleport|def|dtac|?" (vuruldun / iska / dbg satirlari), round basinda "dbg sen
+        ozeti", inis teleportunun sonucu ("teleport sonucu: tahmin N, sapma +N tick, ilk paket ...") ve 10 iniste bir
+        "inis tahmini", force_uncharge sarji 3 kez harcamazsa oturum boyunca havada teleport kapali, ucus basina tek
+        teleport bekcisi, sunucu reddi bekcisi (lag'li son 4 atisin 3'u 120 sn'de 2 dusmanda ret -> DEF / LC / TP 5 dk,
+        PAUSE gostergesi; atisa ve Min. damage'e dokunmaz); teshis (N.diag): SPEC §8 belirsizlikleri icin ilk goruluste
+        "teshis: Gn ..." ve harita / kapanista "dbg teshis:" (callback sirasi, ANTIAIM / komut, olay filtresi, iska
+        sebebi histogrami, bekleme ihlali, seviye 1 / 2 atis hizi, sarj kilidi, USE, uncharge, DT tus modu, iz / tick).
+      V1.0.2 (primordial edition): dusman profili ve hafiza v2 (N.profile): AA deseni statik / jitter <aralik> /
+        x-way / spin / random (sadece gercek kayit yaw'lari; atis satirinda "AA jitter 80"), dusman fake duck
+        isareti (dbg kayitta FD), gorunen dusmandan saniyede bir profil ornegi (desen, defensive, fake duck; 240'ta
+        yariya), aliskanlik (10+ ornek, %60), hafizadan jitter on bilgisi (canli desen yokken ilk peek'te safe point
+        Head, "hafizadan, dogrulanacak") + dogrulandi / tutmadi, "tanindi (hafiza)", AA deseni degisti / kararsiz
+        (durum degisiminden 1.5 sn sonra), dusman basina kariyer (K/D, atis / isabet / kafa, correction, sana
+        mermi) ve harita sonunda / kapanista "dusman ozeti"; hafiza dosyasi NYKLEMEM 2 (R / K / C kayitlari, END
+        + kayit sayisi, nykle_memory.bak yedegi, bozuk dosyada yedekten yukleme, v1 okunur); cvar orijinalleri
+        hafizada (oyun cokerse 4:3 / FPS / sol el eski degerine doner); 64 sinirinda gelecekteki oturum degeri
+        sirayi bozmaz.
+      V1.0.1 (primordial edition): detayli log GS ile ayni (N.dlog): dbg atis-detay (konum / kayit / aimbot /
+        vurulabilir / ates-hakki / o-gordu / sen), dbg vurulma-detay (iz duvardan / acik, son iki atisi arasi (DT)),
+        olum-detay / kill-detay etiketleri (headshot, duvardan, noscope, smoke icinden, kor), dbg duello GS bicimi
+        (acilistaki konum, def %, havada) + olduren isabet artik sayiliyor (player_death AIMBOT_HIT'ten once gelir),
+        dbg def ozeti, round / harita basliklari (cift round_start'ta bir kez), dbg round sonu, dbg sikmadi butun
+        sebepler + silah / konum / kayit / sen kuyrugu, dusman basina 4 tick'te bir sirali vurulabilirlik taramasi.
       V1.0.0 (primordial edition): ilk surum. GameSense V1.0.79 varsayilanlari (builder, exploit satirlari,
         anti-brute fazlari 0-8 ve ogrenme, Smart defensive + re-arm cooldown + anti-peek, temiz atis,
         safe recharge, havada teleport + Air LC, gercek / taze kayit bekleme, bicak / zeus Min. damage,
@@ -35,10 +67,10 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.0", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.4", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
-    draw = {}, cb = {}, tick = {}, K = {},
+    draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
     st = { on = false, enabled = true, tick = 0, cmdn = -1, lp = nil, alive = false, dead = true, idx = nil,
         enemies = {}, enemies_tick = -1, any_enemy_alive = true, state = "Standing", move_state = "Standing",
         label = "Standing", threat = nil, weapon = nil, wgroup = "auto", round_start_at = -1000,
@@ -480,6 +512,7 @@ do
         if from == nil or to == nil then
             return 0
         end
+        N.diag.trn = N.diag.trn + 1
         local ok, r
         if target ~= nil then
             ok, r = pcall(trace.bullet, from, to, skip, target)
@@ -498,11 +531,12 @@ do
         return max(0, dmg)
     end
 
-    -- Duz iz: fraction (0..1) ve entity (ya da nil).
+    -- Duz iz: fraction (0..1), entity (ya da nil) ve iz gercekten alindi mi (hata / eksik deger = 1, nil, false).
     U.tline = function(from, to, skip)
         if from == nil or to == nil then
             return 1, nil
         end
+        N.diag.trn = N.diag.trn + 1
         local ok, r
         if skip ~= nil then
             ok, r = pcall(trace.line, from, to, skip)
@@ -518,7 +552,7 @@ do
         if not okv or not U.finite(f) then
             return 1, nil
         end
-        return f, e
+        return f, e, true
     end
 
     -- Sayi metni: tam sayiysa %d, degilse bir ondalik.
@@ -589,9 +623,14 @@ do
     local U, L = N.util, N.log
     L.lines, L.cap, L.trim = {}, 12000, 1000
     L.pending, L.file = {}, "nykle_log.txt"
-    L.bytes, L.cap_bytes, L.capped = 0, 2 * 1024 * 1024, false
+    -- Oturum basina dosya siniri 2 MB; asilinca dosyaya bir not ve sadece ozet satirlari (L.PRIO) 128 KB'lik
+    -- yedek payla yazilir: yuklenen logda harita / dusman ozeti, teshis ve kapanis eksik kalmasin.
+    L.bytes, L.cap_bytes, L.reserve, L.capped = 0, 2 * 1024 * 1024, 128 * 1024, false
+    L.PRIO = { "harita ozeti", "dusman ozeti", "dbg teshis", "teshis:", "script kaldirildi" }
     L.saved_at, L.dumped_at = -1000, -1000
     L.load_entry, L.notes = nil, {}
+    -- n: bu oturumda yazilan satir sayisi (halka kirpilsa da artar; dbg round basligi tekrar denetimi).
+    L.n = 0
     L.marker = "] V" .. N.VERSION .. " (" .. N.EDITION .. " edition) yuklendi"
 
     L.stamp = function()
@@ -610,6 +649,7 @@ do
     end
 
     L.push = function(line)
+        L.n = L.n + 1
         local entry = L.stamp() .. " " .. line
         local lines = L.lines
         lines[#lines + 1] = entry
@@ -620,10 +660,22 @@ do
             end
             L.lines = keep
         end
-        if N.fs.ok and not L.capped then
+        if N.fs.ok and (not L.capped or L.prio(entry)) then
             L.pending[#L.pending + 1] = entry
         end
         return entry
+    end
+
+    -- Sinir asildiktan sonra da dosyaya giden ozet satiri mi ("SS:DD:SS [Nykle.win] <metin>").
+    L.prio = function(entry)
+        local at = entry:find("] ", 1, true)
+        local body = at ~= nil and entry:sub(at + 2) or entry
+        for _, prefix in ipairs(L.PRIO) do
+            if body:sub(1, #prefix) == prefix then
+                return true
+            end
+        end
+        return false
     end
 
     -- Tek giris noktasi: "[Nykle.win] " oneki, halka + dosya kuyrugu + konsol.
@@ -652,18 +704,30 @@ do
             return true
         end
         local F = N.fs
-        if not F.ok or L.capped then
-            L.pending = {}
-            return false
-        end
-        local text = concat(L.pending, "\n") .. "\n"
+        local batch = L.pending
         L.pending = {}
-        if L.bytes + #text > L.cap_bytes then
-            L.capped = true
-            L.line("log dosyasi bu oturumda 2 MB'yi gecti, sadece hafizada")
-            L.pending = {}
+        if not F.ok then
             return false
         end
+        -- Sigan kisim yazilir; sinirda not dosyaya da gider, sonrasi sadece ozet satirlari (yedek pay icinde).
+        local out, size = {}, 0
+        local limit = L.cap_bytes + (L.capped and L.reserve or 0)
+        for _, entry in ipairs(batch) do
+            local n = #entry + 1
+            if not L.capped and L.bytes + size + n > L.cap_bytes then
+                L.capped, limit = true, L.cap_bytes + L.reserve
+                local note = L.line(fmt("log dosyasi bu oturumda %d MB'yi gecti: dosyaya bundan sonra sadece ozet"
+                    .. " satirlari (harita / dusman ozeti, teshis, kapanis), butun loglar hafizada", U.R(L.cap_bytes / 1048576)))
+                out[#out + 1], size = note, size + #note + 1
+            end
+            if L.bytes + size + n <= limit and (not L.capped or L.prio(entry)) then
+                out[#out + 1], size = entry, size + n
+            end
+        end
+        if #out == 0 then
+            return false
+        end
+        local text = concat(out, "\n") .. "\n"
         if F.put(L.file, text, "a") then
             L.bytes = L.bytes + #text
             return true
@@ -775,6 +839,7 @@ do
 
     L.clear = function()
         L.lines, L.pending = {}, {}
+        L.bytes, L.capped = 0, false
         if N.fs.ok then
             N.fs.put(L.file, (L.load_entry or L.stamp() .. " [" .. N.SCRIPT .. "] V" .. N.VERSION .. " ("
                 .. N.EDITION .. " edition) yuklendi") .. "\n", "w")
@@ -2008,12 +2073,21 @@ end
 
 -------------------------------------------------------------------------------
 -- Kalici hafiza (nykle_memory.txt, Steam ID ile): resolver sonuclari, anti-brute tabani, faz istatistikleri,
--- kafa saklayan sayaclari.
+-- kafa saklayan sayaclari, AA profili (R), kariyer (K), cvar orijinalleri (C).
+-- Dosya surum 2: "NYKLEMEM\t2\t<oturum>" basligi, kayitlar, son satir "END\t<kayit sayisi>". END'i olmayan ya da
+-- sayisi tutmayan dosya bozuk sayilir ve nykle_memory.bak denenir (GS V1.0.37 / NL V1.1.8: hafiza iki kez sessizce
+-- kayboldu). Yazarken once onceki gecerli metin .bak'a, sonra yeni metin ana dosyaya. Surum 1 dosyasi okunur
+-- (END'siz); bilinmeyen kayit turleri atlanir (ileriye uyumlu).
 -------------------------------------------------------------------------------
 do
     local U, M = N.util, N.mem
-    M.file, M.players, M.count, M.session, M.dirty, M.loaded = "nykle_memory.txt", {}, 0, 1, false, false
+    M.file, M.bak, M.players, M.count, M.session, M.dirty, M.loaded = "nykle_memory.txt", "nykle_memory.bak", {}, 0, 1,
+        false, false
     M.seq, M.kc = 0, {}
+    -- cvars: cvar orijinalleri (C kaydi: ilk yazimdan onceki deger; temiz birakista silinir). good: son gecerli dosya
+    -- metni (bir sonraki yazimda .bak'a gider); bak_text: .bak'ta oldugu bilinen metin; from_bak: yedekten yuklendi.
+    -- locked: ana dosya bu scriptten yeni bir surumle yazilmis (eski surume donulmus); hic yazilmaz (SPEC §5).
+    M.cvars, M.good, M.bak_text, M.from_bak, M.cv_new, M.locked = {}, nil, nil, false, false, false
 
     M.key_of = function(ent, name)
         if ent == nil then
@@ -2077,12 +2151,13 @@ do
     end
 
     -- En uzun suredir gorulmeyenler atilir (64 oyuncu siniri): once oturum, esitse son erisim; yeni eklenen
-    -- (keep) hic atilmaz.
+    -- (keep) hic atilmaz. Dosyadaki oturum bu oturumdan buyukse (bozuk / baska kurulum) bu oturum sayilir: yoksa
+    -- "gelecekteki" kayitlar bu oturumda gorulenleri surekli atardi.
     M.trim = function(keep)
         local list = {}
         for key, p in pairs(M.players) do
             if key ~= keep then
-                list[#list + 1] = { key = key, last = p.last or 0, seen = p.seen or 0 }
+                list[#list + 1] = { key = key, last = min(p.last or 0, M.session), seen = p.seen or 0 }
             end
         end
         table.sort(list, function(a, b)
@@ -2106,47 +2181,138 @@ do
         return out
     end
 
-    M.load = function()
-        M.loaded = true
-        local text = N.fs.ok and N.fs.read(M.file) or nil
-        if text == nil then
-            return
+    -- Metni dogrular ve ayristirir: tablo ya da nil, sebep. Hicbir sey uygulanmaz (bozuk ana dosya hafizayi yarim
+    -- doldurmasin, yedek denenebilsin).
+    M.parse = function(text)
+        if type(text) ~= "string" or text == "" then
+            return nil, "bos"
         end
-        local first = true
+        local lines = {}
         for line in text:gmatch("[^\n]+") do
-            local f = split(line:gsub("\r$", ""))
-            if first then
-                first = false
-                if f[1] ~= "NYKLEMEM" or f[2] ~= "1" then
-                    return
-                end
-                M.session = (tonumber(f[3]) or 0) + 1
-            elseif f[1] == "P" and #f >= 8 and f[2] ~= "" then
+            lines[#lines + 1] = (line:gsub("\r$", ""))
+        end
+        local head = split(lines[1] or "")
+        if head[1] ~= "NYKLEMEM" then
+            return nil, "baslik yok"
+        end
+        if head[2] ~= "1" and head[2] ~= "2" then
+            return nil, "surum " .. tostring(head[2]), tonumber(head[2])
+        end
+        local last = #lines
+        if head[2] == "2" then
+            local tail = split(lines[#lines])
+            if tail[1] ~= "END" then
+                return nil, "END yok"
+            end
+            if tonumber(tail[2]) ~= #lines - 2 then
+                return nil, fmt("kayit sayisi %s != %d", tostring(tail[2]), #lines - 2)
+            end
+            last = #lines - 1
+        end
+        local d = { session = tonumber(head[3]) or 0, players = {}, count = 0, phases = {}, cvars = {} }
+        local extra = {}
+        local PR = N.profile
+        for i = 2, last do
+            local f = split(lines[i])
+            local kind = f[1]
+            if kind == "P" and #f >= 8 and f[2] ~= "" then
                 local res = {}
                 for state, results in f[6]:gmatch("([^=;]+)=([cho]*)") do
                     -- Eski surumlerin 'o' (diger iska) harfleri pencereyi sulandirmasin.
                     res[state] = results:gsub("o", ""):sub(-4)
                 end
                 local n, h, b = f[7]:match("^([%d%.]+),([%d%.]+),(%d+)$")
-                M.players[f[2]] = { name = f[3], last = tonumber(f[4]) or 0, base = tonumber(f[5]), res = res,
+                if d.players[f[2]] == nil then
+                    d.count = d.count + 1
+                end
+                d.players[f[2]] = { name = f[3], last = tonumber(f[4]) or 0, base = tonumber(f[5]), res = res,
                     hider = { n = tonumber(n) or 0, h = tonumber(h) or 0, b = tonumber(b) or 0 },
                     gmiss = tonumber(f[8]) or 0 }
-                M.count = M.count + 1
-            elseif f[1] == "F" and #f >= 5 then
-                local B = N.brute
-                local list = B.phases[f[2]]
-                local phase = tonumber(f[3])
-                if list ~= nil and phase ~= nil and list[phase] ~= nil then
-                    list[phase].shots = tonumber(f[4]) or 0
-                    list[phase].hits = tonumber(f[5]) or 0
+            elseif kind == "F" and #f >= 5 then
+                d.phases[#d.phases + 1] = { g = f[2], phase = tonumber(f[3]), shots = tonumber(f[4]) or 0,
+                    hits = tonumber(f[5]) or 0 }
+            elseif kind == "R" and #f >= 3 + #PR.PATTERNS + 2 then
+                local r = PR.new_prof()
+                r.n = tonumber(f[3]) or 0
+                for j, name in ipairs(PR.PATTERNS) do
+                    r[name] = tonumber(f[3 + j]) or 0
                 end
+                r.def = tonumber(f[4 + #PR.PATTERNS]) or 0
+                r.fd = tonumber(f[5 + #PR.PATTERNS]) or 0
+                extra[#extra + 1] = { key = f[2], field = "prof", v = r }
+            elseif kind == "K" and #f >= 2 + #PR.CAREER then
+                local c = {}
+                for j, name in ipairs(PR.CAREER) do
+                    c[name] = tonumber(f[2 + j]) or 0
+                end
+                extra[#extra + 1] = { key = f[2], field = "car", v = c }
+            elseif kind == "C" and #f >= 4 and f[2] ~= "" and U.finite(tonumber(f[3])) then
+                d.cvars[f[2]] = { v = tonumber(f[3]), float = f[4] == "1" }
             end
         end
+        -- R / K kaydi oyuncusu (P) olmadan atlanir (64 sinirinda atilmis oyuncu).
+        for _, x in ipairs(extra) do
+            local p = d.players[x.key]
+            if p ~= nil and (x.field ~= "prof" or x.v.n > 0) then
+                p[x.field] = x.v
+            end
+        end
+        return d
+    end
+
+    M.apply = function(d)
+        M.players, M.count = d.players, d.count
+        M.session = d.session + 1
+        -- mem: dosyadan taninan oyuncu ("tanindi (hafiza)" ve hafiza dogrulamasi icin).
+        for _, p in pairs(M.players) do
+            p.mem = true
+        end
+        for _, f in ipairs(d.phases) do
+            local list = N.brute.phases[f.g]
+            if list ~= nil and f.phase ~= nil and list[f.phase] ~= nil then
+                list[f.phase].shots = f.shots
+                list[f.phase].hits = f.hits
+            end
+        end
+        M.cvars = d.cvars
         if M.count > N.K.MEMORY_LIMIT then
             M.trim()
         end
         for _, g in ipairs(N.K.BRUTE_GROUPS) do
             N.brute.default[g] = N.brute.best_default(g)
+        end
+    end
+
+    M.load = function()
+        M.loaded = true
+        if not N.fs.ok then
+            return
+        end
+        local text = N.fs.read(M.file)
+        local d, why, ver = M.parse(text)
+        if ver ~= nil and ver > 2 then
+            M.locked = true
+            N.log.notes[#N.log.notes + 1] = fmt("hafiza dosyasi daha yeni bir surumden (%s): dokunulmuyor, bu oturumun"
+                .. " hafizasi kaydedilmez", why)
+        end
+        if d ~= nil then
+            M.good = text
+        else
+            local btext = N.fs.read(M.bak)
+            M.bak_text = btext
+            local b = M.parse(btext)
+            local notes = N.log.notes
+            if b ~= nil then
+                d, M.good, M.from_bak = b, btext, true
+                notes[#notes + 1] = text == nil and fmt("hafiza dosyasi yok -> yedek kullanildi (%s)", M.bak)
+                    or fmt("hafiza dosyasi bozuk (%s) -> yedek kullanildi (%s)", why, M.bak)
+            elseif text ~= nil then
+                notes[#notes + 1] = fmt("hafiza dosyasi bozuk (%s) -> bos hafiza (yedek %s)", why,
+                    btext == nil and "yok" or "de bozuk")
+            end
+        end
+        if d ~= nil then
+            M.apply(d)
         end
     end
 
@@ -2160,9 +2326,24 @@ do
         return fmt("%.2f", v)
     end
 
+    -- cvar degeri: 4 ondalik yetmez (r_aspectratio 1.7778), sondaki sifirlar atilir.
+    local function cnum(v)
+        if abs(v - floor(v)) < 1e-9 then
+            return fmt("%d", floor(v))
+        end
+        return (fmt("%.6f", v):gsub("0+$", ""):gsub("%.$", ""))
+    end
+
     M.text = function()
-        local out = { "NYKLEMEM\t1\t" .. fmt("%d", floor(M.session)) }
-        for key, p in pairs(M.players) do
+        local PR = N.profile
+        local out = { "NYKLEMEM\t2\t" .. fmt("%d", floor(M.session)) }
+        local keys = {}
+        for key in pairs(M.players) do
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            local p = M.players[key]
             local res = {}
             for state, results in pairs(p.res) do
                 if results ~= "" then
@@ -2174,6 +2355,24 @@ do
             out[#out + 1] = concat({ "P", key, (tostring(p.name or "?"):gsub("[\t\r\n]", " ")),
                 num(p.last or 0), p.base ~= nil and num(p.base) or "", concat(res, ";"),
                 num(hd.n) .. "," .. num(hd.h) .. "," .. num(floor(hd.b)), num(p.gmiss or 0) }, "\t")
+            local r = p.prof
+            if r ~= nil and r.n > 0 then
+                local f = { "R", key, num(r.n) }
+                for _, name in ipairs(PR.PATTERNS) do
+                    f[#f + 1] = num(r[name] or 0)
+                end
+                f[#f + 1] = num(r.def or 0)
+                f[#f + 1] = num(r.fd or 0)
+                out[#out + 1] = concat(f, "\t")
+            end
+            local c = p.car
+            if c ~= nil then
+                local f = { "K", key }
+                for _, name in ipairs(PR.CAREER) do
+                    f[#f + 1] = num(c[name] or 0)
+                end
+                out[#out + 1] = concat(f, "\t")
+            end
         end
         for _, g in ipairs(N.K.BRUTE_GROUPS) do
             local list = N.brute.phases[g]
@@ -2184,31 +2383,64 @@ do
                 end
             end
         end
+        local names = {}
+        for name in pairs(M.cvars) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local c = M.cvars[name]
+            out[#out + 1] = concat({ "C", name, cnum(c.v), c.float and "1" or "0" }, "\t")
+        end
+        out[#out + 1] = "END\t" .. fmt("%d", #out - 1)
         return concat(out, "\n") .. "\n"
     end
 
-    M.save = function(force)
+    -- fresh: .bak'a da yeni metin (unut dugmesi: unutulan veri yedekten geri gelmesin).
+    M.save = function(force, fresh)
         if not M.dirty and not force then
             return false
         end
-        if not N.fs.ok then
+        if not N.fs.ok or M.locked then
             return false
         end
-        if N.fs.put(M.file, M.text(), "w") then
-            M.dirty = false
+        local text = M.text()
+        local prev = fresh and text or M.good
+        if prev ~= nil and prev ~= M.bak_text and N.fs.put(M.bak, prev, "w") then
+            M.bak_text = prev
+        end
+        if N.fs.put(M.file, text, "w") then
+            M.dirty, M.good = false, text
             return true
         end
         return false
     end
 
+    -- cvar orijinali (C kaydi): ilk yazimdan once kaydedilir, temiz birakista silinir; oyun cokerse bir sonraki
+    -- oturum senin degerini buradan alir (GS V1.0.40).
+    M.cvar_keep = function(name, value, float)
+        M.cvars[name] = { v = value, float = float == true }
+        M.dirty, M.cv_new = true, true
+    end
+
+    M.cvar_drop = function(name)
+        if M.cvars[name] ~= nil then
+            M.cvars[name] = nil
+            M.dirty = true
+        end
+    end
+
+    -- Ogrenilen her sey (P / R / K / F) silinir; C kalir (ogrenilmis veri degil, senin cvar degerlerin).
     M.forget = function()
         M.players, M.count = {}, 0
         N.brute.reset_phases()
         N.brute.enemies = {}
         N.rage.t = {}
+        N.profile.reset()
         M.dirty = true
-        M.save(true)
-        N.log.line("ogrenilen dusmanlar unutuldu (resolver seviyeleri, anti-brute fazlari, kafa payi)")
+        M.save(true, true)
+        N.log.line("ogrenilen dusmanlar unutuldu (resolver seviyeleri, anti-brute fazlari, kafa payi, AA profilleri,"
+            .. " kariyer; cvar yedekleri duruyor)")
     end
 end
 
@@ -2224,7 +2456,8 @@ do
         local t = T.p[idx]
         if t == nil then
             t = { idx = idx, last_sim = nil, def_until = -1, lc_until = -1, record_age = 0, yaws = {},
-                pattern = "?", we_shot = -1000, shot_us = -1000, dmg_dealt = 0, last_origin = nil }
+                pattern = "?", amp = nil, we_shot = -1000, shot_us = -1000, dmg_dealt = 0, last_origin = nil,
+                fd_until = -1, fd_n = 0, fd_need = 2 }
             T.p[idx] = t
         end
         return t
@@ -2256,13 +2489,15 @@ do
                     if t.last_sim ~= nil then
                         if sim < t.last_sim then
                             -- Simulasyon zamani geri gitti: sahte kayit (defensive).
-                            t.def_until = tick + min(16, t.last_sim - sim)
+                            t.def_back = min(16, t.last_sim - sim)
+                            t.def_until = tick + t.def_back
                             t.def_start = t.def_start or tick
                             if tick - t.def_start > 64 then
                                 -- 1 sn'den uzun "geride" kalan kayit defensive degil (dogus vb.): sifirla.
                                 t.def_until, t.def_start, t.last_sim = -1, nil, sim
                             end
                         elseif sim > t.last_sim then
+                            T.fakeduck(t, ent, tick, sim - t.last_sim)
                             local org = U.origin(ent)
                             if org ~= nil and t.last_origin ~= nil then
                                 local dx, dy, dz = org.x - t.last_origin.x, org.y - t.last_origin.y,
@@ -2296,21 +2531,96 @@ do
         end
     end
 
-    -- Son 8 gercek kayittaki goz yaw'larinin yayilimi < 35 derece = statik.
+    -- Dusman fake duck'i (GS enemy_watch): yerde, egilme 0.05-0.95 arasi ve iki gercek guncelleme arasinda 7+ tick
+    -- (6+ tick bogma) ust uste fd_need guncelleme (hafizada fake duck'ci bilinen dusmanda 1) -> 32 tick FD.
+    T.fakeduck = function(t, ent, tick, step)
+        local duck = U.num(ent, "m_flDuckAmount")
+        if U.flag(ent, "ON_GROUND") ~= false and duck ~= nil and duck > 0.05 and duck < 0.95 and step >= 7 then
+            t.fd_n = t.fd_n + 1
+            if t.fd_n >= t.fd_need then
+                t.fd_until = tick + 32
+            end
+        else
+            t.fd_n = 0
+        end
+    end
+
+    -- Son 8 gercek kayittaki goz yaw'lari (defensive kaydinin yaw'i hic girmez, NL V1.0): yayilim < 35 derece =
+    -- statik; ardisik farklar hep ayni yone ve toplam >= 90 = spin; cember uzerinde 20+ derecelik bosluklarla
+    -- ayrilan kumeler: iki sik kume (genislik <= 25, ikiser ornek) = jitter <kume arasi aci>, 3-5 sik kume
+    -- (genislik <= 15, en az ikisi tekrarli) = x-way; hicbiri = random.
     T.classify = function(t)
         local ys = t.yaws
-        if #ys < 4 then
+        local n = #ys
+        t.amp = nil
+        if n < 4 then
             t.pattern = "?"
             return
         end
+        t.last_yaw = ys[n]
         local spread = 0
-        for i = 1, #ys do
-            for j = i + 1, #ys do
+        for i = 1, n do
+            for j = i + 1, n do
                 spread = max(spread, abs(U.norm(ys[i] - ys[j])))
             end
         end
-        t.pattern = spread < 35 and "static" or "jitter"
-        t.last_yaw = ys[#ys]
+        if spread < 35 then
+            t.pattern = "static"
+            return
+        end
+        local pos, neg, sum = 0, 0, 0
+        for i = 2, n do
+            local d = U.norm(ys[i] - ys[i - 1])
+            sum = sum + d
+            pos = pos + (d > 3 and 1 or 0)
+            neg = neg + (d < -3 and 1 or 0)
+        end
+        if (pos == n - 1 or neg == n - 1) and abs(sum) >= 90 then
+            t.pattern = "spin"
+            return
+        end
+        local rel = {}
+        for i = 1, n do
+            rel[i] = U.norm(ys[i] - ys[n])
+        end
+        table.sort(rel)
+        local gaps, start = {}, nil
+        for i = 1, n do
+            gaps[i] = i < n and rel[i + 1] - rel[i] or rel[1] + 360 - rel[n]
+            if start == nil and gaps[i] >= 20 then
+                start = i
+            end
+        end
+        if start == nil then
+            t.pattern = "random"
+            return
+        end
+        -- Bosluktan sonraki ornekten baslayip cemberi bir kez dolas (360 eklenerek acilir).
+        local clusters, cur = {}, nil
+        for k = 1, n do
+            local i = (start + k - 1) % n + 1
+            local v = rel[i] + (i <= start and 360 or 0)
+            if cur == nil or gaps[(i - 2) % n + 1] >= 20 then
+                cur = { lo = v, hi = v, n = 0, sum = 0 }
+                clusters[#clusters + 1] = cur
+            end
+            cur.hi, cur.n, cur.sum = v, cur.n + 1, cur.sum + v
+        end
+        local nc, tight, multi = #clusters, true, 0
+        for _, c in ipairs(clusters) do
+            if c.hi - c.lo > (nc == 2 and 25 or 15) then
+                tight = false
+            end
+            multi = multi + (c.n >= 2 and 1 or 0)
+        end
+        if nc == 2 and tight and multi == 2 then
+            t.pattern = "jitter"
+            t.amp = abs(U.norm(clusters[2].sum / clusters[2].n - clusters[1].sum / clusters[1].n))
+        elseif nc >= 3 and nc <= 5 and tight and multi >= 2 then
+            t.pattern = "xway"
+        else
+            t.pattern = "random"
+        end
     end
 
     T.fallback = function()
@@ -2347,13 +2657,357 @@ do
         return "Standing"
     end
 
-    -- Atis satiri profili: "<static|jitter|?> dsy? <air|ground>".
+    -- Atis satiri profili: "AA <statik|jitter 80|x-way|spin|random|?> dsy? <air|ground>" (GS profile_text).
     T.profile = function(ent)
         local idx = U.index(ent)
         local t = idx ~= nil and T.p[idx] or nil
-        local pattern = t ~= nil and t.pattern or "?"
         local air = ent ~= nil and U.flag(ent, "ON_GROUND") == false
-        return fmt("%s dsy? %s", pattern, air and "air" or "ground")
+        return fmt("AA %s dsy? %s", N.profile.text(t), air and "air" or "ground")
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Dusman profili (GS enemy_watch / resolver.habit / resolver.observe, V1.0.47-68): gorunen dusmandan saniyede bir
+-- ornek (AA deseni, son 1 sn'de defensive, fake duck; 240 ornegi gecince hepsi yariya), kalici aliskanlik (10+ ornek,
+-- 8+ bilinen ornegin %60'i ayni desen), hafiza on bilgisi (canli desen yokken bilinen jitter'ciye seviye 1) ve
+-- dogrulamasi, "tanindi (hafiza)", AA deseni degisti / kararsiz satirlari (durum degisiminden 1.5 sn sonra sayilir,
+-- V1.0.64; sadece log + profil, seviyeye dokunmaz), dusman basina kariyer sayaclari ve "dusman ozeti".
+-------------------------------------------------------------------------------
+do
+    local U, PR = N.util, N.profile
+    -- R kaydindaki desen sirasi; MULTI = cok tarafli desenler (sabit bir aci ancak bir kismini tutar).
+    PR.PATTERNS = { "static", "jitter", "xway", "spin", "random" }
+    PR.NAMES = { static = "statik", jitter = "jitter", xway = "x-way", spin = "spin", random = "random" }
+    PR.MULTI = { jitter = true, xway = true, random = true }
+    -- K kaydi: karsilasilan harita, onu oldurdun, o seni oldurdu, atis, isabet, kafa isabeti, correction iskasi,
+    -- sana mermisi, kafana mermisi.
+    PR.CAREER = { "enc", "k", "d", "s", "h", "hh", "c", "b", "bh" }
+    PR.SETTLE, PR.FLIP_WINDOW, PR.FLIP_MAX, PR.CHANGE_EVERY, PR.HALVE_AT = 1.5, 20, 4, 10, 240
+    -- s[anahtar]: bu haritadaki durum (ornek zamani, karsilasildi mi, tanindi / on bilgi / dogrulama yazildi mi,
+    -- oturmus desen ailesi, degisim zamanlari, mac sonu panelinde yazildi mi). ended: mac sonu paneli gecti.
+    PR.s, PR.ended = {}, false
+
+    PR.new_prof = function()
+        return { n = 0, static = 0, jitter = 0, xway = 0, spin = 0, random = 0, def = 0, fd = 0 }
+    end
+
+    PR.name = function(pattern)
+        return PR.NAMES[pattern] or "?"
+    end
+
+    -- Takip kaydinin deseni: "jitter 80" / "x-way" / "spin" / "statik" / "random" / "?".
+    PR.text = function(t)
+        local pattern = t ~= nil and t.pattern or "?"
+        if pattern == "jitter" and U.finite(t.amp) then
+            return fmt("jitter %d", U.R(t.amp))
+        end
+        return PR.name(pattern)
+    end
+
+    PR.family = function(pattern)
+        return PR.MULTI[pattern] and "multi" or pattern
+    end
+
+    PR.session = function(key)
+        local s = PR.s[key]
+        if s == nil then
+            s = { flips = {} }
+            PR.s[key] = s
+        end
+        return s
+    end
+
+    -- Aliskanlik: { pattern (ya da nil), def, fd } ya da 10 ornekten azsa nil.
+    PR.habit = function(p)
+        local r = p ~= nil and p.prof or nil
+        if r == nil or r.n < 10 then
+            return nil
+        end
+        local best, count, known = nil, 0, 0
+        for _, name in ipairs(PR.PATTERNS) do
+            local c = r[name] or 0
+            known = known + c
+            if c > count then
+                best, count = name, c
+            end
+        end
+        if known < 8 or count < known * 0.6 then
+            best = nil
+        end
+        return { pattern = best, def = r.def / r.n, fd = r.fd / r.n }
+    end
+
+    -- En sik bilinen desen (aliskanlik esigi olmadan; dusman ozeti icin).
+    PR.dominant = function(r)
+        local best, count = nil, 0
+        for _, name in ipairs(PR.PATTERNS) do
+            if r ~= nil and (r[name] or 0) > count then
+                best, count = name, r[name]
+            end
+        end
+        return best
+    end
+
+    PR.car = function(p)
+        local c = p.car
+        if c == nil then
+            c = {}
+            for _, name in ipairs(PR.CAREER) do
+                c[name] = 0
+            end
+            p.car = c
+        end
+        return c
+    end
+
+    -- Bu haritada ilk karsilasma: kariyerde +1 harita.
+    PR.met = function(key, p)
+        local s = PR.session(key)
+        if not s.met then
+            s.met = true
+            local c = PR.car(p)
+            c.enc = c.enc + 1
+            N.mem.dirty = true
+        end
+        return s
+    end
+
+    -- Kariyer sayaci (S.on_shoot / on_hit / on_miss / on_hurt / on_death'ten birer cagri).
+    PR.count = function(ent, key, field, field2)
+        local p, k = N.mem.entry(ent, key)
+        if p == nil then
+            return
+        end
+        PR.met(k, p)
+        local c = PR.car(p)
+        c[field] = c[field] + 1
+        if field2 ~= nil then
+            c[field2] = c[field2] + 1
+        end
+        N.mem.dirty = true
+    end
+
+    PR.sample = function(p, t, tick)
+        local r = p.prof
+        if r == nil then
+            r = PR.new_prof()
+            p.prof = r
+        end
+        r.n = r.n + 1
+        local pattern = t ~= nil and t.pattern or "?"
+        if PR.NAMES[pattern] ~= nil then
+            r[pattern] = r[pattern] + 1
+        end
+        if t ~= nil and t.def_until >= tick - 64 then
+            r.def = r.def + 1
+        end
+        if t ~= nil and t.fd_until >= tick - 64 then
+            r.fd = r.fd + 1
+        end
+        if r.n > PR.HALVE_AT then
+            for field, value in pairs(r) do
+                r[field] = value / 2
+            end
+        end
+        N.mem.dirty = true
+    end
+
+    -- Dosyadan taninan dusman: haritada bir kez, ilk goruste.
+    PR.announce = function(ent, p, s)
+        if s.announced or not p.mem then
+            return
+        end
+        s.announced = true
+        if not N.on("resolver_log") then
+            return
+        end
+        local h = PR.habit(p)
+        local parts = {}
+        if h ~= nil and h.pattern ~= nil then
+            parts[#parts + 1] = "genelde " .. PR.name(h.pattern) .. " (dogrulanacak)"
+        end
+        if h ~= nil and h.def >= 0.2 then
+            parts[#parts + 1] = fmt("defensive %%%d", U.R(h.def * 100))
+        end
+        if h ~= nil and h.fd >= 0.1 then
+            parts[#parts + 1] = fmt("fake duck %%%d", U.R(h.fd * 100))
+        end
+        local c = p.car
+        if c ~= nil and c.s + c.k + c.d + c.b > 0 then
+            parts[#parts + 1] = fmt("gecmis %d harita, K/D %d/%d, atis %d/%d (kafa %d), correction %d", U.R(c.enc),
+                U.R(c.k), U.R(c.d), U.R(c.h), U.R(c.s), U.R(c.hh), U.R(c.c))
+        end
+        if #parts > 0 then
+            N.log.line(fmt("resolver: %s tanindi (hafiza): %s", U.name(ent), concat(parts, ", ")))
+        end
+    end
+
+    -- Hafiza on bilgisi (RG.level): o durumda veri yok + canli desen henuz yok + aliskanlik cok tarafli -> seviye 1
+    -- (GS resolver_level "remembered"). Satir dusman basina haritada bir kez.
+    PR.prior = function(ent, p, key, tr)
+        if p == nil or key == nil or (tr ~= nil and tr.pattern ~= "?") then
+            return false
+        end
+        local h = PR.habit(p)
+        if h == nil or not PR.MULTI[h.pattern] then
+            return false
+        end
+        local s = PR.session(key)
+        if not s.prior_logged then
+            s.prior_logged = true
+            if N.on("resolver_log") then
+                N.log.line(fmt("resolver: %s %s -> safe point Head (veri yok, hafizadan, dogrulanacak)", U.name(ent),
+                    PR.name(h.pattern)))
+            end
+        end
+        return true
+    end
+
+    -- Canli desenle: hafiza dogrulamasi (haritada bir kez) ve desen degisimi / kararsizlik.
+    PR.observe = function(ent, t, key, s, now)
+        local pattern = t.pattern
+        if PR.NAMES[pattern] == nil then
+            return
+        end
+        local p = N.mem.players[key]
+        if s.verified == nil and p ~= nil and p.mem then
+            local h = PR.habit(p)
+            if h ~= nil and h.pattern ~= nil then
+                local same = PR.family(h.pattern) == PR.family(pattern)
+                s.verified = same
+                if not same then
+                    -- Aliskanlik canli davranisa cabuk uysun: eski desen sayilari yariya.
+                    for _, name in ipairs(PR.PATTERNS) do
+                        p.prof[name] = p.prof[name] / 2
+                    end
+                    N.mem.dirty = true
+                end
+                if N.on("resolver_log") then
+                    N.log.line(fmt("resolver: %s hafiza %s: genelde %s, simdi %s%s", U.name(ent),
+                        same and "dogrulandi" or "tutmadi", PR.name(h.pattern), PR.text(t),
+                        same and "" or " (canli desen kullaniliyor, aliskanlik duzeltildi)"))
+                end
+            else
+                s.verified = "yok"
+            end
+        end
+        local state = N.track.enemy_state(ent)
+        if state ~= s.state or s.since == nil or now < s.since then
+            s.state, s.since = state, now
+        end
+        if now - s.since < PR.SETTLE then
+            return
+        end
+        local fam = PR.family(pattern)
+        if s.fam ~= nil and fam ~= s.fam then
+            local flips = {}
+            for _, x in ipairs(s.flips) do
+                if now >= x and now - x <= PR.FLIP_WINDOW then
+                    flips[#flips + 1] = x
+                end
+            end
+            flips[#flips + 1] = now
+            s.flips = flips
+            local log = N.on("resolver_log")
+            if #flips >= PR.FLIP_MAX then
+                if log and now >= (s.unstable or -1000) then
+                    N.log.line(fmt("resolver: %s AA deseni kararsiz (%d sn'de %d degisim)", U.name(ent), PR.FLIP_WINDOW,
+                        #flips))
+                end
+                s.unstable = now + PR.FLIP_WINDOW
+            elseif log and now >= (s.unstable or -1000) and (s.changed == nil or now < s.changed
+                or now - s.changed >= PR.CHANGE_EVERY) then
+                s.changed = now
+                N.log.line(fmt("resolver: %s AA deseni degisti (%s -> %s)", U.name(ent), PR.name(s.pattern),
+                    PR.name(pattern)))
+            end
+        end
+        s.fam, s.pattern = fam, pattern
+    end
+
+    -- SETUP_COMMAND: gorunen her dusman icin canli desen gozlemi, saniyede bir ornek. Mac sonu panelinden sonra
+    -- (PR.ended, ara 10-15 sn) ornek / karsilasma / tanima yok: harita ozeti yazildi, kariyer ikinci kez sayilmaz.
+    PR.tick = function()
+        if PR.ended then
+            return
+        end
+        local T, M = N.track, N.mem
+        local tick, now = U.tick(), U.now()
+        for _, ent in ipairs(N.exposure.enemies()) do
+            local idx = U.index(ent)
+            local t = idx ~= nil and T.p[idx] or nil
+            local key = M.cached(ent)
+            if key ~= nil then
+                local s = PR.session(key)
+                if s.sampled == nil or now < s.sampled or now - s.sampled >= 1 then
+                    s.sampled = now
+                    local p = M.entry(ent, key)
+                    if p ~= nil then
+                        PR.announce(ent, p, s)
+                        PR.met(key, p)
+                        PR.sample(p, t, tick)
+                        local h = PR.habit(p)
+                        if t ~= nil then
+                            t.fd_need = (h ~= nil and h.fd >= 0.15) and 1 or 2
+                        end
+                    end
+                end
+                if t ~= nil then
+                    PR.observe(ent, t, key, s, now)
+                end
+            end
+        end
+    end
+
+    -- Harita sonu (harita degisimi, mac sonu paneli, kapanis): bu haritada karsilasilan ve henuz yazilmamis her
+    -- dusman icin kariyer satiri (o seni en cok oldurenden). panel = mac sonu paneli: durum silinmez, PR.ended ile
+    -- donar (ara surede ayni dusman yeniden "karsilasildi" sayilmasin); game_newmap / kapanis yazilanlari atlar ve
+    -- durumu siler. Ayni haritada yeni mac (game_newmap'siz) PR.round_start'ta temiz baslar.
+    PR.map_end = function(panel)
+        local list = {}
+        for key, s in pairs(PR.s) do
+            local p = (s.met and not s.reported) and N.mem.players[key] or nil
+            if p ~= nil then
+                s.reported = true
+                list[#list + 1] = { p = p, name = tostring(p.name or "?"), c = PR.car(p) }
+            end
+        end
+        if panel then
+            PR.ended = true
+        else
+            PR.s, PR.ended = {}, false
+        end
+        if #list == 0 or not (N.on("hit_log") or N.on("shot_log")) then
+            return
+        end
+        table.sort(list, function(a, b)
+            if a.c.d ~= b.c.d then
+                return a.c.d > b.c.d
+            end
+            return a.name < b.name
+        end)
+        for _, x in ipairs(list) do
+            local c, r = x.c, x.p.prof
+            local tail = ""
+            if r ~= nil and r.n > 0 then
+                local def, fd = U.R(r.def / r.n * 100), U.R(r.fd / r.n * 100)
+                tail = (def >= 1 and fmt(" def %%%d", def) or "") .. (fd >= 1 and fmt(" fd %%%d", fd) or "")
+            end
+            N.log.line(fmt("dusman ozeti: %s | K/D %d/%d | atis %d, isabet %d (kafa %d), correction %d | sana %d mermi (kafa %d) | desen %s%s",
+                x.name, U.R(c.k), U.R(c.d), U.R(c.s), U.R(c.h), U.R(c.hh), U.R(c.c), U.R(c.b), U.R(c.bh),
+                PR.name(PR.dominant(r)), tail))
+        end
+    end
+
+    PR.reset = function()
+        PR.s, PR.ended = {}, false
+    end
+
+    -- round_start: mac sonu panelinden sonra ayni haritada yeni mac -> yeni harita durumu.
+    PR.round_start = function()
+        if PR.ended then
+            PR.s, PR.ended = {}, false
+        end
     end
 end
 
@@ -3630,10 +4284,13 @@ do
     X.clean, X.shot_tick, X.after_shot = false, -1000, false
     X.hidden_tick = -1000
     X.switch = { name = nil, at = -1000 }
+    -- flight_tp: bu ucustaki teleport sayisi (bekci); c0 / cmin: teleport oncesi sarj ve sonraki en dusuk sarj (G26).
     X.air = { was_air = false, used = false, latched = false, takeoff_z = 0, left = 0, calls = 0, maxchoke = 0,
-        pending_log = false, map_logged = false }
-    X.tp = { list = {}, map_off = false, n = 0, last = -1000 }
-    X.broken = { DEF = {}, LC = {}, TP = {}, paused = {} }
+        pending_log = false, map_logged = false, flight_tp = 0, c0 = 0, cmin = 0 }
+    -- session_off: force_uncharge sarji 3 kez harcamadi -> bu oturum havada / inis teleportu yok.
+    X.tp = { list = {}, map_off = false, session_off = false, n = 0, last = -1000 }
+    -- paused[lag] = bitis zamani, plen[lag] = sure (bozuk atis 10 sn, sunucu reddi 300 sn).
+    X.broken = { DEF = {}, LC = {}, TP = {}, paused = {}, plen = {} }
     X.safe = { holding = false, since = -1000, want_at = -1000, no_hold = nil, handled_at = -1000 }
     X.dt_warn_round = -1
     X.aim = { target = nil, time = -1000 }
@@ -3672,7 +4329,12 @@ do
     X.paused = function(lag)
         local untilt = X.broken.paused[lag]
         local now = U.now()
-        return untilt ~= nil and now < untilt and now >= untilt - 10
+        return untilt ~= nil and now < untilt and now >= untilt - (X.broken.plen[lag] or 10)
+    end
+
+    -- Havada / inis teleportu bu harita (son 3'un 2'si vuruldu) ya da bu oturum (sarj harcanmadi) kapali.
+    X.tp_off = function()
+        return X.tp.map_off or X.tp.session_off
     end
 
     -- Tek tetik: tick basina en fazla bir force_anti_exploit_shift (sadece DT dolu iken).
@@ -3695,6 +4357,7 @@ do
         local ok = pcall(exploits.force_anti_exploit_shift)
         if ok then
             X.shift_tick, X.forced, X.forced_tick, X.forced_why = tick, true, tick, why
+            N.charge.forced(why)
         end
         return ok
     end
@@ -3911,10 +4574,28 @@ do
         return max(0, (v.z + sqrt(disc)) / g)
     end
 
+    -- Ucus basina tek teleport (GS teleport.count bekcisi): ikinci deneme engellenir ve yazilir (hic olmamali).
+    X.tp_guard = function()
+        local A = X.air
+        if A.flight_tp < 1 then
+            return true
+        end
+        A.flight_tp = A.flight_tp + 1
+        N.log.line(fmt("teleport: bu ziplamada %d kez (ikinci teleport engellendi)", A.flight_tp))
+        return false
+    end
+
     X.do_teleport = function(kind)
         local A = X.air
+        if not X.tp_guard() then
+            A.used = true
+            return false
+        end
+        A.flight_tp = 1
+        A.c0 = N.ref.charge()
+        A.cmin = A.c0
         U.call(exploits.force_uncharge)
-        A.used, A.left, A.calls, A.pending_log = true, 3, 1, true
+        A.used, A.left, A.calls, A.pending_log, A.fire_tick = true, 3, 1, true, U.tick()
         -- Inis teleportunda kilit yok: sarj yerde zaten dolacak (GS V1.0.80 recharge.decide).
         if kind ~= "inis" then
             N.rc.block("air")
@@ -3926,16 +4607,21 @@ do
         while #T.list > 3 do
             tremove(T.list, 1)
         end
+        N.charge.on_teleport()
         X.finish_uncharge(false)
+        return true
     end
 
-    -- Sarj 0 olana kadar (en fazla 4 cagri) force_uncharge; bitince tek satir.
+    -- Sarj 0 olana kadar (en fazla 4 cagri, tick basina bir) force_uncharge; bitince tek satir ve G26 dogrulamasi
+    -- (N.charge). Inis teleportu X.land_update'ten X.air_update'in bekleyen blogundan once atilir: atis tick'inde
+    -- ikinci cagri yapilmaz (G26 "N cagrida" ve "harcanmadi" penceresi tick sayar).
     X.finish_uncharge = function(continue)
         local A = X.air
-        if not A.pending_log then
+        if not A.pending_log or (continue and A.fire_tick == U.tick()) then
             return
         end
-        local c = N.ref.charge()
+        local c, m = N.ref.charge()
+        A.cmin = min(A.cmin, c)
         if continue and c > 0 and A.left > 0 then
             U.call(exploits.force_uncharge)
             A.left, A.calls = A.left - 1, A.calls + 1
@@ -3948,24 +4634,30 @@ do
         A.left = 0
         if X.tp.kind == "inis" then
             N.log.line(fmt("teleport: inis teleportu bitti (%d. kez, uncharge %d tick)", X.tp.n, A.calls))
-            return
+        else
+            N.log.line(fmt("teleport: havada goruldun, DT ile isinlanildi (%d. kez, uncharge %d tick%s)", X.tp.n,
+                A.calls, X.tp.kind == "lc" and ", air lc" or ""))
         end
-        N.log.line(fmt("teleport: havada goruldun, DT ile isinlanildi (%d. kez, uncharge %d tick%s)", X.tp.n, A.calls,
-            X.tp.kind == "lc" and ", air lc" or ""))
+        N.charge.uncharge_done(A.calls, A.c0, A.cmin, c, m)
     end
 
     -- V1.0.80 (GS teleport.plan / land_fire): "Teleport in air" + "Air: break LC" acik ve DT acikken havada DT hic
     -- bosaltilmaz, Air LC kilidi yok; sarj inise saklanir ve tek teleport inise 1..(max sarj - 3) tick kala atilir
     -- (yedek: yerde 1. tick), boylece teleport seni dogrudan yere indirir. Teleport tick'inde ve sonraki 2 tick'te
     -- ziplama bastirilir. Ucusta (kalkistan yerde 2. tick'e kadar) defensive zorlanmaz. Biri kapaliyken eski yol (X10/X11).
+    -- fired_at / fire_lt: inis teleportunun tick'i ve o anki inis tahmini; res: sonucu (ilk paket, yere degme,
+    -- sapma, tekrar ziplama; N.charge.land_flush yazar); pred: bu ucusun inis tahmini (16 tick kala ilk tahmin).
     X.land = { policy = false, flight = false, fired = false, gt = 64, lt = nil, h = nil, seen_at = -1000,
-        seen_flight = false, nojump_until = -1000, reason = nil, margin = 3, seen_hold = 24, min_d3 = 64 }
+        seen_flight = false, nojump_until = -1000, reason = nil, margin = 3, seen_hold = 24, min_d3 = 64,
+        fired_at = -1000, fire_lt = nil, res = nil, pred = nil }
     X.CORNERS = { 0, 0, 15, 15, 15, -15, -15, 15, -15, -15 }
 
     X.land_reset = function()
         local L = X.land
         L.flight, L.fired, L.gt, L.lt, L.h, L.reason = false, false, 64, nil, nil, nil
         L.seen_at, L.seen_flight, L.nojump_until = -1000, false, -1000
+        L.fired_at, L.fire_lt, L.res, L.pred = -1000, nil, nil, nil
+        X.air.flight_tp = 0
     end
 
     X.gravity = function()
@@ -4053,7 +4745,7 @@ do
             L.reason = "temiz atis"
             return
         end
-        if X.paused("TP") or X.tp.map_off then
+        if X.paused("TP") or X.tp_off() then
             L.reason = "durduruldu"
             return
         end
@@ -4069,17 +4761,22 @@ do
             return
         end
         L.fired, L.reason = true, nil
+        if not X.tp_guard() then
+            return
+        end
         L.nojump_until = tick + 2
         if cmd ~= nil then
             pcall(cmd.remove_button, cmd, e_cmd_buttons.JUMP)
         end
         local left = L.gt == 1 and 0 or lt
+        L.fired_at, L.fire_lt, L.res = tick, left, { sent = nil, ground_tick = nil, err = nil, rejump = false }
         N.log.line(fmt("teleport: inise %d tick kala (S %d, hiz %d, 2D %d / 3D %d u, h %d)%s", left, S,
             U.R(U.speed(lp)), U.R(d2), U.R(d3), U.R(hz), d3 > 64 and " LC kirilir(3D)" or ""))
         X.do_teleport("inis")
     end
 
-    -- Her SETUP_COMMAND: politika, gorulme, inis tahmini, inis teleportu.
+    -- Her SETUP_COMMAND: politika, gorulme, inis tahmini, inis teleportu. Ucusun sonu (yerde 3. tick ya da bhop'ta
+    -- yerde 1-2 tick sonra yeniden kalkis) N.charge.land_flush: teleport sonucu ya da atilmama sebebi (GS V1.0.80).
     X.land_update = function(cmd, lp)
         local L, st, E = X.land, N.st, N.exposure
         local tick = U.tick()
@@ -4091,24 +4788,36 @@ do
             L.seen_at = tick
         end
         L.policy = N.on("air_lc") and N.on("air_teleport") and N.ref.on("dt") and not N.afk.on and not st.fd
-            and not st.ladder
+            and not st.ladder and not X.tp.session_off
         L.lt, L.h = nil, nil
-        if U.flag(lp, "ON_GROUND") ~= false or st.ladder then
+        local grounded = U.flag(lp, "ON_GROUND") ~= false
+        if L.res ~= nil and L.res.ground_tick == nil and grounded and tick > L.fired_at then
+            L.res.ground_tick = tick
+        end
+        if grounded or st.ladder then
             L.gt = min(L.gt + 1, 64)
+            if L.gt == 1 then
+                N.charge.landed(L, tick)
+            end
             if L.flight and L.gt == 1 then
                 X.land_fire(cmd, lp, nil, 0)
             end
-            if L.flight and L.gt >= 3 then
-                if not L.fired and L.seen_flight and L.reason ~= nil then
-                    N.log.line("teleport: inise yok (" .. L.reason .. ")")
-                end
+            if L.gt == 3 then
+                N.charge.land_flush(L)
                 L.flight = false
             end
             return
         end
         if L.gt > 0 then
-            -- Kalkis (bhop'ta da yeni ucus).
-            L.fired, L.reason, L.seen_flight = false, nil, false
+            -- Kalkis (bhop'ta da yeni ucus): yerde 1-2 tick kalip yeniden havalanmak onceki ucusu bitirir.
+            if L.gt < 3 then
+                if L.res ~= nil then
+                    L.res.rejump = true
+                end
+                N.charge.land_flush(L)
+            end
+            L.fired, L.reason, L.seen_flight, L.pred = false, nil, false, nil
+            X.air.flight_tp = 0
         end
         L.gt = 0
         L.flight = L.policy
@@ -4119,6 +4828,9 @@ do
             L.seen_flight = true
         end
         L.lt, L.h = X.land_ticks(lp)
+        if L.pred == nil and L.lt ~= nil and L.lt <= 16 then
+            L.pred = { target = tick + L.lt, done = false }
+        end
         X.land_fire(cmd, lp, L.lt, L.h)
     end
 
@@ -4164,14 +4876,14 @@ do
             return
         end
         local seen = E.now or E.soon
-        local blocked = X.clean or st.fd or st.melee == "knife" or X.tp.map_off
+        local blocked = X.clean or st.fd or st.melee == "knife" or X.tp_off()
         local tp_ok = not A.used and N.ref.on("dt") and N.ref.charge() > 0 and not blocked and not X.paused("TP")
             and X.time_to_land(lp) >= 0.35
         if N.on("air_lc") and not A.latched and seen and not X.clean and not X.paused("LC") then
-            if X.tp.map_off then
+            if X.tp_off() then
                 if not A.map_logged then
                     A.map_logged = true
-                    N.log.line("air lc: bu harita teleport kapali -> air lc yok")
+                    N.log.line(fmt("air lc: bu %s teleport kapali -> air lc yok", X.tp.session_off and "oturum" or "harita"))
                 end
             else
                 A.latched = true
@@ -4336,7 +5048,7 @@ do
                     tremove(list, 1)
                 end
                 if #list >= 2 and not X.paused(lag) then
-                    X.broken.paused[lag] = now + 10
+                    X.broken.paused[lag], X.broken.plen[lag] = now + 10, 10
                     X.broken[lag] = {}
                     N.log.line(fmt("%s 10 sn durduruldu: %s sirasinda 2 atis bozuk gitti (son: %s)", lag, lag, reason))
                 end
@@ -4382,7 +5094,560 @@ do
         X.clean, X.after_shot = false, false
         X.last_sim, X.own_def_until = nil, -1
         X.aim = { target = nil, time = -1000 }
-        X.land.flight, X.land.fired, X.land.gt = false, false, 64
+        X.land.flight, X.land.fired, X.land.gt, X.land.res, X.land.pred = false, false, 64, nil, nil
+        X.air.flight_tp = 0
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Sarj analizi (GS V1.0.36-48, V1.0.80, sniper.reject): DT yarim sarjken nedeni (sh / dtac / defbitti / sarj:),
+-- round basina "dbg sen ozeti", inis teleportunun sonucu ve inis tahmini, force_uncharge dogrulamasi (G26: 3 kez
+-- harcanmadi -> bu oturum havada teleport yok), sunucu reddi bekcisi (kendi lag'imizla atilan son 4 atisin 3'u 2
+-- dusmanda 120 sn icinde "server rejection" -> DEF / LC / TP 5 dk X.paused ile durur; atisa ve Min. damage'e dokunmaz).
+-------------------------------------------------------------------------------
+do
+    local U, CH, X = N.util, N.charge, N.ex
+    -- c / m: son okunan sarj; dt_since: DT'nin acildigi an; held_was: onceki tick sarj kilidi tutuluyordu.
+    CH.c, CH.m, CH.dt_was, CH.dt_since, CH.held_was = 0, 0, false, -1000, false
+    CH.sent = { x = nil, y = 0, z = 0, choked = 0 }
+    CH.land = { n = 0, sum = 0, abs = 0 }
+    CH.undrained = 0
+    CH.rej = { list = {}, until_t = -1000, active = false }
+    -- GS V1.0.19 yogunlugu (sniper.REJECT): arka plan ret orani HS %9 / DT %14; "60 sn'de 2" ve daha gevsek kurallar
+    -- 3 saatte 4 kez bos yere tetiklendi, bu kural V1.0.10-1.0.17 loglarinin hicbirinde tetiklenmiyor.
+    CH.REJECT = { last = 4, need = 3, window = 120, distinct = 2, pause = 300 }
+
+    -- Round sayaclari (dbg sen ozeti). def_end_at: son sayilan defensive bitisi (X.def_end).
+    CH.round_new = function()
+        CH.r = { ticks = 0, dt = 0, forced = 0, switch = 0, knife = 0, seen = 0, both = 0, tp = 0, tp_hit = 0,
+            partial = 0, partial_seen = 0, def_ends = 0, def_end_at = X.def_end, top = 0 }
+    end
+    CH.round_new()
+
+    -- Sarji gercekten bosaltan / dolduran en yakin sebep: atis (1.5 sn), teleport (1.5 sn), defensive bitisi
+    -- (1.5 sn), DT acilisi (3 sn); hicbiri yoksa "?" (GS V1.0.36: sebepsiz yarim sarj da yazilir).
+    CH.cause = function(now)
+        local best, at = "?", -huge
+        local function take(name, t, window)
+            local d = now - t
+            if d >= 0 and d < window and t > at then
+                best, at = name, t
+            end
+        end
+        take("atis", N.st.last_shot, 1.5)
+        take("teleport", X.tp.last, 1.5)
+        take("def", X.def_end, 1.5)
+        take("dtac", CH.dt_since, 3)
+        return best
+    end
+
+    -- S.exploit_status icin: DT acik ve dolu degilken "sh c/m", "dtac X.XXs" (< 3 sn), "defbitti X.XXs" (< 1.5 sn),
+    -- "sarj: <sebep>". Boylece vuruldun / iska / dbg (olum-detay, atis-detay, duello) satirlarinda gorunur.
+    CH.status = function(parts, c, m)
+        if m <= 0 or c >= m then
+            return
+        end
+        local now = U.now()
+        parts[#parts + 1] = fmt("sh %d/%d", U.R(c), U.R(m))
+        local on_for = now - CH.dt_since
+        if on_for >= 0 and on_for < 3 then
+            parts[#parts + 1] = fmt("dtac %.2fs", on_for)
+        end
+        local de = now - X.def_end
+        if de >= 0 and de < 1.5 then
+            parts[#parts + 1] = fmt("defbitti %.2fs", de)
+        end
+        parts[#parts + 1] = "sarj: " .. CH.cause(now)
+    end
+
+    -- Gonderilen paket (choke sayaci dustu): ardisik gonderilen kayitlar arasi 2D / 3D mesafe; inis teleportundan
+    -- sonraki ilk paket teleport sonucuna yazilir (GS own.aa.sent).
+    CH.packet = function(lp, tick)
+        local S = CH.sent
+        local ch = N.aa.choked()
+        if ch == 0 or ch < S.choked then
+            local o = U.origin(lp)
+            if o ~= nil then
+                local L = X.land
+                if S.x ~= nil and L.res ~= nil and L.res.sent == nil and tick > L.fired_at then
+                    local dx, dy, dz = o.x - S.x, o.y - S.y, o.z - S.z
+                    L.res.sent = { d2 = sqrt(dx * dx + dy * dy), d3 = sqrt(dx * dx + dy * dy + dz * dz),
+                        ground = U.flag(lp, "ON_GROUND") ~= false }
+                end
+                S.x, S.y, S.z = o.x, o.y, o.z
+            end
+        end
+        S.choked = ch
+    end
+
+    -- SETUP_COMMAND (canliyken, defensive kararindan sonra): DT acilisi, G5, round sayaclari, paket, bekci suresi.
+    CH.tick = function()
+        local P, E, r = N.ref, N.exposure, CH.r
+        local now, tick = U.now(), U.tick()
+        local dt = P.on("dt")
+        local c, m = P.charge()
+        if dt and not CH.dt_was then
+            CH.dt_since = now
+        end
+        CH.dt_was = dt
+        local held = N.rc.held()
+        if held and CH.held_was and c > CH.c then
+            N.diag.g5(CH.c, c)
+        end
+        CH.held_was, CH.c, CH.m = held, c, m
+        r.ticks = r.ticks + 1
+        if dt then
+            r.dt = r.dt + 1
+            r.top = max(r.top, c)
+            if c > 0 and c < m then
+                r.partial = r.partial + 1
+                if E.now then
+                    r.partial_seen = r.partial_seen + 1
+                end
+            end
+        end
+        if X.own_def_active() then
+            r.seen = r.seen + 1
+            if tick >= X.forced_tick and tick - X.forced_tick <= 16 then
+                r.both = r.both + 1
+            end
+        end
+        if X.def_end ~= r.def_end_at then
+            r.def_end_at, r.def_ends = X.def_end, r.def_ends + 1
+        end
+        CH.packet(N.st.lp, tick)
+        CH.reject_tick(now)
+    end
+
+    -- X.shift basarili (tick basina bir): zorlanan defensive, silah degisimi / bicak sebebiyle olanlar ayrica.
+    CH.forced = function(why)
+        local r = CH.r
+        r.forced = r.forced + 1
+        if why == "switch" then
+            r.switch = r.switch + 1
+        elseif why == "knife" then
+            r.knife = r.knife + 1
+        end
+    end
+
+    CH.on_teleport = function()
+        CH.r.tp = CH.r.tp + 1
+    end
+
+    -- Dusman mermisi isabet etti (S.on_hurt): teleporttan sonraki 1.5 sn icinde mi.
+    CH.hurt = function()
+        local d = U.now() - X.tp.last
+        if d >= 0 and d <= 1.5 then
+            CH.r.tp_hit = CH.r.tp_hit + 1
+        end
+    end
+
+    -- Round basinda (N.dlog.round_begin, Detailed log acikken) onceki round'un ozeti (GS 10637 bicimi; GS'e ozgu
+    -- tickbase / sarj pozu / LBY alanlari yok).
+    CH.round_line = function()
+        local r = CH.r
+        if r.ticks <= 0 then
+            return
+        end
+        local extra = ""
+        if r.switch > 0 or r.knife > 0 then
+            extra = fmt(" (silah degisirken %d, bicakli yakinken %d)", r.switch, r.knife)
+        end
+        local off = X.tp.session_off and " (teleport bu oturum kapali)" or (X.tp.map_off and " (teleport bu harita kapali)"
+            or "")
+        N.log.line(fmt("dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen (sim) %d,"
+            .. " zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken"
+            .. " %d), defensive bitisi %d | sarj tavani %d", r.ticks, r.dt, r.forced, extra, r.seen, r.both, r.tp, r.tp_hit,
+            off, r.partial, r.partial_seen, r.def_ends, U.R(r.top)))
+    end
+
+    -- Yerde 1. tick: bu ucusun inis tahmininin sapmasi (|e| <= 64; daha fazlasi = ucus kesildi) ve 10 inis'te bir
+    -- "inis tahmini" (GS V1.0.80); inis teleportu atildiysa sapma = inis - (atis + tahmin).
+    CH.landed = function(L, tick)
+        local p = L.pred
+        local e = p ~= nil and tick - p.target or nil
+        if e ~= nil and not p.done and abs(e) <= 64 then
+            p.done = true
+            local S = CH.land
+            S.n, S.sum, S.abs = S.n + 1, S.sum + e, S.abs + abs(e)
+            if S.n % 10 == 0 and N.on("hit_log") then
+                N.log.line(fmt("inis tahmini: %d ziplama, ort %+.1f, mutlak %.1f tick", S.n, S.sum / S.n, S.abs / S.n))
+            end
+        end
+        local res = L.res
+        if res ~= nil and tick >= L.fired_at and tick - L.fired_at <= 40 then
+            res.err = tick - (L.fired_at + (L.fire_lt or 0))
+        end
+    end
+
+    -- Ucusun sonu: inis teleportunun sonucu (Hit log) ya da atilmama sebebi; ucus durumu silinir.
+    CH.land_flush = function(L)
+        local res = L.res
+        if res ~= nil then
+            if N.on("hit_log") then
+                local s = res.sent
+                N.log.line(fmt("teleport sonucu: tahmin %d, sapma %s tick, ilk paket 2D %s / 3D %s u, paket yerde %s,"
+                    .. " inis tick %s, tekrar ziplama %s", U.R(L.fire_lt or -1),
+                    res.err ~= nil and fmt("%+d", U.R(res.err)) or "?", s ~= nil and fmt("%d", U.R(s.d2)) or "?",
+                    s ~= nil and fmt("%d", U.R(s.d3)) or "?", s == nil and "?" or (s.ground and "evet" or "hayir"),
+                    res.ground_tick ~= nil and fmt("+%d", U.R(res.ground_tick - L.fired_at)) or "yok",
+                    res.rejump and "evet" or "hayir"))
+            end
+        elseif not L.fired and L.seen_flight and L.reason ~= nil then
+            N.log.line("teleport: inise yok (" .. L.reason .. ")")
+        end
+        L.res, L.pred, L.seen_flight, L.reason = nil, nil, false, nil
+    end
+
+    -- G26: teleportun force_uncharge cagrilari bitti. Sarj hic dusmediyse "harcanmadi"; oturumda 3 kez -> havada /
+    -- inis teleportu bu oturum kapali (Air LC kilidi de yok, X.tp_off).
+    CH.uncharge_done = function(calls, c0, cmin, c, m)
+        N.diag.unch(calls, c0, cmin)
+        if c0 <= 0 or cmin < c0 then
+            return
+        end
+        CH.undrained = CH.undrained + 1
+        N.log.line(fmt("teleport: sarj harcanmadi (force_uncharge %d tick, sarj %d/%d)", calls, U.R(c), U.R(m)))
+        if CH.undrained >= 3 and not X.tp.session_off then
+            X.tp.session_off = true
+            N.log.line("teleport: force_uncharge calismiyor -> bu oturum havada teleport kapali")
+        end
+    end
+
+    -- Atis sonucu (S.on_hit reason nil, S.on_miss): sadece kendi lag'imizla (DEF / LC / TP etiketi) atilan atislar
+    -- sayilir (GS de sadece yargilanan kanalin atislarini besler; temiz atistaki ret lag'imizdan olamaz). Son 4'unun
+    -- 3'u 120 sn icinde "server rejection" / "prediction error" ve en az 2 farkli dusmanda -> DEF / LC / TP 5 dk durur
+    -- (GS sniper.reject). Bekci acikken gelen sonuclar sayilmaz; bitince liste bos baslar (CH.reject_tick).
+    CH.shot_result = function(rec, reason)
+        local R, Q = CH.rej, CH.REJECT
+        local now = U.now()
+        local tags = rec.tags or {}
+        if R.active or not (tags.DEF or tags.LC or tags.TP) or (reason ~= nil and reason:find("death", 1, true)) then
+            return
+        end
+        local bad = reason == "server rejection" or reason == "prediction error"
+        local list = R.list
+        list[#list + 1] = { time = now, bad = bad, who = rec.idx or rec.name or "?" }
+        while #list > Q.last do
+            tremove(list, 1)
+        end
+        if not bad then
+            return
+        end
+        local count, distinct, seen = 0, 0, {}
+        for _, shot in ipairs(list) do
+            if shot.bad and now >= shot.time and now - shot.time <= Q.window then
+                count = count + 1
+                if not seen[shot.who] then
+                    seen[shot.who], distinct = true, distinct + 1
+                end
+            end
+        end
+        if count < Q.need or distinct < Q.distinct then
+            return
+        end
+        for _, lag in ipairs({ "DEF", "LC", "TP" }) do
+            X.broken.paused[lag], X.broken.plen[lag] = now + Q.pause, Q.pause
+        end
+        R.active, R.until_t = true, now + Q.pause
+        N.log.line(fmt("sunucu atislari reddediyor (son %d atisin %d'i, %d dusmanda, son: %s) -> DEF / LC / TP 5 dk kapali",
+            #list, count, distinct, reason))
+        R.list = {}
+    end
+
+    CH.reject_tick = function(now)
+        local R = CH.rej
+        if R.active and (now >= R.until_t or now < R.until_t - CH.REJECT.pause) then
+            R.active, R.list = false, {}
+            N.log.line("sunucu reddi: 5 dk doldu, DEF / LC / TP tekrar acik")
+        end
+    end
+
+    -- Harita degisimi: tick'e bagli round sayaclari ve paket konumu silinir (oturum sayaclari kalir).
+    CH.map_reset = function()
+        CH.round_new()
+        CH.sent = { x = nil, y = 0, z = 0, choked = 0 }
+        CH.held_was = false
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Teshis (SPEC §8 GUESS maddeleri): oyunda belirsiz kalan API davranislari sayilir. Her biri ilk goruldugunde bir
+-- kez "teshis: Gn ..." (oturum basina, her zaman acik); harita degisiminde ve kapanista "dbg teshis:" ozeti
+-- (Detailed log). Sayaclar dagiticidan (N.cb), U.tdmg / U.tline'dan, atis / iska / HITSCAN / teleport noktalarindan
+-- tek cagriyla gelir; kendisi iz atmaz ve hicbir karari degistirmez.
+-------------------------------------------------------------------------------
+do
+    local U, DG = N.util, N.diag
+    DG.reasons_seen = {}
+
+    DG.reset = function()
+        DG.c = { ticks = 0, ord_n = 0, ord_setup = 0, aa_calls = 0, aa_cmds = 0, aa_max = 0, ht_n = 0, ht_hs = 0,
+            unpred_ok = 0, unpred_n = 0, filter = 0, reasons = {}, shots = 0, held = 0, lv_ticks = { 0, 0 },
+            lv_shots = { 0, 0 }, g5 = 0, use_aa = 0, use_setup = 0, unch = { 0, 0, 0, 0 }, undrained = 0,
+            tr_sum = 0, tr_ticks = 0, tr_max = 0 }
+        DG.p1 = { id = nil, first = nil, done = true }
+        DG.p2 = { tick = nil, first = nil, done = true }
+        DG.aa_id, DG.aa_cur, DG.lvt, DG.tr_tick = nil, 0, {}, nil
+        DG.trn = 0
+    end
+    DG.reset()
+
+    -- G-satiri: oturumda bir kez (N.dlog.settle ile ayni anahtar alani).
+    DG.settle = function(key, text)
+        N.dlog.settle(key, text)
+    end
+
+    -- DG.cb pcall icinde calisir: komut nesnesi bozuksa o cagrinin sayaci atlanir.
+    DG.cmdn = function(cmd)
+        local v = cmd ~= nil and cmd.command_number or nil
+        return U.finite(v) and v or nil
+    end
+
+    DG.open = function(key)
+        return N.dlog.probe[key] == nil
+    end
+
+    DG.use = function(cmd)
+        if cmd == nil then
+            return false
+        end
+        local ok, v = pcall(cmd.has_button, cmd, e_cmd_buttons.USE)
+        return ok and v == true
+    end
+
+    -- Dagitici (C.on sarmalayicisi): her callback cagrisinda bir kez, islemcilerden once.
+    DG.cb = function(key, a, b, c)
+        if key == "SETUP_COMMAND" then
+            DG.setup(a)
+        elseif key == "ANTIAIM" then
+            DG.antiaim(b, c)
+        elseif key == "HITSCAN" or key == "TARGET_SELECTION" then
+            DG.order(key)
+        end
+    end
+
+    -- Iz sayaci: tick degisince onceki tick'in izleri toplanir (PAINT / olay izleri de o tick'e sayilir).
+    DG.tick_end = function(tick)
+        if DG.tr_tick == tick then
+            return
+        end
+        local c = DG.c
+        if DG.tr_tick ~= nil then
+            c.tr_sum, c.tr_ticks, c.tr_max = c.tr_sum + DG.trn, c.tr_ticks + 1, max(c.tr_max, DG.trn)
+        end
+        DG.trn, DG.tr_tick = 0, tick
+    end
+
+    -- G1: ayni komut numarasinda SETUP_COMMAND mi ANTIAIM mi once.
+    DG.pair = function(which, id)
+        if id == nil then
+            return
+        end
+        local P = DG.p1
+        if P.id ~= id then
+            P.id, P.first, P.done = id, which, false
+        elseif not P.done and P.first ~= which then
+            P.done = true
+            local c = DG.c
+            c.ord_n = c.ord_n + 1
+            if P.first == "setup" then
+                c.ord_setup = c.ord_setup + 1
+            end
+            DG.settle("G1", fmt("G1 SETUP_COMMAND ANTIAIM'den %s calisiyor", P.first == "setup" and "once" or "sonra"))
+        end
+    end
+
+    DG.setup = function(cmd)
+        local c = DG.c
+        DG.tick_end(U.tick())
+        if N.st.had_lp then
+            c.ticks = c.ticks + 1
+        end
+        DG.pair("setup", DG.cmdn(cmd))
+        if DG.use(cmd) then
+            c.use_setup = c.use_setup + 1
+            DG.use_s = (DG.use_s or 0) + 1
+            if DG.use_s >= 32 and (DG.use_a or 0) == 0 and DG.open("G12") then
+                DG.settle("G12", "G12 USE basiliyken ANTIAIM calismiyor (32 komut)")
+            end
+        end
+        if DG.open("G10") and N.ref.items.dt ~= nil then
+            DG.settle("G10", fmt("G10 DT tus modu %s", DG.dt_mode()))
+        end
+    end
+
+    -- G27 (komut basina ANTIAIM), G12 (USE basiliyken), G23 (unpredicted_data:has_player_flag).
+    DG.antiaim = function(cmd, unpred)
+        local c = DG.c
+        local id = DG.cmdn(cmd)
+        DG.pair("aa", id)
+        c.aa_calls = c.aa_calls + 1
+        if id == nil or id ~= DG.aa_id then
+            DG.aa_id, DG.aa_cur, c.aa_cmds = id, 0, c.aa_cmds + 1
+        end
+        DG.aa_cur = DG.aa_cur + 1
+        c.aa_max = max(c.aa_max, DG.aa_cur)
+        if DG.aa_cur == 2 then
+            DG.settle("G27", "G27 ANTIAIM ayni komutta birden fazla calisiyor (komut numarasiyla korunuyor)")
+        elseif c.aa_cmds >= 64 and c.aa_max == 1 and DG.open("G27") then
+            DG.settle("G27", "G27 ANTIAIM komut basina bir kez (64 komut)")
+        end
+        if DG.use(cmd) then
+            c.use_aa = c.use_aa + 1
+            DG.use_a = (DG.use_a or 0) + 1
+            DG.settle("G12", "G12 USE basiliyken ANTIAIM calisiyor")
+        end
+        c.unpred_n = c.unpred_n + 1
+        if unpred == nil then
+            DG.settle("G23", "G23 ANTIAIM'e unpredicted_data gelmiyor (nil) -> havada sadece entity bayragi ve JUMP")
+            return
+        end
+        local ok, v = pcall(unpred.has_player_flag, unpred, e_player_flags.ON_GROUND)
+        if ok and type(v) == "boolean" then
+            c.unpred_ok = c.unpred_ok + 1
+            DG.settle("G23", "G23 unpredicted_data:has_player_flag calisiyor")
+        else
+            DG.settle("G23", fmt("G23 unpredicted_data:has_player_flag calismiyor (%s)", ok and type(v) or "hata"))
+        end
+    end
+
+    -- HITSCAN / TARGET_SELECTION: ayni tick'te hangisi once.
+    DG.order = function(key)
+        local P = DG.p2
+        local tick = U.tick()
+        if P.tick ~= tick then
+            P.tick, P.first, P.done = tick, key, false
+        elseif not P.done and P.first ~= key then
+            P.done = true
+            local c = DG.c
+            c.ht_n = c.ht_n + 1
+            if P.first == "HITSCAN" then
+                c.ht_hs = c.ht_hs + 1
+            end
+            DG.settle("HS", fmt("HITSCAN TARGET_SELECTION'dan %s calisiyor", P.first == "HITSCAN" and "once" or "sonra"))
+        end
+    end
+
+    -- G24: olay filtresi (callbacks.add 3. arguman) yok sayildi, baska ad geldi (sarmalayici zaten atliyor).
+    DG.filter = function(want, got)
+        DG.c.filter = DG.c.filter + 1
+        DG.settle("G24", fmt("G24 olay filtresi yok sayiliyor (%s icin %s geldi; ad kontrolu atliyor)", tostring(want),
+            tostring(got):sub(1, 32)))
+    end
+
+    -- G17: iska sebebi histogrami; her yeni sebep oturumda bir kez.
+    DG.reason = function(reason)
+        local r = tostring(reason or "?"):sub(1, 32):gsub("[^%w _%-%(%)]", "?")
+        local c = DG.c
+        c.reasons[r] = (c.reasons[r] or 0) + 1
+        if not DG.reasons_seen[r] then
+            DG.reasons_seen[r] = true
+            DG.settle("G17:" .. r, fmt("G17 iska sebebi '%s' (ilk kez)", r))
+        end
+    end
+
+    -- G8 (bekletilen hedefe atis) ve G6 (seviye 1 / 2'de atis sayisi): AIMBOT_SHOOT.
+    DG.shot = function(rec)
+        local c = DG.c
+        c.shots = c.shots + 1
+        local held = rec.idx ~= nil and N.rage.hold[rec.idx] or nil
+        if held ~= nil then
+            c.held = c.held + 1
+            DG.settle("G8", fmt("G8 bekletilen hedefe atis geldi (%s, %s bekleme) -> grup kapatma / ignore_target atisi"
+                .. " durdurmadi", tostring(rec.name), tostring(held)))
+        end
+        local lv = rec.sp
+        if lv == 1 or lv == 2 then
+            c.lv_shots[lv] = c.lv_shots[lv] + 1
+        end
+    end
+
+    -- G6: HITSCAN'de seviye 1 / 2 ve vurulabilir hedef, hedef basina tick'te bir.
+    DG.level = function(idx, level, head, body)
+        if (level ~= 1 and level ~= 2) or (head <= 0 and body <= 0) then
+            return
+        end
+        local tick = U.tick()
+        if DG.lvt[idx] == tick then
+            return
+        end
+        DG.lvt[idx] = tick
+        DG.c.lv_ticks[level] = DG.c.lv_ticks[level] + 1
+    end
+
+    -- G5: block_recharge tutulurken sarj artti (N.charge.tick).
+    DG.g5 = function(from, to)
+        DG.c.g5 = DG.c.g5 + 1
+        DG.settle("G5", fmt("G5 block_recharge tutulurken sarj artti (%d -> %d) -> kilit sarji durdurmuyor", U.R(from),
+            U.R(to)))
+    end
+
+    -- G26: teleport basina force_uncharge cagri sayisi ve sarjin dusup dusmedigi.
+    DG.unch = function(calls, c0, cmin)
+        local c = DG.c
+        local k = max(1, min(4, calls))
+        c.unch[k] = c.unch[k] + 1
+        if cmin >= c0 then
+            c.undrained = c.undrained + 1
+            DG.settle("G26", fmt("G26 force_uncharge sarji bosaltmadi (%d cagri, sarj %d)", calls, U.R(cmin)))
+        elseif cmin > 0 then
+            DG.settle("G26", fmt("G26 force_uncharge sarji %d cagrida kismen bosaltti (%d -> %d)", calls, U.R(c0), U.R(cmin)))
+        else
+            DG.settle("G26", fmt("G26 force_uncharge sarji %d cagrida bosaltti", calls))
+        end
+    end
+
+    -- G10: DT tusunun get_mode() degeri (dbg ayarlar ve teshis satirlari).
+    DG.dt_mode = function()
+        local dt = N.ref.items.dt
+        if dt ~= nil then
+            local ok, m = pcall(dt.get_mode, dt)
+            if ok and U.finite(m) then
+                return fmt("%d", U.R(m))
+            end
+        end
+        return "?"
+    end
+
+    DG.rate = function(lv)
+        local c = DG.c
+        local t = c.lv_ticks[lv] * U.ipt()
+        return t > 0 and c.lv_shots[lv] / t or 0
+    end
+
+    -- Harita sonu / kapanis: "dbg teshis:" (haritada en fazla bir kez: sayaclar sifirlanir, yerel oyuncusuz tick sayilmaz).
+    DG.map_end = function()
+        local c = DG.c
+        if c.ticks > 0 and N.on("debug_log") then
+            local hist = {}
+            for r, n in pairs(c.reasons) do
+                hist[#hist + 1] = { r, n }
+            end
+            table.sort(hist, function(a, b)
+                if a[2] ~= b[2] then
+                    return a[2] > b[2]
+                end
+                return a[1] < b[1]
+            end)
+            for i, h in ipairs(hist) do
+                hist[i] = fmt("%s %d", h[1], h[2])
+            end
+            local cur = DG.tr_tick ~= nil and 1 or 0
+            local trt = c.tr_ticks + cur
+            N.log.line(fmt("dbg teshis: siralama setup>aa %d/%d, aa/komut ort %.2f max %d, hitscan>hedef secimi %d/%d,"
+                .. " unpred bayrak %d/%d, olay filtresi ihlal %d, iska sebepleri %s (jitter %s), bekleme ihlali %d/%d,"
+                .. " seviye2 %.1f atis/sn (%d tick) seviye1 %.1f atis/sn (%d tick), sarj kilitliyken artis %d tick,"
+                .. " USE basiliyken aa %d/%d, uncharge tick 1:%d 2:%d 3:%d 4:%d (harcanmadi %d), DT tus modu %s,"
+                .. " iz/tick ort %.1f max %d (%d tick)", c.ord_setup, c.ord_n, c.aa_cmds > 0 and c.aa_calls / c.aa_cmds or 0,
+                c.aa_max, c.ht_hs, c.ht_n, c.unpred_ok, c.unpred_n, c.filter, #hist > 0 and concat(hist, ", ") or "yok",
+                DG.reasons_seen.jitter and "var" or "yok", c.held, c.shots, DG.rate(2), c.lv_ticks[2], DG.rate(1),
+                c.lv_ticks[1], c.g5, c.use_aa, c.use_setup, c.unch[1], c.unch[2], c.unch[3], c.unch[4], c.undrained,
+                DG.dt_mode(), trt > 0 and (c.tr_sum + cur * DG.trn) / trt or 0, max(c.tr_max, cur * DG.trn), trt))
+        end
+        local tick = DG.tr_tick
+        DG.reset()
+        DG.tr_tick = tick
     end
 end
 
@@ -4616,8 +5881,10 @@ do
         if level > 1 and not (fr ~= nil and fr[estate]) then
             level = 1
         end
+        -- Veri yokken cok tarafli desen (jitter / x-way / random, GS enemy_watch.multi): canli desen ya da canli desen
+        -- henuz yokken hafizadaki aliskanlik (N.profile.prior) -> ilk atistan seviye 1.
         local tr = N.track.p[idx]
-        if results == "" and tr ~= nil and tr.pattern == "jitter" then
+        if results == "" and ((tr ~= nil and N.profile.MULTI[tr.pattern]) or N.profile.prior(target, p, key, tr)) then
             level = max(level, 1)
         end
         if N.on("low_hp_safe") and hp <= 30 then
@@ -4709,6 +5976,7 @@ do
         if N.on("resolver") then
             local level = RG.level(target, idx, hp, head, body, sniper and N.on("head_only"))
             info.sp = level
+            N.diag.level(idx, level, head, body)
             if level == 1 then
                 pcall(ctx.set_safepoint_state, ctx, true, e_hitscan_groups.HEAD)
             elseif level == 2 then
@@ -4863,7 +6131,8 @@ do
             end
         end
         local head_aimed = rec.hitgroup == 1
-        -- R5 sayaci: kafaya nisan, hc >= 70, yerdeki hedef, statik (ya da bilinmeyen) desen.
+        -- R5 sayaci: kafaya nisan, hc >= 70, yerdeki hedef, statik (ya da bilinmeyen) desen (cok tarafli / spin
+        -- desende kafa iskasi extended kaniti degil).
         local e = RG.ext[key]
         if e == nil then
             e = { misses = 0 }
@@ -4879,7 +6148,7 @@ do
             -- GS: ardisik seri; her isabet (govde dahil) sayaci sifirlar.
             e.misses = 0
         elseif reason == "resolver" and head_aimed and (rec.hc or 0) >= 70 and rec.grounded and not rec.fake
-            and rec.pattern ~= "jitter" then
+            and (rec.pattern == "static" or rec.pattern == "?") then
             -- GS: 300 sn iskasiz gecerse seri baslangictan.
             if e.last_miss ~= nil and (tnow < e.last_miss or tnow - e.last_miss > 300) then
                 e.misses = 0
@@ -4912,7 +6181,7 @@ do
         end
     end
 
-    -- dbg sikmadi: hedefe 20+ hasar geciyor ama 0.44 sn ates yok -> sebep.
+    -- dbg sikmadi: hedefe 20+ hasar geciyor ama 0.44 sn ates yok -> butun sebepler + silah / konum / kayit / sen.
     RG.sikmadi = function()
         local st = N.st
         local S = RG.sik
@@ -4943,26 +6212,68 @@ do
         local md = N.ref.md_eff(st.wgroup)
         local need = md ~= nil and N.ref.need(hp, md) or nil
         local hc = N.ref.get("hc:" .. st.wgroup)
-        local reason
+        local best, tick = max(head, body), U.tick()
+        -- GS V1.0.17/22/50: uyan butun sebepler (tek sebep "sebep bilinmiyor"u gizliyordu).
+        local reasons = {}
         if RG.hold[idx] == "real" then
-            reason = "gercek kayit bekleniyor"
+            reasons[#reasons + 1] = "gercek kayit bekleniyor"
         elseif RG.hold[idx] == "fresh" then
-            reason = "taze kayit bekleniyor"
-        elseif U.call(client.can_fire) ~= true then
-            reason = "silah hazir degil"
-        elseif need ~= nil and max(head, body) < need then
-            reason = md >= 100 and fmt("hasar %d < can+%d", U.R(max(head, body)), U.R(md - 100))
-                or fmt("hasar %d < MD %d", U.R(max(head, body)), U.R(md))
-        elseif st.airborne and U.is_bolt(st.weapon) then
-            reason = "havada hit chance"
-        elseif N.ex.aim.target ~= nil and N.ex.aim.target ~= target and now - N.ex.aim.time <= 0.44 then
-            reason = "aimbot baska hedefe"
-        else
-            reason = "sebep bilinmiyor"
+            reasons[#reasons + 1] = "taze kayit bekleniyor"
         end
-        N.log.line(fmt("dbg sikmadi: %s %.2fs vurulabilir (kafa %d, govde %d hasar), ates yok | %s | MD %s hc %s | %s",
-            U.name(target), now - S.since, U.R(head), U.R(body), reason, md ~= nil and U.numtext(md) or "?",
-            U.finite(hc) and U.numtext(hc) or "?", U.wlabel(st.weapon)))
+        if need ~= nil and best < need then
+            reasons[#reasons + 1] = md >= 100 and fmt("hasar %d < can+%d", U.R(best), U.R(md - 100))
+                or fmt("hasar %d < MD %d", U.R(best), U.R(md))
+        end
+        if head <= 0 then
+            reasons[#reasons + 1] = "kafa kapali"
+        end
+        local tr = N.track.p[idx]
+        if tr ~= nil and tick <= tr.def_until then
+            reasons[#reasons + 1] = "onun kaydi sahte (DEF)"
+        end
+        if tr ~= nil and tick <= tr.lc_until then
+            reasons[#reasons + 1] = "onun kaydi LC kiriyor (isinlaniyor)"
+        end
+        if st.airborne then
+            reasons[#reasons + 1] = "sen havadasin"
+        elseif st.fd then
+            reasons[#reasons + 1] = "fake duck (ates sadece kalkarken)"
+        elseif U.speed(st.lp) > 100 then
+            reasons[#reasons + 1] = fmt("sen hareketlisin v%d (isabet sansi)", U.R(U.speed(st.lp)))
+        end
+        if U.call(client.can_fire) ~= true then
+            local since = now - st.last_shot
+            reasons[#reasons + 1] = (since >= 0 and since < 1.5) and fmt("silah hazir degil (son atis %.2fs once)", since)
+                or "silah hazir degil"
+        end
+        local aim = N.ex.aim
+        if aim.target ~= nil and aim.target ~= target and now - aim.time <= 0.44 and now >= aim.time then
+            reasons[#reasons + 1] = "aimbot baska hedefe: " .. U.name(aim.target)
+        end
+        -- HITSCAN bu hedef icin 8 tick'tir gelmiyorsa aimbot onu degerlendirmiyor; baska birini tariyorsa adi.
+        local mine = RG.t[idx]
+        if mine == nil or mine.scan_tick == nil or tick - mine.scan_tick > 8 or tick < mine.scan_tick then
+            local other = nil
+            for i, t in pairs(RG.t) do
+                if i ~= idx and t.scan_tick ~= nil and tick - t.scan_tick <= 2 and tick >= t.scan_tick then
+                    other = i
+                end
+            end
+            local ot = other ~= nil and N.track.p[other] or nil
+            reasons[#reasons + 1] = other ~= nil and ("aimbot tehdidi baska: " .. U.name(ot ~= nil and ot.ent or nil))
+                or "aimbot bu hedefi taramiyor"
+        end
+        if mine ~= nil and mine.level == 2 then
+            reasons[#reasons + 1] = "safe point Force (guvenli nokta yoksa ates yok)"
+        end
+        if #reasons == 0 then
+            reasons[1] = "sebep bilinmiyor"
+        end
+        local D = N.dlog
+        N.log.line(fmt("dbg sikmadi: %s %.2fs vurulabilir (kafa %d, govde %d hasar), ates yok | %s | MD %s hc %s | %s | %s | %s | %s | %s",
+            U.name(target), now - S.since, U.R(head), U.R(body), concat(reasons, ", "), md ~= nil and U.numtext(md) or "?",
+            U.finite(hc) and U.numtext(hc) or "?", U.wlabel(st.weapon), D.ready(st.lp), D.where(target, st.lp),
+            D.rec(target), D.me(st.lp, target)))
     end
 
     -- Harita / oturum degisimi: tick'e bagli bekleme ve onbellek tablolari silinir (index'ler yeniden kullanilir).
@@ -5139,6 +6450,7 @@ do
     PK.finish = function(why)
         local name = PK.target_name or "?"
         if PK.shot_at == nil then
+            N.stats.add("empty")
             local idx = PK.target_idx
             if idx ~= nil then
                 PK.empty[idx] = (PK.empty[idx] or 0) + 1
@@ -5240,6 +6552,7 @@ do
             PK.mode, PK.point, PK.point_s, PK.started = "walk", r.p, r.s, now
             PK.target_idx, PK.target_name, PK.shot_at, PK.result = tidx, U.name(threat), nil, nil
             PK.extra_used = false
+            N.stats.add("peeks")
             N.log.line(fmt("ai peek: %s%s %d birim -> %s (hasar %d)", r.side > 0 and "sol" or "sag",
                 r.back and "-geri" or "", r.s, PK.target_name, U.R(r.dmg)))
         end
@@ -5296,20 +6609,26 @@ do
         end
     end
 
+    -- Peek sirasindaki her aimbot atisi (DT ciftinin ikisi de) AI PEEK ATIS'a sayilir (GS ai_peek.fired).
     PK.on_shot = function()
-        if PK.mode ~= nil and PK.shot_at == nil then
-            PK.shot_at = U.now()
+        if PK.mode ~= nil then
+            N.stats.add("ai_shots")
+            PK.shot_at = PK.shot_at or U.now()
         end
     end
 
     PK.on_result = function(text)
         if PK.mode ~= nil or PK.shot_at ~= nil then
             PK.result = text
+            if text:sub(1, 6) == "isabet" then
+                N.stats.add("ai_hits")
+            end
         end
     end
 
     PK.hurt = function(hitgroup, dmg, attacker_name)
         if PK.mode == "walk" or PK.mode == "wait" then
+            N.stats.add("hurt")
             N.log.line(fmt("ai peek: peek sirasinda vuruldun (%s -%d, %s)", N.K.HITGROUPS[hitgroup] or "?", U.R(dmg),
                 attacker_name))
         end
@@ -5437,7 +6756,7 @@ end
 
 -------------------------------------------------------------------------------
 -- Atis kayitlari (AIMBOT_SHOOT -> HIT / MISS, .id ile), dusman mermileri, olumler, round / atis ozetleri,
--- dbg duello / ayarlar. Satir bicimleri GS surumuyle ayni.
+-- dbg duello / ayarlar. Satir bicimleri GS surumuyle ayni (detay satirlari N.dlog'da).
 -------------------------------------------------------------------------------
 do
     local U, S, ST = N.util, N.shots, N.stats
@@ -5464,6 +6783,7 @@ do
                 parts[#parts + 1] = "DT dolu"
             else
                 parts[#parts + 1] = fmt("DT %%%d", U.R(m > 0 and c / m * 100 or 0))
+                N.charge.status(parts, c, m)
             end
         elseif N.ref.on("hs") then
             parts[#parts + 1] = "HS"
@@ -5586,7 +6906,6 @@ do
         elseif rec.tags.DEF or rec.tags.LC or rec.tags.TP or rec.tags.FD then
             r.lag = r.lag + 1
         end
-        ST.our_shots = (ST.our_shots or 0) + 1
         -- Diger moduller.
         X.shot_tick, X.after_shot, X.aim = tick, true, { target = ent, time = now }
         X.safe.want_at = now
@@ -5599,10 +6918,17 @@ do
         if idx ~= nil then
             RG.get(idx).last_shot = now
             local d = S.duels[idx]
+            if d == nil and N.on("debug_log") then
+                d = S.duel_open(ent, idx, now)
+            end
             if d ~= nil then
-                d.our_shots = d.our_shots + 1
+                -- pend: sonucu (HIT / MISS) henuz gelmemis atis; olduren isabet sayimi icin (S.on_death).
+                d.our_shots, d.pend, d.last, d.we_at = d.our_shots + 1, d.pend + 1, now, d.we_at or now
             end
         end
+        N.dlog.on_shoot(rec, shot)
+        N.diag.shot(rec)
+        N.profile.count(ent, key, "s")
         if info ~= nil and info.hider then
             local p = N.mem.entry(ent)
             if p ~= nil then
@@ -5622,7 +6948,7 @@ do
         return { name = player ~= nil and U.name(player) or "?", hp = player ~= nil and U.hp(player) or nil,
             estate = player ~= nil and N.track.enemy_state(player) or "?", damage = 0, bt = 0, sp = 0, ba = false,
             md = N.ref.md_eff(N.st.wgroup), weapon = N.st.weapon, tags = {}, profile = N.track.profile(player),
-            ent = player, time = U.now() }
+            ent = player, time = U.now(), stub = true }
     end
 
     S.line = function(rec, result)
@@ -5650,7 +6976,10 @@ do
         if N.on("shot_log") then
             N.log.line(S.line(rec, result))
         end
+        N.dlog.print_shot(rec)
+        N.charge.shot_result(rec, nil)
         N.rage.learn(rec, "hit", nil, hg)
+        N.profile.count(rec.ent, rec.key, "h", hg == 1 and "hh" or nil)
         local r = S.shots_round
         if r ~= nil then
             r.hits = r.hits + 1
@@ -5660,11 +6989,11 @@ do
                 r.lag_hits = r.lag_hits + 1
             end
         end
-        ST.our_hits = (ST.our_hits or 0) + 1
+        ST.result(rec, nil)
         local idx = U.index(player)
         local d = idx ~= nil and S.duels[idx] or nil
         if d ~= nil then
-            d.our_hits = d.our_hits + 1
+            d.our_hits, d.pend = d.our_hits + 1, max(0, d.pend - 1)
         end
         local tr = idx ~= nil and N.track.p[idx] or nil
         if tr ~= nil then
@@ -5682,8 +7011,19 @@ do
         if N.on("shot_log") then
             N.log.line(S.line(rec, result))
         end
+        N.dlog.print_shot(rec)
+        local d = rec.idx ~= nil and S.duels[rec.idx] or nil
+        if d ~= nil then
+            d.pend = max(0, d.pend - 1)
+        end
         N.rage.learn(rec, "miss", reason, nil)
+        if reason == "resolver" or reason == "jitter" then
+            N.profile.count(rec.ent, rec.key, "c")
+        end
         N.ex.broken_shot(reason, rec.tags)
+        N.charge.shot_result(rec, reason)
+        N.diag.reason(reason)
+        ST.result(rec, reason)
         local r = S.shots_round or { shots = 0, hits = 0, clean = 0, clean_hits = 0, lag = 0, lag_hits = 0, misses = {} }
         S.shots_round = r
         r.misses[mapped] = (r.misses[mapped] or 0) + 1
@@ -5705,6 +7045,7 @@ do
             if N.on("shot_log") then
                 N.log.line(S.line(rec, "sonuc yok"))
             end
+            N.dlog.print_shot(rec)
         end
     end
 
@@ -5742,8 +7083,10 @@ do
             return
         end
         local hitgroup = tonumber(e.hitgroup)
+        N.profile.count(attacker, nil, "b", hitgroup == 1 and "bh" or nil)
         local phase, melee = N.brute.hurt_us(e, attacker, hitgroup)
         N.ex.tp_hurt(hitgroup)
+        N.charge.hurt()
         local name = U.name(attacker)
         N.peek.hurt(hitgroup, dmg, name)
         if st.fd and (weapon == "ssg08" or weapon == "awp") then
@@ -5766,14 +7109,7 @@ do
                 S.aa_status(), S.exploit_status(), U.wlabel(st.weapon), name, info, U.R(U.speed(lp)),
                 U.R((st.duck or 0) * 100)))
         end
-    end
-
-    S.where = function(a, b)
-        local oa, ob = U.origin(a), U.origin(b)
-        if oa == nil or ob == nil then
-            return "?"
-        end
-        return fmt("%d birim, dz %d", U.R(U.dist(oa, ob)), U.R(oa.z - ob.z))
+        N.dlog.hurt(attacker, hitgroup, dmg, weapon)
     end
 
     S.on_death = function(e)
@@ -5786,30 +7122,47 @@ do
         local hs = e.headshot == true or e.headshot == 1
         local weapon = tostring(e.weapon or "?")
         if attacker == lp and victim ~= nil and victim ~= lp then
-            ST.kills = (ST.kills or 0) + 1
+            if U.is_enemy(victim) then
+                ST.kd("kills")
+            end
             if N.on("hit_log") then
                 N.log.line(fmt("oldurdun: %s | %s | %s%s", U.name(victim), st.label, U.wlabel(st.weapon),
                     hs and " | headshot" or ""))
             end
-            if N.on("debug_log") then
-                N.log.line(fmt("dbg kill-detay: %s %s%s | %s", U.name(victim), weapon, hs and " headshot" or "",
-                    S.where(victim, lp)))
+            local vidx = U.index(victim)
+            N.dlog.kill(e, victim, lp, weapon)
+            if U.is_enemy(victim) then
+                N.profile.count(victim, nil, "k")
             end
-            S.duel_close(U.index(victim), "oldurdun")
+            -- GS V1.0.60: player_death AIMBOT_HIT'ten once gelir; olduren isabet duello kapanmadan sayilir (sonucu
+            -- bekleyen aimbot atisi varken ve mermili silahla).
+            local d = vidx ~= nil and S.duels[vidx] or nil
+            if d ~= nil and d.pend > 0 and d.our_shots > d.our_hits and N.dlog.gun(weapon) then
+                d.our_hits, d.pend = d.our_hits + 1, d.pend - 1
+            end
+            S.duel_close(vidx, "oldurdun")
             N.misc.trash("kill", hs)
         elseif victim == lp then
-            ST.deaths = (ST.deaths or 0) + 1
+            if attacker ~= nil and attacker ~= lp and U.is_enemy(attacker) then
+                ST.kd("deaths")
+            end
             if N.on("hit_log") then
                 N.log.line(fmt("oldun: %s | %s | %s", attacker ~= nil and U.name(attacker) or "?", st.label,
                     U.wlabel(st.weapon)))
             end
-            if N.on("debug_log") and attacker ~= nil and attacker ~= lp then
-                N.log.line(fmt("dbg olum-detay: %s %s%s | %s | %s", U.name(attacker), weapon, hs and " headshot" or "",
-                    S.where(attacker, lp), S.exploit_status()))
+            if attacker ~= nil and attacker ~= lp then
+                N.dlog.death(e, attacker, lp, weapon)
+                if U.is_enemy(attacker) then
+                    N.profile.count(attacker, nil, "d")
+                end
             end
             if attacker ~= nil then
                 S.duel_close(U.index(attacker), "oldun")
             end
+            for idx in pairs(S.duels) do
+                S.duel_close(idx, "sen oldun")
+            end
+            N.dlog.vis = {}
             if attacker ~= nil and attacker ~= lp then
                 N.misc.trash("death", false)
             end
@@ -5886,12 +7239,21 @@ do
         end
     end
 
-    -- dbg duello: ilk goruste acilir, 3 sn gorus yoksa ya da olumde kapanir.
+    -- dbg duello (GS bicimi): ilk goruste (o seni gorur ya da sen onu vurabilirsin) ya da ilk atista acilir;
+    -- 3 sn gorus yoksa, olumde ya da round basinda kapanir. Acilistaki konumu, defensive tick payi, havada mi.
+    S.duel_open = function(ent, idx, now)
+        local d = { name = U.name(ent), where = N.dlog.where(ent, N.st.lp), start = now, last = now, ticks = 0,
+            def_n = 0, def_t = 0, def_was = false, speed = 0, air = false, their_shots = 0, their_hits = 0,
+            their_dmg = 0, our_shots = 0, our_hits = 0, pend = 0 }
+        S.duels[idx] = d
+        return d
+    end
+
     S.duel_update = function()
         if not N.on("debug_log") then
             return
         end
-        local E, RG = N.exposure, N.rage
+        local E, RG, D = N.exposure, N.rage, N.dlog
         local now, tick = U.now(), U.tick()
         for _, ent in ipairs(E.enemies()) do
             local idx = U.index(ent)
@@ -5899,15 +7261,16 @@ do
                 local they = E.sees_now(idx)
                 local c = RG.dmg_cache[idx]
                 local scan = RG.t[idx] ~= nil and RG.t[idx].scan_tick or nil
+                local v = D.vis[idx]
                 local we = (c ~= nil and c.hittable and tick - c.tick <= 4 and tick >= c.tick)
                     or (scan ~= nil and tick - scan <= 2 and tick >= scan)
+                    or (v ~= nil and tick >= v.last and tick - v.last <= D.EVERY * 2)
                 local d = S.duels[idx]
                 if (they or we) and d == nil then
-                    d = { name = U.name(ent), start = now, last = now, def_n = 0, def_t = 0, def_was = false,
-                        speed = 0, their_shots = 0, their_hits = 0, their_dmg = 0, our_shots = 0, our_hits = 0 }
-                    S.duels[idx] = d
+                    d = S.duel_open(ent, idx, now)
                 end
                 if d ~= nil then
+                    d.ticks = d.ticks + 1
                     if they or we then
                         d.last = now
                     end
@@ -5917,16 +7280,18 @@ do
                     if we and d.we_at == nil then
                         d.we_at = now
                     end
-                    local fake = N.track.fake(idx)
-                    if fake then
+                    local tr = N.track.p[idx]
+                    local def = tr ~= nil and tick <= tr.def_until
+                    if def then
                         d.def_t = d.def_t + 1
                         if not d.def_was then
                             d.def_n = d.def_n + 1
                         end
                     end
-                    d.def_was = fake
+                    d.def_was = def
                     d.speed = max(d.speed, U.speed(ent))
-                    if now - d.last > 3 then
+                    d.air = d.air or U.flag(ent, "ON_GROUND") == false
+                    if now - d.last > 3 or now < d.last then
                         S.duel_close(idx, "ayrildi")
                     end
                 end
@@ -5955,11 +7320,14 @@ do
             end
         elseif d.we_at ~= nil then
             first = "sadece sen gordun"
-        else
+        elseif d.they_at ~= nil then
             first = "sadece o gordu"
+        else
+            first = "?"
         end
-        N.log.line(fmt("dbg duello: %s | %.2fs | ilk goren: %s | def %d kez %dt | hiz max %d | o: %d ates %d isabet -%d | sen: %d ates %d isabet | %s",
-            d.name, U.now() - d.start, first, d.def_n, d.def_t, U.R(d.speed), d.their_shots, d.their_hits,
+        N.log.line(fmt("dbg duello: %s %s | %.2fs | ilk goren: %s | def %d kez %dt (%%%d) | hiz max %d%s | o: %d ates %d isabet -%d | sen: %d ates %d isabet | %s",
+            d.name, d.where, max(U.ipt(), d.last - d.start), first, d.def_n, d.def_t,
+            U.R(100 * d.def_t / max(1, d.ticks)), U.R(d.speed), d.air and ", havada" or "", d.their_shots, d.their_hits,
             U.R(d.their_dmg), d.our_shots, d.our_hits, result))
     end
 
@@ -5979,6 +7347,9 @@ do
         if d ~= nil then
             d.their_shots = d.their_shots + 1
         end
+        if idx ~= nil and U.is_enemy(p) then
+            N.dlog.enemy_fire(idx)
+        end
     end
 
     -- dbg ayarlar: native ayarlarin ozeti (yuklemede ve round basinda).
@@ -5987,14 +7358,7 @@ do
         local function onoff(v)
             return v == true and "acik" or (v == false and "kapali" or "?")
         end
-        local mode = "?"
-        local dt = P.items.dt
-        if dt ~= nil then
-            local ok, m = pcall(dt.get_mode, dt)
-            if ok and U.finite(m) then
-                mode = fmt("%d", U.R(m))
-            end
-        end
+        local mode = N.diag.dt_mode()
         local mds, hcs = {}, {}
         for _, w in ipairs({ "auto", "scout", "awp", "deagle", "revolver" }) do
             local v = P.get("md:" .. w)
@@ -6024,39 +7388,885 @@ do
 end
 
 -------------------------------------------------------------------------------
--- Istatistik (Stats paneli, KD).
+-- Detayli log (GS "Detayli log" bolumu, V1.0.10-64): oyun loglarindan gelistirmek icin "dbg" satirlari. Hepsi
+-- "Detailed log (for analysis)" acikken. Bicimleyiciler:
+--   where = @YerAdi(x,y,z) <mesafe>u h<+yukseklik farki> v<yatay hiz>[ havada vz<+n>][ duck<N>][ bak<+n>][ p<n>]
+--           hp<n> <silah>[ ping<n>]   (bak = dusmanin yaw'inin sana gore acisi: 0 = sana bakiyor)
+--   rec   = DEF geri Nt (sahte kayit) | def Nt once bitti, LC, AA <desen>, seviye <resolver>
+--   me    = ben <where> | <durum> | aa yon <+n> dsy <+n> | manual X | FS | peek tusu / afk | <exploit> | bogma N
+--   ready = sarjor bos | silah X.XXs sonra hazir | silah hazir[ (durbun kapali)]
+-- Satirlar: dbg atis-detay (her atis sonucunun altinda), dbg vurulma-detay, dbg olum-detay / kill-detay,
+-- dbg def ozeti (round basinda, dusman basina), round / harita basliklari, dbg round sonu. dbg duello ve
+-- dbg sikmadi satirlari N.shots / N.rage'de bu bicimleyicilerle yazilir.
+-- Vurulabilirlik: her dusman kendi sirasinda 4 tick'te bir (GS V1.0.54) gozumuzden kafa / gogus / pelvis izi;
+-- N.rage.dmg'nin 2 tick'ten taze sonucu varsa iz atilmaz.
 -------------------------------------------------------------------------------
 do
-    local ST = N.stats
-    ST.states, ST.order, ST.round_no = {}, {}, 1
-    ST.kills, ST.deaths, ST.our_shots, ST.our_hits = 0, 0, 0, 0
+    local U, D = N.util, N.dlog
+    local K = N.K
+    D.EVERY, D.VIS_GAP, D.MIN_DMG = 4, 16, 10
+    -- vis: dusman basina vurulabilirlik kaydi (tick); nxt: tarama sirasi; def: suren defensive bolumu;
+    -- round_def: round boyunca dusman adina bolum ozeti; last_def: son bolumun bittigi tick; shots: dusman atislari.
+    D.vis, D.nxt, D.def, D.round_def, D.round_order, D.last_def, D.shots = {}, {}, {}, {}, {}, {}, {}
+    D.last_header, D.header_n, D.map_pending, D.map_printed, D.probe = nil, -1, "load", nil, {}
+    D.MANUAL = { [1] = "sol", [2] = "arka", [3] = "sag" }
 
-    ST.get = function(state)
-        local s = ST.states[state]
+    D.on = function()
+        return N.on("debug_log")
+    end
+
+    -- Belirsiz API (GUESS) bir kez loga: oyundaki ilk sonuc belirsizligi kapatir.
+    D.settle = function(key, text)
+        if D.probe[key] == nil then
+            D.probe[key] = true
+            N.log.line("teshis: " .. text)
+        end
+    end
+
+    -- Haritadaki bolge adi (m_szLastPlaceName metin donmezse "?").
+    D.place = function(ent)
+        local v = U.prop(ent, "m_szLastPlaceName")
+        if type(v) == "string" then
+            D.settle("place", "yer adi (m_szLastPlaceName) metin olarak okunuyor")
+            v = v:gsub("[^%w_%-]", "")
+            return v ~= "" and v or "?"
+        end
+        D.settle("place", fmt("yer adi (m_szLastPlaceName) okunamadi (%s) -> @?", type(v)))
+        return "?"
+    end
+
+    -- player_resource m_iPing (oyuncu index'iyle); okunamazsa nil (ping yazilmaz).
+    D.ping = function(ent)
+        local idx = U.index(ent)
+        if idx == nil then
+            return nil
+        end
+        local ok, v = pcall(function()
+            return player_resource.get_prop("m_iPing", idx)
+        end)
+        if ok and U.finite(v) then
+            D.settle("ping", "ping (player_resource m_iPing) okunuyor")
+            return v
+        end
+        D.settle("ping", "ping (player_resource m_iPing) okunamadi -> ping yazilmaz")
+        return nil
+    end
+
+    D.wname = function(ent)
+        local w = U.winfo(ent)
+        if w == nil then
+            return "?"
+        end
+        return w.name == "revolver" and "r8" or w.name
+    end
+
+    -- Konum, mesafe, hareket, bakis, can, silah, ping. lp verilmezse (ya da ent kendisiyse) mesafe / bakis yok.
+    D.where = function(ent, lp)
+        local o = U.origin(ent)
+        if o == nil then
+            return "@?"
+        end
+        local parts = { fmt("@%s(%d,%d,%d)", D.place(ent), U.R(o.x), U.R(o.y), U.R(o.z)) }
+        local mine = (lp ~= nil and lp ~= ent) and U.origin(lp) or nil
+        if mine ~= nil then
+            parts[#parts + 1] = fmt("%du h%+d", U.R(U.dist(o, mine)), U.R(o.z - mine.z))
+        end
+        local v = U.vel(ent)
+        parts[#parts + 1] = fmt("v%d", U.R(sqrt(v.x * v.x + v.y * v.y)))
+        -- GS V1.0.64: olen oyuncunun yerde bayragi silinir; olumcul vurulmada "havada" yazilmaz.
+        local hp = U.num(ent, "m_iHealth")
+        if not (hp ~= nil and hp <= 0) and U.flag(ent, "ON_GROUND") == false then
+            parts[#parts + 1] = fmt("havada vz%+d", U.R(v.z))
+        end
+        local duck = U.num(ent, "m_flDuckAmount")
+        if duck ~= nil and duck > 0.05 then
+            parts[#parts + 1] = fmt("duck%d", U.R(duck * 100))
+        end
+        if mine ~= nil then
+            local yaw = U.prop(ent, "m_angEyeAngles[1]")
+            if U.finite(yaw) then
+                parts[#parts + 1] = fmt("bak%+d", U.R(U.norm(yaw - U.yaw_to(o, mine))))
+            end
+            local pitch = U.prop(ent, "m_angEyeAngles[0]")
+            if U.finite(pitch) then
+                parts[#parts + 1] = fmt("p%d", U.R(pitch))
+            end
+        end
+        if hp ~= nil then
+            parts[#parts + 1] = fmt("hp%d", U.R(hp))
+        end
+        parts[#parts + 1] = D.wname(ent)
+        local ping = D.ping(ent)
+        if ping ~= nil then
+            parts[#parts + 1] = fmt("ping%d", U.R(ping))
+        end
+        return concat(parts, " ")
+    end
+
+    -- Dusmanin kaydi: sahte kayit (defensive) ve derinligi, biten defensive, LC, AA deseni, resolver seviyesi.
+    D.rec = function(ent)
+        local idx = U.index(ent)
+        local t = idx ~= nil and N.track.p[idx] or nil
+        if t == nil then
+            return "kayit ?"
+        end
+        local tick = U.tick()
+        local parts = {}
+        if tick <= t.def_until then
+            parts[#parts + 1] = fmt("DEF geri %dt", U.R(t.def_back or 1))
+        else
+            local last = D.last_def[idx]
+            if last ~= nil and tick >= last and tick - last <= 64 then
+                parts[#parts + 1] = fmt("def %dt once bitti", U.R(tick - last))
+            end
+        end
+        if tick <= t.lc_until then
+            parts[#parts + 1] = "LC"
+        end
+        if tick <= t.fd_until then
+            parts[#parts + 1] = "FD"
+        end
+        parts[#parts + 1] = "AA " .. N.profile.text(t)
+        local r = N.rage.t[idx]
+        if r ~= nil then
+            parts[#parts + 1] = fmt("seviye %d", U.R(r.level))
+        end
+        return concat(parts, " ")
+    end
+
+    -- Senin durumun. foe verilirse "yon" = gonderdigin yaw ile ona yon arasi (0 = ona bakiyorsun, 180 = sirtin
+    -- donuk); "dsy" = gercek - sahte aci (antiaim getter'lari).
+    D.me = function(lp, foe)
+        local st = N.st
+        local parts = { "ben " .. D.where(lp, nil), tostring(st.label or "?") }
+        local aa = {}
+        local mine, theirs = U.origin(lp), foe ~= nil and U.origin(foe) or nil
+        if mine ~= nil and theirs ~= nil then
+            aa[#aa + 1] = fmt("yon %+d", U.R(U.norm(N.aa.last.yaw - U.yaw_to(mine, theirs))))
+        end
+        local real, fake = U.call(antiaim.get_real_angle), U.call(antiaim.get_fake_angle)
+        if U.finite(real) and U.finite(fake) then
+            aa[#aa + 1] = fmt("dsy %+d", U.R(U.norm(real - fake)))
+        end
+        if #aa > 0 then
+            parts[#parts + 1] = "aa " .. concat(aa, " ")
+        end
+        if D.MANUAL[st.manual] ~= nil then
+            parts[#parts + 1] = "manual " .. D.MANUAL[st.manual]
+        end
+        if st.state == "Freestanding" then
+            parts[#parts + 1] = "FS"
+        end
+        if N.ref.on("autopeek") then
+            parts[#parts + 1] = "peek tusu"
+        elseif N.afk.on then
+            parts[#parts + 1] = "afk"
+        end
+        parts[#parts + 1] = N.shots.exploit_status()
+        local choked = U.call(engine.get_choked_commands)
+        if U.finite(choked) then
+            parts[#parts + 1] = fmt("bogma %d", U.R(choked))
+        end
+        return concat(parts, " | ")
+    end
+
+    -- Silahin hazir mi: bos sarjor, surgu / atis bekleme, durbun.
+    D.ready = function(lp)
+        local w = U.winfo(lp)
+        if w == nil or w.ent == nil then
+            return "silah ?"
+        end
+        local clip = U.num(w.ent, "m_iClip1")
+        if clip ~= nil and clip == 0 then
+            return "sarjor bos"
+        end
+        local wait = max(U.num(w.ent, "m_flNextPrimaryAttack") or 0, U.num(lp, "m_flNextAttack") or 0) - U.cur()
+        if wait > 0.02 then
+            return fmt("silah %.2fs sonra hazir", wait)
+        end
+        return "silah hazir" .. ((U.is_sniper(w.name) and U.num(lp, "m_bIsScoped") ~= 1) and " (durbun kapali)" or "")
+    end
+
+    -- Mermili silah mi (olum olayindaki silah adi; bomba / ates / bicak / zeus degil).
+    D.gun = function(weapon)
+        local w = tostring(weapon or "")
+        return w ~= "" and not K.NON_BULLET[w] and not w:find("knife", 1, true) and w ~= "bayonet" and w ~= "taser"
+    end
+
+    -- Gozunden dusmanin kafasina / govdesine mermi geciyor mu: her dusman kendi sirasinda 4 tick'te bir.
+    D.scan = function(lp, tick)
+        local w = U.winfo(lp)
+        if not U.is_gun(w) or U.melee(w) ~= nil then
+            return
+        end
+        local eye = U.eye(lp)
+        if eye == nil then
+            return
+        end
+        -- Fake duck'ta aimbot ayakta goz yuksekliginden sikar.
+        if N.st.fd then
+            local o = U.origin(lp)
+            if o ~= nil and eye.z < o.z + 64 then
+                eye = vec3_t(eye.x, eye.y, o.z + 64)
+            end
+        end
+        for i, ent in ipairs(N.exposure.enemies()) do
+            local idx = U.index(ent)
+            if idx ~= nil then
+                local due = D.nxt[idx]
+                if due == nil then
+                    D.nxt[idx] = tick + (i - 1) % D.EVERY
+                elseif tick < due - D.EVERY or tick >= due then
+                    D.nxt[idx] = tick + D.EVERY
+                    D.scan_one(ent, idx, lp, eye, tick)
+                end
+            end
+        end
+    end
+
+    D.scan_one = function(ent, idx, lp, eye, tick)
+        local dh, db
+        local c = N.rage.dmg_cache[idx]
+        if c ~= nil and tick >= c.tick and tick - c.tick <= 2 then
+            dh, db = c.head, c.body
+        else
+            dh = U.tdmg(eye, U.hitbox(ent, "HEAD"), lp, ent)
+            db = U.tdmg(eye, U.hitbox(ent, "CHEST"), lp, ent)
+            if db <= 0 then
+                db = U.tdmg(eye, U.hitbox(ent, "PELVIS"), lp, ent)
+            end
+        end
+        local v = D.vis[idx]
+        if dh >= D.MIN_DMG or db >= D.MIN_DMG then
+            if v == nil or tick < v.last or tick - v.last > D.VIS_GAP then
+                v = { first = tick, last = tick, fired = 0, other = 0 }
+                D.vis[idx] = v
+            end
+            v.last, v.dh, v.db = tick, dh, db
+            -- Oldurecek hasar ilk ne zaman gorundu (MD 100 ustu can + fark; alti canla sinirli).
+            if v.lethal == nil then
+                local md, hp = N.ref.md_eff(N.st.wgroup), U.hp(ent)
+                if md ~= nil and hp > 0 then
+                    local need = md >= 100 and hp + md - 100 or min(md, hp)
+                    if max(dh, db) >= need then
+                        v.lethal = tick
+                    end
+                end
+            end
+        elseif v ~= nil and (tick < v.last or tick - v.last > D.VIS_GAP) then
+            D.vis[idx] = nil
+        end
+    end
+
+    -- Dusmanlarin defensive bolumleri (sahte kayit tick'leri): kayit gercek olunca ya da dusman kaybolunca biter.
+    D.track_def = function(tick)
+        local present = {}
+        for _, ent in ipairs(N.exposure.enemies()) do
+            local idx = U.index(ent)
+            local t = idx ~= nil and N.track.p[idx] or nil
+            if t ~= nil then
+                present[idx] = true
+                local in_def = tick <= t.def_until
+                local ep = D.def[idx]
+                if in_def and ep == nil then
+                    D.def[idx] = { start = tick, last = tick, speed = U.speed(ent), name = U.name(ent) }
+                elseif in_def then
+                    ep.last = tick
+                elseif ep ~= nil then
+                    D.end_def(idx, ep, tick)
+                end
+            end
+        end
+        for idx, ep in pairs(D.def) do
+            if not present[idx] then
+                D.end_def(idx, ep, tick)
+            end
+        end
+    end
+
+    D.end_def = function(idx, ep, tick)
+        D.def[idx], D.last_def[idx] = nil, tick
+        local r = D.round_def[ep.name]
+        if r == nil then
+            r = { n = 0, ticks = 0, longest = 0, moving = 0 }
+            D.round_def[ep.name] = r
+            D.round_order[#D.round_order + 1] = ep.name
+        end
+        local length = max(1, ep.last - ep.start + 1)
+        r.n, r.ticks, r.longest = r.n + 1, r.ticks + length, max(r.longest, length)
+        if ep.speed >= 100 then
+            r.moving = r.moving + 1
+        end
+    end
+
+    -- SETUP_COMMAND (canliyken): harita basligi, vurulabilirlik taramasi, defensive bolumleri.
+    D.tick = function()
+        if not D.on() then
+            return
+        end
+        local tick = U.tick()
+        D.map_header()
+        D.scan(N.st.lp, tick)
+        D.track_def(tick)
+    end
+
+    -- AIMBOT_SHOOT: vurulabilirlik kayitlarinda atis sayilari, ates anindaki detay satiri (sonuc satirinin altina).
+    D.on_shoot = function(rec, shot)
+        if not D.on() then
+            return
+        end
+        for idx, v in pairs(D.vis) do
+            if idx == rec.idx then
+                v.fired = v.fired + 1
+            else
+                v.other = v.other + 1
+            end
+        end
+        rec.dbg = D.fire_info(rec, shot)
+    end
+
+    D.fire_info = function(rec, shot)
+        local lp, ent, idx = N.st.lp, rec.ent, rec.idx
+        local tick, ti = U.tick(), U.ipt()
+        local flags = { fmt("bt %dt", U.R(rec.bt)) }
+        if rec.hc ~= nil then
+            flags[#flags + 1] = fmt("hc %d%%", U.R(rec.hc))
+        end
+        local aim, o = N.shots.field(shot, "hitpoint_pos"), U.origin(ent)
+        if o ~= nil and U.okvec(aim) then
+            flags[#flags + 1] = fmt("nisan z%+d", U.R(aim.z - o.z))
+        end
+        -- Ilk atis gecikmesi (GS V1.0.54): vurulabilir oldugundan ve oldurecek hasar gorundugunden beri.
+        local v = idx ~= nil and D.vis[idx] or nil
+        if v ~= nil and tick >= v.last and tick - v.last <= D.VIS_GAP then
+            flags[#flags + 1] = fmt("vurulabilir %.2fs", (tick - v.first) * ti)
+            if v.fired <= 1 then
+                flags[#flags + 1] = v.lethal ~= nil and fmt("ates-hakki %.2fs", (tick - v.lethal) * ti) or "ates-hakki yok"
+            else
+                flags[#flags + 1] = fmt("%d. atis", U.R(v.fired))
+            end
+        else
+            flags[#flags + 1] = "vurulabilir yok"
+        end
+        local d = idx ~= nil and N.shots.duels[idx] or nil
+        if d ~= nil and d.they_at ~= nil then
+            flags[#flags + 1] = fmt("o-gordu %.2fs", max(0, U.now() - d.they_at))
+        end
+        return fmt("dbg atis-detay: %s %s | %s | aimbot %s | %s", rec.name, D.where(ent, lp), D.rec(ent),
+            concat(flags, " "), lp ~= nil and D.me(lp, ent) or "ben ?")
+    end
+
+    D.print_shot = function(rec)
+        if rec.dbg ~= nil and D.on() then
+            N.log.line(rec.dbg)
+        end
+    end
+
+    -- Dusman atislari (weapon_fire): son iki atisi arasi (DT cifti mi).
+    D.enemy_fire = function(idx)
+        if not D.on() then
+            return
+        end
+        local last = D.shots[idx]
+        D.shots[idx] = { prev = last ~= nil and last.last or nil, last = U.now() }
+    end
+
+    -- Bize mermi (player_hurt, mermili silah): iz duvardan mi, onun son iki atisi, biz onu vurabiliyor muyduk.
+    D.hurt = function(attacker, hitgroup, dmg, weapon)
+        local lp = N.st.lp
+        if not D.on() or lp == nil then
+            return
+        end
+        local idx = U.index(attacker)
+        -- GS V1.0.50: duvardan kafa olumlerinin payi icin payda (saldiranin gozunden vurulan yere duz iz).
+        local wall = ""
+        local eye = U.eye(attacker)
+        local spot = U.hitbox(lp, hitgroup == 1 and "HEAD" or (hitgroup == 3 and "PELVIS" or "CHEST"))
+        if eye ~= nil and spot ~= nil then
+            local frac, hit, ok = U.tline(eye, spot, attacker)
+            if ok then
+                wall = (frac < 0.97 and hit ~= lp) and " | iz duvardan" or " | iz acik"
+            end
+        end
+        local gap = ""
+        local s = idx ~= nil and D.shots[idx] or nil
+        if s ~= nil and s.prev ~= nil and s.last >= s.prev and s.last - s.prev < 1 then
+            local dt = s.last - s.prev
+            gap = fmt(" | son iki atisi arasi %.2fs%s", dt, dt < 0.2 and " (DT)" or "")
+        end
+        local v, tick = idx ~= nil and D.vis[idx] or nil, U.tick()
+        local mine = "sen onu vuramiyordun"
+        if v ~= nil and tick >= v.last and tick - v.last <= D.VIS_GAP then
+            mine = fmt("sen onu %.2fs vurulabilir gordun, %d ates", (v.last - v.first) * U.ipt(), U.R(v.fired))
+        end
+        N.log.line(fmt("dbg vurulma-detay: %s %s -%d %s%s | %s | %s%s | %s | %s", U.name(attacker),
+            K.HITGROUPS[hitgroup or -1] or "?", U.R(dmg), tostring(weapon), wall, D.where(attacker, lp),
+            D.rec(attacker), gap, mine, D.me(lp, attacker)))
+    end
+
+    -- player_death etiketleri: headshot, duvardan (delinen), noscope, smoke icinden, kor.
+    D.tags = function(e)
+        local F = N.shots.field
+        local function yes(name)
+            local v = F(e, name)
+            return v == true or v == 1
+        end
+        local tags = {}
+        if yes("headshot") then
+            tags[#tags + 1] = "headshot"
+        end
+        local pen = tonumber(F(e, "penetrated"))
+        if U.finite(pen) and pen > 0 then
+            tags[#tags + 1] = fmt("duvardan (%d)", U.R(pen))
+        end
+        if yes("noscope") then
+            tags[#tags + 1] = "noscope"
+        end
+        if yes("thrusmoke") then
+            tags[#tags + 1] = "smoke icinden"
+        end
+        if yes("attackerblind") then
+            tags[#tags + 1] = "kor"
+        end
+        return #tags > 0 and (" " .. concat(tags, ", ")) or ""
+    end
+
+    D.death = function(e, attacker, lp, weapon)
+        if D.on() then
+            N.log.line(fmt("dbg olum-detay: %s %s%s | %s | %s | %s", U.name(attacker), weapon, D.tags(e),
+                D.where(attacker, lp), D.rec(attacker), D.me(lp, attacker)))
+        end
+    end
+
+    D.kill = function(e, victim, lp, weapon)
+        if D.on() then
+            N.log.line(fmt("dbg kill-detay: %s %s%s | %s", U.name(victim), weapon, D.tags(e), D.where(victim, lp)))
+        end
+    end
+
+    D.map = function()
+        local m = U.call(engine.get_level_name_short)
+        return (type(m) == "string" and m ~= "") and m or "?"
+    end
+
+    D.header = function()
+        local played = U.game("m_totalRoundsPlayed")
+        local team = U.num(U.call(entity_list.get_local_player), "m_iTeamNum")
+        local lat = U.call(engine.get_latency)
+        return fmt("dbg ===== round %s | %s | sen %s | ping %s =====",
+            played ~= nil and fmt("%d", U.R(played) + 1) or "?", D.map(), team == 2 and "T" or (team == 3 and "CT" or "?"),
+            U.finite(lat) and fmt("%dms", U.R(lat * 1000)) or "?")
+    end
+
+    -- Harita basligi: yuklemeden / harita degisiminden sonra ilk round basinda ya da canli tick'te bir kez
+    -- (harita degisiminde native ayar ozeti de; yuklemede o zaten yazildi).
+    D.map_header = function()
+        local why = D.map_pending
+        if why == nil or not D.on() then
+            return
+        end
+        local m = D.map()
+        if m == "?" then
+            return
+        end
+        D.map_pending = nil
+        if why ~= "newmap" and m == D.map_printed then
+            return
+        end
+        D.map_printed = m
+        N.log.line(fmt("dbg ===== harita %s =====", m))
+        if why ~= "load" then
+            N.shots.settings_line()
+        end
+    end
+
+    -- Round basi (round_start, DM dogusu): acik duellolar kapanir, def ozeti, baslik. GS V1.0.20: round_start arka
+    -- arkaya iki kez gelirse ve arada satir yoksa baslik ikinci kez yazilmaz (donus false: round basi satirlari
+    -- da tekrar yazilmasin). Cagiran, round basi satirlarindan sonra D.round_done() der.
+    D.round_begin = function()
+        local fresh = true
+        if D.on() then
+            D.map_header()
+            local S = N.shots
+            for idx in pairs(S.duels) do
+                S.duel_close(idx, "round bitti")
+            end
+            local tick = U.tick()
+            for idx, ep in pairs(D.def) do
+                D.end_def(idx, ep, tick)
+            end
+            for _, name in ipairs(D.round_order) do
+                local r = D.round_def[name]
+                N.log.line(fmt("dbg def ozeti: %s %d kez, toplam %dt, ort %.1ft, en uzun %dt, %d tanesi hareketliyken",
+                    name, r.n, r.ticks, r.ticks / r.n, r.longest, r.moving))
+            end
+            N.charge.round_line()
+            local header = D.header()
+            if header ~= D.last_header or N.log.n ~= D.header_n then
+                N.log.line(header)
+            else
+                fresh = false
+            end
+            D.last_header = header
+        end
+        D.reset()
+        N.charge.round_new()
+        return fresh
+    end
+
+    D.round_done = function()
+        D.header_n = N.log.n
+    end
+
+    D.round_end = function(e)
+        if not D.on() then
+            return
+        end
+        local winner = tonumber(N.shots.field(e, "winner"))
+        if winner ~= 2 and winner ~= 3 then
+            N.log.line("dbg round sonu: kazanan yok (oyun basi / yeniden baslatma)")
+            return
+        end
+        local team = U.num(U.call(entity_list.get_local_player), "m_iTeamNum")
+        N.log.line(fmt("dbg round sonu: %s kazandi%s", winner == 2 and "T" or "CT",
+            team == winner and " (senin takimin)" or ""))
+    end
+
+    D.reset = function()
+        D.vis, D.nxt, D.def, D.round_def, D.round_order, D.last_def, D.shots = {}, {}, {}, {}, {}, {}, {}
+    end
+
+    -- Harita / oturum degisimi: tick'e bagli her sey silinir, duellolar yazilmadan atilir.
+    D.map_reset = function(newmap)
+        D.reset()
+        N.shots.duels = {}
+        D.last_header, D.header_n = nil, -1
+        if newmap then
+            D.map_pending = "newmap"
+        else
+            D.map_pending = D.map_pending or "reset"
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Istatistik (GS aim_stats / stats / draw_stats): durum basina dusman isabeti / kafa / iska, DT dolu ve DEF zorlanan
+-- tick payi, KD (sadece dusman; durum olay anindaki), atis sonuclari (atis / isabet / correction / spread / diger), lag
+-- ve temiz atis, AI peek. Iki sayac kumesi: sets[1] oturum (Stats paneli; sadece "Reset stats" sifirlar), sets[2]
+-- harita ("harita ozeti" satiri harita degisiminde, kapanista ve 20 roundda bir; harita degisiminde sifirlanir). Her
+-- olay ikisine birden yazilir. Resolver paneli tahmini (cozum / HIT) de burada (dusman basina oturum sayaclari).
+-------------------------------------------------------------------------------
+do
+    local U, ST, K = N.util, N.stats, N.K
+    ST.round_no = 1
+    -- GS sample_exploit: kendi atisindan sonraki 1 sn (atis sarji bosaltir) ve sarj tutulurken DT / DEF payina girmez.
+    ST.GRACE, ST.EVERY = 1, 20
+    -- NL V1.0 on bilgileri: spread %2, diger %8 (agirlik 8); cozumde son 4 sonucun correction payi.
+    ST.PRIOR_SPREAD, ST.PRIOR_OTHER, ST.PRIOR_W, ST.LAST = 0.02, 0.08, 8, 4
+    -- Panel / ozet sirasi: builder durumlari, sonra AA'si olmayanlar (GS STAT_ORDER).
+    ST.RANK = {}
+    for i, state in ipairs(K.STATES) do
+        ST.RANK[state] = i
+    end
+    for i, state in ipairs({ "Legit", "Spin", "Ladder" }) do
+        ST.RANK[state] = #K.STATES + i
+    end
+
+    ST.new_set = function()
+        return { states = {}, order = {}, kills = 0, deaths = 0, shots = 0, hits = 0, corr = 0, spread = 0, other = 0,
+            lag_s = 0, lag_h = 0, clean_s = 0, clean_h = 0, peeks = 0, ai_shots = 0, ai_hits = 0, empty = 0, hurt = 0,
+            ticks = 0, rounds = 0, start = nil, last = nil, map = nil, map_try = -1000 }
+    end
+
+    -- sets[1] oturum, sets[2] harita; enemy[anahtar]: resolver paneli icin dusman basina atis / spread / diger ve son 4
+    -- sonucun correction olup olmadigi.
+    ST.reset_all = function()
+        ST.sets, ST.enemy = { ST.new_set(), ST.new_set() }, {}
+    end
+    ST.reset_all()
+
+    ST.get = function(set, state)
+        local s = set.states[state]
         if s == nil then
-            s = { hits = 0, head = 0, misses = 0 }
-            ST.states[state] = s
-            ST.order[#ST.order + 1] = state
+            s = { hits = 0, head = 0, misses = 0, n = 0, dt = 0, full = 0, def = 0, kills = 0, deaths = 0 }
+            set.states[state] = s
+            set.order[#set.order + 1] = state
         end
         return s
     end
 
+    -- Iki kumeye birden +1: state verilirse o durumun alanina, yoksa kumenin alanina.
+    ST.add = function(field, state)
+        for _, set in ipairs(ST.sets) do
+            local t = state ~= nil and ST.get(set, state) or set
+            t[field] = t[field] + 1
+        end
+    end
+
     ST.enemy_hit = function(state, head)
-        local s = ST.get(state)
-        s.hits = s.hits + 1
+        ST.add("hits", state)
         if head then
-            s.head = s.head + 1
+            ST.add("head", state)
         end
     end
 
     ST.enemy_miss = function(state)
-        local s = ST.get(state)
-        s.misses = s.misses + 1
+        ST.add("misses", state)
+    end
+
+    -- Olduren / olen dusmansa (S.on_death): durum olay anindaki etiket.
+    ST.kd = function(field)
+        ST.add(field)
+        ST.add(field, N.st.label)
+    end
+
+    -- Atis sonucu (S.on_hit reason nil, S.on_miss reason): GS aim_stats. "spread (missed safe)" (safe point'li atis,
+    -- API 7.4) da spread sayilir. Lag / temiz sadece kaydi bilinen atista ve
+    -- olum sebepli iska haric; lag = atis aninda DEF / LC / TP / FD etiketi (atis ozeti ile ayni), temiz = digerleri.
+    ST.result = function(rec, reason)
+        local kind = reason == nil and "hits" or (((reason == "resolver" or reason == "jitter") and "corr")
+            or (reason:sub(1, 6) == "spread" and "spread") or "other")
+        local death = reason ~= nil and reason:find("death", 1, true) ~= nil
+        local tags = rec.tags or {}
+        local lag = tags.DEF or tags.LC or tags.TP or tags.FD
+        local hit = reason == nil and 1 or 0
+        for _, set in ipairs(ST.sets) do
+            set.shots = set.shots + 1
+            set[kind] = set[kind] + 1
+            if not rec.stub and not death then
+                if lag then
+                    set.lag_s, set.lag_h = set.lag_s + 1, set.lag_h + hit
+                else
+                    set.clean_s, set.clean_h = set.clean_s + 1, set.clean_h + hit
+                end
+            end
+        end
+        local key = rec.key or (rec.idx ~= nil and ("i" .. rec.idx)) or nil
+        if death or key == nil then
+            return
+        end
+        local e = ST.enemy[key]
+        if e == nil then
+            e = { shots = 0, spread = 0, other = 0, last = {} }
+            ST.enemy[key] = e
+        end
+        e.shots = e.shots + 1
+        if kind == "spread" or kind == "other" then
+            e[kind] = e[kind] + 1
+        end
+        e.last[#e.last + 1] = kind == "corr"
+        if #e.last > ST.LAST then
+            tremove(e.last, 1)
+        end
+    end
+
+    -- SETUP_COMMAND (N.charge.tick ve N.ex.defensive'den sonra): harita suresi / adi, durum basina DT dolu ve DEF
+    -- zorlanan tick payi (DT ya da HS acikken; atistan sonraki 1 sn ve sarj tutulurken sayilmaz).
+    ST.sample = function()
+        local st, CH = N.st, N.charge
+        local now, tick = U.now(), U.tick()
+        local m = ST.sets[2]
+        m.ticks, m.start, m.last = m.ticks + 1, m.start or now, now
+        if m.map == nil and (tick - m.map_try >= 64 or tick < m.map_try) then
+            m.map_try = tick
+            local name = N.dlog.map()
+            if name ~= "?" then
+                m.map = name
+            end
+        end
+        local dt = CH.dt_was == true
+        if not dt and not N.ref.on("hs") then
+            return
+        end
+        if (now >= st.last_shot and now - st.last_shot <= ST.GRACE) or N.rc.held() then
+            return
+        end
+        local full = dt and (CH.m or 0) > 0 and (CH.c or 0) >= CH.m
+        local forced = N.ex.forced == true
+        for _, set in ipairs(ST.sets) do
+            local e = ST.get(set, st.label)
+            e.n = e.n + 1
+            if dt then
+                e.dt = e.dt + 1
+                e.full = e.full + (full and 1 or 0)
+            end
+            e.def = e.def + (forced and 1 or 0)
+        end
+    end
+
+    -- Tamsayi yuzde (GS: asagi yuvarlanir) ya da payda 0 ise nil.
+    ST.pct = function(a, b)
+        if b <= 0 then
+            return nil
+        end
+        return floor(100 * a / b)
+    end
+
+    ST.sorted = function(set)
+        local list = {}
+        for i, state in ipairs(set.order) do
+            list[i] = state
+        end
+        table.sort(list, function(a, b)
+            local ra, rb = ST.RANK[a] or 99, ST.RANK[b] or 99
+            if ra ~= rb then
+                return ra < rb
+            end
+            return a < b
+        end)
+        return list
+    end
+
+    -- Resolver paneli tahmini (NL V1.0 modeli; panel tick basina bir kez cagirir): cozum = %80 x0.8 (jitter genligi
+    -- >= 120; canli desen yokken hafizadaki aliskanlik jitter) x0.9 (hedef havada) x0.5 (sahte kayit) x(1 - son 4
+    -- sonuctaki correction payi / 2). HIT = cozum x (1 - spread) x (1 - diger); dusmanin oranlari %2 / %8 on bilgisine
+    -- 8 atis agirligiyla cekilir. Donus: cozum %, HIT % (tamsayi).
+    ST.estimate = function(ent, idx, key, p)
+        local tr = idx ~= nil and N.track.p[idx] or nil
+        local v = 0.8
+        local wide
+        if tr ~= nil and tr.pattern ~= "?" then
+            wide = tr.pattern == "jitter" and U.finite(tr.amp) and tr.amp >= 120
+        else
+            local h = N.profile.habit(p)
+            wide = h ~= nil and h.pattern == "jitter"
+        end
+        if wide then
+            v = v * 0.8
+        end
+        if U.flag(ent, "ON_GROUND") == false then
+            v = v * 0.9
+        end
+        if idx ~= nil and N.track.fake(idx) then
+            v = v * 0.5
+        end
+        local e = key ~= nil and ST.enemy[key] or nil
+        local shots, spread, other = 0, 0, 0
+        if e ~= nil then
+            local c = 0
+            for _, corr in ipairs(e.last) do
+                c = c + (corr and 1 or 0)
+            end
+            if #e.last > 0 then
+                v = v * (1 - c / #e.last / 2)
+            end
+            shots, spread, other = e.shots, e.spread, e.other
+        end
+        local w = ST.PRIOR_W
+        local rs = (spread + ST.PRIOR_SPREAD * w) / (shots + w)
+        local ro = (other + ST.PRIOR_OTHER * w) / (shots + w)
+        return U.R(v * 100), U.R(v * (1 - rs) * (1 - ro) * 100)
+    end
+
+    -- Stats paneli satirlari (GS draw_stats duzeni): { yazi, baslik mi, oncesinde bosluk mu }. Panel tick basina bir kez.
+    ST.rows = function()
+        local s = ST.sets[1]
+        local B = N.brute
+        local rows = {}
+        local function add(text, head, gap)
+            rows[#rows + 1] = { text, head == true, gap == true }
+        end
+        local function share(a, b)
+            local p = ST.pct(a, b)
+            return p ~= nil and fmt("%d%%", p) or "-"
+        end
+        add("AA STATS   HIT / HEAD / MISS / DT / DEF", true)
+        local order = ST.sorted(s)
+        for _, state in ipairs(order) do
+            local e = s.states[state]
+            add(fmt("%s   %d / %d / %d / %s / %s", state:upper(), e.hits, e.head, e.misses, share(e.full, e.dt),
+                share(e.def, e.n)))
+        end
+        if s.shots > 0 then
+            add("AIM   SHOT / HIT / CORR / SPREAD / OTHER", true, true)
+            add(fmt("ALL   %d / %d / %d / %d / %d", s.shots, s.hits, s.corr, s.spread, s.other))
+            add(fmt("LAG   %d / %d   TEMIZ   %d / %d", s.lag_h, s.lag_s, s.clean_h, s.clean_s))
+        end
+        if s.kills + s.deaths > 0 then
+            add("KD   OLDURDUN / OLDUN", true, true)
+            for _, state in ipairs(order) do
+                local e = s.states[state]
+                if e.kills + e.deaths > 0 then
+                    add(fmt("%s   %d / %d", state:upper(), e.kills, e.deaths))
+                end
+            end
+        end
+        if s.peeks > 0 then
+            add("AI PEEK   PEEK / ATIS / ISABET / BOS / VURULDUN", true, true)
+            add(fmt("AI PEEK   %d / %d / %d / %d / %d", s.peeks, s.ai_shots, s.ai_hits, s.empty, s.hurt))
+        end
+        -- * = verisi olmayan dusmanlara uygulanan faz; x = kotu bilinen (12+ mermi, %55+ kafa), ilerlemede atlanir.
+        add("AA FAZ   KAFA ISABETI / MERMI", true, true)
+        for _, g in ipairs(K.BRUTE_GROUPS) do
+            local parts = { g:upper() }
+            for phase = 0, #K.BRUTE_PHASES do
+                local stat = B.phases[g][phase]
+                parts[#parts + 1] = fmt("%d%s %d/%d", phase, phase == (B.default[g] or 0) and "*"
+                    or (B.known_bad(g, phase) and "x" or ""), U.R(stat.hits), U.R(stat.shots))
+            end
+            add(concat(parts, "   "))
+        end
+        return rows
+    end
+
+    -- "harita ozeti" satiri: panelin sayilari yuklenen loga (harita kumesi). faz kafa = grubun varsayilan fazi ve kafa
+    -- isabeti / mermi (kalici faz ogrenmesi, sifirlanmaz).
+    ST.map_text = function(set)
+        local kd = {}
+        local dt, full, n, def = 0, 0, 0, 0
+        for _, state in ipairs(ST.sorted(set)) do
+            local e = set.states[state]
+            if e.kills + e.deaths > 0 then
+                kd[#kd + 1] = fmt("%s %d/%d", state, e.kills, e.deaths)
+            end
+            dt, full, n, def = dt + e.dt, full + e.full, n + e.n, def + e.def
+        end
+        local B = N.brute
+        local faz = {}
+        for _, g in ipairs(K.BRUTE_GROUPS) do
+            local d = B.default[g] or 0
+            local stat = B.phases[g][d]
+            faz[#faz + 1] = fmt("%s %d:%d/%d", g, d, U.R(stat.hits), U.R(stat.shots))
+        end
+        local pf, pd = ST.pct(full, dt), ST.pct(def, n)
+        local mins = (set.start ~= nil and set.last ~= nil) and U.R(max(0, set.last - set.start) / 60) or 0
+        return fmt("harita ozeti: %s %d dk, %d round | KD %d/%d%s | atis %d isabet %d correction %d spread %d diger %d"
+            .. " | lag %d/%d temiz %d/%d | ai peek %d/%d/%d/%d/%d | DT dolu %s DEF %s | faz kafa %s",
+            set.map or N.dlog.map(), mins, set.rounds, set.kills, set.deaths,
+            #kd > 0 and (" (" .. concat(kd, ", ") .. ")") or "", set.shots, set.hits, set.corr, set.spread, set.other,
+            set.lag_h, set.lag_s, set.clean_h, set.clean_s, set.peeks, set.ai_shots, set.ai_hits, set.empty, set.hurt,
+            pf ~= nil and fmt("%%%d", pf) or "-", pd ~= nil and fmt("%%%d", pd) or "-", concat(faz, " "))
+    end
+
+    -- Bu haritada 1 sn canli tick ya da atis / KD yoksa yazilmaz: ayni harita degisiminde N.map_reset birkac kez gelir
+    -- (game_newmap, yerel oyuncu yok, PAINT'te geri gelis) ve aradaki tek tick'lik kume ozet degildir.
+    ST.map_line = function()
+        local m = ST.sets[2]
+        local active = m.ticks >= 64 or m.shots + m.kills + m.deaths > 0
+        if active and (N.on("hit_log") or N.on("shot_log")) then
+            N.log.line(ST.map_text(m))
+        end
+    end
+
+    -- Harita degisimi / kapanis: satir, sonra harita kumesi sifirdan.
+    ST.map_end = function()
+        ST.map_line()
+        ST.sets[2] = ST.new_set()
+    end
+
+    -- round_start (cift round_start'ta fresh false): 20 roundda bir ara ozet.
+    ST.round = function(fresh)
+        local m = ST.sets[2]
+        if fresh then
+            m.rounds = m.rounds + 1
+            if m.rounds % ST.EVERY == 0 then
+                ST.map_line()
+            end
+        end
     end
 
     ST.reset = function()
-        ST.states, ST.order = {}, {}
-        ST.kills, ST.deaths, ST.our_shots, ST.our_hits = 0, 0, 0, 0
+        ST.reset_all()
         N.shots.shots_round = nil
         N.shots.round = nil
         N.log.line("istatistikler sifirlandi")
@@ -6064,6 +8274,7 @@ do
 
     ST.tick = function()
         N.shots.duel_update()
+        ST.sample()
     end
 end
 
@@ -6120,7 +8331,20 @@ do
             return false
         end
         if h == nil or not h.held then
-            h = { orig = cur, held = true, float = float }
+            -- Orijinal: hafizadaki C kaydi (onceki oturumun ilk yaziminden onceki deger; oyun cokunce config.cfg'de
+            -- bizim degerimiz kalir, GS V1.0.40), yoksa su anki deger ve C kaydi hemen yazilir.
+            local saved = N.mem.cvars[name]
+            local orig = cur
+            if saved ~= nil then
+                orig = saved.v
+                if abs(saved.v - cur) > 1e-3 then
+                    N.log.line(fmt("cvar %s: oyunda %s kalmis (onceki oturum kapanmadan cikmis), asil deger %s hafizadan",
+                        name, fmt("%.4g", cur), fmt("%.4g", saved.v)))
+                end
+            else
+                N.mem.cvar_keep(name, cur, float)
+            end
+            h = { orig = orig, held = true, float = float }
             MI.cv[name] = h
         end
         if abs(cur - value) > 1e-3 then
@@ -6130,6 +8354,7 @@ do
                 h.bad = true
                 h.held = false
                 MI.write(c, h.orig, float)
+                N.mem.cvar_drop(name)
                 N.log.line("cvar " .. name .. " yazilamadi")
                 return false
             end
@@ -6140,6 +8365,17 @@ do
     MI.release = function(name)
         local h = MI.cv[name]
         if h == nil or not h.held then
+            -- Tutulmayan cvar'in C kaydi: onceki oturum kapanmadan cikmis ve ozellik artik kapali -> asil deger.
+            local saved = h == nil and N.mem.cvars[name] or nil
+            if saved ~= nil then
+                local c = MI.cvar(name)
+                if c ~= nil then
+                    MI.write(c, saved.v, saved.float)
+                    N.log.line(fmt("cvar %s: onceki oturumdan kalan deger birakildi, asil deger %s geri yazildi", name,
+                        fmt("%.4g", saved.v)))
+                end
+                N.mem.cvar_drop(name)
+            end
             return
         end
         h.held = false
@@ -6148,6 +8384,7 @@ do
             MI.write(c, h.orig, h.float)
         end
         MI.cv[name] = nil
+        N.mem.cvar_drop(name)
     end
 
     MI.release_all = function()
@@ -6197,6 +8434,11 @@ do
             MI.hold("developer", 0, false)
         else
             MI.release("developer")
+        end
+        -- Yeni C kaydi (ilk yazim) hemen dosyaya: oyun bu oturumda cokerse de asil deger kalir.
+        if N.mem.cv_new then
+            N.mem.cv_new = false
+            N.mem.save(false)
         end
         -- Roll yasak: native Extended Angles tusu acik -> uyari (script native tusu birakamaz).
         local ext = N.ref.on("ext_angles")
@@ -6560,6 +8802,9 @@ do
         if st.fd_hint_until ~= nil and now < st.fd_hint_until then
             add("FD!", red)
         end
+        if X.paused("DEF") or X.paused("LC") or X.paused("TP") then
+            add("PAUSE", red)
+        end
         local y = sy * 0.66
         for _, item in ipairs(items) do
             local ok, size = pcall(render.get_text_size, D.big, item[1])
@@ -6571,28 +8816,49 @@ do
         end
     end
 
+    -- Resolver paneli. GS V1.0.59 (FPS): hedef, isim, hafiza kaydi, seviye, faz ve cozum / HIT tahmini tick basina bir
+    -- kez hesaplanir (isim / anahtar N.mem.cached'ten, 1 sn onbellekli); her karede onbellekten cizilir.
+    D.rc = { tick = nil, lines = nil }
+
+    D.res_lines = function(target)
+        local B = N.brute
+        local idx = U.index(target)
+        local p, key = N.mem.entry(target)
+        local _, name = N.mem.cached(target)
+        name = tostring(name or "?")
+        local t = idx ~= nil and N.rage.t[idx] or nil
+        local tr = idx ~= nil and N.track.p[idx] or nil
+        local skey = key or (idx ~= nil and ("i" .. idx)) or nil
+        local cozum, hit = N.stats.estimate(target, idx, skey, p)
+        local stage = B.entry_stage(key ~= nil and B.enemies[key] or nil, B.group_for(N.st.move_state))
+        return {
+            #name > 16 and (name:sub(1, 15) .. ".") or name,
+            fmt("RES L%d", t ~= nil and t.level or 0),
+            fmt("cozum %%%d", cozum),
+            fmt("HIT %%%d", hit),
+            fmt("kafa %d/%d", U.R(p ~= nil and p.hider.h or 0), U.R(p ~= nil and p.hider.n or 0)),
+            fmt("isabet %d/%d", tr ~= nil and (tr.our_hits or 0) or 0, tr ~= nil and (tr.our_shots or 0) or 0),
+            fmt("faz %d", stage),
+        }
+    end
+
     D.res_panel = function(sx, sy)
         if not N.on("res_panel") or D.small == nil then
             return
         end
-        local target = N.aa.target_ent
-        if target == nil then
+        local c, tick = D.rc, U.tick()
+        if c.tick ~= tick then
+            c.tick = tick
+            local target = N.aa.target_ent
+            c.lines = (target ~= nil and U.alive(target)) and D.res_lines(target) or nil
+        end
+        local lines = c.lines
+        if lines == nil then
             return
         end
-        local idx = U.index(target)
-        local p = N.mem.entry(target)
-        local t = idx ~= nil and N.rage.t[idx] or nil
-        local tr = idx ~= nil and N.track.p[idx] or nil
         local scale = (N.v("panel_size") or 160) / 100
         local x = sx * (N.v("panel_x") or 560) / 1000
         local y = sy * (N.v("panel_y") or 380) / 1000
-        local lines = {
-            U.name(target),
-            fmt("RES L%d", t ~= nil and t.level or 0),
-            fmt("kafa %d/%d", U.R(p ~= nil and p.hider.h or 0), U.R(p ~= nil and p.hider.n or 0)),
-            fmt("isabet %d/%d", tr ~= nil and (tr.our_hits or 0) or 0, tr ~= nil and (tr.our_shots or 0) or 0),
-            fmt("faz %d", N.brute.stage_for(target, N.st.move_state)),
-        }
         local h = 14 * scale
         pcall(render.rect_filled, vec2_t(x - 6, y - 4), vec2_t(110 * scale, h * #lines + 8), color_t(0, 0, 0, 110), 4)
         local col = D.color("accent", 150, 190, 255)
@@ -6601,19 +8867,57 @@ do
         end
     end
 
+    -- Stats paneli yazisi ekran yuksekligine gore (1080 = 12 px); boyut degisince bir kez yeniden olusturulur.
+    D.stats_font = function(sy)
+        local size = max(9, floor(12 * sy / 1080 + 0.5))
+        if D.sf_size ~= size then
+            local ok, f = pcall(render.create_font, "Verdana", size, 700, e_font_flags.DROPSHADOW)
+            D.sf_size, D.sf, D.measures, D.measure_n = size, ok and f or nil, {}, 0
+        end
+        return D.sf, size
+    end
+
+    -- Yazi genisligi ezberlenir (GS V1.0.59; en fazla 256 kayit, sonra bastan).
+    D.measure = function(font, s)
+        local w = D.measures[s]
+        if w == nil then
+            if D.measure_n >= 256 then
+                D.measures, D.measure_n = {}, 0
+            end
+            local ok, size = pcall(render.get_text_size, font, s)
+            w = (ok and size ~= nil and U.finite(size.x)) and size.x or #s * 7
+            D.measures[s], D.measure_n = w, D.measure_n + 1
+        end
+        return w
+    end
+
+    -- Stats paneli (GS draw_stats satirlari): sag ustte (GS sol ust 0.45 h; primordial'da sol liste 0.66 h'den yukari
+    -- ciktigi icin cakismasin diye sagda, 0.30 h). Satirlar tick basina bir kez kurulur.
+    D.sc = { tick = nil, rows = nil, w = 0 }
+
     D.stats_panel = function(sx, sy)
-        if not N.on("stats_panel") or D.small == nil then
+        if not N.on("stats_panel") then
             return
         end
-        local ST = N.stats
-        local x, y = sx - 230, sy * 0.3
-        D.text(D.small, fmt("KD %d/%d | atis %d/%d", ST.kills or 0, ST.deaths or 0, ST.our_hits or 0, ST.our_shots or 0),
-            x, y, color_t(230, 230, 230, 255), false)
-        for _, state in ipairs(ST.order) do
-            local s = ST.states[state]
-            y = y + 13
-            D.text(D.small, fmt("%s: kafa %d/%d, iska %d", state, s.head, s.hits, s.misses), x, y,
-                color_t(200, 200, 200, 255), false)
+        local font, size = D.stats_font(sy)
+        if font == nil then
+            return
+        end
+        local c, tick = D.sc, U.tick()
+        if c.tick ~= tick or c.size ~= size then
+            c.tick, c.size, c.rows, c.w = tick, size, N.stats.rows(), 0
+            for _, row in ipairs(c.rows) do
+                c.w = max(c.w, D.measure(font, row[1]))
+            end
+        end
+        local accent, white = D.color("accent", 150, 190, 255), color_t(230, 230, 230, 255)
+        local line, gap = size + 1, floor(size / 2)
+        local x, y = sx - c.w - 12, floor(sy * 0.3)
+        for i, row in ipairs(c.rows) do
+            if i > 1 then
+                y = y + line + (row[3] and gap or 0)
+            end
+            D.text(font, row[1], x, y, row[2] and accent or white, false)
         end
     end
 
@@ -6682,11 +8986,16 @@ do
     -- butun durum silinir; eski haritanin tick'leri yeni haritada "gelecekte" kalmasin.
     N.map_reset = function()
         local st = N.st
+        N.diag.map_end()
+        N.profile.map_end()
+        N.stats.map_end()
         N.ex.tp_reset()
+        N.charge.map_reset()
         N.exposure.reset()
         N.track.p = {}
         N.rage.map_reset()
         N.mem.kc = {}
+        N.dlog.map_reset(false)
         N.aa.cover, N.aa.cover_auto, N.aa.cover_tick = nil, false, -1000
         N.state.peek_until = -1000
         N.rc.release_all()
@@ -6782,9 +9091,12 @@ do
         N.rc.tick()
         N.rc.watchdog()
         N.ex.defensive()
+        N.charge.tick()
         N.rage.prepare()
         N.brute.process_pending()
         N.shots.expire()
+        N.dlog.tick()
+        N.profile.tick()
         N.stats.tick()
         N.ov.hold_neutral(false)
     end
@@ -6826,6 +9138,9 @@ do
 
     N.shutdown = function()
         N.shots.summary()
+        N.profile.map_end()
+        N.diag.map_end()
+        N.stats.map_end()
         N.ov.release_all()
         N.rc.release_all()
         N.misc.release_all()
@@ -6857,6 +9172,7 @@ do
                             return ev.name
                         end)
                         if okn and nm ~= nil and nm ~= event then
+                            pcall(N.diag.filter, event, nm)
                             return
                         end
                     end
@@ -6870,6 +9186,7 @@ do
                 end
             else
                 wrapper = function(...)
+                    pcall(N.diag.cb, key, ...)
                     for _, h in ipairs(list) do
                         C.run(h, ...)
                     end
@@ -6945,16 +9262,23 @@ do
             end
             N.rc.release_all()
             N.shots.summary()
+            N.profile.round_start()
             N.stats.round_no = (N.stats.round_no or 1) + 1
             st.last_round_start = U.now()
+            local fresh = N.dlog.round_begin()
+            N.stats.round(fresh)
             N.misc.buy()
-            N.shots.settings()
+            if fresh then
+                N.shots.settings()
+            end
             N.log.flush()
+            N.dlog.round_done()
         end, "round_start")
-        C.on("EVENT", "round_end", function()
+        C.on("EVENT", "round_end", function(e)
             if not st.enabled then
                 return
             end
+            N.dlog.round_end(e)
             N.mem.save(false)
             N.log.flush()
         end, "round_end")
@@ -6987,7 +9311,9 @@ do
             -- DM: 60 sn round_start yoksa ozet ve bomba dogusta.
             if U.now() - st.last_round_start > 60 then
                 N.shots.summary()
+                N.dlog.round_begin()
                 N.misc.buy()
+                N.dlog.round_done()
             end
         end, "player_spawn")
         C.on("EVENT", "weapon_fire", function(e)
@@ -6995,9 +9321,17 @@ do
                 N.shots.enemy_fire(e)
             end
         end, "weapon_fire")
+        -- Mac sonu paneli: harita bitti, dusman ozetleri (game_newmap'te bir daha yazilmaz; ara surede profil donar).
+        C.on("EVENT", "cs_win_panel_match", function()
+            if st.enabled then
+                N.profile.map_end(true)
+                N.log.flush()
+            end
+        end, "cs_win_panel_match")
         C.on("EVENT", "game_newmap", function()
             N.shots.summary()
             N.map_reset()
+            N.dlog.map_reset(true)
             N.log.flush()
         end, "game_newmap")
     end
@@ -7028,7 +9362,7 @@ do
         N.step("cizim", N.draw.init)
         local text = fmt("V%s (%s edition) yuklendi", N.VERSION, N.EDITION)
         if N.fs.ok then
-            text = text .. fmt(" (hafiza: %d oyuncu)", N.mem.count)
+            text = text .. fmt(" (hafiza: %d oyuncu%s)", N.mem.count, N.mem.from_bak and ", yedekten" or "")
         else
             text = text .. fmt(" (hafiza: dosya yok) (log dosyasi yok: %s)", tostring(N.fs.why or "?"))
         end
@@ -7061,6 +9395,9 @@ do
             end)
         end
         N.step("ayarlar", N.shots.settings)
+        if N.on("debug_log") then
+            N.log.line(fmt("detayli log acik: dosya %s (Home > Console > Copy all logs)", N.fs.ok and N.log.file or "yok"))
+        end
     end
 end
 
