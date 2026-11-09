@@ -718,6 +718,14 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.80** (northgard: "hâlâ havada ışınlanıyorsun", "kırdığı an yere inmesi gerek". Tüm loglar (V1.0.16–77, 401 hava teleportu): teleporttan sonraki 1.5 sn'de yenen ilk mermilerin **90/128'i (%70) hâlâ havadayken**; teleport ilk görüldüğün an atılıyor, sonra 0.3–0.7 sn şarjsız, defensive'siz ve LC kırık olmadan havada asılı kalıyordun. İnişten sonra yenenlerde kafa %29 (yer ortalaması %41). V1.0.78'in dayanağı "havada DT %0 daha iyi" silah karışıklığıydı: scout/AWP ile vurulmalarda DT %0 5/13, DT dolu 82/145; diğer silahlarda 0/13)
+
+| Değişiklik | Neden |
+|---|---|
+| **İnişte teleport** (Teleport in air + Air: break LC açıkken, DT durumlarında; varsayılan): DT havada **hiç kapanmaz**, şarj inişe saklanır; rakip seni görürken (ya da son 24 tick'te gördüyse) inişe **1–11 tick kala** tek bir teleport atılır, böylece teleport seni doğrudan yere indirir. Teleport tick'inde ve sonraki 2 tick zıplama bastırılır (tekrar havalanmasın). İniş anı yerçekimi (sv_gravity) + 5 köşe zemin taramasıyla, iniş noktasının zeminiyle ikinci kez hesaplanır (uçurumdan düşüşte de). Yatay hız yetersizse (3D yer değiştirme < 64 u, yaklaşık 200 u/s ve altı) atılmaz. Ucuşta defensive zorlanmaz (şarj teleporta kalır). | northgard'ın tarifi ve log: havadaki teleport havada vurulmayla bitiyordu. HS durumları, Binds (DT'siz), "Teleport in air" kapalı: V1.0.79 aynen. "Block jump while seen" ile yerde tutulan zıplama uçuş sayılmaz. |
+| **Yeni loglar** | `teleport: inise N tick kala (S, hiz, 2D / 3D u, h)`, `teleport sonucu: tahmin, sapma, ilk paket 2D/3D, paket yerde, tekrar ziplama`, `teleport: inise yok (gorulmedi / temiz atis / sarj x/y / yavas 3D N u / tahmin yok)`, her 10 zıplamada `inis tahmini` (ortalama / mutlak sapma), `DT kapandi (sarj dolu): tickbase +N` (GameSense DT kapanınca boşaltıyor mu sorusunun cevabı). Vurulma satırında `ucus DT` / `ucus LC`, `lt N`, tp etiketinde `inis`. Solda yeşil `INIS TP`, sarı `AIR TP`. |
+| Belirsizlik | Sunucunun LC kontrolü 2D: 15 tick'lik teleport yatayda ~55 u, sınırın (64) altında; kazanç rakip hilesinin 3D ölçmesine ve inişteki tahminin şaşmasına bağlı. Sonraki loglarda: `ucus DT` kafa payı, `inis` teleporttan sonra havada vurulma (hedef ~0), sapma dağılımı. |
+
 **V1.0.79** (northgard: "fakeduck + safe head, ateşten sonra kafayı saklıyor, sıktığım anda pozisyon alıp dodge'luyor". Tüm loglar: northgard'a fake duck'ta 14 atış %85 isabet, sorun değil; kafaya nişanlı 75 atışta 29 kafa (%39), 27 correction; gövdeye nişanlı 26 atışta %76 isabet, 0 correction)
 
 | Değişiklik | Neden |
@@ -888,7 +896,7 @@ Ayrı inceleme (13 ajan) 5 gerçek hata buldu, hepsi düzeltildi: tam açıyla k
 
 Resolver araştırmasında elenenler (83 ajan, her öneriye 2 şüpheci): düşman başına "kanıtlanmış kol" kilidi (sonraki atışlar 4/4 isabet, veri desteklemiyor), keşif oranını düşürmek (kollar ile GS arasında anlamlı fark yok: statik düşmanda %62 / %72, ~1.1 SE), jitter tarafı zorlama (örnek yetersiz; önce log).
 
-Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.79 kuralları (286 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
+Test: `tests/run_gs_smoke.sh` (GameSense API'sinin sahte hali, Redis Lua 5.1): yükleme, 200 tick, olaylar ve V1.0.22–1.0.80 kuralları (311 kontrol; V1.0.60'ın 7 yeni kontrolünün eski kodda kırıldığı doğrulandı; V1.0.58'in taşıma kontrolünün eski kodda kırıldığı doğrulandı; V1.0.47'nin yeni kontrollerinin eski kodda kırıldığı doğrulandı; V1.0.34'ün 8 yeni kontrolünün eski kodda kırıldığı doğrulandı, teleport alt sınırı test ortamında tetiklenmiyor). Hafızada GS kolu 40/45 ile tohumlanır: lby+ seçimi ancak UCB primiyle geçer.
 
 ## Notlar
 

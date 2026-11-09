@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.79"
+local VERSION = "1.0.80"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1381,6 +1381,8 @@ menu.smart_force    = grp.defensive:switch("Force defensive when seen / near (Sm
 menu.def_cooldown   = grp.defensive:switch("  » Re-arm cooldown (let DT refill after defensive)", true)
 -- A/B testi yeniden acilabilir: tek roundlarda zorlar, cift roundlarda zorlamaz; satirlarda "test A" / "test B".
 menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no forced defensive)", false)
+-- V1.0.80: "Air: break LC" ile birlikte acikken DT durumlarinda teleport inise zamanlanir (bkz. teleport.land_fire);
+-- kapaliyken eski hava teleportu yok, V1.0.78/79 hava kurallari.
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
 -- V1.0.44: havadayken biri seni goruyorsa (ya da birazdan gorecekse) egil. Tum GameSense loglarinda havada
 -- egikken %33 kafa (6/18), duz havada %58 (18/31); egik + teleport 1/9.
@@ -1448,6 +1450,8 @@ menu.ext_body       = grp.protect_raw:switch("Body vs extended/roll (all head an
 menu.hider_body     = grp.protect_raw:switch("Body vs head hiders (head share <= 35% over 12+ shots)", true)
 -- V1.0.75: varsayilan ACIK (bkz. apply_resolver).
 -- V1.0.78: varsayilan ACIK (bkz. apply_exploit, current.air_lc).
+-- V1.0.80: DT durumlarinda (havada teleport acikken) DT havada kapanmaz, sarj inis teleportuna (current.air_dt); etiket
+-- kayitli config anahtari oldugu icin degismedi. HS / DT'siz Binds durumlarinda V1.0.79 aynen.
 menu.air_lc         = grp.protect_raw:switch("Air: break LC (DT / HS off in air, full fake lag)", true)
 menu.side_gs        = grp.protect_raw:switch("Sideways static enemy: no forced body yaw (head to GS resolver)", true)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
@@ -5467,10 +5471,24 @@ local function apply_exploit(s, class)
     local user_dt = choice == "Binds" and user_value("doubletap") == true and get("doubletap_key")
     -- V1.0.79 (inceleme): AA durumuna degil gercek hava durumuna bakar; sadece biri seni goruyorken (ya da birazdan
     -- gorecekken) ve bir kez basladiysa inene kadar. Kimse gormuyorsa DT acik kalir: inince yeniden sarj yok.
+    -- V1.0.80 (northgard: "hala havada isinlaniyon, kirdigin an inmen lazim"; loglar: teleporttan sonraki 1.5 sn'de yenen
+    -- ilk mermilerin 90/128'i (%70) hala havadayken): DT durumunda havada DT hic kapanmaz (havada / takeoff'ta dolu DT'yi
+    -- kapatmak = "hala isinlaniyom" suphelisi); sarj inise saklanir ve tek discharge batch yerde bitecek sekilde atilir
+    -- (bkz. teleport.land_fire). V1.0.78'in dayanagi ("havada DT %0 daha az kafa") silah karisikligiydi: teleportsuz hava
+    -- isabetleri, atan ssg08/awp: DT %0 5/13, DT dolu 82/145; diger silahlar: DT %0 0/13. HS / DT'siz Binds durumlari ve
+    -- havada teleport kapaliyken V1.0.79 aynen.
     local airborne = exposure.airborne == true
-    current.air_lc = on(menu.air_lc) and not afk.on and airborne and (recharge.air_latch == true or seen_by_enemy())
+    local dt_choice = choice == "Double tap" or user_dt == true
+    local L = exposure.land
+    L.dt = dt_choice
+    -- V1.0.80 (inceleme): yerde "Block jump while seen" ziplamayi iptal ediyorsa (bosluk basili, durum Air) ucus yok;
+    -- V1.0.79 gibi Smart / air_lag defensive zorlanir.
+    current.air_dt = (L.policy and dt_choice and (airborne or ((L.air_move == true or current.state == "Air"
+        or current.state == "Air crouch") and not L.jump_blocked))) or nil
+    current.air_lc = on(menu.air_lc) and not afk.on and airborne and not (dt_choice and on(menu.air_teleport))
+        and (recharge.air_latch == true or seen_by_enemy())
     recharge.air_latch = current.air_lc or nil
-    local hold = recharge.decide((choice == "Double tap" or user_dt) and not current.air_lc)
+    local hold = recharge.decide(dt_choice and not current.air_lc)
     -- V1.0.78 (northgard: "havada bt takiliyor, fl girip cikiyor, dt kapa ac yapinca normal"; hilesinin logu seni havada
     -- delta=28t backtrack ile vurdu; tum loglar, havada yenen mermi (oto haric): DT dolu 189'da %52 kafa, DT %0 64'te %33,
     -- HS 44'te %81): DT / HS acikken GameSense fake lag'i "DT fake lag limit"e (1) ceker, havada LC kirilmaz, kayit
@@ -5886,6 +5904,12 @@ do
         if not use_force then
             window, guard, peeking = false, false, false
         end
+        -- V1.0.80: DT'li ucusta (kalkis tick'inden yerde 2. tick'e kadar) defensive zorlanmaz: sarj inis teleportuna
+        -- saklanir, discharge ile ayni komuta denk gelmez. Veri: teleportsuz hava isabetleri, DT dolu, DEF acik 38/75
+        -- kafa, kapali 49/92 (fark yok).
+        if current.air_dt then
+            window, guard, peeking, switching, knife = false, false, false, false, false
+        end
         -- Re-arm cooldown (V1.0.45): gorulmeye devam ederken defensive bittiyse 1 sn yeniden zorlanmaz, DT dolar. Ilk
         -- gorus / dusman peek'i, hava, AI peek, silah degisimi, bicakli yakin ve AFK haric.
         if window and on(menu.def_cooldown) and not (guard or peeking or switching or knife or afk.on or airborne
@@ -5917,6 +5941,10 @@ do
             local ticks = s.def_ticks:get() or 14
             local number = cmd.command_number or now
             force = not clean and number % ticks == 0
+        end
+        -- V1.0.80: "Always on" / "Tick based" de DT'li ucusta zorlamaz (sarj inis teleportuna).
+        if force and not on_peek and current.air_dt then
+            force = false
         end
         if force then
             pcall(function() cmd.force_defensive = true end)
@@ -6209,7 +6237,17 @@ end
 -- 2'si vurulmayla bittiyse o harita boyunca havada teleport kapanir: sarj havada air lag'e, inince DT'ye
 -- kalir (loglarda teleportlarin yarisi hemen vurulma ve %0 DT ile bitiyordu).
 local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_guard = 0.35, refilled = false,
-    pending = nil, watch = nil, window = 1.5, result_min = 0.12, results = {}, keep = 3, limit = 2, off = false }
+    pending = nil, watch = nil, window = 1.5, result_min = 0.12, results = {}, keep = 3, limit = 2, off = false, kind = nil }
+
+-- V1.0.80: inise zamanlanan teleport (northgard: "kirdigin an inmen lazim"). Paylasilan durum exposure'da:
+-- apply_exploit / apply_defensive bu blogun ustunde, 'teleport' local'ini goremez. policy = bu tick inis teleportu
+-- gecerli mi; lt / h = inise kalan tick / yukseklik (tahmin); gt = yerde gecen tick; seen_at = son gorulme tick'i;
+-- margin = batch'in yerde bitmesi icin pay; min_d3 = 3D LC esigi; nojump_until = ziplama bastirma; pred = bu ucusun
+-- inis tahmini; res = son inis teleportunun sonucu (ilk paket, yerde mi, tekrar ziplama); err_* = tahmin sapmasi.
+exposure.land = { policy = false, lt = nil, h = nil, gt = 64, seen_at = -1000, seen_hold = 24, margin = 3,
+    min_d3 = 64, nojump_until = -1000, fired_at = -1000, fire_lt = nil, fire_d2 = nil, fire_d3 = nil,
+    landed_at = nil, pred = nil, seen_flight = false, reason = nil, res = nil,
+    err_n = 0, err_sum = 0, err_abs = 0, dt = false, air_move = false, jump_blocked = false }
 
 -- Teleportun sonucunu yazar; son 3'te 2 vurulma olunca bu harita icin kapatir.
 teleport.judge = function(hit)
@@ -6246,6 +6284,10 @@ end
 
 teleport.reset = function()
     teleport.watch, teleport.results, teleport.off = nil, {}, false
+    -- V1.0.80: yeni haritada tickcount bastan baslar; eski tick'ler silinir.
+    local L = exposure.land
+    L.seen_at, L.nojump_until, L.fired_at, L.gt = -1000, -1000, -1000, 64
+    L.pred, L.seen_flight, L.reason, L.res, L.landed_at = nil, false, nil, nil, nil
 end
 
 teleport.land_time = function(lp)
@@ -6261,8 +6303,215 @@ teleport.land_time = function(lp)
     return (vz + sqrt(max(0, vz * vz + 2 * K.GRAVITY * 400 * fraction))) / K.GRAVITY
 end
 
+-- V1.0.80: inise kac tick kaldi (ve dusulecek yukseklik). Zemin 5 dikey izle (orta + 15 birim koseler) bulunur;
+-- inise 32 tick'ten az kaldiysa inis noktasinin altina da bakilir (orada zemin yoksa = ucurum, tahmin yok). nil = bilinmiyor.
+-- V1.0.80 (inceleme): her hava tick'inde calisir; kose ofsetleri sabit, yercekimi okuyucu tek fonksiyon (tick basina
+-- tablo / closure ayrilmaz).
+teleport.CORNERS = { 0, 0, 15, 15, 15, -15, -15, 15, -15, -15 }
+teleport.read_gravity = function()
+    return cvar.sv_gravity:get_float()
+end
+
+-- (x, y) altindaki en yuksek zemin (5 dikey iz, top -> bottom); hic carpmazsa nil.
+teleport.floor_at = function(lp, x, y, top, bottom)
+    local best, c = nil, teleport.CORNERS
+    for i = 1, #c, 2 do
+        local f = trace_line(lp, vector(x + c[i], y + c[i + 1], top), vector(x + c[i], y + c[i + 1], bottom))
+        if f ~= nil and f > 0 and f < 1 then
+            local hz = top - (top - bottom) * f
+            if best == nil or hz > best then
+                best = hz
+            end
+        end
+    end
+    return best
+end
+
+-- Zemin fz'ye dusus: tick sayisi ve yukseklik.
+teleport.fall_ticks = function(oz, vz, fz, g, ti)
+    local h = max(0, oz - fz - 2)
+    local t = (vz + sqrt(max(0, vz * vz + 2 * g * h))) / g
+    return max(0, math.ceil(t / ti - 1e-3)), h
+end
+
+teleport.land_ticks = function(lp)
+    local okg, gv = pcall(teleport.read_gravity)
+    local g = (okg and finite(gv) and gv > 0) and gv or K.GRAVITY
+    local ti = tick_interval()
+    local o = origin_of(lp)
+    if o == nil then
+        return nil
+    end
+    local v = velocity_of(lp)
+    local top = o.z + 2 + (v.z > 0 and v.z * v.z / (2 * g) or 0)
+    local bottom = o.z - 512
+    local fz = teleport.floor_at(lp, o.x, o.y, top, bottom)
+    if fz == nil then
+        return nil
+    end
+    local k, h = teleport.fall_ticks(o.z, v.z, fz, g, ti)
+    if k <= 32 then
+        local fz2 = teleport.floor_at(lp, o.x + v.x * k * ti, o.y + v.y * k * ti, top, bottom)
+        if fz2 == nil then
+            return nil
+        end
+        k, h = teleport.fall_ticks(o.z, v.z, fz2, g, ti)
+    end
+    return k, h
+end
+
+-- V1.0.80: ucusun sonu: inis teleportunun sonucu ya da atilmadiysa sebebi, sonra ucus durumu silinir (yerde 3. tick'te
+-- ya da bhop'ta yeniden havalaninca).
+teleport.land_flush = function(L)
+    if on(menu.hit_log) then
+        local res = L.res
+        if res ~= nil then
+            local sent = res.sent
+            print(("[%s] teleport sonucu: tahmin %d, sapma %s tick, ilk paket 2D %s / 3D %s u, paket yerde %s, inis tick %s, tekrar ziplama %s"):format(
+                SCRIPT, L.fire_lt or -1, res.err ~= nil and ("%+d"):format(res.err) or "?",
+                sent ~= nil and ("%d"):format(round(sent.d2 or 0)) or "?",
+                sent ~= nil and ("%d"):format(round(sent.d3 or 0)) or "?",
+                sent == nil and "?" or (sent.ground and "evet" or "hayir"),
+                res.ground_tick ~= nil and ("+%d"):format(res.ground_tick - L.fired_at) or "yok",
+                res.rejump and "evet" or "hayir"))
+        elseif L.seen_flight and L.reason ~= nil then
+            print(("[%s] teleport: inise yok (%s)"):format(SCRIPT, L.reason))
+        end
+    end
+    L.pred, L.seen_flight, L.reason, L.res = nil, false, nil, nil
+end
+
+-- V1.0.80: her tick (tick_prepare, detect_movement'tan hemen sonra, ozel durumlardan once): politika, gorulme, inis tahmini.
+teleport.plan = function(lp, cmd, move_state)
+    local L = exposure.land
+    local now = tickcount()
+    local ladder = prop(lp, "m_MoveType") == K.MOVETYPE_LADDER
+    L.policy = on(menu.air_lc) and on(menu.air_teleport) and not afk.on and not fd_on() and not ladder
+    L.air_move = move_state == "Air" or move_state == "Air crouch"
+    if seen_by_enemy() then
+        L.seen_at = now
+    end
+    L.lt, L.h = nil, nil
+    local grounded = on_ground(lp)
+    if L.res ~= nil and L.res.ground_tick == nil and now > L.fired_at and grounded then
+        L.res.ground_tick = now
+    end
+    if grounded then
+        L.gt = min(L.gt + 1, 64)
+        if L.gt == 1 then
+            L.landed_at = now
+            L.lt = 0
+            local e = L.pred ~= nil and now - L.pred.target or nil
+            -- V1.0.80 (inceleme): 64 tick'ten fazla sapma = ucus kesildi (olum / dogus / isinlanma), istatistige girmez.
+            if e ~= nil and not L.pred.done and abs(e) <= 64 then
+                L.pred.done = true
+                L.err_n, L.err_sum, L.err_abs = L.err_n + 1, L.err_sum + e, L.err_abs + abs(e)
+                if L.err_n % 10 == 0 and on(menu.hit_log) then
+                    print(("[%s] inis tahmini: %d ziplama, ort %+.1f, mutlak %.1f tick"):format(SCRIPT, L.err_n,
+                        L.err_sum / L.err_n, L.err_abs / L.err_n))
+                end
+            end
+            if L.res ~= nil and now - L.fired_at >= 0 and now - L.fired_at <= 40 then
+                L.res.err = now - (L.fired_at + (L.fire_lt or 0))
+            end
+        elseif L.gt == 3 then
+            teleport.land_flush(L)
+        end
+    elseif not ladder then
+        -- Bhop: yere degip (1-2 tick) yeniden havalandin; onceki ucus burada biter.
+        if L.gt >= 1 and L.gt < 3 then
+            -- V1.0.80 (inceleme): "tekrar ziplama" = inis teleportundan sonra yere degip 1-2 tick icinde gercekten
+            -- yeniden havalanmak (havada basili tutulan bosluk degil).
+            if L.res ~= nil then
+                L.res.rejump = true
+            end
+            teleport.land_flush(L)
+        end
+        L.gt = 0
+        -- V1.0.80 (inceleme): tahmini kullanan yoksa (inis teleportu gecersiz, log kapali) izler atilmaz.
+        if L.policy or on(menu.hit_log) then
+            L.lt, L.h = teleport.land_ticks(lp)
+        end
+        if L.pred == nil and L.lt ~= nil and L.lt <= 16 then
+            L.pred = { target = now + L.lt }
+        end
+        if seen_by_enemy() then
+            L.seen_flight = true
+        end
+    end
+end
+
+-- V1.0.80 (inceleme): atilmama sebebi. Yerde 1. tick yedeginde (h yok, 3D = 2D) havada yazilan sebep korunur;
+-- yoksa "tahmin yok" / "gorulmedi" gibi ucus sebepleri hep "yavas 3D" gorunurdu.
+teleport.land_why = function(L, why)
+    if L.gt ~= 1 or L.reason == nil then
+        L.reason = why
+    end
+end
+
+-- V1.0.80: DT'li ucusta tek discharge, batch yerde bitecek sekilde (inise S - margin tick ya da daha az kala; yerde
+-- 1. tick yedek). Sira: hak / pencere / gorulme / temiz atis / durdurma / sarj / 3D mesafe.
+teleport.land_fire = function(cmd, lp)
+    local L = exposure.land
+    if teleport.count >= teleport.max_jump or teleport.off then
+        return
+    end
+    local S = max(charge.full or 1, min(charge.expected, charge.shift))
+    local lt = L.lt
+    local eligible = (L.gt == 0 and lt ~= nil and lt >= 1 and lt <= S - L.margin) or L.gt == 1
+    if not eligible then
+        if lt == nil and L.gt == 0 then
+            teleport.land_why(L, "tahmin yok")
+        end
+        return
+    end
+    local now = tickcount()
+    local since_seen = now - L.seen_at
+    if not (seen_by_enemy() or (since_seen >= 0 and since_seen <= L.seen_hold)) then
+        teleport.land_why(L, "gorulmedi")
+        return
+    end
+    if current.clean then
+        teleport.land_why(L, "temiz atis")
+        return
+    end
+    if resolver.paused("TP") then
+        teleport.land_why(L, "durduruldu")
+        return
+    end
+    if not dt_on() or charge.value < 1 then
+        teleport.land_why(L, ("sarj %d/%d"):format(charge.shift, charge.expected))
+        return
+    end
+    local d2 = speed2d(lp) * (S + 1) * tick_interval()
+    local hz = L.h or 0
+    local d3 = sqrt(d2 * d2 + hz * hz)
+    if d3 < L.min_d3 then
+        teleport.land_why(L, ("yavas 3D %d u"):format(round(d3)))
+        return
+    end
+    pcall(function() cmd.discharge_pending = true end)
+    pcall(function() cmd.in_jump = 0 end)
+    L.nojump_until = now + 2
+    L.fired_at, L.fire_lt, L.fire_d2, L.fire_d3, L.reason = now, (L.gt == 1 and 0 or lt), d2, d3, nil
+    L.res = { sent = nil, ground_tick = nil, rejump = false }
+    local rt = realtime()
+    teleport.count, teleport.last, teleport.watch, teleport.kind = teleport.count + 1, rt, rt, "inis"
+    teleport.pending = { tick = now }
+    if on(menu.hit_log) then
+        print(("[%s] teleport: inise %d tick kala (S %d, hiz %d, 2D %d / 3D %d u, h %d)%s%s"):format(SCRIPT,
+            L.fire_lt, S, round(speed2d(lp)), round(d2), round(d3), round(hz),
+            d3 > 64 and " LC kirilir(3D)" or "", d2 > 64 and " 2D kirik" or ""))
+    end
+end
+
 teleport.update = function(cmd, lp, move_state)
     local now = realtime()
+    -- V1.0.80: inis teleportundan sonraki 2 komutta ziplama bastirilir (batch yerde bitsin, hemen yeniden havalanma).
+    local nj = exposure.land.nojump_until - tickcount()
+    if nj >= 0 and nj <= 2 and pressed(cmd.in_jump) then
+        pcall(function() cmd.in_jump = 0 end)
+    end
     if teleport.watch ~= nil and (now < teleport.watch or now - teleport.watch > teleport.window) then
         teleport.judge(false)
     end
@@ -6286,6 +6535,11 @@ teleport.update = function(cmd, lp, move_state)
     if teleport.count > 0 and charge.value >= 1 then
         teleport.refilled = true
     end
+    -- V1.0.80: DT durumunda (havada LC + havada teleport acik) inise zamanlanan teleport; asagidaki eski yol (havada
+    -- ilk gorulmede, land_guard) sadece biri kapaliyken.
+    if exposure.land.policy and (current.air_dt or exposure.land.dt == true) then
+        return teleport.land_fire(cmd, lp)
+    end
     if teleport.count >= teleport.max_jump or teleport.off or not on(menu.air_teleport) or resolver.paused("TP")
         or current.clean then
         return
@@ -6300,7 +6554,7 @@ teleport.update = function(cmd, lp, move_state)
         return
     end
     pcall(function() cmd.discharge_pending = true end)
-    teleport.count, teleport.last, teleport.watch = teleport.count + 1, now, now
+    teleport.count, teleport.last, teleport.watch, teleport.kind = teleport.count + 1, now, now, "hava"
     teleport.pending = { tick = tickcount() }
     if on(menu.hit_log) then
         print(("[%s] teleport: havada goruldun, DT ile isinlanildi (%d. kez)"):format(SCRIPT, teleport.count))
@@ -7015,6 +7269,10 @@ own.dead_cleanup = function()
     override("auto_scope", nil)
     override("fakeduck", nil)
     recharge.held = false
+    -- V1.0.80 (inceleme): havada olunce ucus durumu silinir (tahmin / sonuc / sebep); yoksa dogus tick'i "inis" sayilir,
+    -- sapma istatistigine yuzlerce tick girer ve onceki ucusun sonuc satiri dogusta yazilir. err_* toplamlari kalir.
+    local L = exposure.land
+    L.pred, L.res, L.reason, L.seen_flight, L.gt, L.lt, L.h = nil, nil, nil, false, 64, nil, nil
     -- Olunce oyuncu listesi ezmeleri (safe point, body aim, hipotez, sahte kayit bekleme whitelist'i)
     -- geri verilir; dogunca yeniden kurulur.
     plist_reset(false)
@@ -7023,7 +7281,7 @@ end
 local function tick_prepare(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     current.switching, current.knife_def, current.backstab, current.air_keep = false, false, nil, nil
-    current.air_lc = false
+    current.air_lc, current.air_dt = false, nil
     own.aa.slowed, own.aa.stopped, own.aa.nojump, own.aa.inverted = nil, nil, nil, nil
     local rec, tick = recommended_state, tickcount()
     if rec.pending or tick < rec.tick or tick - rec.tick >= rec.every then
@@ -7042,13 +7300,35 @@ local function tick_prepare(cmd)
     end
     local choked = finite(cmd.chokedcommands) and cmd.chokedcommands or 0
     exposure.facing = nil
+    -- V1.0.80: dolu DT kapaninca tickbase sicradi mi (GameSense kapatirken discharge ediyor mu): 4 tick izlenir.
+    local was_full = charge.dt_was and charge.value >= 0.99
+    local off0 = charge.offset
     charge.update(lp, not recharge.discharged(realtime()))
+    if was_full and not dt_on() then
+        charge.probe = { tick = tick, offset = off0, max = 0, state = current.state }
+    end
+    local probe = charge.probe
+    if probe ~= nil then
+        local age = tick - probe.tick
+        if age >= 1 and age <= 4 then
+            probe.max = max(probe.max, charge.offset - probe.offset)
+        end
+        if age >= 4 or age < 0 then
+            charge.probe = nil
+            charge.probe_n = (charge.probe_n or 0) + 1
+            if charge.probe_n <= 8 and on(menu.hit_log) then
+                print(("[%s] DT kapandi (sarj dolu): tickbase %+d tick (durum %s)"):format(SCRIPT, probe.max,
+                    tostring(probe.state)))
+            end
+        end
+    end
     update_tickbase(lp, choked)
     update_fd_guard(lp)
     enemy_watch.update()
     update_exposure(lp, cmd)
     update_manual()
     local move_state = detect_movement(lp, cmd)
+    teleport.plan(lp, cmd, move_state)
     local class = weapon_class(lp)
     current.weapon = class
 
@@ -7064,6 +7344,9 @@ local function tick_prepare(cmd)
     resolver.wait_apply(class, present)
     plist_release_missing(present)
     update_ai_peek(lp, cmd, class)
+    -- V1.0.80 (inceleme): yerde ziplama engeli bu tick ziplamayi iptal edecekse (own.aa.move, sonra) "Air" durumu
+    -- DT'li ucus sayilmaz (apply_exploit current.air_dt).
+    exposure.land.jump_blocked = own.aa.blocks_jump(cmd, lp, class)
     return lp, choked, move_state, class, aim_target
 end
 
@@ -7251,10 +7534,18 @@ own.aa.update = function(cmd, lp, choked)
         if o ~= nil then
             if A.sent ~= nil then
                 -- Valve LC isinlanma kontrolu 2D (Length2DSqr > 64^2).
-                local dx, dy = o.x - A.sent.x, o.y - A.sent.y
+                local dx, dy, dz = o.x - A.sent.x, o.y - A.sent.y, o.z - A.sent.z
                 A.lc = sqrt(dx * dx + dy * dy)
+                -- V1.0.80: 3D (dz dahil; supremacy / Astra / acid ve bu script'in kendi kontrolu 3D).
+                A.lc3 = sqrt(dx * dx + dy * dy + dz * dz)
             end
             A.sent = o
+            -- V1.0.80: inis teleportundan sonraki ilk gonderilen paket.
+            local L = exposure.land
+            local res = L.res
+            if res ~= nil and res.sent == nil and tickcount() > L.fired_at then
+                res.sent = { d2 = A.lc, d3 = A.lc3 or A.lc, ground = on_ground(lp), tick = tickcount() }
+            end
         end
     end
     A.last_choked = choked
@@ -7301,7 +7592,32 @@ own.aa.text = function(lp)
     if lp ~= nil and not on_ground(lp) then
         parts[#parts + 1] = (" lc %d%s"):format(round(A.lc), A.lc > 64 and " kirik" or "")
     end
+    -- V1.0.80: ucus modu (DT saklanip inise teleport / DT-HS kapali LC) ve inis tahmini.
+    if exposure.airborne == true or (lp ~= nil and not on_ground(lp)) then
+        if current.air_dt then
+            parts[#parts + 1] = " ucus DT"
+        elseif current.air_lc then
+            parts[#parts + 1] = " ucus LC"
+        end
+        if exposure.land.lt ~= nil then
+            parts[#parts + 1] = (" lt %d"):format(exposure.land.lt)
+        end
+    end
     return table.concat(parts)
+end
+
+-- Gorulurken ziplama engeli bu tick ziplamayi iptal edecek mi (scout / AWP ates etmeye hazirsa = jump scout, engel yok).
+-- V1.0.80 (inceleme): tick_prepare'de de sorulur; iptal edilen ziplama (yerde, bosluk basili) DT'li ucus sayilmaz,
+-- yoksa yerde gorulurken defensive hic zorlanmazdi.
+own.aa.blocks_jump = function(cmd, lp, class)
+    if not on(menu.no_jump_seen) or not pressed(cmd.in_jump) or not on_ground(lp) or fd_on() or ai_peek.mode ~= nil
+        or afk.on or afk.key() or prop(lp, "m_MoveType") == K.MOVETYPE_LADDER then
+        return false
+    end
+    if not (exposure.now or exposure.soon or exposure.any) then
+        return false
+    end
+    return not ((class == "CWeaponSSG08" or class == "CWeaponAWP") and weapon_ready(lp, 0))
 end
 
 -- Hareket: egik / yuruyus hiz siniri, temastan once durma, gorulurken ziplama engeli. Hepsi menuden.
@@ -7319,8 +7635,7 @@ own.aa.move = function(cmd, lp, class)
         return
     end
     -- Gorulurken ziplama: scout / AWP ates etmeye hazirsa (jump scout) engellenmez.
-    if on(menu.no_jump_seen) and pressed(cmd.in_jump) and seen
-        and not ((class == "CWeaponSSG08" or class == "CWeaponAWP") and weapon_ready(lp, 0)) then
+    if own.aa.blocks_jump(cmd, lp, class) then
         pcall(function() cmd.in_jump = 0 end)
         A.nojump = true
     end
@@ -7767,7 +8082,7 @@ local function exploit_status()
     end
     local since_tp = now - teleport.last
     if since_tp >= 0 and since_tp < 2 then
-        parts[#parts + 1] = ("tp %.2fs"):format(since_tp)
+        parts[#parts + 1] = ("tp %.2fs"):format(since_tp) .. (teleport.kind == "inis" and " inis" or "")
     end
     return table.concat(parts, ", ")
 end
@@ -9050,7 +9365,12 @@ listen("paint", protect("left indicators", function()
     if current.forced then
         I.put(I.GREEN, "DEF")
     end
-    if current.air_lc then
+    local since_fire = tickcount() - exposure.land.fired_at
+    if since_fire >= 0 and since_fire <= 32 then
+        I.put(I.GREEN, "INIS TP")
+    elseif current.air_dt and seen_by_enemy() then
+        I.put(I.YELLOW, "AIR TP")
+    elseif current.air_lc then
         I.put(I.GREEN, "AIR LC")
     elseif current.lc then
         I.put(I.YELLOW, "LC")

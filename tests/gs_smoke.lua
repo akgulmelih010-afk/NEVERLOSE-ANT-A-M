@@ -4,6 +4,11 @@
 -- bekleme, govde 70+ secenegi, "gormedi" izi, sikmadi sebepleri) sahte dunyada beklendigi gibi mi.
 -- ARGV[1] = script kaynagi.
 local src = ARGV[1]
+-- Paylasilan Redis Lua VM'inde baska bir betik string metatable'ini degistirdiyse ("%d"):format bozulur; geri al.
+do
+    local sm = getmetatable("")
+    if sm ~= nil and sm.__index ~= string then sm.__index = string end
+end
 local out, fails = {}, 0
 local function finite_num(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
 local function log(s) out[#out + 1] = tostring(s) end
@@ -196,6 +201,15 @@ function client.trace_bullet(from_ent, x1, y1, z1, x2, y2, z2)
     return -1, 0
 end
 function client.trace_line(skip, x1, y1, z1, x2, y2, z2)
+    -- V1.0.80: zemin yuksekligi verildiyse kendi dikey izimiz (inis tahmini) zemine carpar.
+    -- W.floor_fn(x, y): x / y'ye gore zemin (nil = zemin yok, ucurum).
+    if (W.floor_z ~= nil or W.floor_fn ~= nil) and skip == 1 and x1 == x2 and y1 == y2 and z2 < z1 then
+        local fz = W.floor_z
+        if W.floor_fn ~= nil then fz = W.floor_fn(x1, y1) end
+        if fz == nil then return 1, -1 end
+        local f = (z1 - fz) / (z1 - z2)
+        return (f > 0 and f < 1) and f or 1, -1
+    end
     if z2 < z1 - 200 then return 0.02, -1 end -- zemin hemen altta
     if x1 == x2 and y1 == y2 and z2 < z1 then return 0.3, -1 end -- V1.0.35: kisa dikey iz (yurunebilir mi): zemin var
     local target = who_at(x2, y2)
@@ -228,7 +242,7 @@ local entity = {}
 function entity.get_local_player() return 1 end
 function entity.get_players(enemies_only) return { 2, 3 } end
 function entity.get_all() return {} end
-function entity.is_alive(ent) return ent == 1 or ent == 2 or ent == 3 end
+function entity.is_alive(ent) return (ent == 1 and not W.dead) or ent == 2 or ent == 3 end -- V1.0.80: W.dead
 function entity.is_dormant() return false end
 function entity.is_enemy(ent) return ent == 2 or ent == 3 end
 function entity.get_player_name(ent) return ({ "ben", "dusman2", "dusman3" })[ent] or "?" end
@@ -243,6 +257,7 @@ function entity.get_classname(ent)
     return nil
 end
 function entity.get_origin(ent)
+    if ent == 1 and W.z ~= nil then return 0, 0, W.z end -- V1.0.80: ucus yuksekligi
     local o = ORIGIN[ent]
     if o == nil then return nil end
     return o[1], o[2], o[3]
@@ -261,7 +276,7 @@ function entity.get_prop(ent, name, idx)
         if name == "m_iHealth" then return 100 end
         if name == "m_nTickBase" then return W.tick - (W.tick_shift or 0) - W.lag end
         if name == "m_fFlags" then return W.flags end
-        if name == "m_vecVelocity" then return W.speed, 0, 0 end
+        if name == "m_vecVelocity" then return W.speed, 0, W.vz or 0 end
         if name == "m_flDuckAmount" then return W.duck end
         if name == "m_flNextAttack" then return 0 end
         if name == "m_iTeamNum" then return 2 end
@@ -362,6 +377,7 @@ local righthand = { value = 1 }
 local aspect, sky, notify, dev = { value = 0 }, { value = 1 }, { value = 8 }, { value = 1 }
 local ragdoll = { value = 0 }
 local cvar = {
+    sv_gravity = { get_float = function() return 800 end }, -- V1.0.80: inis tahmini
     cl_clanid = { get_int = function() return 0 end, set_int = function() end },
     cl_righthand = { get_int = function() return righthand.value end, set_int = function(_, v) righthand.value = v end },
     r_aspectratio = { get_float = function() return aspect.value end, set_raw_float = function(_, v) aspect.value = v end },
@@ -414,7 +430,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.79 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.57")
+check(printed("V1.0.80 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.80")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -2111,11 +2127,186 @@ do
 end
 
 -------------------------------------------------------------------------------
--- V1.0.78: havadayken DT / HS kapali (fake lag tam, LC kirilir); yere inince DT geri
+-- V1.0.80: DT durumunda havada DT kapanmaz, sarj inise saklanir; tek discharge batch yerde bitecek sekilde
+-- (inise <= S - 3 tick kala). Havada teleport kapaliyken V1.0.78/79 (havada DT / HS kapali) aynen.
 -------------------------------------------------------------------------------
 do
+    local ti = W.interval
+    local hs_ref = find_ref("On shot anti-aim")
+    -- Bir ucus: kalkis tick'i (yerde, ziplama basili; opts.z verilirse kalkis yok: kenardan dusme), havada
+    -- vz -= 400 ti; z += vz ti; vz -= 400 ti; z <= 0 -> yerde. Inisten sonra opts.after (4) yer tick'i.
+    -- Donus: kayitlar (i = 0 kalkis), inis indeksi, discharge indeksleri.
+    local function fly(opts)
+        opts = opts or {}
+        local rec, land, fires = {}, nil, {}
+        local function record(i, phase)
+            local r = { i = i, phase = phase, dt = dt_ref.value, fd = last_cmd.force_defensive,
+                dp = last_cmd.discharge_pending, jump = last_cmd.in_jump, z = W.z, hs = hs_ref.value }
+            rec[#rec + 1] = r
+            if r.dp == true then fires[#fires + 1] = i end
+            return r
+        end
+        W.jump = opts.jump ~= false
+        local i = 0
+        if opts.z == nil then
+            W.z, W.vz, W.flags = 0, 0, 1
+            if opts.each then opts.each(i) end
+            tick(1)
+            record(i, "takeoff")
+            W.vz = 301.99
+        else
+            W.z, W.vz = opts.z, opts.vz or 0
+            if opts.jump == nil then W.jump = nil end
+        end
+        W.flags = 0
+        for _ = 1, 200 do
+            i = i + 1
+            W.vz = W.vz - 400 * ti
+            W.z = W.z + W.vz * ti
+            W.vz = W.vz - 400 * ti
+            if W.z <= 0 then
+                W.z, W.vz, W.flags = 0, 0, 1
+            end
+            if opts.each then opts.each(i) end
+            tick(1)
+            if W.flags == 1 then
+                land = i
+                record(i, "ground1")
+                break
+            end
+            record(i, "air")
+        end
+        for g = 2, opts.after or 4 do
+            i = i + 1
+            if opts.each then opts.each(i) end
+            tick(1)
+            record(i, "ground" .. g)
+        end
+        return rec, land, fires
+    end
+    local function settle(n)
+        W.jump, W.z, W.vz, W.flags = nil, 0, 0, 1
+        tick(n or 20)
+    end
+    local function at(rec, i)
+        for _, r in ipairs(rec) do if r.i == i then return r end end
+        return nil
+    end
+    local function inise_n(line)
+        local n = line and line:match("inise (%-?%d+) tick kala")
+        return n and tonumber(n) or nil
+    end
+
     airlc_ref.value = true
-    W.flags, W.speed, W.lag = 1, 0, 12
+    local tp_ref = find_ref("Teleport in air when seen")
+    check(tp_ref ~= nil and tp_ref.value == true, "V1.0.80 kurulum: havada teleport varsayilan acik")
+    W.floor_z, W.lag, W.speed = 0, 12, 240
+    -- Kafamizi goruyor; bizim ondan gecen mermimiz Min. damage'i gecmiyor (temiz atis yok; (i)'de var).
+    W.sees[2], W.sees[3], W.head_dmg[2], W.body_dmg[2] = true, false, 0, 0
+    settle(20)
+    check(dt_ref.value == true, "V1.0.80 kurulum: yerde DT acik")
+
+    -- (a) + (b): DT durumunda goruluyorken
+    local before80 = #prints + 1
+    local rec, land, fires = fly({ after = 4 })
+    local dt_all, fd_ok, bad = true, true, nil
+    for _, r in ipairs(rec) do
+        if r.dt ~= true then dt_all, bad = false, bad or (r.phase .. " " .. r.i) end
+        if r.phase ~= "ground3" and r.phase ~= "ground4" and r.fd == true then fd_ok, bad = false, bad or ("def " .. r.phase .. " " .. r.i) end
+    end
+    check(land ~= nil and dt_all, "V1.0.80 (a): DT durumunda goruluyorken kalkis, havada ve yerde 1-3. tick DT hep acik ("
+        .. tostring(bad) .. ", inis " .. tostring(land) .. ")")
+    check(fd_ok, "V1.0.80 (a): kalkistan yerde 2. tick'e kadar defensive zorlanmaz (" .. tostring(bad) .. ")")
+    local f1 = fires[1]
+    check(#fires == 1 and land ~= nil and land - f1 >= 1 and land - f1 <= 12,
+        "V1.0.80 (b): ziplamada tek discharge, inisten 1-12 tick once (" .. #fires .. " kez, ates " .. tostring(f1)
+        .. ", inis " .. tostring(land) .. ")")
+    local rf, r1, r2, r3 = f1 and at(rec, f1), f1 and at(rec, f1 + 1), f1 and at(rec, f1 + 2), f1 and at(rec, f1 + 3)
+    check(rf ~= nil and rf.jump == 0 and r1 ~= nil and r1.jump == 0 and r2 ~= nil and r2.jump == 0 and r3 ~= nil and r3.jump == 1,
+        "V1.0.80 (b): ates komutunda ve sonraki 2 komutta ziplama bastirilir, 3. komutta yine basili ("
+        .. tostring(rf and rf.jump) .. tostring(r1 and r1.jump) .. tostring(r2 and r2.jump) .. tostring(r3 and r3.jump) .. ")")
+    local fl = printed("teleport: inise ", before80)
+    local n80 = inise_n(fl)
+    check(n80 ~= nil and land ~= nil and f1 ~= nil and math.abs(n80 - (land - f1)) <= 1,
+        "V1.0.80 (b): 'inise N tick kala' satiri, N olculen inisle +-1 (" .. tostring(fl) .. ")")
+    local sl = printed("teleport sonucu: tahmin", before80)
+    check(sl ~= nil and sl:find("paket yerde", 1, true) ~= nil, "V1.0.80: yerde 3. tick'te inis teleportunun sonuc satiri (" .. tostring(sl) .. ")")
+    check(printed("teleport: havada goruldun", before80) == nil, "V1.0.80: eski 'havada goruldun' teleportu DT durumunda yok")
+    -- Inceleme: havada basili tutulan bosluk "tekrar ziplama" degil; yere degip 1-2 tick icinde havalanmak oyle.
+    check(sl ~= nil and sl:find("tekrar ziplama hayir", 1, true) ~= nil,
+        "V1.0.80 (inceleme): havada basili bosluk 'tekrar ziplama' sayilmaz (" .. tostring(sl) .. ")")
+    settle(20)
+    local brj = #prints + 1
+    local _, _, frj = fly({ after = 1 })
+    W.flags, W.z, W.vz = 0, 2, 250
+    tick(1)
+    local rjl = printed("teleport sonucu: tahmin", brj)
+    check(#frj == 1 and rjl ~= nil and rjl:find("tekrar ziplama evet", 1, true) ~= nil,
+        "V1.0.80 (inceleme): inis teleportundan sonra yere degip yeniden havalanmak 'tekrar ziplama evet' ("
+        .. #frj .. ", " .. tostring(rjl) .. ")")
+
+    -- (c): kimse gormuyor
+    W.sees[2] = false
+    settle(40)
+    before80 = #prints + 1
+    rec, land, fires = fly({})
+    dt_all = true
+    for _, r in ipairs(rec) do if r.dt ~= true then dt_all = false end end
+    check(#fires == 0 and printed("inise yok", before80) == nil and dt_all,
+        "V1.0.80 (c): kimse gormezken discharge yok, 'inise yok' satiri yok, DT acik (" .. #fires .. ", " .. tostring(dt_all) .. ")")
+    W.sees[2] = true
+
+    -- (d): hiz
+    local function speed_case(sp)
+        W.speed = sp
+        settle(20)
+        local b = #prints + 1
+        local rc, ld, fs = fly({})
+        return fs, ld, b, rc
+    end
+    local fs, ld, b = speed_case(150)
+    local yl = printed("yavas 3D", b)
+    check(#fs == 0 and yl ~= nil and yl:find("inise yok", 1, true) ~= nil,
+        "V1.0.80 (d): 150 u/s'de discharge yok, yerde 3. tick'te 'inise yok (yavas 3D ..)' (" .. tostring(yl) .. ")")
+    fs, ld, b = speed_case(200)
+    check(#fs == 0 and printed("yavas 3D", b) ~= nil,
+        "V1.0.80 (d): 200 u/s'de de 3D < 64, discharge yok, sebep 'yavas 3D' (" .. tostring(printed("inise yok", b)) .. ")")
+    fs, ld, b = speed_case(240)
+    check(#fs == 1, "V1.0.80 (d): 240 u/s'de atilir (" .. #fs .. ", " .. tostring(printed("teleport: inise", b)) .. ")")
+
+    -- (e): sarj yok
+    W.lag = 0
+    settle(20)
+    b = #prints + 1
+    rec, land, fires = fly({})
+    local el = printed("inise yok", b)
+    check(#fires == 0 and el ~= nil and el:find("sarj", 1, true) ~= nil,
+        "V1.0.80 (e): sarj yokken discharge yok, sebep 'sarj' (" .. tostring(el) .. ")")
+    W.lag = 12
+
+    -- (f): sniper Hide shots (SSG08) havada goruluyorken: V1.0.79 aynen (havada DT ve HS kapali), discharge yok
+    sniper_ref.value = "Hide shots"
+    settle(20)
+    local hs_ground = hs_ref.value
+    rec, land, fires = fly({})
+    local dt_air, hs_air, n_air = false, false, 0
+    for _, r in ipairs(rec) do
+        if r.phase == "air" and r.i >= 3 then
+            n_air = n_air + 1
+            dt_air = dt_air or r.dt == true
+            hs_air = hs_air or r.hs == true
+        end
+    end
+    check(hs_ground == true and n_air > 0 and not dt_air and not hs_air and #fires == 0,
+        "V1.0.80 (f): sniper Hide shots: yerde HS, havada (goruluyorken) DT ve HS kapali, discharge yok (V1.0.79) (yerde hs "
+        .. tostring(hs_ground) .. ", havada dt " .. tostring(dt_air) .. " hs " .. tostring(hs_air) .. ", " .. #fires .. ")")
+    sniper_ref.value = "Same as state"
+    settle(20)
+
+    -- (g): havada teleport kapali -> V1.0.78/79 kurallari
+    tp_ref.value = false
+    W.flags, W.speed, W.lag, W.z, W.vz = 1, 0, 12, nil, nil
+    W.sees[2] = false
     tick(20)
     check(dt_ref.value == true, "V1.0.78 kurulum: yerde DT acik")
     W.flags, W.speed = 0, 200
@@ -2134,7 +2325,112 @@ do
     W.flags, W.speed = 1, 0
     tick(20)
     check(dt_ref.value == true, "V1.0.78: yere inince DT geri acik")
-    W.head_dmg[2] = 0
+    tp_ref.value = true
+    W.sees[2], W.head_dmg[2], W.speed = true, 0, 240
+
+    -- (h): kenardan dusme (100 birim, vz 0): inis ~32 tick sonra. Sahte dunyada tickbase sabit: havada kapanan DT'nin
+    -- sarji ancak 2 sn duz okumadan sonra (charge.low_n) yeniden dolu sayilir.
+    settle(150)
+    b = #prints + 1
+    rec, land, fires = fly({ z = 100, vz = 0 })
+    check(land ~= nil and land >= 28 and land <= 36 and #fires == 1 and land - fires[1] >= 1 and land - fires[1] <= 12,
+        "V1.0.80 (h): 100 birimden dusus ~32 tick, tek discharge inisten 1-12 tick once (inis " .. tostring(land) .. ", ates "
+        .. tostring(fires[1]) .. ")")
+
+    -- (i): temiz atis penceresinde discharge yok
+    W.head_dmg[2], W.body_dmg[2], W.next_attack = 150, 150, 0
+    settle(20)
+    b = #prints + 1
+    rec, land, fires = fly({})
+    local il = printed("inise yok", b)
+    check(#fires == 0 and il ~= nil and il:find("temiz atis", 1, true) ~= nil,
+        "V1.0.80 (i): temiz atis varken discharge yok, sebep 'temiz atis' (" .. tostring(il) .. ")")
+
+    -- (j): dolu DT kapaninca tickbase olcumu
+    W.head_dmg[2], W.body_dmg[2], W.speed = 0, 0, 0
+    settle(20)
+    local ex_ref = find_ref("Exploit\nStanding")
+    b = #prints + 1
+    ex_ref.value = "Hide shots"
+    tick(6)
+    local jl = printed("DT kapandi (sarj dolu): tickbase +0", b)
+    check(dt_ref.value == false and jl ~= nil, "V1.0.80 (j): dolu DT kapaninca tickbase olculur (" .. tostring(jl) .. ")")
+    ex_ref.value = "Double tap"
+    settle(20)
+
+    -- Inceleme (1): yerde "Block jump while seen" ziplamayi iptal ederken (bosluk basili, durum Air) DT'li ucus yok:
+    -- V1.0.79 gibi Smart / air_lag defensive zorlanir.
+    settle(200) -- (j)'de kapanan DT'nin sarji yeniden dolu sayilsin (exploit_active, charge.low_n 128 sakin tick)
+    W.speed, W.sees[2], W.next_attack = 240, true, 1e9
+    local njr = find_ref("Block jump while seen (not jump-scout)")
+    local fv = force_ref.value
+    force_ref.value = true
+    njr.value = true
+    W.jump = true
+    tick(10)
+    local nj_fd, nj_jump, nj_dt = last_cmd.force_defensive, last_cmd.in_jump, dt_ref.value
+    njr.value, force_ref.value = false, fv
+    W.next_attack = 0
+    settle(20)
+    check(nj_jump == 0 and nj_fd == true and nj_dt == true,
+        "V1.0.80 (inceleme): yerde ziplama engellenirken (goruluyorken) defensive yine zorlanir, DT acik (ziplama "
+        .. tostring(nj_jump) .. ", def " .. tostring(nj_fd) .. ", dt " .. tostring(nj_dt) .. ")")
+
+    -- Inceleme (6): yerde 1. tick yedegi havada yazilan sebebi ezmez. Zemin 512 birim icinde yok (tahmin hic yok,
+    -- havada "tahmin yok"); yedek h = 0 ile "yavas 3D 56 u" der ama satir "tahmin yok" kalir.
+    settle(60)
+    W.floor_fn = function() return nil end
+    b = #prints + 1
+    rec, land, fires = fly({})
+    W.floor_fn = nil
+    local gl = printed("inise yok", b)
+    check(#fires == 0 and gl ~= nil and gl:find("tahmin yok", 1, true) ~= nil,
+        "V1.0.80 (inceleme): yerde 1. tick yedegi havadaki sebebi ezmez (" .. #fires .. ", " .. tostring(gl) .. ")")
+
+    -- Inceleme (4): inis noktasinin altina ikinci iz. Inise ~20 tick kala vurulma satirinda tahmin (lt) var; inis
+    -- noktasi ucurumsa (x > 15.5'te zemin yok) tahmin yok.
+    local function lt_line(floor_fn)
+        W.floor_fn = floor_fn
+        settle(120)
+        local bh, hl = #prints + 1, nil
+        fly({ each = function(i)
+            if i == 28 then
+                fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 5, hitgroup = 2, weapon = "ssg08" })
+                hl = printed("vuruldun:", bh)
+            end
+        end })
+        W.floor_fn = nil
+        return hl
+    end
+    local hl_flat = lt_line(nil)
+    local hl_cliff = lt_line(function(x) return x <= 15.5 and 0 or nil end)
+    check(hl_flat ~= nil and hl_flat:find(" ucus DT lt %d+") ~= nil and hl_cliff ~= nil
+        and hl_cliff:find(" ucus DT", 1, true) ~= nil and hl_cliff:find(" lt %d") == nil,
+        "V1.0.80 (inceleme): inis noktasi ucurumsa tahmin yok (duz: " .. tostring(hl_flat and hl_flat:match("ucus DT[^|]*"))
+        .. ", ucurum: " .. tostring(hl_cliff and hl_cliff:match("ucus DT[^|]*")) .. ")")
+
+    -- Inceleme (2/5): inis teleportundan sonra havada olunce ucus durumu silinir; dogusta sonuc satiri / sapma yok.
+    settle(150)
+    local died = false
+    rec, land, fires = fly({ each = function()
+        if not died and last_cmd.discharge_pending == true then
+            died, W.dead = true, true
+            fire("player_death", { userid = 1, attacker = 2, headshot = true, penetrated = 0, weapon = "ssg08" })
+        end
+    end })
+    W.dead = nil
+    b = #prints + 1
+    settle(8)
+    check(died and #fires == 1 and printed("teleport sonucu: tahmin", b) == nil and printed("inise yok", b) == nil,
+        "V1.0.80 (inceleme): havada olunce dogusta eski ucusun sonuc satiri yok (" .. tostring(died) .. ", "
+        .. tostring(printed("teleport sonucu: tahmin", b)) .. ")")
+
+    W.z, W.vz, W.floor_z, W.jump = nil, nil, nil, nil
+    W.sees[2], W.head_dmg[2], W.body_dmg[2], W.speed = false, 0, 0, 0
+    W.flags = 1
+    tick(10)
+    local errs80 = errors_since(1)
+    check(#errs80 == 0, "V1.0.80: inis teleportu bolumunde hata yok" .. (#errs80 > 0 and (": " .. errs80[1]) or ""))
 end
 
 -------------------------------------------------------------------------------
@@ -2190,7 +2486,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.79 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.80 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
