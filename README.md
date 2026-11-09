@@ -1,5 +1,7 @@
 # Nykle.win lua V1.1 — Neverlose HvH anti-aim, exploit ve resolver lua'sı
 
+> **Primordial edition:** `primordial/Nykle.win.lua` (V1.0.0) + birleştirilmiş config `primordial/Nykle.win.cfg`. Kurulum ve özellikler: `primordial/README.md`, config seçimi: `primordial/CONFIG_NOTLARI.md`. Test: `tests/run_prim_tests.sh`.
+
 Neverlose (CS:GO) için durum (state) bazlı anti-aim, exploit ve resolver lua'sı. Sadece HvH sunucuları için. Eski adı **ANT-A-M** (v2 – v5.6); V1.0, v5.6'nın üzerine kuruldu. GameSense sürümü ayrı dosyada (aşağıda "GameSense edition").
 
 **Kurar kurmaz çalışır.** Bütün ayarlar hazır gelir; exploitler ve defensive her durumda kendiliğinden doğru moda geçer. **Always use recommended settings** açık kaldıkça her sürümde en iyi bilinen ayarlar korunur, ayarlara dokunman gerekmez.
