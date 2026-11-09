@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.7  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.8  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,10 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.8 (primordial edition): desync isareti olcumu duzeltildi (log 4 ham sayilar: set_desync + iken gercek-sahte
+        farki -78, - iken +47). Olcum degerin isaretini istenen tarafla degil kendisiyle karsilastiriyordu; sonuc
+        carpandan bagimsiz hep "ters" cikiyor ve carpan her yuklemede 5-45 sn sonra cevriliyordu (V1.0.6-7'de dogru
+        varsayilan yanlisa cevrildi). Artik istenen tarafla karsilastirilir: -1 varsayilani "uyumlu" olculur ve kalir.
       V1.0.7 (primordial edition): 3. oyun logundan (V1.0.6; takilma gitti). Hafiza dosyasi artik ikili modda yazilip
         okunur ve sayi tutmasa da gecerli kayitlar yuklenir (Windows metin modu yuzunden "kayit sayisi 30 != 33" ile
         butun hafiza bos yukleniyordu; okunan metinden \r / NUL temizlenir). Tick sayaci kendi tickbase kaymamizla
@@ -90,7 +94,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.7", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.8", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -3898,7 +3902,10 @@ do
             return
         end
         C.n = C.n + 1
-        if (d > 0) == (sign > 0) then
+        -- V1.0.8 (log 4 ham sayilar: deger + iken fark -78, - iken +47): karsilastirma istenen TARAFLA yapilir
+        -- (deger x carpan). Eskiden degerin kendi isaretiyle karsilastiriliyordu: bu iliski carpandan bagimsiz sabit
+        -- oldugu icin her yuklemede "ters" cikiyor ve carpan her seferinde (dogruyken de) cevriliyordu.
+        if (d > 0) == (sign * A.sign_mul > 0) then
             C.agree = C.agree + 1
         end
         -- V1.0.7 (log 3: isaret +1 iken de -1 iken de "ters" olculdu): ham sayilar. Deger + iken ve - iken

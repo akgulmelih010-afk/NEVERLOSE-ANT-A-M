@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.7"
+H.VER = "V1.0.8"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -2766,6 +2766,11 @@ function C.aa()
             return H.sgn(r[#r] and r[#r].desync)
         end
         local sa, sb = last_sign(A), last_sign(B)
+        -- V1.0.8: oyundaki kural (deger + iken gercek-sahte farki eksi = sign_conv -1) varsayilan carpanla "uyumlu"
+        -- olculur ve CEVRILMEZ; ters dunyada tam bir kez cevrilir. Eski olcum iki dunyada da "ters" diyordu.
+        H.check("T-AA-11", B.count("uyumlu]") == 1 and B.count("ters, cevrildi]") == 0 and A.count("ters, cevrildi]") == 1
+            and A.count("uyumlu]") == 0, "oyun kurali (sign_conv -1): 'uyumlu' " .. B.count("uyumlu]") .. " (1), cevrilme "
+            .. B.count("ters, cevrildi]") .. " (0); ters kural: cevrilme " .. A.count("ters, cevrildi]") .. " (1)")
         H.check("T-AA-11", B.printed("desync isareti olculdu") ~= nil and sa ~= 0 and sb == -sa,
             "isaret kurali ters: 64 Standing ornegi sonra 'desync isareti olculdu' ve gonderilen isaret dogru kurala gore ters ("
             .. sa .. " / " .. sb .. "), boylece simule edilen gercek taraf ayni")
