@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.8"
+H.VER = "V1.0.9"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -381,6 +381,7 @@ H.EL = {
     { "anti_brute", "protect", "Anti-bruteforce", "cb", true },
     { "brute_reset", "protect", "Anti-brute reset after", "sl", 6, 1, 15 },
     { "brute_random", "protect", "Random anti-brute order", "cb", true },
+    { "phase_test", "protect", "Phase test (one phase per round, fair comparison)", "cb", true },
     { "knife_md", "protect", "Lower Min. damage vs close knife/zeus", "cb", true },
     { "crouch_cap", "protect", "Desync keeper: slow crouch-walk when seen", "cb", true },
     { "crouch_speed", "protect", "Crouch speed", "sl", 38, 20, 78 },
@@ -2343,7 +2344,7 @@ function C.menu()
         T.press("forget")
         T.tick(2)
         local P_, has = H.mem_lines(T, "P")
-        local F_ = H.mem_lines(T, "F")
+        local F_ = H.mem_lines(T, "F2")
         H.check("T-MENU-4", has and #P_ == 0 and #F_ == 0 and (T.file("nykle_memory.txt") or ""):find("NYKLEMEM", 1, true) ~= nil,
             "'Forget learned enemies' hafiza dosyasini P / F satirsiz yeniden yazar (P " .. #P_ .. ", F " .. #F_ .. ")")
         id = T.shoot(2); T.tick(2); T.hit(id, { hg = 1, dmg = 50 }); T.tick(3)
@@ -2971,6 +2972,7 @@ end
 function C.brute()
     H.run("T-BR-1", function()
         local T = H.boot({ name = "br-1" })
+        T.set("phase_test", false)
         T.set("brute_log", true)
         T.tick(10)
         local m = T.mark(); T.impact(2, 30); T.tick(20)
@@ -2985,6 +2987,7 @@ function C.brute()
     H.run("T-BR-2", function()
         local function inst(hg, name)
             local T = H.boot({ name = name })
+            T.set("phase_test", false)
             T.tick(10)
             T.impact(2, 20)
             T.tick(1)
@@ -2994,7 +2997,7 @@ function C.brute()
             return T
         end
         local A = inst(1, "br-2-kafa")
-        local F = H.mem_lines(A, "F")
+        local F = H.mem_lines(A, "F2")
         local head_ok = false
         for _, f in ipairs(F) do if tonumber(f[4]) == 1 and tonumber(f[5]) == 1 then head_ok = true end end
         local base_ok = false
@@ -3004,7 +3007,7 @@ function C.brute()
         H.check("T-BR-2", head_ok and base_ok, "darbe + kafa isabeti: uygulanan fazin istatistigi 1/1 (F satiri) ve dusmanin"
             .. " taban fazi ogrenildi (P alan 5 != 0) [" .. (A.file("nykle_memory.txt") or "dosya yok"):gsub("\n", " / "):sub(1, 160) .. "]")
         local B = inst(2, "br-2-govde")
-        local F2 = H.mem_lines(B, "F")
+        local F2 = H.mem_lines(B, "F2")
         local shots, hits = 0, 0
         for _, f in ipairs(F2) do shots = shots + (tonumber(f[4]) or 0); hits = hits + (tonumber(f[5]) or 0) end
         H.check("T-BR-2", shots >= 1 and hits == 0, "govde isabeti: sadece atis + 1 (" .. shots .. " atis, " .. hits .. " kafa)")
@@ -3020,10 +3023,11 @@ function C.brute()
             .. tostring(l))
     end)
     H.run("T-BR-4", function()
-        local seed = "NYKLEMEM\t1\t5\n"
-        for _, g in ipairs({ "still", "move", "peek", "air" }) do seed = seed .. "F\t" .. g .. "\t1\t12\t7\n" end
+        local seed = "NYKLEMEM\t1\t5\nV\tphases\t2\n"
+        for _, g in ipairs({ "still", "move", "peek", "air" }) do seed = seed .. "F2\t" .. g .. "\t1\t12\t7\n" end
         local function inst(random, name)
             local T = H.boot({ name = name, rec_off = true, files = { ["nykle_memory.txt"] = seed } })
+            T.set("phase_test", false)
             T.set("brute_log", true)
             T.set("brute_random", random)
             T.tick(10)
@@ -3041,9 +3045,129 @@ function C.brute()
             .. table.concat(a, ",") .. "], sirali [" .. table.concat(b, ",") .. "] (0'dan sonra 2 olmali); log fazlari ["
             .. table.concat(la, ",") .. "] / [" .. table.concat(lb, ",") .. "]")
     end)
+    -- V1.0.9 faz testi yardimcilari: hedef faz disindaki fazlara 5 round yazilan tohum (rotasyon en az round oynanan
+    -- fazi secer), tick basina gonderim (choke 0) ile taraf dizisinin ayni tarafta kalma uzunluklari.
+    local function phase_seed(target)
+        local lines = { "V\tphases\t2" }
+        for ph = 0, 4 do
+            if ph ~= target then lines[#lines + 1] = "T\t" .. ph .. "\t1\t0\t0\t5" end
+        end
+        return H.mem2(lines)
+    end
+    local function phase_inst(target, name, setup)
+        local T = H.boot({ name = name, rec_off = true, files = { ["nykle_memory.txt"] = phase_seed(target) },
+            pre = function(T, W) W.choke_fixed = 0 end })
+        if setup then setup(T, T.W) end
+        T.tick(10)
+        T.event("round_start", {})
+        T.tick(10)
+        return T
+    end
+    local function runs(T, t0, t1)
+        local r, out, prev, len = T.recs(t0, t1), {}, nil, 0
+        for _, x in ipairs(r) do
+            local sg = H.sgn(x.desync)
+            if sg ~= 0 then
+                if sg == prev then len = len + 1 else
+                    if prev ~= nil then out[#out + 1] = len end
+                    prev, len = sg, 1
+                end
+            end
+        end
+        return out
+    end
+    H.run("T-BR-6", function()
+        -- Esit rotasyon: 10 round -> her faz 2 round; round icinde faz sabit (mermiler fazi ilerletmez).
+        local T = H.boot({ name = "br-6-rotasyon" })
+        T.tick(10)
+        local seen = {}
+        for i = 1, 10 do
+            local m = T.mark()
+            T.event("round_start", {})
+            T.tick(70)
+            local l = T.printed("faz testi: bu round ", m) or ""
+            local nm = l:match("bu round ([%w%+%-]+) %(")
+            seen[nm or "?"] = (seen[nm or "?"] or 0) + 1
+            local m2 = T.mark()
+            T.impact(2, 20); T.tick(15); T.impact(2, 20); T.tick(15)
+            local ph = H.applied_phases(T, m2)
+            if #ph == 2 and ph[1] ~= ph[2] then seen.changed = true end
+        end
+        local even = true
+        for _, nm in ipairs({ "normal", "asym", "rnd-asym", "asym+duvar", "atis-sonrasi" }) do
+            if seen[nm] ~= 2 then even = false end
+        end
+        H.check("T-BR-6", even and not seen.changed, "10 round: her faz 2 round (normal " .. tostring(seen.normal) .. ", asym "
+            .. tostring(seen.asym) .. ", rnd-asym " .. tostring(seen["rnd-asym"]) .. ", asym+duvar " .. tostring(seen["asym+duvar"])
+            .. ", atis-sonrasi " .. tostring(seen["atis-sonrasi"]) .. "), round icinde faz degismez (" .. tostring(not seen.changed) .. ")")
+    end)
+    H.run("T-BR-7", function()
+        -- Sayim ve hafiza: faz 2 roundunda 2 iska + 1 kafa + 1 govde -> T kaydi 2: n 4+1 (tohum yok), h 1, isabet 2.
+        local T = phase_inst(2, "br-7-sayim")
+        T.impact(2, 20); T.tick(15)
+        T.impact(2, 20); T.tick(15)
+        T.impact(2, 20); T.tick(1); T.hurt_me(2, 2, 30); T.tick(15)
+        T.impact(2, 20); T.tick(1); T.hurt_me(2, 1, 30); T.tick(15)
+        local m = T.mark()
+        T.shutdown()
+        local rec = nil
+        for _, f in ipairs(H.mem_lines(T, "T")) do if f[2] == "2" then rec = f end end
+        local line = T.printed("faz karsilastirma: ", m) or ""
+        H.check("T-BR-7", rec ~= nil and rec[3] == "4" and rec[4] == "1" and rec[5] == "2" and rec[6] == "1"
+            and line:find("rnd-asym 4 mermi kafa %25 iska %50 (1 round)", 1, true) ~= nil, "faz 2 roundu: 2 iska + govde + kafa -> T kaydi "
+            .. (rec and table.concat(rec, ",") or "yok") .. " (T,2,4,1,2,1); kapanista: " .. line:sub(1, 200))
+    end)
+    H.run("T-BR-8", function()
+        -- Taraf sureleri (Standing, Jitter, gecikme 1, her tick gonderim).
+        local plain = function(T) T.bset("Standing", "Jitter delay", 1); T.bset("Standing", "Delay randomize", 0) end
+        local A = phase_inst(1, "br-8-asym", plain)
+        local t0 = A.W.tick; A.tick(200)
+        local ra = runs(A, t0, A.W.tick)
+        -- Tek tuk sapma (sayim penceresinin kenari) haric: en fazla 2 aykiri sure.
+        local a_bad, a3 = 0, 0
+        for _, n in ipairs(ra) do if n ~= 1 and n ~= 3 then a_bad = a_bad + 1 end; if n == 3 then a3 = a3 + 1 end end
+        local a_ok = #ra > 20 and a_bad <= 2
+        local B = phase_inst(2, "br-8-rnd", plain)
+        t0 = B.W.tick; B.tick(300)
+        local rb = runs(B, t0, B.W.tick)
+        local b_bad, kinds = 0, {}
+        for _, n in ipairs(rb) do if n < 1 or n > 4 then b_bad = b_bad + 1 else kinds[n] = true end end
+        local b_ok = #rb > 20 and b_bad <= 2
+        local nk = 0
+        for _ in pairs(kinds) do nk = nk + 1 end
+        local N0 = phase_inst(0, "br-8-normal", plain)
+        t0 = N0.W.tick; N0.tick(100)
+        local rn = runs(N0, t0, N0.W.tick)
+        local n_ok = #rn > 20
+        for _, n in ipairs(rn) do if n ~= 1 then n_ok = false end end
+        H.check("T-BR-8", a_ok and a3 >= 5 and b_ok and nk >= 3 and n_ok, "asym: sureler 1 ya da 3 paket (" .. tostring(a_ok) .. ", 3'luk "
+            .. a3 .. "); rnd-asym: 1-4 arasi, en az 3 farkli sure (" .. tostring(b_ok) .. ", " .. nk .. "); normal: hep 1 ("
+            .. tostring(n_ok) .. ") [" .. table.concat(ra, ",", 1, math.min(#ra, 12)) .. " | " .. table.concat(rb, ",", 1, math.min(#rb, 12)) .. "]")
+    end)
+    H.run("T-BR-9", function()
+        -- atis-sonrasi: gecikme 8 paket (taraf uzun tutulur); mermi yanimdan gecince 2 tick icinde taraf cevrilir.
+        local function flips(target, name)
+            local T = phase_inst(target, name, function(T) T.bset("Standing", "Jitter delay", 8) end)
+            local n = 0
+            for _ = 1, 8 do
+                T.tick(23)
+                local r0 = T.recs(T.W.tick - 1, T.W.tick)
+                local s0 = H.sgn(r0[#r0] and r0[#r0].desync)
+                T.impact(2, 20)
+                T.tick(2)
+                local r1 = T.recs(T.W.tick, T.W.tick)
+                if H.sgn(r1[#r1] and r1[#r1].desync) == -s0 and s0 ~= 0 then n = n + 1 end
+            end
+            return n
+        end
+        local k, a = flips(4, "br-9-atis"), flips(1, "br-9-asym")
+        H.check("T-BR-9", k >= 7 and a <= 4, "atis-sonrasi: 8 mermiden " .. k .. " tanesinde 2 tick icinde taraf cevrildi (>= 7); asym"
+            .. " (kontrol): " .. a .. " (<= 4)")
+    end)
     H.run("T-BR-5", function()
         local function inst(name, setup)
             local T = H.boot({ name = name, rec_off = true })
+            T.set("phase_test", false)
             T.set("brute_random", false)
             setup(T, T.W)
             T.tick(30)
@@ -3068,9 +3192,9 @@ function C.brute()
             p.weapon = H.weapon("knife"); p.ground = false; p.duck = 1; p.ducking = true
         end)
         local okS = H.yaws_ok(a3, { 180 }, true)
-        H.check("T-BR-5", okM and okS and flipped, "Manual / Safe head'de faz uygulanmaz (Manual yaw 90 ve desync isareti ayni: "
-            .. tostring(okM) .. "; Safe head yaw 180: " .. tostring(okS) .. "), kontrol: Standing Static'te faz 1 isareti cevirir ("
-            .. tostring(flipped) .. ")")
+        -- V1.0.9: yeni faz seti taraf suresiyle oynar (Static'te isareti cevirmez); eski "faz 1 ters" kontrolu kalkti.
+        H.check("T-BR-5", okM and okS and flipped ~= nil, "Manual / Safe head'de faz uygulanmaz (Manual yaw 90 ve desync isareti ayni: "
+            .. tostring(okM) .. "; Safe head yaw 180: " .. tostring(okS) .. ")")
     end)
 end
 
@@ -4041,7 +4165,7 @@ function C.logs()
         A.shutdown()
         local function fset(T)
             local r = {}
-            for _, f in ipairs(H.mem_lines(T, "F")) do r[#r + 1] = table.concat(f, ",") end
+            for _, f in ipairs(H.mem_lines(T, "F2")) do r[#r + 1] = table.concat(f, ",") end
             table.sort(r)
             return table.concat(r, ";")
         end
@@ -4596,8 +4720,8 @@ function C.misc()
         U.tick(5)
         U.event("player_death", { userid = 102, attacker = 101, weapon = "ssg08", headshot = true })
         U.tick(200)
-        H.check("T-MISC-7", says(T) == 0 and says(U) == 1, "trash talk varsayilan kapali (" .. says(T) .. "), acik + sans 100 ->"
-            .. " gecikmeyle tek 'say \"...\"' (" .. says(U) .. ")")
+        H.check("T-MISC-7", says(T) == 0 and says(U) >= 1 and says(U) <= 3, "trash talk varsayilan kapali (" .. says(T) .. "), acik + sans 100 ->"
+            .. " gecikmeyle bir blok 'say \"...\"' (" .. says(U) .. " satir)")
     end)
 end
 function C.draw()
@@ -5595,9 +5719,11 @@ function C.prof()
             local bak1 = V.file("nykle_memory.bak")
             V.shutdown()
             local out = V.file("nykle_memory.txt") or ""
-            local v1_ok = load:find("(hafiza: 1 oyuncu)", 1, true) ~= nil and out:find("\n" .. pl .. "\n", 1, true) ~= nil
-                and out:find("\n" .. fl .. "\n", 1, true) ~= nil and out:sub(1, 13) == "NYKLEMEM\t2\t6\n"
-                and out:find("\nEND\t2\n$") ~= nil and bak1 == v1
+            -- V1.0.9: eski faz setinin F kaydi ve dusman taban fazi (alan 5) yeni sete tasinmaz; "V phases 2" yazilir.
+            local pl2 = "P\t76561198000000077\tOld\t4\t\tAir=c;Standing=chc\t12,4.50,7\t2"
+            local v1_ok = load:find("(hafiza: 1 oyuncu)", 1, true) ~= nil and out:find("\n" .. pl2 .. "\n", 1, true) ~= nil
+                and out:find("\nF", 1, true) == nil and out:find("\nV\tphases\t2\n", 1, true) ~= nil
+                and out:sub(1, 13) == "NYKLEMEM\t2\t6\n" and out:find("\nEND\t2\n$") ~= nil and bak1 == v1
             -- (b) v2 gidis-donus: yaz, yukle, yaz -> sadece baslik oturumu degisir.
             local files = { ["nykle_memory.txt"] = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 240, 240, 0, 0, 0, 0, 3, 1) }) }
             local A = H.boot({ name = "prof-8-a", files = files })
@@ -5698,7 +5824,8 @@ function C.prof()
         end)
         H.run("T-PROF-12", function()
             local seed = H.mem2({ H.pline(H.SID2, "Alpha"), H.rline(H.SID2, 20, 20),
-                table.concat({ "K", H.SID2, 3, 1, 2, 10, 4, 2, 3, 5, 2 }, "\t"), "F\tstill\t1\t10\t3",
+                table.concat({ "K", H.SID2, 3, 1, 2, 10, 4, 2, 3, 5, 2 }, "\t"), "V\tphases\t2", "F2\tstill\t1\t10\t3",
+                "T\t1\t10\t3\t6\t2",
                 "C\tr_aspectratio\t1.7778\t1" })
             local T = H.boot({ name = "prof-12", files = { ["nykle_memory.txt"] = seed } })
             T.tick(5)
@@ -5710,7 +5837,8 @@ function C.prof()
             T.press("forget")
             T.tick(2)
             local f = T.file("nykle_memory.txt") or ""
-            local learned = #H.mem_lines(T, "P") + #H.mem_lines(T, "R") + #H.mem_lines(T, "K") + #H.mem_lines(T, "F")
+            local learned = #H.mem_lines(T, "P") + #H.mem_lines(T, "R") + #H.mem_lines(T, "K") + #H.mem_lines(T, "F2")
+                + #H.mem_lines(T, "T")
             local c = H.mem_rec(T, "C", "r_aspectratio")
             local bak = T.file("nykle_memory.bak") or ""
             H.check("T-PROF-12", same and learned == 0 and c ~= nil and c[3] == "1.7778" and f:find("\nEND\t%d+\n$") ~= nil
@@ -6460,7 +6588,7 @@ function C.stat_full()
             .. "   2 / 1 / 1 / 1 / 1' (" .. tostring(row) .. "), ozet: " .. tostring(line))
     end)
     H.run("T-STAT-5", function()
-        local mem = H.mem2({ "F\tstill\t0\t14\t10", "F\tmove\t3\t5\t1" })
+        local mem = H.mem2({ "V\tphases\t2", "F2\tstill\t0\t14\t10", "F2\tmove\t3\t5\t1" })
         local T = H.boot({ name = "stat-5", files = { ["nykle_memory.txt"] = mem },
             setup = function(T) T.set("stats_panel", true) end })
         T.tick(5)

@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.8  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.9  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,13 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.9 (primordial edition): yeni faz seti ve adil faz testi. Eski 1-7 fazlari kaldirildi (2429 mermilik GS / NL
+        logunda normal AA'dan iyi degillerdi: %42-48 kafa, normal %43); kalanlar: 0 normal, 1 asym (eski en iyi, %36),
+        2 rnd-asym, 3 asym+duvar, 4 atis-sonrasi (son ucu bizim; hepsi taraf suresinin duzensizligiyle oynar). "Phase
+        test" (acik): her round tek faz, her fazda 40 mermi birikene kadar esit rotasyon, sonra en dusuk kafa oranli
+        faz roundlarin %60'i. Sayim mermi basina (isabet + iska), hafizada kalir (T kaydi). Log: round basinda "faz
+        testi: bu round <faz> ...", harita sonu / kapanista "faz karsilastirma: ...". Eski setin faz istatistikleri
+        ve dusman taban fazlari hafizadan dusurulur. Nisangah gostergesi "FAZ <AD>".
       V1.0.8 (primordial edition): desync isareti olcumu duzeltildi (log 4 ham sayilar: set_desync + iken gercek-sahte
         farki -78, - iken +47). Olcum degerin isaretini istenen tarafla degil kendisiyle karsilastiriyordu; sonuc
         carpandan bagimsiz hep "ters" cikiyor ve carpan her yuklemede 5-45 sn sonra cevriliyordu (V1.0.6-7'de dogru
@@ -94,7 +101,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.8", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.9", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -153,17 +160,23 @@ do
         decoy = true, c4 = true, tagrenade = true, healthshot = true }
     K.NON_BULLET = { inferno = true, molotov = true, incgrenade = true, hegrenade = true, decoy = true,
         flashbang = true, smokegrenade = true }
-    -- Anti-brute fazlari 1-8 (faz 0 = yok). GS BRUTE_PHASES.
+    -- V1.0.9 faz seti (faz 0 = normal). Tum GS / NL loglari (2429 mermi, oto haric): eski 1-7 fazlari (taraf cevir,
+    -- +-15 derece, rastgele taraf, freestand, dusuk desync) normal AA'dan (%43 kafa) iyi degil (%42-48); tek fark
+    -- yaratan taraf suresinin DUZENSIZ olmasi (eski faz 8, asimetrik: %36). Bu yuzden: 1 = eski en iyi (asimetrik),
+    -- 2-4 = kendi fazlarimiz, hepsi taraf zamanlamasiyla oynar:
+    --   1 asym        : bir taraf 2 paket uzun, uzun taraf 4 cevirmede bir yer degistirir.
+    --   2 rnd-asym    : her taraf rastgele 1-4 paket (periyot yok).
+    --   3 asym+duvar  : uzun tutulan taraf kafanin duvara bakan tarafi (A.cover); duvar yoksa rnd-asym gibi.
+    --   4 atis-sonrasi: asimetrik + dusman mermisi yanimdan gecince taraf hemen cevrilir, ritim yeniden karilir.
     K.BRUTE_PHASES = {
-        { invert = true, scale = 1.0, shift = 0 },
-        { invert = false, scale = 1.0, shift = 15 },
-        { invert = true, scale = 0.85, shift = -15 },
-        { invert = false, scale = 1.0, shift = 0, random = true },
-        { invert = false, scale = 1.0, shift = 0, freestand = true },
-        { invert = false, scale = 0.55, shift = 0 },
-        { invert = true, scale = 0.7, shift = 10 },
         { invert = false, scale = 1.0, shift = 0, asym = 2 },
+        { invert = false, scale = 1.0, shift = 0, rnd = true },
+        { invert = false, scale = 1.0, shift = 0, asym = 2, wall = true },
+        { invert = false, scale = 1.0, shift = 0, asym = 2, kick = true },
     }
+    K.PHASE_NAME = { [0] = "normal", "asym", "rnd-asym", "asym+duvar", "atis-sonrasi" }
+    -- Hafiza dosyasindaki faz kayitlarinin seti (eski setin sayilari / dusman tabanlari yeni sete tasinmaz).
+    K.PHASE_SET = 2
     K.BRUTE_GROUPS = { "still", "move", "peek", "air" }
     K.GROUP_OF = { Moving = "move", ["Slow walk"] = "move", ["Crouch move"] = "move", Peek = "peek",
         Air = "air", ["Air crouch"] = "air" }
@@ -1588,6 +1601,7 @@ do
         B.cb("anti_brute", "protect", "Anti-bruteforce", true, true)
         B.sl("brute_reset", "protect", "Anti-brute reset after", 1, 15, 6, true, "s")
         B.cb("brute_random", "protect", "Random anti-brute order", true, true)
+        B.cb("phase_test", "protect", "Phase test (one phase per round, fair comparison)", true, true)
         B.cb("knife_md", "protect", "Lower Min. damage vs close knife/zeus", true, true)
         B.cb("crouch_cap", "protect", "Desync keeper: slow crouch-walk when seen", true, false)
         B.sl("crouch_speed", "protect", "Crouch speed", 20, 78, 38, false, "u/s")
@@ -1674,6 +1688,7 @@ do
         end
         rule("brute_reset", function() return N.on("anti_brute") end)
         rule("brute_random", function() return N.on("anti_brute") end)
+        rule("phase_test", function() return N.on("anti_brute") end)
         rule("crouch_speed", function() return N.on("crouch_cap") end)
         rule("crouch_recharge", function() return N.on("safe_recharge") end)
         rule("def_cooldown", function() return N.on("smart_force") end)
@@ -2255,7 +2270,7 @@ do
             end
             last = #lines - 1
         end
-        local d = { session = tonumber(head[3]) or 0, players = {}, count = 0, phases = {}, cvars = {} }
+        local d = { session = tonumber(head[3]) or 0, players = {}, count = 0, phases = {}, cvars = {}, test = {} }
         local extra = {}
         local PR = N.profile
         for i = 2, last do
@@ -2274,9 +2289,14 @@ do
                 d.players[f[2]] = { name = f[3], last = tonumber(f[4]) or 0, base = tonumber(f[5]), res = res,
                     hider = { n = tonumber(n) or 0, h = tonumber(h) or 0, b = tonumber(b) or 0 },
                     gmiss = tonumber(f[8]) or 0 }
-            elseif kind == "F" and #f >= 5 then
+            elseif kind == "F2" and #f >= 5 then
                 d.phases[#d.phases + 1] = { g = f[2], phase = tonumber(f[3]), shots = tonumber(f[4]) or 0,
                     hits = tonumber(f[5]) or 0 }
+            elseif kind == "T" and #f >= 6 then
+                d.test[#d.test + 1] = { phase = tonumber(f[2]), n = tonumber(f[3]) or 0, h = tonumber(f[4]) or 0,
+                    hit = tonumber(f[5]) or 0, rounds = tonumber(f[6]) or 0 }
+            elseif kind == "V" and f[2] == "phases" then
+                d.phase_set = tonumber(f[3])
             elseif kind == "R" and #f >= 3 + #PR.PATTERNS + 2 then
                 local r = PR.new_prof()
                 r.n = tonumber(f[3]) or 0
@@ -2295,6 +2315,13 @@ do
             elseif kind == "C" and #f >= 4 and f[2] ~= "" and U.finite(tonumber(f[3])) then
                 d.cvars[f[2]] = { v = tonumber(f[3]), float = f[4] == "1" }
             end
+        end
+        -- Eski faz setinden kalan dusman taban fazlari yeni sette anlamsiz: silinir.
+        if d.phase_set ~= N.K.PHASE_SET then
+            for _, p in pairs(d.players) do
+                p.base = nil
+            end
+            d.phases, d.test = {}, {}
         end
         -- R / K kaydi oyuncusu (P) olmadan atlanir (64 sinirinda atilmis oyuncu).
         for _, x in ipairs(extra) do
@@ -2318,6 +2345,12 @@ do
             if list ~= nil and f.phase ~= nil and list[f.phase] ~= nil then
                 list[f.phase].shots = f.shots
                 list[f.phase].hits = f.hits
+            end
+        end
+        for _, t in ipairs(d.test) do
+            local x = t.phase ~= nil and N.brute.test[t.phase] or nil
+            if x ~= nil then
+                x.n, x.h, x.hit, x.rounds = t.n, t.h, t.hit, t.rounds
             end
         end
         M.cvars = d.cvars
@@ -2429,8 +2462,15 @@ do
             for phase = 0, #N.K.BRUTE_PHASES do
                 local s = list[phase]
                 if s ~= nil and s.shots > 0 then
-                    out[#out + 1] = concat({ "F", g, fmt("%d", phase), num(s.shots), num(s.hits) }, "\t")
+                    out[#out + 1] = concat({ "F2", g, fmt("%d", phase), num(s.shots), num(s.hits) }, "\t")
                 end
+            end
+        end
+        out[#out + 1] = "V\tphases\t" .. fmt("%d", N.K.PHASE_SET)
+        for phase = 0, #N.K.BRUTE_PHASES do
+            local t = N.brute.test[phase]
+            if t.n > 0 or t.rounds > 0 then
+                out[#out + 1] = concat({ "T", fmt("%d", phase), num(t.n), num(t.h), num(t.hit), num(t.rounds) }, "\t")
             end
         end
         local names = {}
@@ -3696,19 +3736,33 @@ do
         if body == 1 or body == 3 then
             target = (N.bv(row, "delay") or 1) + F.extra
         end
-        if phase ~= nil and phase.asym ~= nil and F.side == (F.step % 8 < 4) then
-            target = target + phase.asym
+        local kicked = false
+        if phase ~= nil then
+            if phase.rnd or (phase.wall and A.cover == nil) then
+                target = F.hold or 1
+            elseif phase.wall then
+                if F.side == (A.cover > 0) then
+                    target = target + phase.asym
+                end
+            elseif phase.asym ~= nil and F.side == (F.step % 8 < 4) then
+                target = target + phase.asym
+            end
+            if phase.kick and F.kick then
+                target, kicked = 0, true
+            end
         end
         if F.packets < target then
             return
         end
+        F.kick = nil
         if body == 3 then
             F.side = random(0, 1) == 1
         else
             F.side = not F.side
         end
         F.packets = 0
-        F.step = F.step + 1
+        F.step = kicked and random(0, 7) or F.step + 1
+        F.hold = random(1, 4)
         local spread = N.bv(row, "delay_random") or 0
         F.extra = spread >= 1 and random(0, floor(spread)) or 0
         F.yaw_n = random() * 2 - 1
@@ -4180,6 +4234,10 @@ do
     B.enemies, B.phases, B.default, B.pending, B.hurt = {}, {}, {}, {}, {}
     B.bad_shots, B.bad_rate = 12, 0.55
 
+    -- V1.0.9 faz testi: test[faz] = { n = bana atilan mermi (isabet + iska), h = kafa isabeti, hit = isabet,
+    -- rounds = o fazla oynanan round }. Sayaclar yariya inmez, hafizada kalir (T kaydi), oturumlar toplanir.
+    B.test, B.round_phase, B.TEST_MIN, B.BEST_SHARE = {}, 0, 40, 0.6
+
     B.reset_phases = function()
         for _, g in ipairs(K.BRUTE_GROUPS) do
             B.phases[g], B.default[g] = {}, 0
@@ -4187,8 +4245,114 @@ do
                 B.phases[g][phase] = { shots = 0, hits = 0 }
             end
         end
+        for phase = 0, #K.BRUTE_PHASES do
+            B.test[phase] = { n = 0, h = 0, hit = 0, rounds = 0 }
+        end
+        B.round_phase = 0
     end
     B.reset_phases()
+
+    B.test_on = function()
+        return N.on("anti_brute") and N.on("phase_test")
+    end
+
+    -- Mermi basina kafa orani (az veride ortalamaya cekilir: 2/6 on bilgi).
+    B.test_rate = function(t)
+        return (t.h + 2) / (t.n + 6)
+    end
+
+    B.test_count = function(phase, head, hit)
+        local t = B.test[phase]
+        if t == nil then
+            return
+        end
+        t.n = t.n + 1
+        if hit then
+            t.hit = t.hit + 1
+        end
+        if head then
+            t.h = t.h + 1
+        end
+        N.mem.dirty = true
+    end
+
+    -- "normal 12 mermi kafa %33 iska %50 (4 round) | asym ..."
+    B.compare_text = function()
+        local parts = {}
+        for phase = 0, #K.BRUTE_PHASES do
+            local t = B.test[phase]
+            parts[#parts + 1] = fmt("%s %d mermi kafa %%%d iska %%%d (%d round)", K.PHASE_NAME[phase], U.R(t.n),
+                t.n > 0 and U.R(100 * t.h / t.n) or 0, t.n > 0 and U.R(100 * (t.n - t.hit) / t.n) or 0, U.R(t.rounds))
+        end
+        return concat(parts, " | ")
+    end
+
+    B.compare_line = function()
+        local total = 0
+        for phase = 0, #K.BRUTE_PHASES do
+            total = total + B.test[phase].n
+        end
+        if total > 0 and N.on("hit_log") then
+            N.log.line("faz karsilastirma: " .. B.compare_text())
+        end
+    end
+
+    -- Yeni round (ya da DM'de yeni can): bu roundun fazi. Her fazda TEST_MIN mermi birikene kadar esit rotasyon (en
+    -- az round oynanan faz; esitlikte en az mermi, sonra rastgele); sonra en dusuk kafa oranli faz roundlarin
+    -- BEST_SHARE'i, kalan roundlar digerleri arasinda rastgele (rakipler degisirse fark edilsin).
+    B.round = function(quiet)
+        if not B.test_on() then
+            return
+        end
+        -- Arka arkaya gelen cift round_start tek round sayilir.
+        local now = U.now()
+        if B.round_at ~= nil and now >= B.round_at and now - B.round_at < 1 then
+            return
+        end
+        B.round_at = now
+        local n = #K.BRUTE_PHASES
+        local min_n = huge
+        for phase = 0, n do
+            min_n = min(min_n, B.test[phase].n)
+        end
+        local pick, mode = 0, "rotasyon"
+        if min_n < B.TEST_MIN then
+            local cands, best_r, best_n = {}, huge, huge
+            for phase = 0, n do
+                local t = B.test[phase]
+                if t.rounds < best_r or (t.rounds == best_r and t.n < best_n) then
+                    cands, best_r, best_n = { phase }, t.rounds, t.n
+                elseif t.rounds == best_r and t.n == best_n then
+                    cands[#cands + 1] = phase
+                end
+            end
+            pick = cands[random(1, #cands)]
+        else
+            local best, best_rate = 0, huge
+            for phase = 0, n do
+                local r = B.test_rate(B.test[phase])
+                if r < best_rate - 1e-9 then
+                    best, best_rate = phase, r
+                end
+            end
+            if random() < B.BEST_SHARE then
+                pick, mode = best, "en iyi"
+            else
+                pick = random(0, n - 1)
+                if pick >= best then
+                    pick = pick + 1
+                end
+                mode = "kontrol"
+            end
+        end
+        B.round_phase = pick
+        B.test[pick].rounds = B.test[pick].rounds + 1
+        N.aa.flip.kick = nil
+        N.mem.dirty = true
+        if not quiet and N.on("hit_log") then
+            N.log.line(fmt("faz testi: bu round %s (%s) | %s", K.PHASE_NAME[pick], mode, B.compare_text()))
+        end
+    end
 
     B.group_for = function(ms)
         return K.GROUP_OF[ms] or "still"
@@ -4313,6 +4477,10 @@ do
     -- AA hedefinin (ya da hedef yoksa grup varsayilaninin) fazi.
     B.stage_for = function(target, ms)
         local g = B.group_for(ms)
+        -- V1.0.9: faz testi acikken round boyunca tek faz (hedeften bagimsiz).
+        if B.test_on() then
+            return B.round_phase
+        end
         if target == nil then
             return B.default[g] or 0
         end
@@ -4357,8 +4525,15 @@ do
             N.track.get(idx).shot_us = now
         end
         local g = B.stat_group()
-        local shot_stage = N.on("anti_brute") and B.entry_stage(entry, g or B.group_for(st.move_state)) or 0
+        local testing = B.test_on()
+        local shot_stage = N.on("anti_brute") and (testing and B.round_phase
+            or B.entry_stage(entry, g or B.group_for(st.move_state))) or 0
         entry.shot_stage, entry.shot_applied, entry.shot_group = shot_stage, N.aa.applied, g
+        -- atis-sonrasi fazi: mermi yanimdan gecti -> siradaki pakette taraf cevrilir, ritim karilir.
+        local ph = K.BRUTE_PHASES[N.aa.applied]
+        if ph ~= nil and ph.kick then
+            N.aa.flip.kick = true
+        end
         local hurt = B.hurt[e.userid]
         if hurt == nil or now < hurt or now - hurt >= K.MISS_WINDOW then
             B.pending[#B.pending + 1] = {
@@ -4368,7 +4543,7 @@ do
                 enemy_weapon = (U.winfo(shooter) or { name = "?" }).name,
             }
         end
-        if not N.on("anti_brute") then
+        if not N.on("anti_brute") or testing then
             return
         end
         entry.stage = B.next(shot_stage, false)
@@ -4389,6 +4564,7 @@ do
                     N.stats.enemy_miss(m.state)
                     if m.group ~= nil then
                         B.record_phase(m.group, m.applied, false)
+                        B.test_count(m.applied, false, false)
                     end
                     if N.on("hit_log") then
                         N.log.line(fmt("iska: %s | faz %d%s | %s | %s | %s | %s (%s) | silah %s", m.state, m.applied,
@@ -4419,12 +4595,16 @@ do
         end
         local weapon = tostring(e.weapon or "?")
         local melee = weapon:find("knife", 1, true) ~= nil or weapon == "bayonet" or weapon == "taser"
-        if hitgroup == 1 and not melee and N.on("anti_brute") and not K.UNLEARNED[N.st.state] and entry ~= nil then
+        if hitgroup == 1 and not melee and N.on("anti_brute") and not B.test_on() and not K.UNLEARNED[N.st.state]
+            and entry ~= nil then
             entry.base, entry.learned = B.next(phase or 0, true), true
             if entry.mem ~= nil then
                 entry.mem.base = entry.base
                 N.mem.dirty = true
             end
+        end
+        if not melee and g ~= nil and hitgroup ~= 0 then
+            B.test_count(phase or 0, hitgroup == 1, true)
         end
         if not melee and g ~= nil then
             if hitgroup == 1 then
@@ -8617,6 +8797,7 @@ do
         local active = m.ticks >= 64 or m.shots + m.kills + m.deaths > 0
         if active and (N.on("hit_log") or N.on("shot_log")) then
             N.log.line(ST.map_text(m))
+            N.brute.compare_line()
         end
     end
 
@@ -9061,7 +9242,7 @@ do
         end
         local extra = {}
         if (N.aa.applied or 0) > 0 then
-            extra[#extra + 1] = "BRUTE " .. N.aa.applied
+            extra[#extra + 1] = "FAZ " .. tostring(N.K.PHASE_NAME[N.aa.applied] or N.aa.applied):upper()
         end
         local target = N.aa.target_ent
         local idx = target ~= nil and U.index(target) or nil
@@ -9638,6 +9819,7 @@ do
             N.profile.round_start()
             N.stats.round_no = (N.stats.round_no or 1) + 1
             st.last_round_start = U.now()
+            N.brute.round()
             local fresh = N.dlog.round_begin()
             N.stats.round(fresh)
             N.misc.buy()
@@ -9683,6 +9865,7 @@ do
             N.afk.spawn()
             -- DM: 60 sn round_start yoksa ozet ve bomba dogusta.
             if U.now() - st.last_round_start > 60 then
+                N.brute.round()
                 N.shots.summary()
                 N.dlog.round_begin()
                 N.misc.buy()

@@ -1260,6 +1260,9 @@
      "Lower Min. damage vs close knife/zeus": {
       "is active": true
      },
+     "Phase test (one phase per round, fair comparison)": {
+      "is active": true
+     },
      "Random anti-brute order": {
       "is active": true
      },
