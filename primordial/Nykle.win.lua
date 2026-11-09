@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.6  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.7  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,12 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.7 (primordial edition): 3. oyun logundan (V1.0.6; takilma gitti). Hafiza dosyasi artik ikili modda yazilip
+        okunur ve sayi tutmasa da gecerli kayitlar yuklenir (Windows metin modu yuzunden "kayit sayisi 30 != 33" ile
+        butun hafiza bos yukleniyordu; okunan metinden \r / NUL temizlenir). Tick sayaci kendi tickbase kaymamizla
+        (defensive / teleport) birkac tick geri gidince butun dusmanlar "uyandi" sayilip takipleri (AA deseni,
+        defensive bayragi) sifirlaniyordu: artik sadece 64 tick'ten buyuk geri gidis ya da 32 tick'lik sessizlik
+        uyanma. Desync olcumune ham sayi satiri ("aa: desync olcumu ham: ...").
       V1.0.6 (primordial edition): ilk iki oyun logundan. Desync isareti varsayilani oyunda olculen yon (+ = sol; her
         yuklemede 10-45 sn ters kaliyordu). "Goruyor" tespiti: dusman gozunden kafama mermi izi 0 donse de duz cizgi
         aciksa goruyor sayilir (bize gelen mermilerin %50-81'i "gormedi" yaziliyordu; "teshis: G31" + dbg teshis
@@ -84,7 +90,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.6", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.7", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -940,7 +946,9 @@ do
             return false
         end
         local ok, res = pcall(function()
-            local h = F.c_open(F.cls, name, mode, "MOD")
+            -- V1.0.7: ikili mod ("ab" / "wb"). Metin modunda Windows \n'i \r\n yapiyor, okurken boyut tutmuyor ve
+            -- tampon sonunda NUL kaliyordu: hafiza dosyasi "kayit sayisi 30 != 33" diye bos yukleniyordu.
+            local h = F.c_open(F.cls, name, mode == "a" and "ab" or "wb", "MOD")
             if h == nil then
                 return "dosya acilamadi"
             end
@@ -992,7 +1000,7 @@ do
             return nil
         end
         local ok, text = pcall(function()
-            local h = F.c_open(F.cls, name, "r", "MOD")
+            local h = F.c_open(F.cls, name, "rb", "MOD")
             if h == nil then
                 return nil
             end
@@ -1002,9 +1010,13 @@ do
                 return nil
             end
             local buf = F.ffi.new("char[?]", n + 1)
-            F.c_read(F.cls, buf, n, h)
+            local got = tonumber(F.c_read(F.cls, buf, n, h))
             F.c_close(F.cls, h)
-            return F.ffi.string(buf, n)
+            -- Gercekten okunan bayt kadar (eski metin modlu dosyalarda daha az gelir); kalan NUL / \r temizlenir.
+            if got == nil or got < 0 or got > n then
+                got = n
+            end
+            return (F.ffi.string(buf, got):gsub("[%z\r]", ""))
         end)
         if ok and type(text) == "string" then
             return text
@@ -2232,8 +2244,10 @@ do
             if tail[1] ~= "END" then
                 return nil, "END yok"
             end
+            -- V1.0.7: sayi tutmasa da gecerli kayitlar yuklenir (her satir kendi alan sayisiyla dogrulanir); eskiden
+            -- butun hafiza atiliyordu. Not: M.partial.
             if tonumber(tail[2]) ~= #lines - 2 then
-                return nil, fmt("kayit sayisi %s != %d", tostring(tail[2]), #lines - 2)
+                M.partial = fmt("kayit sayisi %s != %d", tostring(tail[2]), #lines - 2)
             end
             last = #lines - 1
         end
@@ -2325,6 +2339,10 @@ do
         end
         if d ~= nil then
             M.good = text
+            if M.partial ~= nil then
+                N.log.notes[#N.log.notes + 1] = fmt("hafiza dosyasinda %s: gecerli kayitlar yuklendi", M.partial)
+                M.partial = nil
+            end
         else
             local btext = N.fs.read(M.bak)
             M.bak_text = btext
@@ -2554,7 +2572,10 @@ do
             sim = floor(simt / U.ipt() + 0.5)
         end
         t.record_age = max(0, tick - sim)
-        local stale = t.upd_tick ~= nil and (tick - t.upd_tick > T.WAKE_GAP or tick < t.upd_tick)
+        -- V1.0.7 (log 3: "dbg uyandi ... ? sn uyudu" butun dusmanlarda ayni anda, 10 sn'de bir): tick sayaci kendi
+        -- tickbase kaymamizla (defensive / teleport) birkac tick GERI gidiyor; bu uyanma degil. Sadece 64 tick'ten
+        -- buyuk geri gidis (yeni harita) ya da WAKE_GAP'ten uzun sessizlik bayat sayilir.
+        local stale = t.upd_tick ~= nil and (tick - t.upd_tick > T.WAKE_GAP or tick < t.upd_tick - 64)
         if t.slept or stale or (t.last_sim ~= nil and sim - t.last_sim > T.WAKE_GAP) then
             T.wake(t, ent, tick, sim)
             return
@@ -3880,9 +3901,20 @@ do
         if (d > 0) == (sign > 0) then
             C.agree = C.agree + 1
         end
+        -- V1.0.7 (log 3: isaret +1 iken de -1 iken de "ters" olculdu): ham sayilar. Deger + iken ve - iken
+        -- (gercek - sahte) farkinin ortalamasi; ikisi ayni isaretliyse set_desync'in isareti tarafi belirlemiyor.
+        if sign > 0 then
+            C.pn, C.ps = (C.pn or 0) + 1, (C.ps or 0) + d
+        else
+            C.nn, C.ns = (C.nn or 0) + 1, (C.ns or 0) + d
+        end
         if C.n < 64 then
             return
         end
+        N.log.line(fmt("aa: desync olcumu ham: deger + iken fark ort %s (%d ornek), - iken %s (%d ornek), carpan %+d",
+            (C.pn or 0) > 0 and fmt("%+.0f", C.ps / C.pn) or "?", C.pn or 0,
+            (C.nn or 0) > 0 and fmt("%+.0f", C.ns / C.nn) or "?", C.nn or 0, A.sign_mul))
+        C.pn, C.ps, C.nn, C.ns = nil, nil, nil, nil
         local rate = C.agree / C.n
         if rate <= 0.2 then
             A.sign_mul = -A.sign_mul

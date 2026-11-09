@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.6"
+H.VER = "V1.0.7"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -4814,6 +4814,21 @@ function C.review()
         H.check("T-EX-16", all == 1 and Te.printed("defensive yok", 1) == nil, "varsayilan: cagrilabilir tablo olarak"
             .. " defensive tetigi: Smart + goruluyor 40 tick -> " .. all .. " zorlama (1)")
     end)
+    H.run("T-TRK-1", function()
+        -- V1.0.7: tick sayaci 14 tick geri gidince (kendi tickbase kaymamiz) dusmanlar "uyandi" sayilmaz.
+        local A = H.boot({ name = "trk-1-geri" })
+        A.W.sees[2] = 60
+        A.tick(100)
+        A.W.tick = A.W.tick - 14
+        A.tick(40)
+        H.check("T-TRK-1", A.count("dbg uyandi") == 0, "tick 14 geri gitti: 'dbg uyandi' " .. A.count("dbg uyandi") .. " (0)")
+        local B = H.boot({ name = "trk-1-ham" })
+        B.W.sees[2] = 60
+        B.tick(400)
+        H.check("T-TRK-1", B.count("aa: desync olcumu ham:") >= 1 or B.count("aa: desync isareti") == 0,
+            "desync olcumu bittiginde ham sayi satiri yazilir (" .. B.count("aa: desync olcumu ham:") .. ")")
+    end)
+
     H.run("T-EX-20", function()
         -- V1.0.6 A1: mermi izi 0 ama dusman gozunden kafama duz cizgi acik -> goruyor sayilir (tek olay) + teshis G31.
         local A = H.boot({ name = "ex-20-cizgi" })
@@ -5615,10 +5630,17 @@ function C.prof()
             local a_ok = la:find("(hafiza: 1 oyuncu, yedekten)", 1, true) ~= nil and note ~= nil
                 and main:find("\nEND\t%d+\n$") ~= nil and A.file("nykle_memory.bak") == good
             -- (b) ikisi de bozuk: bos hafiza, hata yok.
-            local bad = "NYKLEMEM\t2\t5\n" .. H.pline(H.SID2, "Alpha") .. "\nEND\t5\n"
+            local bad = "NYKLEMEM\t2\t5\n" .. H.pline(H.SID2, "Alpha") .. "\n"
             local B = H.boot({ name = "prof-9-bos", files = { ["nykle_memory.txt"] = bad, ["nykle_memory.bak"] = "cop" } })
             local lb = B.printed("yuklendi") or ""
-            local nb = B.printed("hafiza dosyasi bozuk (kayit sayisi 5 != 1) -> bos hafiza (yedek de bozuk)")
+            local nb = B.printed("hafiza dosyasi bozuk (END yok) -> bos hafiza (yedek de bozuk)")
+            -- (b2) V1.0.7: kayit sayisi tutmuyor (oyundaki log 3: "30 != 33") + \r ve NUL artigi: gecerli kayitlar yuklenir.
+            local off = "NYKLEMEM\t2\t5\r\n" .. H.pline(H.SID2, "Alpha") .. "\r\nEND\t5\r\n\0"
+            local B2 = H.boot({ name = "prof-9-sayi", files = { ["nykle_memory.txt"] = off }, pre = H.no_enemies })
+            local lb2 = B2.printed("yuklendi") or ""
+            local nb2 = B2.printed("hafiza dosyasinda kayit sayisi 5 != 1: gecerli kayitlar yuklendi")
+            H.check("T-PROF-9", lb2:find("(hafiza: 1 oyuncu)", 1, true) ~= nil and nb2 ~= nil, "kayit sayisi tutmayan (+ \\r / NUL) dosya:"
+                .. " gecerli kayitlar yuklenir (" .. tostring(lb2:match("%(hafiza[^)]*%)")) .. "), not " .. tostring(nb2 ~= nil))
             -- (c) normal yazim: once onceki gecerli metin .bak'a.
             local C2 = H.boot({ name = "prof-9-yaz", files = { ["nykle_memory.txt"] = good } })
             local m1 = C2.file("nykle_memory.txt")
