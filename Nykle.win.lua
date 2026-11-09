@@ -434,7 +434,8 @@ do
     grp.protect_raw = group(TAB.aa, "user-shield", "Protection", 2)
     grp.protect     = tracked(grp.protect_raw)
     grp.exploits    = tracked(group(TAB.exploits, "bolt", "Exploits", 1))
-    grp.peek        = tracked(group(TAB.exploits, "person-running", "Peek", 1))
+    grp.peek_raw    = group(TAB.exploits, "person-running", "Peek", 1)
+    grp.peek        = tracked(grp.peek_raw)
     grp.defensive   = tracked(group(TAB.exploits, "shield", "Defensive", 2))
     grp.angles_raw  = group(TAB.builder, "sliders", "Angles", 1)
     grp.angles      = tracked(grp.angles_raw)
@@ -668,6 +669,14 @@ menu.ai_peek        = style.tip(grp.peek:switch(style.title("robot", "AI peek (h
     "Peek Assist tusunu basili tut, hareket tuslarina basma: oldurecek atisin oldugu en yakin noktaya yurur.")
 -- AI peek yururken / beklerken DT defensive'i zorlanir: dusman seni gormeden lag baslar.
 menu.peek_defensive = grp.peek:switch(style.title("shield-halved", "Defensive during AI peek"), true)
+-- V1.1.9 (GameSense V1.0.35 / V1.0.37 / V1.0.71; istek: "afk modu da yok onu da ayarla"): AFK modu (bkz. peek.afk).
+-- Onerilen ayarlara girmez (tercih): elle AFK kapali, otomatik AFK acik.
+menu.afk            = style.tip(grp.peek_raw:switch(style.title("mug-hot", "AFK mode (AI peek here + strafe, full exploits)"), false),
+    "Acikken AI peek Peek Assist tusu olmadan durdugun yerden calisir, 3 sn'de bir 24 birim saga / sola adim atilir, " ..
+    "her silahta DT ve defensive tam acik.")
+menu.afk_auto       = style.tip(grp.peek_raw:switch(style.title("bed", "Auto AFK (no input 8 s after spawn)"), true),
+    "Dogduktan sonra (donma suresi ve menu acikken sayilmaz) 8 sn hic tusa basmazsan (hareket, ziplama, egilme, ates, " ..
+    "durbun, E, R, silah, fare) AFK modu kendiliginden acilir; bir tusa basinca kapanir.")
 -- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
 -- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
 menu.anti_peek      = style.tip(grp.defensive:switch(style.title("shield", "Defensive vs enemy peeks"), true),
@@ -849,6 +858,10 @@ menu.indicators  = grp.indicators:switch(style.title("crosshairs", "Crosshair in
 menu.accent      = menu.indicators:color_picker(color(150, 190, 255, 255))
 menu.arrows      = grp.indicators:switch(style.title("arrows-left-right", "Manual arrows"), true)
 menu.arrow_color = menu.arrows:color_picker(color(150, 190, 255, 255))
+-- V1.1.9 (GameSense V1.0.76; istek: "solda gozukme muhabbetini de ekle"): ekranin solunda, dikeyde ortada acik ozellik
+-- listesi (DT / HS / FD / DEF / LC / MD / BAIM / SAFE / FS / AFK / PEEK; bkz. own.ind).
+menu.left_ind    = style.tip(grp.indicators:switch(style.title("list", "Left indicators (DT / HS / FD / DEF / AFK ...)"), true),
+    "Ekranin solunda acik olanlar: yesil = acik / hazir, sari = sarj oluyor / gecici, kirmizi = bos, beyaz = senin bind'in.")
 menu.stats_panel = style.tip(grp.indicators:switch(style.title("table-list", "Stats panel"), false),
     "Durum basina vurulma / kafa / iska, DT ve defensive orani, AI peek ve faz istatistikleri.")
 -- Resolver paneli: her dusman icin resolver'in onu ne kadar cozdugu (resolver'a bagli isabet /
@@ -1042,7 +1055,14 @@ local SIGHT = { gap = 24, keep = 64, recent = 32 }
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
     any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil, edge = 3.5, peeking = nil,
     enemy_peek = false, fresh = 16, peek_speed = 120, duel = nil, duel_hold = 1.0 }
-local peek = { until_tick = -1000 }
+-- afk (V1.1.9, GameSense V1.0.35 / V1.0.37 / V1.0.71; istek: "afk modu da yok onu da ayarla"): acikken AI peek Peek
+-- Assist tusu olmadan durdugun yerden calisir, AI peek bosken capanin (anchor) iki yanina step birim, every sn'de bir yon
+-- degisir; her silahta DT, defensive tam (bkz. apply_exploit, apply_defensive). auto: dogduktan (donma suresinden) sonra
+-- idle sn hic tusa basmazsan (hareket / ziplama / egilme / ates / durbun / E / R / silah / fare) kendiliginden acilir,
+-- basinca kapanir; armed: bu dogusta olculuyor (round basi ve olum yeniden kurar). Durum update_ai_peek'te guncellenir.
+local peek = { until_tick = -1000,
+    afk = { on = false, anchor = nil, side = 1, flip_at = -1000, blocked_at = nil, every = 3, step = 24,
+        auto = false, idle_since = nil, armed = false, idle = 8, cam_y = nil, cam_p = nil } }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
 -- soruyordu; tick basina bir kez okunur.
@@ -1411,7 +1431,8 @@ do
         -- bozuluyor": tusa basar basmaz yerinde dururken de Peek'e geciliyordu; duruşun otomatik
         -- freestanding'i ve safe head'i kapaniyor, gorulunce defensive aciliyordu. Dururken tus basili
         -- olsa da duruşun AA'si kalir.
-        if peek_key_held() and (motion.moving or exposure.peeking ~= nil) then
+        -- V1.1.9 AFK: tus yok; sadece AI peek yururken / beklerken Peek (yan adimlar Peek sayilmaz).
+        if (peek_key_held() and (motion.moving or exposure.peeking ~= nil)) or (peek.afk.on and exposure.peeking ~= nil) then
             return "Peek"
         end
         -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
@@ -3138,7 +3159,12 @@ local function apply_exploit(s, class)
     if not menu.auto_exploit:get() or effective("fakeduck") then
         choice = "Binds"
     end
-    if choice ~= "Binds" then
+    -- V1.1.9 AFK (GameSense V1.0.35): exploit tam acik, her silahta DT (sniper ayari ve Auto exploit kapali da olsa).
+    local afk = peek.afk.on and not effective("fakeduck")
+    if afk then
+        choice = "Double tap"
+    end
+    if choice ~= "Binds" and not afk then
         local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
         local sniper_setting = menu.sniper_exploit:get()
         local sniper_hs = SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs"))
@@ -3444,6 +3470,12 @@ do
     apply_defensive = function(cmd, s, class, state, moving, armed, clean)
         local dt, hs = effective("doubletap"), effective("hideshots")
         local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
+        -- V1.1.9 AFK (GameSense V1.0.35): defensive tam; Off / On peek durumlari Smart sayilir ve DT doluyken her tick
+        -- zorlanir (temiz atis yine kazanir).
+        local afk = peek.afk.on
+        if afk and (mode == "Off" or mode == "On peek") then
+            mode = "Smart"
+        end
         -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
         if not (dt or hs) or mode == "Off" or is_grenade(class) or effective("fakeduck") then
             defensive_off()
@@ -3474,7 +3506,7 @@ do
         -- AI peek yururken / beklerken: defensive dusman seni gormeden baslar, ilk gordugu
         -- kayit eski ve acilar gizli olur (defensive peek).
         local peeking = on_peek and exposure.peeking ~= nil and menu.peek_defensive:get()
-        local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF") and not clean
+        local forced = (window or guard or peeking or afk) and dt and exploit_active() and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
         current.forced = forced
         current.anti = forced and guard
@@ -4283,7 +4315,9 @@ do
     end
 
     local function allowed(lp, cmd, class)
-        if not ai_peek.available or not menu.ai_peek:get() or not peek_key_held() then
+        -- V1.1.9 AFK: tus basili sayilir ve AI peek kapali olsa da calisir (GameSense ile ayni).
+        local afk = peek.afk.on
+        if not ai_peek.available or not (menu.ai_peek:get() or afk) or not (afk or peek_key_held()) then
             return false
         end
         if bit.band(lp.m_fFlags, 1) == 0 or cmd.in_jump == true or cmd.in_use == true
@@ -4349,8 +4383,9 @@ do
             return
         end
         if menu.shot_log:get() then
-            local why = user_moving(cmd) and "hareket tusu" or (not peek_key_held() and "Peek Assist birakildi")
-                or "kosul degisti"
+            -- V1.1.9: AFK'da tus yok; "Peek Assist birakildi" yazilmaz (GameSense'te peek_key_held AFK'yi de sayar).
+            local why = user_moving(cmd) and "hareket tusu"
+                or (not (peek.afk.on or peek_key_held()) and "Peek Assist birakildi") or "kosul degisti"
             print(("[%s] ai peek: iptal, %s"):format(SCRIPT, why))
         end
     end
@@ -4397,8 +4432,156 @@ do
 
     local step
 
+    -- V1.1.9 AFK sag / sol adim (GameSense V1.0.35): AI peek bosken capanin (acildigi yer) iki yanina afk.step birim,
+    -- afk.every sn'de bir yon degisir. Yon dusmana (yoksa bakisa) dik. Duvar / ucurum varsa o yan atlanir (capada
+    -- durulur). Sen tusa basinca durur, biraktigin yer yeni capa olur. 2 bos peek kilidi AFK'da tus yeniden
+    -- basilmadigi icin 10 sn sonra kalkar.
+    local function afk_strafe(lp, cmd, user_input)
+        local afk = peek.afk
+        local mine = origin_of(lp)
+        local now = globals.realtime
+        if mine == nil or user_input or bit.band(lp.m_fFlags, 1) == 0 or cmd.in_jump == true or cmd.in_use == true
+            or lp.m_MoveType == MOVETYPE_LADDER then
+            afk.anchor = nil
+            return
+        end
+        if afk.anchor == nil then
+            afk.anchor, afk.flip_at = mine, now + afk.every
+        else
+            local ax, ay = mine.x - afk.anchor.x, mine.y - afk.anchor.y
+            if ax * ax + ay * ay > 160 * 160 or abs(mine.z - afk.anchor.z) > 18 then
+                -- dogdun / isinlandin / itildin / basamaktan dustun: yeni capa
+                afk.anchor, afk.flip_at = mine, now + afk.every
+            end
+        end
+        if ai_peek.blocked ~= nil then
+            afk.blocked_at = afk.blocked_at or now
+            if now - afk.blocked_at > 10 then
+                ai_peek.blocked, ai_peek.fails, afk.blocked_at = nil, 0, nil
+            end
+        else
+            afk.blocked_at = nil
+        end
+        if ai_peek.mode ~= nil then
+            afk.flip_at = max(afk.flip_at, now + 0.5)
+            return
+        end
+        if now >= afk.flip_at or now < afk.flip_at - afk.every - 1 then
+            afk.side, afk.flip_at = -afk.side, now + afk.every
+        end
+        local threat = aa_threat()
+        local theirs = threat ~= nil and not dormant(threat) and origin_of(threat) or nil
+        local yaw
+        if theirs ~= nil and (theirs.x ~= afk.anchor.x or theirs.y ~= afk.anchor.y) then
+            yaw = math.deg(atan2(theirs.y - afk.anchor.y, theirs.x - afk.anchor.x))
+        else
+            local ok, view = pcall(function() return cmd.view_angles.y end)
+            yaw = ok and type(view) == "number" and view or nil
+        end
+        if yaw == nil then
+            return
+        end
+        local r = math.rad(yaw)
+        local px, py = -math.sin(r), math.cos(r)
+        local dest = vector(afk.anchor.x + px * afk.step * afk.side, afk.anchor.y + py * afk.step * afk.side, afk.anchor.z)
+        -- AI peek'in yurunebilir kontrolu 40 birim asagidaki zemini de kabul eder; AFK adimi basamak yuksekligi (18)
+        -- icinde kalir, kenardan dusmez.
+        local ok_floor, floor_hit = pcall(function()
+            return fraction(trace_line(vector(dest.x, dest.y, dest.z + 18), vector(dest.x, dest.y, dest.z - 18), lp,
+                MASK_PLAYERSOLID))
+        end)
+        if not ok_floor or floor_hit >= 1 or not walkable(lp, afk.anchor, dest) then
+            dest = afk.anchor
+        end
+        if move_to(cmd, mine, dest) < 4 then
+            stand(cmd)
+        end
+    end
+
+    -- V1.1.9 otomatik AFK (GameSense V1.0.37 / V1.0.40): dogduktan sonra donma suresi bitince sayac baslar; hareket /
+    -- ziplama / egilme / ates / durbun / E / R / silah secimi ya da fare (kamera 0.5 dereceden fazla dondu) girdi sayilir,
+    -- AFK'yi kapatir ve bu dogusta bir daha acilmaz. Menu acikken ya da isinmada sayac ilerlemez; donma suresindeki
+    -- tus sadece sayaci sifirlar.
+    local function afk_update(lp, cmd)
+        local afk = peek.afk
+        local was, now = afk.on, globals.realtime
+        local ok_in, why = pcall(function()
+            if user_moving(cmd) or cmd.in_jump == true or cmd.in_duck == true then
+                return "tus"
+            elseif cmd.in_attack == true or cmd.in_attack2 == true then
+                return "ates / durbun"
+            elseif cmd.in_use == true or cmd.in_reload == true or (tonumber(cmd.weaponselect) or 0) ~= 0 then
+                return "E / R / silah"
+            end
+            return nil
+        end)
+        why = ok_in and why or nil
+        -- Kamera: Neverlose'un render.camera_angles'i (oyunun kamerasi); yoksa / hata verirse / sayi donmezse
+        -- komutun bakis acisi (ikisi ayri denenir: biri bozuksa fare kontrolu yine calisir).
+        local cam_p, cam_y
+        for _, source in ipairs({ function() return render.camera_angles() end, function() return cmd.view_angles end }) do
+            local ok_cam, p, y = pcall(function()
+                local a = source()
+                return a.x, a.y
+            end)
+            if ok_cam and type(p) == "number" and type(y) == "number" and p == p and y == y then
+                cam_p, cam_y = p, y
+                break
+            end
+        end
+        if cam_y ~= nil and afk.cam_y ~= nil
+            and (abs((cam_y - afk.cam_y + 180) % 360 - 180) > 0.5 or abs(cam_p - (afk.cam_p or cam_p)) > 0.5) then
+            why = why or "fare"
+        end
+        afk.cam_p, afk.cam_y = cam_p, cam_y
+        local ok_rules, rules = pcall(entity.get_game_rules)
+        rules = ok_rules and rules or nil
+        local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
+        local warmup = rules ~= nil and prop(rules, "m_bWarmupPeriod") or nil
+        local frozen = freeze == true or freeze == 1
+        local ok_alpha, alpha = pcall(ui.get_alpha)
+        local paused = frozen or warmup == true or warmup == 1 or (ok_alpha and type(alpha) == "number" and alpha > 0)
+        local auto_on = menu.afk_auto:get()
+        if why ~= nil and frozen then
+            afk.idle_since = nil
+        elseif why ~= nil then
+            if afk.auto and menu.hit_log:get() then
+                print(("[%s] otomatik afk kapandi: %s"):format(SCRIPT, why))
+            end
+            afk.auto, afk.armed, afk.idle_since = false, false, nil
+        elseif paused or not auto_on then
+            afk.idle_since = nil
+        elseif afk.armed then
+            afk.idle_since = afk.idle_since or now
+            if not afk.auto and now - afk.idle_since >= afk.idle then
+                afk.auto = true
+                if menu.hit_log:get() then
+                    print(("[%s] otomatik afk: dogduktan sonra %d sn tusa basmadin"):format(SCRIPT, afk.idle))
+                end
+            end
+        end
+        if not auto_on then
+            afk.auto = false
+        end
+        local ok_alive, alive = pcall(function() return lp:is_alive() end)
+        afk.on = menu.enabled:get() and (menu.afk:get() or afk.auto) and ok_alive and alive == true
+        if afk.on ~= was then
+            afk.anchor, afk.blocked_at = nil, nil
+            if menu.hit_log:get() then
+                print(("[%s] afk modu %s"):format(SCRIPT, afk.on
+                    and "acik: AI peek burada, 3 sn'de bir sag / sol, DT + defensive tam" or "kapali"))
+            end
+        end
+    end
+
     update_ai_peek = function(lp, cmd, class)
+        afk_update(lp, cmd)
+        -- Kullanicinin kendi hareket tusu (AI peek / AFK adimi komutu degistirmeden once).
+        local user_input = user_moving(cmd)
         step(lp, cmd, class)
+        if peek.afk.on then
+            afk_strafe(lp, cmd, user_input)
+        end
         -- Yururken / beklerken / donerken Peek Assist kapali (hareketi ezmesin); bosta senin.
         if ai_peek.mode ~= nil then
             override("peek_assist", false)
@@ -4610,6 +4793,19 @@ do
     end
 end
 
+-- V1.1.9 AFK kapanir: script kapatilinca (dead = false) ya da olunce (dead = true; GameSense V1.0.54: capa birakilir,
+-- dogdugun yer yeni capa, otomatik AFK bir sonraki dogusta yeniden olculur).
+peek.afk.stop = function(dead)
+    local afk = peek.afk
+    if afk.on and dead and menu.hit_log:get() then
+        print(("[%s] afk modu kapali: oldun"):format(SCRIPT))
+    end
+    afk.on, afk.anchor, afk.blocked_at, afk.auto = false, nil, nil, false
+    if dead then
+        afk.armed, afk.idle_since, afk.cam_y, afk.cam_p = true, nil, nil, nil
+    end
+end
+
 events.createmove:set(protect("createmove", function(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     local rec, tick = recommended_state, globals.tickcount
@@ -4617,6 +4813,7 @@ events.createmove:set(protect("createmove", function(cmd)
         apply_recommended()
     end
     if not menu.enabled:get() then
+        peek.afk.stop(false)
         reset_overrides()
         set_charge(true)
         return
@@ -4624,6 +4821,7 @@ events.createmove:set(protect("createmove", function(cmd)
 
     local lp = entity.get_local_player()
     if lp == nil or not lp:is_alive() then
+        peek.afk.stop(lp ~= nil)
         set_charge(true)
         override("fakeduck", nil)
         return
@@ -5568,11 +5766,28 @@ events.round_start:set(protect("round_start", function()
     reset_brute()
     exposure.shot = nil
     ai_peek.reset()
+    -- V1.1.9: yeni round = yeni dogus: otomatik AFK yeniden olculur (donma suresi sayilmaz), capa birakilir. Dogusta
+    -- oyun bakisi sifirlar: onceki round'un kamerasi fare sayilmasin (donma suresi 0 olan sunucular).
+    peek.afk.auto, peek.afk.armed, peek.afk.idle_since, peek.afk.anchor = false, true, nil, nil
+    peek.afk.cam_y, peek.afk.cam_p = nil, nil
     pending_misses = {}
     set_charge(true)
     persist.save(false)
     nlog.save()
 end))
+
+-- V1.1.9 (GameSense V1.0.64 "dm round"): deathmatch / haritaya ortadan girince round_start gelmeyebilir; senin
+-- dogusun da otomatik AFK'yi yeniden kurar (round basindaki gibi).
+pcall(function()
+    events.player_spawn:set(protect("player_spawn", function(e)
+        local lp = entity.get_local_player()
+        if lp == nil or e == nil or entity.get(e.userid, true) ~= lp then
+            return
+        end
+        local afk = peek.afk
+        afk.auto, afk.armed, afk.idle_since, afk.anchor, afk.cam_y, afk.cam_p = false, true, nil, nil, nil, nil
+    end))
+end)
 
 -- Harita degisince slot numaralari degisir, oyuncular cogunlukla kalir. Aktif fazlar,
 -- bekleyen atislar ve hedef sifirlanir; Steam ID ile ogrenilenler (anti-brute fazi,
@@ -5624,6 +5839,7 @@ events.player_death:set(protect("player_death", function(e)
         reset_brute()
         set_charge(true)
         ai_peek.reset()
+        peek.afk.stop(true)
     elseif attacker == lp and victim ~= nil and menu.enabled:get() then
         local ok_victim, enemy_victim = pcall(function() return victim:is_enemy() end)
         if ok_victim and enemy_victim then
@@ -5766,6 +5982,86 @@ local function draw_indicators(lp, cx, cy)
     if ai_peek.mode == "go" or ai_peek.mode == "hold" then
         y = y + 9
         render.text(FONT, vector(x, y), accent, "c", "AI PEEK")
+    end
+end
+
+-- V1.1.9 (GameSense V1.0.76; istek: "solda gozukme muhabbetini de ekle"): sol gosterge listesi. GameSense'in
+-- renderer.indicator'i Neverlose'da yok; ayni liste render.text ile ekranin soluna, dikeyde ortaya, satir satir.
+-- Yesil = acik / hazir, sari = sarj oluyor / gecici (script'in ezdigi), kirmizi = bos, beyaz = senin bind'in.
+own.ind = { GREEN = color(124, 195, 13, 255), YELLOW = color(230, 200, 40, 255), RED = color(230, 70, 70, 255),
+    WHITE = color(220, 220, 220, 255), size = 22, line = 26, font = nil }
+-- Kalin Verdana (yuklenemezse ince, o da olmazsa Neverlose'un yerlesik fontu). Bir kez yuklenir.
+own.ind.font_of = function()
+    local I = own.ind
+    if I.font == nil then
+        for _, flags in ipairs({ "ab", "a" }) do
+            local ok, loaded = pcall(render.load_font, "Verdana", I.size, flags)
+            if ok and loaded ~= nil then
+                I.font = loaded
+                break
+            end
+        end
+        I.font = I.font or FONT
+    end
+    return I.font
+end
+-- Acik olanlar (metin, renk), GameSense'teki sirayla.
+own.ind.items = function()
+    local I, list = own.ind, {}
+    local function put(col, text)
+        list[#list + 1] = { text, col }
+    end
+    local charge = api.charge ~= nil and api.charge() or nil
+    if effective("fakeduck") then
+        put(I.WHITE, "FD")
+    elseif effective("doubletap") then
+        put((type(charge) ~= "number" or charge >= 1) and I.GREEN or (charge > 0 and I.YELLOW or I.RED), "DT")
+    elseif effective("hideshots") then
+        put((recharge.hs_charges and type(charge) == "number" and charge < 1) and I.YELLOW or I.GREEN, "HS")
+    end
+    if current.forced then
+        put(I.GREEN, "DEF")
+    end
+    if current.lc then
+        put(I.YELLOW, "LC")
+    end
+    local md = overridden.min_damage
+    if type(md) == "number" then
+        put(I.YELLOW, ("MD %d"):format(md))
+    end
+    for _, item in ipairs({ { "body_aim", "BAIM" }, { "safe_points", "SAFE" } }) do
+        if overridden[item[1]] == "Force" then
+            put(I.YELLOW, item[2])
+        elseif overridden[item[1]] == nil and get(item[1]) == "Force" then
+            put(I.WHITE, item[2])
+        end
+    end
+    if current.freestand then
+        put(I.GREEN, "FS")
+    end
+    if peek.afk.on then
+        put(I.YELLOW, "AFK")
+    elseif peek_key_held() then
+        put(I.WHITE, "PEEK")
+    end
+    return list
+end
+own.ind.draw = function(screen)
+    local I = own.ind
+    local list = I.items()
+    if #list == 0 then
+        return
+    end
+    local font = I.font_of()
+    local y = floor(screen.y / 2 - #list * I.line / 2)
+    -- Stats panel acikken (solda, ekranin %45'inden asagi) liste onun ustunde biter.
+    if menu.stats_panel:get() then
+        y = min(y, floor(screen.y * 0.45) - 8 - #list * I.line)
+    end
+    for _, item in ipairs(list) do
+        render.text(font, vector(13, y + 1), SHADOW, nil, item[1])
+        render.text(font, vector(12, y), item[2], nil, item[1])
+        y = y + I.line
     end
 end
 
@@ -6228,6 +6524,10 @@ events.render:set(protect("render", function()
     end
 
     local cx, cy = floor(screen.x / 2), floor(screen.y / 2)
+    -- Sol liste nisangahtakilerden once: ayni yazilar (DT / HS / FS / DEF) ikisinde de var.
+    if menu.left_ind:get() then
+        safe_draw("left indicators", own.ind.draw, screen)
+    end
     if menu.indicators:get() then
         safe_draw("indicators", draw_indicators, lp, cx, cy)
     end

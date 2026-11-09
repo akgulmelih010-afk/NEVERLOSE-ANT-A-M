@@ -526,6 +526,12 @@ check(M("switch", "Air lag (defensive every tick)"):get() == true and M("switch"
 M("switch", "Air lag (defensive every tick)"):set(false); M("switch", "Snipers use DT in the air"):set(false)
 check(M("switch", "Resolver panel"):get() == true, "resolver panel on by default")
 M("switch", "Resolver panel"):set(false)
+-- V1.1.9: auto AFK is on by default (8 s without input after spawn); the legacy sections stand still for longer than
+-- that after round starts, so they turn it off and its own section tests it.
+check(M("switch", "Auto AFK (no input 8 s after spawn)"):get() == true
+      and M("switch", "AFK mode (AI peek here + strafe, full exploits)"):get() == false,
+      "V1.1.9: auto AFK on, manual AFK off by default")
+M("switch", "Auto AFK (no input 8 s after spawn)"):set(false)
 
 -- Saved memory --------------------------------------------------------------------
 do
@@ -1420,7 +1426,23 @@ check(polys >= 2, "manual arrows render")
 lp.m_bIsScoped = true; draw(); lp.m_bIsScoped = false
 M("switch", "Crosshair indicators"):set(false); M("switch", "Manual arrows"):set(false)
 draw()
+-- V1.1.9 (GameSense V1.0.76): the left list is on by default and stays when the crosshair ones are hidden.
+do
+local LEFT_IND = "Left indicators (DT / HS / FD / DEF / AFK ...)"
+check(M("switch", LEFT_IND):get() == true and M("switch", LEFT_IND).group == "Visuals/Indicators"
+      and contains(texts, "DT") and not contains(texts, "STANDING") and not contains(texts, "Nykle.win") and polys == 0,
+      "V1.1.9: left indicators on by default: DT listed without the crosshair indicators")
+check(same_color(colors["DT"], 124, 195, 13) and text_pos["DT"].x == 12 and math.abs(text_pos["DT"].y - 540) <= 52,
+      "V1.1.9: charged DT green, on the left edge, vertically centred")
+aa.charge = 0.5; draw()
+check(same_color(colors["DT"], 230, 200, 40), "V1.1.9: charging DT yellow")
+aa.charge = 0; draw()
+check(same_color(colors["DT"], 230, 70, 70), "V1.1.9: empty DT red")
+aa.charge = 1
+M("switch", LEFT_IND):set(false); draw()
 check(#texts == 0 and polys == 0, "indicators can be hidden")
+M("switch", LEFT_IND):set(true)
+end
 
 -- Menu visibility -------------------------------------------------------------------------
 M("combo", "State"):set("Global")
@@ -4382,6 +4404,216 @@ do
     M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); lp.m_flDuckAmount = 0
     reset_world()
 end
+
+-- AFK mode (V1.1.9, GameSense V1.0.35 / V1.0.37 / V1.0.71) ------------------------------------------------------------
+-- (A function, not a do block: the main chunk of this file is at the 200 locals limit.)
+;(function()
+    local AUTO, MANUAL = M("switch", "Auto AFK (no input 8 s after spawn)"), M("switch", "AFK mode (AI peek here + strafe, full exploits)")
+    local LEFT = M("switch", "Left indicators (DT / HS / FD / DEF / AFK ...)")
+    local v0 = { view_angles = vector(0, 0, 0) }
+    local function since(n, text)
+        for i = n + 1, #printed do if printed[i] == text then return true end end
+        return false
+    end
+    local function idle(n) local c for _ = 1, n do c = tick(0, v0) end return c end
+    local function peek_afk_on() draw(); return contains(texts, "AFK") end
+    check(AUTO.group == "Exploits/Peek" and MANUAL.group == "Exploits/Peek", "V1.1.9: AFK switches in Exploits > Peek")
+    reset_world()
+    M("switch", "Hit log"):set(true); M("switch", "Crosshair indicators"):set(false); LEFT:set(true)
+    world.threat = enemy; world.enemies = { enemy }; enemy.m_iHealth = 100; lp.origin = vector(0, 0, 0)
+    lp.weapon_class = "CWeaponSSG08"; aa.charge = 1; world.trace = NO_TRACE
+    refs[SHORT.peek].spec.value = false
+    AUTO:set(true); MANUAL:set(false)
+    local n = #printed
+    handlers.round_start({})
+    local c = idle(511)
+    check(ov("hs") == true and ov("dt") == false and c.sidemove == nil and c.force_defensive == nil
+          and not since(n, "[Nykle.win] otomatik afk: dogduktan sonra 8 sn tusa basmadin"),
+          "V1.1.9: 8 s not yet over: no AFK (scout on hide shots, nothing forced, no walking)")
+    draw()
+    check(not contains(texts, "AFK") and contains(texts, "HS"), "V1.1.9: left list: HS, no AFK yet")
+    c = idle(2)
+    check(since(n, "[Nykle.win] otomatik afk: dogduktan sonra 8 sn tusa basmadin")
+          and since(n, "[Nykle.win] afk modu acik: AI peek burada, 3 sn'de bir sag / sol, DT + defensive tam"),
+          "V1.1.9: auto AFK turns on after 8 s without input after the round start (logged)")
+    check(ov("dt") == true and ov("hs") == false, "V1.1.9: AFK forces double tap on every weapon (scout set to hide shots)")
+    M("switch", "Auto exploit"):set(false); tick(0, v0)
+    check(ov("dt") == true and ov("hs") == false, "V1.1.9: AFK forces double tap even with Auto exploit off (binds)")
+    M("switch", "Auto exploit"):set(true)
+    refs[SHORT.fakeduck].spec.value = true; tick(0, v0)
+    check(ov("dt") ~= true and peek_afk_on(), "V1.1.9: AFK does not force DT while fake ducking (DT/HS do not work with FD)")
+    refs[SHORT.fakeduck].spec.value = false; tick(0, v0)
+    check(ov("dt") == true, "V1.1.9: fake duck released: AFK forces DT again")
+    local def0 = B("Standing", "combo", "Defensive"):get()
+    B("Standing", "combo", "Defensive"):set("Off"); c = tick(0, v0)
+    check(c.force_defensive == true, "V1.1.9: AFK: a state with defensive Off is treated as Smart (forced)")
+    B("Standing", "combo", "Defensive"):set("On peek"); c = tick(0, v0)
+    check(c.force_defensive == true, "V1.1.9: AFK: a state with defensive On peek is forced too (nobody peeks)")
+    B("Standing", "combo", "Defensive"):set(def0)
+    world.hull = function() return 0 end; c = tick(0, v0)
+    check(c.sidemove == 0 and c.forwardmove == 0, "V1.1.9: a wall on the step side: stays on the anchor")
+    world.hull = OPEN
+    -- Ground 40 units down (AI peek's walkable check accepts it) but none within a step height (18): no step.
+    world.line = function(from, to) if to.z < -20 then return 0.5 end return 1 end; c = tick(0, v0)
+    check(c.sidemove == 0 and c.forwardmove == 0, "V1.1.9: no floor within a step height on the step side: stays on the anchor")
+    world.line = GROUND
+    c = tick(0, v0)
+    check(c.force_defensive == true, "V1.1.9: AFK forces defensive while DT is charged (nobody sees you)")
+    -- The enemy is ahead (+x): the side step is perpendicular, 24 units to +y first (sidemove < 0 looking at +x).
+    check(c.sidemove ~= nil and c.sidemove < -449 and math.abs(c.forwardmove) < 1, "V1.1.9: AFK strafes sideways (24 units left)")
+    draw()
+    check(contains(texts, "AFK") and same_color(colors["AFK"], 230, 200, 40) and contains(texts, "DT")
+          and same_color(colors["DT"], 124, 195, 13) and contains(texts, "DEF") and text_pos["AFK"].x == 12,
+          "V1.1.9: left list: DT green, DEF, AFK")
+    M("switch", "Crosshair indicators"):set(true); draw(); M("switch", "Crosshair indicators"):set(false)
+    check(contains(texts, "STANDING") and not contains(texts, "PEEK"), "V1.1.9: AFK side steps are not the Peek state")
+    M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
+    check(text_pos["AFK"] ~= nil and text_pos["AFK"].y < math.floor(1080 * 0.45) - 8 and contains(texts, "DT"),
+          "V1.1.9: with the stats panel on, the left list ends above it")
+    LEFT:set(false); draw()
+    check(not contains(texts, "AFK") and not contains(texts, "DT"), "V1.1.9: left indicators can be turned off")
+    LEFT:set(true)
+    lp.origin = vector(0, 24, 0); c = tick(0, v0)
+    check(c.sidemove == 0 and c.forwardmove == 0, "V1.1.9: at the side spot: stands")
+    c = idle(200)
+    check(c.sidemove ~= nil and c.sidemove > 449, "V1.1.9: 3 s later the step flips to the other side")
+    -- Pushed more than 160 units: the new spot is the anchor (no threat: the step follows your view, +-y).
+    world.threat = nil; lp.origin = vector(300, 0, 0); c = tick(0, v0)
+    check(c.sidemove ~= nil and math.abs(c.sidemove) > 449 and math.abs(c.forwardmove) < 1,
+          "V1.1.9: pushed > 160 units: the strafe re-anchors there (steps sideways, does not walk back)")
+    world.threat = enemy
+    lp.origin = vector(0, 0, 0)
+    -- Any input ends auto AFK for this life.
+    n = #printed
+    c = tick(0, { view_angles = vector(0, 0, 0), sidemove = 450 })
+    check(since(n, "[Nykle.win] otomatik afk kapandi: tus") and since(n, "[Nykle.win] afk modu kapali")
+          and c.sidemove == 450, "V1.1.9: a movement key turns auto AFK off at once (logged), your move stays")
+    c = idle(600)
+    check(ov("hs") == true and c.sidemove == nil and c.force_defensive == nil, "V1.1.9: and it does not come back this life")
+    draw()
+    check(not contains(texts, "AFK"), "V1.1.9: left list: AFK gone")
+    -- Mouse: the camera turning counts as input.
+    handlers.round_start({}); idle(513)
+    check(ov("dt") == true, "V1.1.9 setup: auto AFK on again after the next round start")
+    n = #printed; tick(0, { view_angles = vector(0, 10, 0) })
+    check(since(n, "[Nykle.win] otomatik afk kapandi: fare") and ov("hs") == true, "V1.1.9: turning the camera ends auto AFK")
+    -- render.camera_angles (Neverlose's camera) comes first; nil / an error falls back to the command's view angles.
+    for _, bad in ipairs({ function() return nil end, function() error("not in render") end, function() return {} end }) do
+        render.camera_angles = bad
+        handlers.round_start({}); idle(513)
+        check(ov("dt") == true, "V1.1.9 setup: auto AFK on with a broken render.camera_angles")
+        n = #printed; tick(0, { view_angles = vector(0, 10, 0) })
+        check(since(n, "[Nykle.win] otomatik afk kapandi: fare") and ov("hs") == true,
+              "V1.1.9: render.camera_angles nil / failing: the command's view angles still catch the mouse")
+    end
+    local cam = vector(0, 0, 0)
+    render.camera_angles = function() return cam end
+    handlers.round_start({}); idle(513)
+    n = #printed; tick(0, { view_angles = vector(0, 40, 0) })
+    check(ov("dt") == true and not since(n, "[Nykle.win] otomatik afk kapandi: fare"),
+          "V1.1.9: with render.camera_angles: a turned command (not your camera) is not input")
+    cam = vector(0, 10, 0); tick(0, v0)
+    check(since(n, "[Nykle.win] otomatik afk kapandi: fare") and ov("hs") == true, "V1.1.9: render.camera_angles turning ends auto AFK")
+    render.camera_angles = nil
+    -- Freeze time and the open menu do not count.
+    handlers.round_start({}); world.rules.m_bFreezePeriod = true; idle(600)
+    check(ov("hs") == true, "V1.1.9: freeze time is not counted")
+    world.rules.m_bFreezePeriod = false; idle(300); mouse_state.alpha = 1; idle(300); mouse_state.alpha = 0; idle(300)
+    check(ov("hs") == true, "V1.1.9: the count restarts after the menu was open")
+    idle(213)
+    check(ov("dt") == true, "V1.1.9: 8 s after the freeze time: on")
+    -- Death: AFK off (logged), re-armed for the next life.
+    n = #printed
+    handlers.player_death({ userid = 1, attacker = 5 })
+    check(since(n, "[Nykle.win] afk modu kapali: oldun"), "V1.1.9: dying turns AFK off (logged)")
+    c = idle(500)
+    check(ov("hs") == true and c.sidemove == nil, "V1.1.9: alive again: no AFK until 8 s idle")
+    idle(14)
+    check(ov("dt") == true, "V1.1.9: re-armed after death: on again after 8 s")
+    -- A key pressed earlier in that life does not matter after a death either.
+    tick(0, { view_angles = vector(0, 0, 0), in_jump = true }); idle(600)
+    check(ov("hs") == true, "V1.1.9 setup: a jump ends auto AFK for this life")
+    handlers.player_death({ userid = 1, attacker = 5 }); idle(513)
+    check(ov("dt") == true, "V1.1.9: the death re-arms it: on again 8 s after")
+    n = #printed; tick(0, { view_angles = vector(0, 0, 0), in_reload = true })
+    check(since(n, "[Nykle.win] otomatik afk kapandi: E / R / silah") and ov("hs") == true, "V1.1.9: reloading ends auto AFK too")
+    -- Deathmatch / joining mid-map: no round_start; your own spawn re-arms it (GameSense "dm round").
+    handlers.player_spawn({ userid = 5 }); idle(600)
+    check(ov("hs") == true, "V1.1.9: another player's spawn does not re-arm auto AFK")
+    handlers.player_spawn({ userid = 1 }); idle(511)
+    check(ov("hs") == true, "V1.1.9: after your spawn: not before 8 s")
+    idle(2)
+    check(ov("dt") == true, "V1.1.9: your own spawn (no round_start) re-arms auto AFK")
+    -- Warmup is not counted.
+    handlers.round_start({}); world.rules.m_bWarmupPeriod = true; idle(600)
+    check(ov("hs") == true, "V1.1.9: warmup is not counted")
+    world.rules.m_bWarmupPeriod = false; idle(513)
+    check(ov("dt") == true, "V1.1.9: 8 s after the warmup: on")
+    -- Shooting, scoping and crouching are input too (holding an angle with a sniper is not AFK).
+    for _, input in ipairs({ { "in_attack", "ates / durbun" }, { "in_attack2", "ates / durbun" }, { "in_duck", "tus" } }) do
+        if not peek_afk_on() then handlers.player_spawn({ userid = 1 }); idle(513) end
+        check(ov("dt") == true, "V1.1.9 setup: auto AFK on before " .. input[1])
+        n = #printed; tick(0, { view_angles = vector(0, 0, 0), [input[1]] = true })
+        check(since(n, "[Nykle.win] otomatik afk kapandi: " .. input[2]) and ov("hs") == true,
+              "V1.1.9: " .. input[1] .. " ends auto AFK")
+    end
+    -- Auto AFK off: nothing happens.
+    AUTO:set(false); c = tick(0, v0)
+    check(ov("hs") == true and c.sidemove == nil, "V1.1.9: auto AFK can be turned off")
+    handlers.round_start({}); c = idle(600)
+    check(ov("hs") == true and c.sidemove == nil, "V1.1.9: and stays off")
+    -- Manual AFK: AI peek without the Peek Assist key (even with AI peek off); the enemy is hittable from 32 units right.
+    world.trace = function(_, from, eye) if from == lp and eye ~= nil and eye.y <= -20 then return 150 end return 0 end
+    M("switch", "AI peek (hold Peek Assist)"):set(false)
+    c = idle(70)
+    check(c.sidemove == nil, "V1.1.9 setup: no key, no AFK: no AI peek")
+    n = #printed; MANUAL:set(true)
+    for _ = 1, 4 do c = tick(0, v0) end
+    check(since(n, "[Nykle.win] ai peek: sag 32 birim -> enemy5 (hasar 150)") and c.sidemove ~= nil and c.sidemove > 449
+          and ov("peek") == false, "V1.1.9: AFK mode: AI peek walks without the Peek Assist key (32 units right)")
+    M("switch", "Crosshair indicators"):set(true); c = tick(0, v0); draw(); M("switch", "Crosshair indicators"):set(false)
+    check(contains(texts, "PEEK") and contains(texts, "AFK"), "V1.1.9: the AFK AI peek uses the Peek state (no key held)")
+    c = tick(0, { view_angles = vector(0, 0, 0), forwardmove = 450 })
+    check(c.forwardmove == 450 and c.sidemove == nil and ov("dt") == true,
+          "V1.1.9: AFK mode stays on while you move (manual), but your keys move you, not the side step")
+    -- Two empty peeks block the enemy until the key is pressed again; in AFK there is no key: retried after 10 s.
+    n = #printed
+    local blocked = false
+    for _ = 1, 1500 do
+        tick(0, v0)
+        if since(n, "[Nykle.win] ai peek: 2 bos peek, bu dusmana Peek Assist tusuna yeniden basana kadar peek yok") then
+            blocked = true
+            break
+        end
+    end
+    check(blocked, "V1.1.9 setup: two empty AFK peeks block the enemy")
+    n = #printed; idle(64 * 9)
+    check(not since(n, "[Nykle.win] ai peek: sag 32 birim -> enemy5 (hasar 150)"), "V1.1.9: blocked AFK peek: no peek for 10 s")
+    idle(64 * 2)
+    check(since(n, "[Nykle.win] ai peek: sag 32 birim -> enemy5 (hasar 150)"), "V1.1.9: AFK retries the blocked peek after 10 s")
+    n = #printed; tick(0, { view_angles = vector(0, 0, 0), in_jump = true })
+    check(since(n, "[Nykle.win] ai peek: iptal, kosul degisti") and not since(n, "[Nykle.win] ai peek: iptal, Peek Assist birakildi"),
+          "V1.1.9: an AFK peek cancelled by a jump does not blame the Peek Assist key")
+    -- Disabling the script while AFK is on clears it: turned off meanwhile, it is not drawn on re-enable.
+    tick(0, v0); draw()
+    check(contains(texts, "AFK"), "V1.1.9 setup: AFK drawn")
+    M("switch", "Enable"):set(false); tick(0, v0); MANUAL:set(false); M("switch", "Enable"):set(true); draw()
+    check(not contains(texts, "AFK"), "V1.1.9: disabling the script turns AFK off (not drawn after re-enable)")
+    c = tick(0, v0); c = tick(0, v0)
+    check(c.sidemove == nil and ov("dt") == false, "V1.1.9: AFK mode off: back to normal")
+    M("switch", "AI peek (hold Peek Assist)"):set(true); M("switch", "Crosshair indicators"):set(true)
+    world.trace = NO_TRACE; lp.weapon_class = "CAK47"
+    -- "Always use recommended settings" (on by default) leaves both AFK switches alone.
+    MANUAL:set(true); AUTO:set(false)
+    M("switch", "Always use recommended settings"):set(true); idle(150)
+    check(MANUAL:get() == true and AUTO:get() == false and ov("dt") == true,
+          "V1.1.9: recommended settings do not reset the AFK switches (manual AFK stays on, DT forced)")
+    MANUAL:set(true); AUTO:set(true); idle(150)
+    check(MANUAL:get() == true and AUTO:get() == true, "V1.1.9: ... in either direction")
+    M("switch", "Always use recommended settings"):set(false)
+    MANUAL:set(false); AUTO:set(false); tick(0, v0)
+    reset_world()
+end)()
 M("switch", "Enable"):set(false)
 
 -- Disable / shutdown ---------------------------------------------------------------------
