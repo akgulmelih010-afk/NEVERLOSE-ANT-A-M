@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.14  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.15  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,13 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.15 (primordial edition): resolver + peek paketi. Resolver: iska penceresi durum ailesi basina (Yer / Egik /
+        Hava; seviye saniyede bir 0 <-> 1 gidip geliyordu), cok tarafli desen on bilgisi 2 sn tutulur. Jitter tarafi
+        ("Jitter timing", acik): jitter yapan dusmanda atis anindaki taraf (+ / -) ve sonucu sayilir; bir tarafta kafa
+        orani digerinden en az 0.4 dusukse (3+ ve 2+ atis) o taraftayken kafa en fazla 6 tick bekletilir; harita
+        sonunda "resolver karsilastirma: jitter tarafi ...". Peek: "Safe peek" (acik): autopeek noktasinda silah / DT
+        hazir olana kadar (en fazla 1 sn) yurume komutu sifir; vur-kac AI peek / AFK yuruyusunde de; AI peek baska
+        bir dusmanin da gordugu noktayi secmez.
       V1.0.14 (primordial edition): duvar avi ("Wall hunt", acik; Min. damage kuralina kullanicinin onayladigi yeni
         istisna: "rakip uzaksa olur"). Sniper ile, duvar arkasindaki (duz cizgi kapali), en az 900 birim uzaktaki
         hedefe duvardan govde hasari >= 50 ise Min. damage govde - 1 (oldurmese de vur). Senin override tusun
@@ -121,7 +128,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.14", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.15", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1646,6 +1653,7 @@ do
         -- Peek
         B.cb("auto_peek", "peek", "Auto peek state (moving into view)", true, true)
         B.cb("ai_peek", "peek", "AI peek (hold autopeek key)", true, true)
+        B.cb("safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", true, true)
         B.cb("peek_defensive", "peek", "Defensive during AI peek", true, true)
         B.cb("afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", false, false)
         B.cb("afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", true, false)
@@ -1659,6 +1667,7 @@ do
         B.cb("wait_real", "rage", "Wait for real record (enemy defensive)", true, true)
         B.cb("fresh_only", "rage", "Snipers: fresh record only", true, true)
         B.cb("counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", true, true)
+        B.cb("jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", true, true)
         B.cb("wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", true, true)
         B.sl("wall_dist", "rage", "Wall hunt: min distance", 300, 2500, 900, true, "u")
         B.sl("wall_dmg", "rage", "Wall hunt: min damage", 30, 99, 50, true, "")
@@ -2305,8 +2314,10 @@ do
             if kind == "P" and #f >= 8 and f[2] ~= "" then
                 local res = {}
                 for state, results in f[6]:gmatch("([^=;]+)=([cho]*)") do
-                    -- Eski surumlerin 'o' (diger iska) harfleri pencereyi sulandirmasin.
-                    res[state] = results:gsub("o", ""):sub(-4)
+                    -- Eski surumlerin 'o' (diger iska) harfleri pencereyi sulandirmasin. V1.0.15: durum adlari
+                    -- aileye (Yer / Egik / Hava) tasinir; ayni aileye dusen eski pencereler birlesir (son 4).
+                    local fam = (N.rage.FAM ~= nil and N.rage.FAM[state]) or state
+                    res[fam] = ((res[fam] or "") .. results:gsub("o", "")):sub(-4)
                 end
                 local n, h, b = f[7]:match("^([%d%.]+),([%d%.]+),(%d+)$")
                 if d.players[f[2]] == nil then
@@ -2777,6 +2788,14 @@ do
         if nc == 2 and tight and multi == 2 then
             t.pattern = "jitter"
             t.amp = abs(U.norm(clusters[2].sum / clusters[2].n - clusters[1].sum / clusters[1].n))
+            -- V1.0.15 jitter tarafi: son gercek yaw'in kumesi (rel = 0 onu icerir); diger kume ona gore saat yonunun
+            -- tersindeyse (+) son yaw "-" tarafta, degilse "+" tarafta. Etiket dusmanin kendi jitter merkezine gore.
+            local other = clusters[1]
+            if clusters[1].lo <= 0.5 and clusters[1].hi >= -0.5 then
+                other = clusters[2]
+            end
+            local om = U.norm(other.sum / other.n)
+            t.jit_side, t.jit_tick = om > 0 and -1 or 1, U.tick()
         elseif nc >= 3 and nc <= 5 and tight and multi >= 2 then
             t.pattern = "xway"
         else
@@ -5133,8 +5152,9 @@ do
 
     X.ideal_shot = function()
         local st = N.st
-        if not N.on("ideal_tick") or not st.alive or st.airborne or st.fd or not N.ref.on("autopeek")
-            or not U.is_bolt(st.weapon) or X.paused("TP") then
+        -- V1.0.15: AI peek / AFK yuruyusunde de (tus basili olmasa da).
+        if not N.on("ideal_tick") or not st.alive or st.airborne or st.fd
+            or not (N.ref.on("autopeek") or N.peek.mode ~= nil) or not U.is_bolt(st.weapon) or X.paused("TP") then
             return
         end
         X.ideal.pending = U.tick()
@@ -6545,24 +6565,130 @@ do
     RG.estate = function(target)
         return N.track.enemy_state(target)
     end
+    -- V1.0.15 (log 1-2: seviye saniyede bir 0 <-> 1; 81 satirin 35'i 2 sn icinde): iska penceresi durum AILESI
+    -- basina. Standing / Slow walk / Moving siniri (hiz 5 / 135) her saniye gecilir; pencere artik ortak.
+    RG.FAM = { Standing = "Yer", ["Slow walk"] = "Yer", Moving = "Yer", Crouching = "Egik", ["Crouch move"] = "Egik",
+        Air = "Hava", ["Air crouch"] = "Hava" }
+    RG.fam = function(estate)
+        return RG.FAM[estate] or estate
+    end
+
+    -- V1.0.15 jitter tarafi: jit[anahtar][taraf] = { n = kafaya nisanli sonuclanan atis, h = kafa isabeti } (bu harita).
+    -- Sadece guncel kayda (bt <= 2) atilan atislar sayilir. Tutma: su anki tarafta >= 3 atis, diger tarafta >= 2 ve
+    -- kafa orani en az 0.4 dusukse, o taraftayken kafa grubu en fazla 6 tick kapatilir (sonra 12 tick serbest).
+    RG.jit = {}
+    RG.jit_side = function(idx)
+        local tr = N.track.p[idx]
+        if tr == nil or tr.pattern ~= "jitter" or tr.jit_side == nil then
+            return nil
+        end
+        local age = U.tick() - (tr.jit_tick or -1000)
+        if age < 0 or age > 4 then
+            return nil
+        end
+        return tr.jit_side
+    end
+
+    RG.jit_count = function(key, side, head)
+        if key == nil or side == nil then
+            return
+        end
+        local j = RG.jit[key]
+        if j == nil then
+            j = { [1] = { n = 0, h = 0 }, [-1] = { n = 0, h = 0 } }
+            RG.jit[key] = j
+        end
+        local x = j[side]
+        x.n = x.n + 1
+        if head then
+            x.h = x.h + 1
+        end
+    end
+
+    RG.jit_hold = function(ctx, target, idx, info)
+        if not N.on("jit_timing") then
+            return
+        end
+        local side = RG.jit_side(idx)
+        local _, key = N.mem.entry(target)
+        local j = key ~= nil and RG.jit[key] or nil
+        if side == nil or j == nil then
+            return
+        end
+        local cur, oth = j[side], j[-side]
+        if cur.n < 3 or oth.n < 2 or (oth.h / oth.n) - (cur.h / cur.n) < 0.4 then
+            return
+        end
+        local t = RG.get(idx)
+        local tick = U.tick()
+        if t.jit_free ~= nil and tick < t.jit_free and tick >= t.jit_free - 12 then
+            return
+        end
+        if t.jit_last ~= tick then
+            if t.jit_last == nil or tick - t.jit_last > 2 or tick < t.jit_last then
+                t.jit_run = 0
+            end
+            t.jit_last, t.jit_run = tick, (t.jit_run or 0) + 1
+        end
+        if t.jit_run > 6 then
+            t.jit_free, t.jit_run = tick + 12, 0
+            return
+        end
+        RG.group_off(ctx, "HEAD")
+        info.jit_held = true
+        if N.on("resolver_log") then
+            N.log.every("jit:" .. idx, 10, fmt("resolver: %s jitter %s tarafinda kafa %d/%d, diger tarafta %d/%d: bu"
+                .. " tarafta kafa bekletiliyor (en fazla 6 tick)", U.name(target), side > 0 and "+" or "-", U.R(cur.h),
+                U.R(cur.n), U.R(oth.h), U.R(oth.n)), true)
+        end
+    end
+
+    -- Harita sonu / kapanis: jitter tarafi sayaclari (en cok atisli 5 dusman).
+    RG.jit_line = function()
+        local rows = {}
+        for key, j in pairs(RG.jit) do
+            local n = j[1].n + j[-1].n
+            if n >= 2 then
+                local p = N.mem.players ~= nil and N.mem.players[key] or nil
+                rows[#rows + 1] = { n = n, text = fmt("%s +%d/%d -%d/%d", tostring(p ~= nil and p.name or "?"), U.R(j[1].h),
+                    U.R(j[1].n), U.R(j[-1].h), U.R(j[-1].n)) }
+            end
+        end
+        if #rows == 0 or not N.on("resolver_log") then
+            return
+        end
+        table.sort(rows, function(a, b) return a.n > b.n end)
+        local parts = {}
+        for i = 1, min(5, #rows) do
+            parts[#parts + 1] = rows[i].text
+        end
+        N.log.line("resolver karsilastirma: jitter tarafi (kafa/atis) " .. concat(parts, " | "))
+    end
 
     -- R10 / R11: seviye 0 / 1 (safe point kafa) / 2 (Force).
     RG.level = function(target, idx, hp, head, body, sniper)
         local t = RG.get(idx)
         local p, key = N.mem.entry(target)
         local estate = RG.estate(target)
-        local results = p ~= nil and p.res[estate] or ""
+        local fam = RG.fam(estate)
+        local results = p ~= nil and p.res[fam] or ""
         local _, c = results:gsub("c", "")
         local level = min(2, c)
         -- GS entry_level: hafizadan gelen eski iskalar en fazla Prefer; Force icin bu oturumda o durumda bir iska.
         local fr = key ~= nil and RG.cfresh[key] or nil
-        if level > 1 and not (fr ~= nil and fr[estate]) then
+        if level > 1 and not (fr ~= nil and fr[fam]) then
             level = 1
         end
         -- Veri yokken cok tarafli desen (jitter / x-way / random, GS enemy_watch.multi): canli desen ya da canli desen
         -- henuz yokken hafizadaki aliskanlik (N.profile.prior) -> ilk atistan seviye 1.
         local tr = N.track.p[idx]
-        if results == "" and ((tr ~= nil and N.profile.MULTI[tr.pattern]) or N.profile.prior(target, p, key, tr)) then
+        -- V1.0.15: desen statik <-> random arasinda gidip gelirken seviye de gidip gelmesin: 1 sn tutulur.
+        local nowm = U.now()
+        if results == "" and tr ~= nil and N.profile.MULTI[tr.pattern] then
+            t.multi_until = nowm + 1
+        end
+        if results == "" and (N.profile.prior(target, p, key, tr)
+            or (t.multi_until ~= nil and nowm < t.multi_until and nowm >= t.multi_until - 1)) then
             level = max(level, 1)
         end
         if N.on("low_hp_safe") and hp <= 30 then
@@ -6660,6 +6786,7 @@ do
             elseif level == 2 then
                 pcall(ctx.set_safepoint_state, ctx, true)
             end
+            RG.jit_hold(ctx, target, idx, info)
         end
         -- R8: tek govde mermisi olduruyor -> govde.
         if N.on("smart_baim") and body >= hp then
@@ -6842,15 +6969,21 @@ do
             end
         end
         if letter ~= nil and rec.estate ~= nil then
-            local s = (p.res[rec.estate] or "") .. letter
-            p.res[rec.estate] = s:sub(-4)
+            local fam = RG.fam(rec.estate)
+            local s = (p.res[fam] or "") .. letter
+            p.res[fam] = s:sub(-4)
             N.mem.dirty = true
             if letter == "c" then
                 RG.cfresh[key] = RG.cfresh[key] or {}
-                RG.cfresh[key][rec.estate] = true
+                RG.cfresh[key][fam] = true
             end
         end
         local head_aimed = rec.hitgroup == 1
+        -- Jitter tarafi sayaci: kafaya nisanli, guncel kayda atilan, sonuclanan atis (kafa isabeti ya da resolver /
+        -- jitter iskasi; sahte kayit haric).
+        if head_aimed and rec.jside ~= nil and not rec.fake and (letter == "c" or result == "hit") then
+            RG.jit_count(key, rec.jside, result == "hit" and hitgroup == 1)
+        end
         -- R5 sayaci: kafaya nisan, hc >= 70, yerdeki hedef, statik (ya da bilinmeyen) desen (cok tarafli / spin
         -- desende kafa iskasi extended kaniti degil).
         local e = RG.ext[key]
@@ -7152,8 +7285,10 @@ do
                 for _, side in ipairs({ 1, -1 }) do
                     local p = U.offset(anchor, base + ang * side, s, 0)
                     if PK.walkable(anchor, p) then
-                        local d = PK.point_damage(vec3_t(p.x, p.y, p.z + eye_h), threat, need, hp)
-                        if d > 0 then
+                        local pe = vec3_t(p.x, p.y, p.z + eye_h)
+                        local d = PK.point_damage(pe, threat, need, hp)
+                        -- V1.0.15: noktayi baska bir dusman da goruyorsa (gozunden duz cizgi acik) o nokta atlanir.
+                        if d > 0 and not PK.others_see(pe, threat) then
                             return { p = p, side = side, s = s, dmg = d, back = ang ~= 90 }
                         end
                     end
@@ -7161,6 +7296,57 @@ do
             end
         end
         return nil
+    end
+
+    -- Hedef disindaki canli dusmanlardan biri noktayi (goz hizasi) duz cizgiyle goruyor mu (2500 u icinde).
+    PK.others_see = function(point, threat)
+        for _, e in ipairs(N.exposure.enemies()) do
+            if e ~= threat then
+                local eye = U.eye(e)
+                if eye ~= nil and U.dist(eye, point) <= 2500 then
+                    local f, _, okl = U.tline(eye, point, e)
+                    if okl == true and f >= 0.97 then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    -- V1.0.15 safe peek (Safe Peek.lua / chloride safe_ideal_tick deseni): autopeek tusu basili, autopeek noktasinin
+    -- 20 birim icindeyken silah ates edemiyor ya da DT dolu degilse yurume komutu sifirlanir (hazir olmadan peek'e
+    -- cikma). En fazla 1 sn tutar, sonra 2 sn serbest; AI peek / AFK yururken ve havada karismaz.
+    PK.safe = { since = nil, free_until = -1000, logged = -1000 }
+    PK.safe_peek = function(cmd)
+        local st, SP = N.st, PK.safe
+        local now = U.now()
+        if not N.on("safe_peek") or not st.alive or st.airborne or PK.mode ~= nil or N.afk.on
+            or not N.ref.on("autopeek") or not PK.user_moving(cmd) then
+            SP.since = nil
+            return
+        end
+        local ok, pos = pcall(ragebot.get_autopeek_pos)
+        local mine = U.origin(st.lp)
+        if not ok or not U.okvec(pos) or mine == nil or U.dist(mine, pos) > 20 then
+            SP.since = nil
+            return
+        end
+        local ready = U.call(client.can_fire) == true and (not N.ref.on("dt") or N.ref.dt_ready())
+        if ready or (now < SP.free_until and now >= SP.free_until - 2) then
+            SP.since = nil
+            return
+        end
+        SP.since = SP.since or now
+        if now - SP.since > 1 then
+            SP.since, SP.free_until = nil, now + 2
+            return
+        end
+        PK.set_move(cmd, 0, 0)
+        if N.on("hit_log") and (now - SP.logged > 5 or now < SP.logged) then
+            SP.logged = now
+            N.log.line("safe peek: silah / DT hazir degil, autopeek noktasinda bekleniyor (en fazla 1 sn)")
+        end
     end
 
     PK.reset = function()
@@ -7624,6 +7810,7 @@ do
             bt = tonumber(field(shot, "backtrack_ticks")) or 0, sp = info ~= nil and info.sp or 0,
             ba = info ~= nil and info.ba or false, md = md, weapon = st.weapon, tags = X.tags(),
             profile = T.profile(ent), pattern = tr ~= nil and tr.pattern or "?", fake = fake,
+            jside = (idx ~= nil and (tonumber(field(shot, "backtrack_ticks")) or 0) <= 2) and RG.jit_side(idx) or nil,
             grounded = U.flag(ent, "ON_GROUND") ~= false, sideways = sideways, sniper = U.is_sniper(st.weapon),
             time = now, wait = wait,
         }
@@ -9015,6 +9202,7 @@ do
         if active and (N.on("hit_log") or N.on("shot_log")) then
             N.log.line(ST.map_text(m))
             N.brute.compare_line()
+            N.rage.jit_line()
         end
     end
 
@@ -9862,6 +10050,7 @@ do
         N.ex.clean_update()
         N.ex.ideal_update()
         N.peek.update(cmd)
+        N.peek.safe_peek(cmd)
         N.aa.crouch_keeper(cmd)
         N.misc.jump_scout()
         N.ex.air_update(cmd)

@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.14"
+H.VER = "V1.0.15"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -402,6 +402,7 @@ H.EL = {
     { "air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", "sl", 0, 0, 100 },
     { "auto_peek", "peek", "Auto peek state (moving into view)", "cb", true },
     { "ai_peek", "peek", "AI peek (hold autopeek key)", "cb", true },
+    { "safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", "cb", true },
     { "peek_defensive", "peek", "Defensive during AI peek", "cb", true },
     { "afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", "cb", false },
     { "afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", "cb", true },
@@ -414,6 +415,7 @@ H.EL = {
     { "wait_real", "rage", "Wait for real record (enemy defensive)", "cb", true },
     { "fresh_only", "rage", "Snipers: fresh record only", "cb", true },
     { "counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", "cb", true },
+    { "jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", "cb", true },
     { "wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", "cb", true },
     { "wall_dist", "rage", "Wall hunt: min distance", "sl", 900, 300, 2500 },
     { "wall_dmg", "rage", "Wall hunt: min damage", "sl", 50, 30, 99 },
@@ -1041,7 +1043,7 @@ function H.make(opts)
         -- A1: dusman gozu -> benim kafam cizgisi mock'ta mermi iziyle ayni dunyayi anlatir: dusman beni gormuyorsa
         -- (W.sees 0, see_fn yok) arada duvar var sayilir. W.open_line[i] = true: mermi izi 0 ama cizgi acik (G31).
         if oa ~= nil and ob == 1 and oa ~= 1 and P[oa] ~= nil and P[oa].enemy and skip ~= nil and rawget(skip, "_i") == oa
-            and b.z - P[1].origin.z >= 58 and (b.x - P[1].origin.x) ^ 2 + (b.y - P[1].origin.y) ^ 2 <= 36
+            and b.z - P[1].origin.z >= 58 and W.block_line == nil
             and not (W.open_line and W.open_line[oa]) then
             local fn = W.see_fn[oa]
             local d = 0
@@ -3674,6 +3676,66 @@ function H.ext_misses(T, idx, n)
     end
 end
 function C.rage()
+    H.run("T-RAGE-JIT", function()
+        -- V1.0.15 jitter tarafi: dusman yaw'i 4 tick 140, 4 tick 220. 140 tarafinda 3 kafa iskasi, 220 tarafinda 2 kafa
+        -- isabeti -> 140 tarafindayken HEAD grubu kapatilir, 220 tarafinda acik kalir; ayar kapaliyken hic kapanmaz.
+        local seq = { 140, 140, 140, 140, 220, 220, 220, 220 }
+        local function inst(name, on)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            T.set("jit_timing", on)
+            T.set("resolver_log", true)
+            W.head_dmg[2] = 120
+            W.can_fire = true
+            local hook = H.yaw_hook(2, seq)
+            T.tick(40, hook)
+            local miss, hit, guard = 0, 0, 0
+            while (miss < 3 or hit < 2) and guard < 200 do
+                guard = guard + 1
+                T.tick(1, hook)
+                local y = W.p[2].eye_yaw
+                local stable = seq[(W.tick - 1) % #seq + 1] == y and seq[(W.tick - 2) % #seq + 1] == y
+                if stable and y == 140 and miss < 3 then
+                    T.shoot(2); T.miss(T.shot_id, "resolver"); miss = miss + 1
+                elseif stable and y == 220 and hit < 2 then
+                    T.shoot(2); T.hit(T.shot_id, { hg = 1, dmg = 10, no_event = true }); hit = hit + 1
+                end
+            end
+            local t0 = W.tick
+            T.tick(64, hook)
+            local off_bad, off_good = 0, 0
+            for _, r in ipairs(T.hsr(2, t0 + 1, W.tick)) do
+                if r.groups.HEAD == false then
+                    if seq[r.tick % #seq + 1] == 140 then off_bad = off_bad + 1 else off_good = off_good + 1 end
+                end
+            end
+            return off_bad, off_good, T
+        end
+        local a_bad, a_good, A = inst("rage-jit", true)
+        local b_bad, b_good = inst("rage-jit-kapali", false)
+        H.check("T-RAGE-JIT", a_bad >= 4 and a_good <= math.floor(a_bad / 2) and b_bad + b_good == 0
+            and A.count("tarafinda kafa 0/3, diger tarafta 2/2") >= 1, "kotu tarafta (140) HEAD kapali " .. a_bad .. " tick (>= 4), iyi tarafta "
+            .. a_good .. " (<= yarisi); ayar kapali: " .. (b_bad + b_good) .. " (0); log " .. A.count("tarafinda kafa"))
+    end)
+    H.run("T-RAGE-FAM", function()
+        -- V1.0.15: eski durum adli hafiza ("Standing=c") aileye tasinir; dusman dur-kalk yaparken (Standing <-> Moving)
+        -- seviye satiri bir kereden fazla yazilmaz (eskiden her gecişte 0 <-> 1).
+        local seed = H.mem2({ "P\t" .. H.SID2 .. "\tAlpha\t5\t\tStanding=c\t0,0,0\t0" })
+        local T = H.boot({ name = "rage-fam", rec_off = true, files = { ["nykle_memory.txt"] = seed } })
+        local W = T.W
+        T.set("resolver_log", true)
+        W.head_dmg[2] = 120
+        local m = T.mark()
+        for i = 1, 10 do
+            W.p[2].vel = (i % 2 == 0) and H.V.v3(200, 0, 0) or H.V.v3(0, 0, 0)
+            T.tick(40)
+        end
+        local lines = T.count("| seviye ", m)
+        T.shutdown()
+        local f = T.file("nykle_memory.txt") or ""
+        H.check("T-RAGE-FAM", lines <= 1 and f:find("Yer=c", 1, true) ~= nil and f:find("Standing=", 1, true) == nil,
+            "dur-kalk yapan dusman: seviye satiri " .. lines .. " (<= 1); hafiza 'Yer=c' olarak yazildi (" .. tostring(f:find("Yer=c", 1, true) ~= nil) .. ")")
+    end)
     H.run("T-RAGE-WH", function()
         -- V1.0.14 duvar avi: scout, hedef 1200 u'da duvar arkasinda, duvardan govde 60 (can 100) -> set_min_dmg(59) +
         -- log; 500 u'da / duvarsiz / ayar kapali / override tusu basili -> cagri yok.
@@ -5056,6 +5118,43 @@ function C.review()
             "desync olcumu bittiginde ham sayi satiri yazilir (" .. B.count("aa: desync olcumu ham:") .. ")")
     end)
 
+    H.run("T-PEEK-SAFE", function()
+        -- V1.0.15 safe peek: autopeek basili, autopeek noktasinda, hareket tusu basili, DT dolu degil -> cmd.move 0
+        -- (en fazla 1 sn); DT doluyken dokunulmaz; ayar kapaliyken dokunulmaz.
+        local function inst(name, charge, on)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            T.set("safe_peek", on)
+            T.set("ai_peek", false)
+            W.keys.autopeek = true; W.autopeek_pos = H.V.v3(0, 0, 0)
+            W.can_fire = true
+            W.auto_recharge = false
+            W.charge = charge
+            W.buttons.FORWARD = true; W.move = { x = 450, y = 0 }
+            T.tick(5)
+            local t0 = W.tick
+            T.tick(30)
+            local zero, n = 0, 0
+            for t = t0 + 1, W.tick do
+                local m = T.moves[t]
+                if m ~= nil then n = n + 1; if math.abs(m.x) < 1 and math.abs(m.y) < 1 then zero = zero + 1 end end
+            end
+            local t1 = W.tick
+            T.tick(60)
+            local late = 0
+            for t = t1 + 20, W.tick do
+                local m = T.moves[t]
+                if m ~= nil and math.abs(m.x) > 1 then late = late + 1 end
+            end
+            return zero, n, late, T
+        end
+        local z1, n1, late1, A = inst("peek-safe", 0, true)
+        local z2 = inst("peek-safe-dolu", 14, true)
+        local z3 = inst("peek-safe-kapali", 0, false)
+        H.check("T-PEEK-SAFE", n1 > 20 and z1 >= n1 - 2 and late1 >= 20 and z2 == 0 and z3 == 0 and A.count("safe peek:") >= 1,
+            "DT bos: " .. z1 .. "/" .. n1 .. " tick yurume 0; 1 sn sonra serbest (" .. late1 .. " tick); DT dolu: " .. z2
+            .. " (0); ayar kapali: " .. z3 .. " (0); log " .. A.count("safe peek:"))
+    end)
     H.run("T-EX-22", function()
         -- V1.0.12 vur-kac: autopeek basili + scout atisi -> 1-12 tick icinde tek force_uncharge + log; autopeek yokken,
         -- ayar kapaliyken yok; sarj 0 ise uyari (bir kez), uncharge yok.
@@ -5864,7 +5963,7 @@ function C.prof()
             V.shutdown()
             local out = V.file("nykle_memory.txt") or ""
             -- V1.0.9: eski faz setinin F kaydi ve dusman taban fazi (alan 5) yeni sete tasinmaz; "V phases 2" yazilir.
-            local pl2 = "P\t76561198000000077\tOld\t4\t\tAir=c;Standing=chc\t12,4.50,7\t2"
+            local pl2 = "P\t76561198000000077\tOld\t4\t\tHava=c;Yer=chc\t12,4.50,7\t2"
             local v1_ok = load:find("(hafiza: 1 oyuncu)", 1, true) ~= nil and out:find("\n" .. pl2 .. "\n", 1, true) ~= nil
                 and out:find("\nF", 1, true) == nil and out:find("\nV\tphases\t2\n", 1, true) ~= nil
                 and out:sub(1, 13) == "NYKLEMEM\t2\t6\n" and out:find("\nEND\t2\n$") ~= nil and bak1 == v1
