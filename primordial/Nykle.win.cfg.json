@@ -3490,7 +3490,7 @@
        "is active": false
       },
       "Delay Shot Until Fully Accurate": {
-       "is active": true
+       "is active": false
       },
       "Dont Stop In Fire": {
        "is active": false

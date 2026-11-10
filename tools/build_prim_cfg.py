@@ -208,7 +208,10 @@ WEAPON_TABLE = {
     "safe_hitboxes": ["ALF", "HCALF", "HCALF", "CS", "HALF", "CS", "CS"],
     "force_sp": [["On Enemy Shot"], ["On Enemy Shot"], ["Second Doubletap Shot", "On Enemy Shot"],
                  ["Second Doubletap Shot"], ["On Enemy Shot"], [], []],
-    "options": [["Early", "Delay Shot Until Fully Accurate"], ["Early", "Delay Shot Until Fully Accurate"],
+    # Nykle kendi ayari (kendi loglarimiz, 86 atis): Scout'ta "Delay Shot Until Fully Accurate" kapali. Atis anindaki
+    # hit chance 80-94 iken isabet 22/29 (%76), 95-100 iken 39/53 (%74): tam isabeti beklemek isabeti artirmiyor,
+    # iskalarin 16/19'u resolver / jitter, spread 2. Ilk atan olmak ise belirleyici (ilk mermi tablosu).
+    "options": [["Early"], ["Early", "Delay Shot Until Fully Accurate"],
                 ["Stop Between Shots", "Delay Shot Until Fully Accurate"],
                 ["Stop Between Shots", "Early", "Delay Shot Until Fully Accurate"],
                 ["Early", "Delay Shot Until Fully Accurate"], ["Stop Between Shots", "Early"],

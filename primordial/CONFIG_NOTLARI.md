@@ -36,3 +36,14 @@ Bunları script her tick kendisi yazıyor. Native ayar da açık kalırsa script
 - **Hideshots:** tuşsuz (KIZ4RU'nun Z'si CS:GO'nun radio1 tuşu; DT zaten her zaman açık).
 - **Nade Helper:** kapalı (KIZ4RU'da her zaman açık, Autothrow MOUSE1 basılı; granat yardımcısı istenmedi).
 - **Script ayarları:** script'in kendi varsayılanları. Hepsi en iyi değerlerde ve iyi özellikler açık gelir.
+
+## Nykle'nin kendi ayarları (kendi loglarımızdan)
+
+Başka config'lerden alınan değerlerin üstüne, sadece kendi primordial loglarımızın gösterdiği değişiklikler yazılır. Şu an 86 atışlık veri var; veri arttıkça bu bölüm büyüyecek.
+
+| Ayar | Değer | Kanıt (kendi loglarımız) |
+|---|---|---|
+| Scout → Accuracy → "Delay Shot Until Fully Accurate" | **kapalı** (Raz'da açıktı) | Atış anındaki hit chance 80-94 iken isabet 22/29 (%76), 95-100 iken 39/53 (%74): tam isabeti beklemek isabeti artırmıyor. Iskaların 16/19'u resolver / jitter, spread sadece 2. Rakibin ilk mermisi isabet ederse düelloyu %0-23 kazanıyoruz: ilk atan olmak daha değerli. |
+| Doubletap → "Dont Use Charge" | peek tuşuna (MOUSE5) bağlı | Vur-kaç (V1.0.12): peek'teki atış şarjı harcamaz, şarj geri ışınlanmaya kalır. |
+
+**Veri yetmeyenler (değiştirilmedi):** Scout hit chance 76 (atışların sadece 4'ü 80'in altında çıktı; eşik zaten belirleyici değil), safepoint ayarları (safepoint'li ve safepoint'siz 43'er atış: isabet aynı 32/43, fark göstermiyor), hitbox / multipoint (gövdeye nişanlı 16 atışın 14'ü isabet). Bunlar için daha çok log gerekiyor.
