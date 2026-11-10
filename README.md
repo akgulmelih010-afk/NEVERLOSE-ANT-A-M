@@ -720,6 +720,21 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.82** (istek: "luaları oku, ne yapacağına sen karar ver". Paylaştığın paketteki okunabilir AA luaları (LuaSense, king, metaset, hysteria, gay-yaw, ратка) ve hazır ayarlar çalıştırılmadan okundu; bizim lua ile iki sistematik fark çıktı, ikisi de varsayım olarak değil deney adayı olarak eklendi.)
+
+| Bulgu (paket) | Bizde | Ne yapıldı |
+|---|---|---|
+| **Yavaş jitter**: LuaSense'in hazır ayarında taraf her pakette değil, koşarken 4, eğik yürürken 6, eğikken 8 komutta bir değişiyor; metaset / king / hysteria da gecikmeli jitter kullanıyor | "Jitter delay" 1 (her pakette; testte 40 tick'te 25 değişim) | Aday `slow_jit`: Standing / Moving / Slow walk / Peek 4, Crouch move 5, Crouching 6 (testte 40 tick'te 9 değişim). Yer kulvarının ilk adayı. |
+| **Defensive hep zorlanıyor**: LuaSense 3 komutun 2'sinde, king / metaset / gay-yaw her komutta, görülmeyi beklemeden | "Smart": görülünce ya da 1800 birimde düşman varken, bittikten sonra 1 sn ara; canlı tick'lerin ~%59'unda zorlanıyor. Atış yokken yediğin 509 merminin %33'ünde DEF açıktı; Peek'te DEF açıkken rakip ıskası %35, kapalıyken %23 | Aday `def_always`: yer durumlarında "Always on". Yeni yer2 kulvarının ilk adayı (eski `cooldown_off` bunun alt kümesiydi, çıkarıldı). |
+| Havada: LuaSense / gay-yaw / hysteria defensive'i zorluyor; hysteria'nın teleportunda "iniş" seçeneği var; gay-yaw ve king havada şarj bitince aimbot'u kısa süre kapatıp DT'yi zorla dolduruyor | Varsayılan iniş teleportu (V1.0.80) | Hava adayları aynı: ilki `air_def` (paketteki yaygın yöntem). Zorla şarj şimdilik alınmadı: önce hangi hava yönteminin kazandığı ölçülecek. |
+| Scout hit chance: paketteki cfg'lerde 60–80 | Senin cfg'nde 55 | `hc70` adayı (V1.0.81) atış kulvarının başında. |
+
+Deney motoru artık **dört kulvar**: `yer` (AA açıları: `slow_jit`, `peek_static`, `brute_off`), `yer2` (defensive: `def_always`, `clean_off`), `hava` (`air_def`, `air_fl`, `air_first`), `atis` (`hc70`, `baim_off`, `own_off`, `fakebody_off`, `wait_off`). Kollar 1 / 2 / 8 / 4 canda bir değişir; yerdeki her mermi iki yer kulvarına da yazılır, böylece yerde iki aday aynı anda ölçülür.
+
+Kendi loglarından yeni ölçüm (V1.0.45+, 960 mermi): yediğin mermilerin **%23'ü kendi atışından sonraki 0.6 sn'de** geliyor; o sırada DT %87–97 boş, defensive %2–5 açık (şarj ancak 0.6 sn sonra doluyor). Bu pencere şimdilik çözülmedi; şarjı hızlandırmak en fazla 0.3–0.6 sn dilimini (mermilerin %7'si) kapatır.
+
+Pakette güvenlik: `emberlash` (10 MB, kendi sunucusuna bağlanıyor), `ogresolver_OBFUSKAT` (tamamen gizlenmiş), `hysteria` (kullanıcı adını kendi sunucusuna yolluyor) yüklenmemeli. `cfg_by_lowevl` klasörü ve iç içe ziplerin beşi (AI luas pack, Hysteria, RetrayLeak, amRLYgay, pack) şifreli, okunamadı.
+
 **V1.0.81** (istek: "sonsuza kadar fix mi atıcaz", "en mükemmel şeyi bulana kadar devam edelim"; hile karşılaştırması: aynı 4 rakibe karşı GameSense K/D **0.84** (70/83), Primordial **0.37** (17/46); bütün loglarda GameSense round sunucusu 1.02, DM 0.67, Primordial 0.42 / 0.48. Erken ve geç GameSense sürümlerinde ortak rakip yok: "sürümden sürüme isabet düştü" görüntüsü rakip değişimiydi, en zor ortak rakibe (northgard) karşı en iyi sonuç son denenen sürümde, V1.0.77: 22/26.)
 
 | Ne | Nasıl |

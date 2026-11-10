@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.81"
+local VERSION = "1.0.82"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -245,9 +245,9 @@ local K = {
 }
 
 -- Deney motoru (V1.0.81): can basina A / B. Bir aday bir ya da birkac menu salterinin baska degeridir; B canlarinda
--- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). Uc kulvar ayni anda
--- calisir (yerde AA, havada AA, atis); kol sirasi kulvara gore 1 / 4 / 2 canda bir degisir, boylece birbirlerine
--- karismazlar. Geri kalani asagida (bkz. "Deney motoru").
+-- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). Dort kulvar ayni anda
+-- calisir (yerde AA acilari, yerde defensive, havada AA, atis); kol sirasi kulvara gore 1 / 2 / 8 / 4 canda bir
+-- degisir, boylece birbirlerine karismazlar. Geri kalani asagida (bkz. "Deney motoru").
 K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, s = {}, cur = {}, lifec = nil, bad = {} }
 
 -- Bir olay fonksiyonu hata verirse script sessizce durmasin ve konsol dolmasin: hata bir kez
@@ -11279,33 +11279,47 @@ end))
 -- Neden: 48 GameSense logunda surumden surume degisen sonuclarin cogu rakip degisimiydi (erken ve gec surumlerde ortak
 -- rakip yok); "bu ayar daha iyi" kararlarini loglari elle karsilastirarak vermek guvenilir degil. Burada her aday
 -- ayni oturumda, ayni rakiplere karsi, can basina sirayla olculur.
--- Kulvarlar (ayni anda birer aday): yer = yerde yenen mermi basina zarar (kafa 1, govde 0.5, iska 0; dusuk iyi);
--- hava = can basina havada yenen zarar (dusuk iyi); atis = scout atisi basina kill / can basina kill (yuksek iyi).
+-- Kulvarlar (ayni anda birer aday): yer ve yer2 = yerde yenen mermi basina zarar (kafa 1, govde 0.5, iska 0; dusuk
+-- iyi; yer AA acilarini, yer2 defensive'i dener); hava = can basina havada yenen zarar (dusuk iyi); atis = scout atisi
+-- basina kill / can basina kill (yuksek iyi).
 -- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
 -- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 (gate adayda <= -1) ise her zaman ret. AFK
 -- canlari sayilmaz.
 -- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
 K.xp.init = function()
     local xp = K.xp
-    xp.LANES = { "yer", "hava", "atis" }
-    xp.PERIOD = { yer = 1, hava = 4, atis = 2 }
-    xp.LANE_KEY = { yer = "y", hava = "h", atis = "a" }
+    xp.LANES = { "yer", "yer2", "hava", "atis" }
+    -- Kol degisim periyotlari ikinin farkli kuvvetleri: 16 canda her kol birlesimi bir kez gorulur, kulvarlar
+    -- birbirinin olcusunu kaydirmaz. yer ve yer2 ayni mermileri olcer (biri AA acilari, digeri defensive).
+    xp.PERIOD = { yer = 1, yer2 = 2, atis = 4, hava = 8 }
     xp.LIST = {
-        -- Yer (V1.0.45+ loglari: yenen mermilerin %68'i Peek durumunda; Peek'te DEF acikken rakip iskasi %35, kapaliyken
-        -- %23; kendi defensive'in sirasinda attigin mermi isabet kaybetmiyor: %68 / %67, 2095 atis).
-        { id = "clean_off", lane = "yer", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
-            name = "temiz atis kapali (ates edebilirken de defensive surer)" },
-        { id = "cooldown_off", lane = "yer", kind = "harm", min = 40, set = { def_cooldown = false },
-            name = "defensive bitince 1 sn bekleme yok (daha sik defensive)" },
-        { id = "peek_delay2", lane = "yer", kind = "harm", min = 40, states = { Peek = { delay = 2 } },
-            name = "Peek jitter gecikmesi 2 tick" },
+        -- Yer, AA acilari. V1.0.82 (paylastigin paket: LuaSense'in hazir ayarinda taraf degisimi her pakette degil,
+        -- kosarken 4, egik yururken 6, egikken 8 komutta bir; metaset / king / hysteria da gecikmeli jitter kullaniyor.
+        -- Bizde gecikme 1: her pakette cevrilen jitter resolver'in en kolay cozdugu duzen).
+        { id = "slow_jit", lane = "yer", kind = "harm", min = 40,
+            states = { Standing = { delay = 4 }, Moving = { delay = 4 }, ["Slow walk"] = { delay = 4 },
+                Crouching = { delay = 6 }, ["Crouch move"] = { delay = 5 }, Peek = { delay = 4 } },
+            name = "yavas jitter: taraf 4-6 pakette bir degisir (simdi her pakette)" },
         { id = "peek_static", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { body_yaw = "Static", body_fs = "On" } },
             name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
         { id = "brute_off", lane = "yer", kind = "harm", min = 40, set = { anti_brute = false },
             name = "anti-brute kapali (fazlar arasinda fark yok: %26-39)" },
+        -- Yer, defensive. V1.0.45+ loglari: yenen mermilerin %68'i Peek durumunda; Peek'te DEF acikken rakip iskasi
+        -- %35, kapaliyken %23; atis yokken yenen 509 merminin sadece %33'unde DEF acikti. Paketteki AA lualarinin
+        -- dordu (LuaSense, king, metaset, gay-yaw) defensive'i gorulmeyi beklemeden her komutta zorluyor.
+        { id = "def_always", lane = "yer2", kind = "harm", min = 40,
+            states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
+                ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
+                ["Crouch move"] = { def_mode = "Always on" }, Peek = { def_mode = "Always on" },
+                Freestanding = { def_mode = "Always on" } },
+            name = "yerde defensive her zaman zorlanir (simdi: gorulunce / 1800 birimde dusman varken, bitince 1 sn ara)" },
+        { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
+            name = "temiz atis kapali (ates edebilirken de defensive surer)" },
         -- Hava (V1.0.78-80 oyunda hic denenmedi; havada rakip iskasi DEF kapaliyken %6, acikken %20). Uc secenek de
         -- simdiki inis teleportuna karsi olculur; salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
+        -- Pakette: LuaSense / gay-yaw / hysteria havada defensive'i zorluyor (air_def), hysteria'nin teleportunda
+        -- "inis" secenegi var (simdiki ayarimiz).
         { id = "air_def", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = false },
             name = "havada DT acik + surekli defensive, isinlanma yok" },
@@ -11628,10 +11642,13 @@ K.xp.init = function()
             L.air = L.air + harm
             return
         end
-        local cur = xp.cur.yer
-        if cur ~= nil and cur.c.kind == "harm" then
-            local r = xp.stat(cur.c.id)[cur.arm]
-            r.n, r.x, r.q = r.n + 1, r.x + harm, r.q + harm * harm
+        -- Yerdeki mermi iki yer kulvarinin adayina da yazilir (kollari birbirinden bagimsiz doner).
+        for _, lane in ipairs(xp.LANES) do
+            local cur = xp.cur[lane]
+            if cur ~= nil and cur.c.kind == "harm" then
+                local r = xp.stat(cur.c.id)[cur.arm]
+                r.n, r.x, r.q = r.n + 1, r.x + harm, r.q + harm * harm
+            end
         end
     end
 
