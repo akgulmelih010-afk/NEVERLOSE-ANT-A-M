@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.20  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.21  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,12 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.21 (primordial edition): log 9 (V1.0.20, 11 dk, DM; K21 / D23, isabet %78). Atistan sonra geri cekilme
+        ("Shot retreat", acik): oldurmeyen scout atisindan sonraki 2 sn'de %59 oluyorduk (3 log, 54 atisin 32'si);
+        atistan sonra son gorulmeyen konuma geri yururuz (ideal tick aciksa DT ile isinlanarak), yeni bir yurume tusu
+        kontrolu geri verir. "Shot retreat test" (acik): atislar sirayla acik / kapali kola gider, "geri cekilme
+        testi: ..." satiri 2 sn icindeki olum oranlarini karsilastirir. Duvar kacisi: silah ates edemiyorken acik
+        goruste goren dusman da tetikler ve autopeek tusu basiliyken (AI peek yurumuyorken) de calisir.
       V1.0.20 (primordial edition): log 8 (V1.0.19, 19 dk, DM; K28 / D58). Faz testi doldu: normal %45 kafa, kendi
         fazlarimiz %30-32; faz puani artik kafa - 0.8 x iska (ilk mermi kafa = %0, govde = %21, iska = %38 kazanma),
         belirgin kotu faz kontrolde de oynanmaz. Defensive havada da ("Air: defensive in the air", acik): ucusta hic
@@ -163,7 +169,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.20", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.21", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1760,6 +1766,8 @@ do
         B.cb("ai_peek", "peek", "AI peek (hold autopeek key)", true, true)
         B.cb("safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", true, true)
         B.cb("wall_escape", "peek", "Wall escape: step out of a wallbang lane while standing still", true, true)
+        B.cb("shot_retreat", "peek", "Shot retreat: walk back to the last unseen spot after a sniper shot", true, false)
+        B.cb("ret_test", "peek", "Shot retreat test (every other shot without it)", true, false)
         B.cb("peek_defensive", "peek", "Defensive during AI peek", true, true)
         B.cb("afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", false, false)
         B.cb("afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", true, false)
@@ -3561,6 +3569,29 @@ do
         E.wb[idx] = { dmg = d, tick = tick, since = since, ent = enemy }
     end
 
+    -- V1.0.21: su an acik goruste goren (mermi izi > 0) en yakin dusman: { ent, since, tick, open = true }; yoksa nil.
+    E.open_threat = function()
+        local st = N.st
+        local tick = U.tick()
+        local mine = U.origin(st.lp)
+        local best, bd = nil, huge
+        if mine == nil then
+            return nil
+        end
+        for _, enemy in ipairs(E.enemies()) do
+            local idx = U.index(enemy)
+            local s = idx ~= nil and E.sight[idx] or nil
+            if s ~= nil and E.sees_now(idx) and E.wb[idx] == nil then
+                local o = U.origin(enemy)
+                local d = o ~= nil and U.dist(o, mine) or huge
+                if d < bd then
+                    best, bd = { ent = enemy, since = s.first, tick = tick, open = true }, d
+                end
+            end
+        end
+        return best
+    end
+
     -- En buyuk taze (12 tick) duvar hatti: hasar, kayit; yoksa 0.
     E.wb_best = function()
         local tick = U.tick()
@@ -5357,7 +5388,8 @@ do
         local st = N.st
         -- V1.0.15: AI peek / AFK yuruyusunde de (tus basili olmasa da).
         if not N.on("ideal_tick") or not st.alive or st.airborne or st.fd
-            or not (N.ref.on("autopeek") or N.peek.mode ~= nil) or not U.is_bolt(st.weapon) or X.paused("TP") then
+            or not (N.ref.on("autopeek") or N.peek.mode ~= nil or N.peek.ret.mode ~= nil) or not U.is_bolt(st.weapon)
+            or X.paused("TP") then
             return
         end
         X.ideal.pending = U.tick()
@@ -7698,6 +7730,7 @@ do
     PK.esc_reset = function()
         local EC = PK.esc
         EC.mode, EC.goal, EC.ended, EC.hit_by = nil, nil, nil, {}
+        PK.ret.mode, PK.ret.goal = nil, nil
     end
 
     -- Round ozeti (dbg sen ozeti) icin: bu haritadaki kacis sayaclari.
@@ -7722,7 +7755,7 @@ do
         end
         local moving = PK.user_moving(cmd)
         if not N.on("wall_escape") or not st.alive or st.airborne or st.ladder or PK.mode ~= nil or AF.on
-            or PK.cal.off or N.ref.on("autopeek") or moving or PK.button(cmd, "USE") or st.weapon == "c4"
+            or PK.cal.off or PK.ret.mode ~= nil or moving or PK.button(cmd, "USE") or st.weapon == "c4"
             or U.num(lp, "m_bIsDefusing") == 1 then
             if EC.mode ~= nil then
                 PK.esc_end(moving and "tus" or "kosul bitti")
@@ -7741,6 +7774,13 @@ do
             return
         end
         local dmg, rec = E.wb_best()
+        -- V1.0.21 (log 9: 23 olumun 5'i autopeek noktasinda / atistan sonra hareketsiz, silah dolarken): silah ates
+        -- edemiyorken acik goruste goren dusman da tetikler (hasar bilinmiyor: oldurucu sayilir).
+        local ready = U.call(client.can_fire) == true
+        if rec == nil and not ready then
+            rec = E.open_threat()
+            dmg = rec ~= nil and 100 or 0
+        end
         if rec == nil or rec.ent == nil or not U.alive(rec.ent) or U.speed(lp) > 60 or not U.is_gun(st.winfo) then
             return
         end
@@ -7756,10 +7796,10 @@ do
         if eye == nil or org == nil then
             return
         end
-        -- Onu vurabiliyorsak kalinir (ragebot'un isi).
+        -- Onu vurabiliyorsak (ve silah hazirsa) kalinir (ragebot'un isi).
         local ehp = U.hp(rec.ent)
         local need = N.ref.md_need(ehp, st.wgroup) or ehp
-        if PK.point_damage(eye, rec.ent, need, ehp) > 0 then
+        if ready and PK.point_damage(eye, rec.ent, need, ehp) > 0 then
             return
         end
         local r = PK.esc_scan(org, eye, rec.ent)
@@ -7772,8 +7812,199 @@ do
         end
         EC.mode, EC.goal, EC.started, EC.n, EC.s, EC.name = "walk", r.p, now, EC.n + 1, r.s, U.name(rec.ent)
         EC.ended = nil
-        N.log.line(fmt("duvar kacisi: %s %d birim (%s, hat %d hasar %.1fs%s)", r.side > 0 and "sol" or "sag", r.s,
-            EC.name, U.R(dmg), (tick - rec.since) * U.ipt(), hot and ", az once vurdu" or ""))
+        N.log.line(fmt("duvar kacisi: %s %d birim (%s, %s %.1fs%s)", r.side > 0 and "sol" or "sag", r.s,
+            EC.name, rec.open and "acik gorus, silah hazir degil" or fmt("hat %d hasar", U.R(dmg)),
+            (tick - rec.since) * U.ipt(), hot and ", az once vurdu" or ""))
+    end
+
+    -- V1.0.21 atistan sonra geri cekilme (3 log: oldurmeyen 54 scout atisindan 32'sinde 2 sn icinde olduk, %59;
+    -- silah 1.25 sn dolarken acikta kaliyoruz). Bolt sniper atisi (autopeek tusu basili degil, AI peek yurumuyor):
+    -- son 3 sn'de "gorulmedigimiz" en yakin eski konuma (24-220 u, duz yol acik) geri yururuz; ideal tick aciksa DT
+    -- ile geri isinlanilir. Biter: varinca, silah hazir olunca, 0.8 sn dolunca, hedef olunce ya da atis anindan
+    -- sonra YENI bir yurume tusuna basinca (atis aninda basili tuslar yok sayilir: peek tusunu birakmak gerekmez).
+    -- Test ("Shot retreat test", acik): oldurmeyen atislar sirayla acik / kapali kola gider; 10 atista bir
+    -- "geri cekilme testi: ..." satiri iki kolda 2 sn icindeki olum oranini yazar.
+    PK.hist, PK.hist_tick = {}, -1000
+    PK.ret = { mode = nil, goal = nil, started = 0, keys = {}, count = 0, pend = {}, done = 0,
+        s = { { n = 0, died = 0 }, { n = 0, died = 0 }, { n = 0, died = 0 } } }
+    PK.RET = { EVERY = 4, KEEP = 48, MIN = 24, MAX = 220, AGE = 3, TIME = 0.8, JUDGE = 2 }
+    PK.MOVE_KEYS = { "FORWARD", "BACK", "MOVELEFT", "MOVERIGHT" }
+
+    -- Konum gecmisi: 4 tick'te bir, yerdeyken; seen = o an biri goruyordu / birazdan gorecekti / duvar hatti vardi.
+    PK.track = function()
+        local st, E = N.st, N.exposure
+        local tick = U.tick()
+        if tick < PK.hist_tick then
+            PK.hist = {}
+        elseif tick - PK.hist_tick < PK.RET.EVERY then
+            return
+        end
+        if st.airborne then
+            return
+        end
+        local o = U.origin(st.lp)
+        if o == nil then
+            return
+        end
+        PK.hist_tick = tick
+        local H = PK.hist
+        H[#H + 1] = { x = o.x, y = o.y, z = o.z, t = U.now(), seen = E.now or E.soon or E.wb_best() > 0 }
+        if #H > PK.RET.KEEP then
+            table.remove(H, 1)
+        end
+    end
+
+    PK.ret_anchor = function(org)
+        local now, C = U.now(), PK.RET
+        for i = #PK.hist, 1, -1 do
+            local h = PK.hist[i]
+            if now < h.t or now - h.t > C.AGE then
+                break
+            end
+            if not h.seen and abs(h.z - org.z) <= 40 then
+                local d = U.dist2d(org, h)
+                if d >= C.MIN and d <= C.MAX then
+                    local p = vec3_t(h.x, h.y, h.z)
+                    if U.tline(U.add(org, 0, 0, 18), U.add(p, 0, 0, 18), N.st.lp) >= 1 then
+                        return p, d
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Cozulen (2 sn dolan / olunen) atislar sayilir; hedef olduyse sayilmaz.
+    PK.ret_resolve = function(died)
+        local R, now = PK.ret, U.now()
+        local keep = {}
+        for _, p in ipairs(R.pend) do
+            local age = now - p.t
+            if p.killed then
+                -- sayilmaz
+            elseif died and age >= 0 and age <= PK.RET.JUDGE then
+                R.s[p.arm].n, R.s[p.arm].died = R.s[p.arm].n + 1, R.s[p.arm].died + 1
+                R.done = R.done + 1
+            elseif age > PK.RET.JUDGE or age < 0 then
+                R.s[p.arm].n = R.s[p.arm].n + 1
+                R.done = R.done + 1
+            else
+                keep[#keep + 1] = p
+            end
+        end
+        R.pend = keep
+        if R.done >= 10 then
+            R.done = 0
+            if N.on("hit_log") then
+                N.log.line("geri cekilme testi: " .. PK.ret_text())
+            end
+        end
+    end
+
+    PK.ret_text = function()
+        local s = PK.ret.s
+        local function part(name, a)
+            return fmt("%s %d atis, 2 sn icinde olum %d (%%%d)", name, a.n, a.died, a.n > 0 and U.R(100 * a.died / a.n) or 0)
+        end
+        return part("acik", s[1]) .. " | " .. part("kapali", s[2]) .. " | " .. part("nokta yok", s[3])
+    end
+
+    PK.ret_end = function(why)
+        local R = PK.ret
+        if R.mode ~= nil and N.on("debug_log") then
+            N.log.line(fmt("geri cekilme: bitti (%s, %.2f sn)", why, max(0, U.now() - R.started)))
+        end
+        R.mode, R.goal = nil, nil
+    end
+
+    -- AIMBOT_SHOOT (S.on_shoot, X.ideal_shot'tan once).
+    PK.ret_shot = function()
+        local st, R = N.st, PK.ret
+        PK.ret_resolve(false)
+        if not N.on("shot_retreat") or not st.alive or st.airborne or st.ladder or st.fd or PK.mode ~= nil or AF.on
+            or PK.cal.off or N.ref.on("autopeek") or not U.is_bolt(st.weapon) then
+            return
+        end
+        local org = U.origin(st.lp)
+        if org == nil then
+            return
+        end
+        R.count = R.count + 1
+        local arm = (N.on("ret_test") and R.count % 2 == 0) and 2 or 1
+        local goal, d = nil, 0
+        if arm == 1 then
+            goal, d = PK.ret_anchor(org)
+            if goal == nil then
+                arm = 3
+            end
+        end
+        R.pend[#R.pend + 1] = { t = U.now(), arm = arm }
+        if arm ~= 1 then
+            return
+        end
+        R.mode, R.goal, R.started, R.keys = "walk", goal, U.now(), {}
+        for _, k in ipairs(PK.MOVE_KEYS) do
+            R.keys[k] = N.st.keys_now ~= nil and N.st.keys_now[k] or false
+        end
+        if N.on("hit_log") then
+            N.log.line(fmt("geri cekilme: atistan sonra %d birim geri (son gorulmeyen nokta)", U.R(d)))
+        end
+    end
+
+    PK.ret_kill = function()
+        local R, now = PK.ret, U.now()
+        for _, p in ipairs(R.pend) do
+            if now - p.t <= 1 and now >= p.t then
+                p.killed = true
+            end
+        end
+        if R.mode ~= nil then
+            PK.ret_end("hedef oldu")
+        end
+    end
+
+    PK.ret_death = function()
+        PK.ret_resolve(true)
+        PK.ret.mode, PK.ret.goal = nil, nil
+    end
+
+    -- SETUP_COMMAND (PK.safe_peek'ten sonra): konum gecmisi + geri yuruyus.
+    PK.retreat = function(cmd)
+        local st, R = N.st, PK.ret
+        local keys = {}
+        for _, k in ipairs(PK.MOVE_KEYS) do
+            keys[k] = PK.button(cmd, k)
+        end
+        st.keys_now = keys
+        PK.track()
+        if #R.pend > 0 then
+            PK.ret_resolve(false)
+        end
+        if R.mode == nil then
+            return
+        end
+        local now = U.now()
+        if not st.alive or st.airborne or st.ladder or PK.mode ~= nil then
+            PK.ret_end("kosul bitti")
+            return
+        end
+        for _, k in ipairs(PK.MOVE_KEYS) do
+            if keys[k] and not R.keys[k] then
+                PK.ret_end("yeni tus")
+                return
+            end
+            -- Birakilan tus yeniden basilirsa "yeni" sayilir.
+            if not keys[k] then
+                R.keys[k] = false
+            end
+        end
+        if now - R.started > PK.RET.TIME or now < R.started then
+            PK.ret_end("sure doldu")
+        elseif now - R.started > 0.3 and U.call(client.can_fire) == true then
+            PK.ret_end("silah hazir")
+        elseif PK.move_to(cmd, R.goal, 8) then
+            PK.ret_end("varildi")
+        end
     end
 
     PK.reset = function()
@@ -8215,6 +8446,7 @@ do
 
     S.on_shoot = function(shot)
         local st, X, T, RG = N.st, N.ex, N.track, N.rage
+        N.peek.ret_shot()
         X.ideal_shot()
         local ent = field(shot, "player")
         local id = field(shot, "id")
@@ -8493,6 +8725,7 @@ do
             if U.is_enemy(victim) then
                 ST.kd("kills")
                 N.ex.tpt_add("kills")
+                N.peek.ret_kill()
             end
             if N.on("hit_log") then
                 N.log.line(fmt("oldurdun: %s | %s | %s%s", U.name(victim), st.label, U.wlabel(st.weapon),
@@ -8514,6 +8747,7 @@ do
         elseif victim == lp then
             if attacker ~= nil and attacker ~= lp and U.is_enemy(attacker) then
                 ST.kd("deaths")
+                N.peek.ret_death()
                 if N.st.airborne then
                     N.ex.tpt_add("air")
                 end
@@ -10571,6 +10805,7 @@ do
         N.ex.ideal_update()
         N.peek.update(cmd)
         N.peek.safe_peek(cmd)
+        N.peek.retreat(cmd)
         N.peek.escape(cmd)
         N.aa.crouch_keeper(cmd)
         N.misc.jump_scout()

@@ -42,7 +42,7 @@ def parse(path, from_line=1):
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
              'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
-             'duvar kacisi', 'AA (')
+             'duvar kacisi', 'AA (', 'geri cekilme')
     with open(path, encoding='utf-8', errors='replace') as f:
         for no, raw in enumerate(f, 1):
             if no < from_line:
@@ -159,7 +159,7 @@ def parse(path, from_line=1):
                 else:
                     r['fake'][('w' if 'bekleme: ' in b else 'n', hit)] += 1
             for key in ('faz karsilastirma', 'resolver karsilastirma', 'harita ozeti', 'dbg teshis', 'olum nedenleri',
-                        'teleport testi',
+                        'teleport testi', 'geri cekilme testi',
                         'ai peek karsilastirma'):
                 if b.startswith(key):
                     r['last'][key] = b

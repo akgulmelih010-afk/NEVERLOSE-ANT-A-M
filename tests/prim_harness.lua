@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.20"
+H.VER = "V1.0.21"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -407,6 +407,8 @@ H.EL = {
     { "ai_peek", "peek", "AI peek (hold autopeek key)", "cb", true },
     { "safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", "cb", true },
     { "wall_escape", "peek", "Wall escape: step out of a wallbang lane while standing still", "cb", true },
+    { "shot_retreat", "peek", "Shot retreat: walk back to the last unseen spot after a sniper shot", "cb", true },
+    { "ret_test", "peek", "Shot retreat test (every other shot without it)", "cb", true },
     { "peek_defensive", "peek", "Defensive during AI peek", "cb", true },
     { "afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", "cb", false },
     { "afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", "cb", true },
@@ -2065,6 +2067,8 @@ function H.make(opts)
         -- varsayilanlari T-EX-24 (opts.air_def / opts.tp_test = true) sinar.
         if not opts.air_def and T.el("air_def") ~= nil then T.set("air_def", false) end
         if not opts.tp_test and T.el("tp_test") ~= nil then T.set("tp_test", false) end
+        -- V1.0.21: eski atis senaryolari "Shot retreat" kapali kosar; T-PEEK-RET opts.shot_retreat = true verir.
+        if not opts.shot_retreat and T.el("shot_retreat") ~= nil then T.set("shot_retreat", false) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
     end
@@ -5218,6 +5222,7 @@ function C.review()
             W.wall[2] = true
             W.head_dmg[2] = 0; W.body_dmg[2] = 0
             W.physics = true
+            W.can_fire = true
             T.lane = 74
             -- Hat sadece ilk durdugum yerde acik: 12 birim yana cikinca kapanir.
             W.see_fn[2] = function(to) return (math.abs(to.x) < 12 and math.abs(to.y) < 12) and T.lane or 0 end
@@ -5274,6 +5279,121 @@ function C.review()
         local line = A.printed("dbg sen ozeti:", sum) or ""
         H.check("T-PEEK-ESC", line:find("gorulurken %d+ tick, DEF'li %d+ %(%%%d+%) | duvar kacisi 1 %(sonrasi vurulma 0, temiz 1, tusla birakilan 0, nokta yok 0%)") ~= nil,
             "dbg sen ozeti: " .. line:sub(-120))
+    end)
+    H.run("T-PEEK-OPEN", function()
+        -- V1.0.21: silah ates edemiyorken (dolum) acik goruste goren dusman da kacisi tetikler; silah hazirken ve onu
+        -- vurabiliyorken kalinir; autopeek tusu basiliyken (AI peek yurumuyor) de calisir.
+        local function inst(name, setup)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            W.p[2].origin.x = 800
+            W.p[3].origin.x = 4200
+            W.physics = true
+            W.can_fire = false
+            W.head_dmg[2] = 300
+            W.see_fn[2] = function(to) return (math.abs(to.x) < 12 and math.abs(to.y) < 12) and 90 or 0 end
+            W.ldmg = function(from) return (math.abs(from.x) < 12 and math.abs(from.y) < 12) and 300 or 0 end
+            if setup then setup(T, W) end
+            T.tick(60)
+            return T
+        end
+        local A = inst("peek-open")
+        local Rd = inst("peek-open-hazir", function(T, W) W.can_fire = true end)
+        local Ky = inst("peek-open-autopeek", function(T, W) T.set("ai_peek", false); W.keys.autopeek = true; W.autopeek_pos = H.V.v3(0, 0, 0) end)
+        local a = A.count("acik gorus, silah hazir degil")
+        H.check("T-PEEK-OPEN", a == 1 and A.count("duvar kacisi: varildi") == 1 and Rd.count("duvar kacisi") == 0
+            and Ky.count("acik gorus, silah hazir degil") == 1, "silah dolarken acik goruste goruluyorum: kacis " .. a
+            .. " (1), varildi " .. A.count("duvar kacisi: varildi") .. "; silah hazir + vurabiliyorum: " .. Rd.count("duvar kacisi")
+            .. " (0); autopeek tusu basili: " .. Ky.count("acik gorus, silah hazir degil") .. " (1)")
+    end)
+    H.run("T-PEEK-RET", function()
+        -- V1.0.21 atistan sonra geri cekilme: gizliyken (y < 60) yana cikip (tus basili) scout atisi -> son gorulmeyen
+        -- konuma geri yurur (basili tus yok sayilir); sonraki atis kontrol kolu (geri cekilme yok); yeni tus / hedefin
+        -- olmesi bitirir; ayar kapali ve autopeek tusu basiliyken yok. 10 atista bir test satiri.
+        local function inst(name, setup)
+            local T = H.boot({ name = name, rec_off = true, shot_retreat = true })
+            local W = T.W
+            W.p[2].origin.x = 800
+            W.p[3].origin.x = 4200
+            W.physics = true
+            W.can_fire = false
+            W.see_fn[2] = function(to) return to.y > 60 and 80 or 0 end
+            if setup then setup(T, W) end
+            T.tick(20)
+            return T, W
+        end
+        local function peek_out(T, W)
+            W.buttons.MOVELEFT = true; W.move = { x = 0, y = -450 }
+            for _ = 1, 200 do
+                T.tick(1)
+                if W.p[1].origin.y > 110 then break end
+            end
+            return W.p[1].origin.y
+        end
+        local function back_in(T, W)
+            W.buttons.MOVELEFT = nil; W.buttons.MOVERIGHT = true; W.move = { x = 0, y = 450 }
+            for _ = 1, 200 do
+                T.tick(1)
+                if W.p[1].origin.y < 5 then break end
+            end
+            W.buttons.MOVERIGHT = nil; W.move = { x = 0, y = 0 }
+            T.tick(20)
+        end
+        local A, W = inst("peek-ret")
+        local y0 = peek_out(A, W)
+        A.shoot(2)
+        local ymin = y0
+        for _ = 1, 40 do A.tick(1); ymin = math.min(ymin, W.p[1].origin.y) end
+        local a_line = A.count("geri cekilme: atistan sonra")
+        local a_end = A.printed("geri cekilme: bitti") or ""
+        -- Ikinci atis: kontrol kolu.
+        back_in(A, W)
+        local y1 = peek_out(A, W)
+        A.shoot(2)
+        local ymin2 = y1
+        for _ = 1, 20 do A.tick(1); ymin2 = math.min(ymin2, W.p[1].origin.y) end
+        local a_line2 = A.count("geri cekilme: atistan sonra")
+        H.check("T-PEEK-RET", a_line == 1 and ymin <= y0 - 24 and a_end:find("varildi", 1, true) ~= nil and a_line2 == 1
+            and ymin2 >= y1 - 1, "1. atis: geri cekilme satiri " .. a_line .. " (1), y " .. string.format("%.0f -> %.0f", y0, ymin)
+            .. " (>= 24 u geri), " .. a_end:sub(-40) .. "; 2. atis (kontrol): satir " .. a_line2 .. " (1), y "
+            .. string.format("%.0f -> %.0f", y1, ymin2) .. " (geri yok)")
+        local K, Wk = inst("peek-ret-tus")
+        peek_out(K, Wk)
+        K.shoot(2)
+        K.tick(3)
+        Wk.buttons.FORWARD = true
+        K.tick(3)
+        local k_end = K.printed("geri cekilme: bitti") or ""
+        local Kl, Wl = inst("peek-ret-kill")
+        peek_out(Kl, Wl)
+        Kl.shoot(2)
+        Kl.tick(2)
+        Kl.event("player_death", { userid = 102, attacker = 101, weapon = "ssg08" })
+        Kl.tick(2)
+        local kl_end = Kl.printed("geri cekilme: bitti") or ""
+        local Off, Wo = inst("peek-ret-kapali", function(T) T.set("shot_retreat", false) end)
+        peek_out(Off, Wo); Off.shoot(2); Off.tick(20)
+        local Ap, Wa = inst("peek-ret-autopeek", function(T, W) T.set("ai_peek", false); W.keys.autopeek = true; W.autopeek_pos = H.V.v3(0, 0, 0) end)
+        peek_out(Ap, Wa); Ap.shoot(2); Ap.tick(20)
+        H.check("T-PEEK-RET", k_end:find("yeni tus", 1, true) ~= nil and kl_end:find("hedef oldu", 1, true) ~= nil
+            and Off.count("geri cekilme") == 0 and Ap.count("geri cekilme") == 0, "yeni tus: " .. k_end:sub(-30) .. "; hedef oldu: "
+            .. kl_end:sub(-32) .. "; ayar kapali: " .. Off.count("geri cekilme") .. " (0); autopeek tusu: " .. Ap.count("geri cekilme")
+            .. " (0)")
+        -- Test satiri: 10 cozulen atis; biri atistan 1 sn sonra olumle biter.
+        local Ts, Wt = inst("peek-ret-test")
+        peek_out(Ts, Wt)
+        Wt.buttons.MOVELEFT = nil; Wt.move = { x = 0, y = 0 }
+        for _ = 1, 9 do Ts.shoot(2); Ts.tick(140) end
+        Ts.shoot(2)
+        Ts.tick(30)
+        Ts.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
+        Wt.p[1].alive = false
+        Ts.tick(2)
+        local line = Ts.printed("geri cekilme testi:") or ""
+        local on_n = tonumber(line:match("acik (%d+) atis")) or -1
+        local off_n, off_d = line:match("kapali (%d+) atis, 2 sn icinde olum (%d+)")
+        local none_n = tonumber(line:match("nokta yok (%d+) atis")) or -1
+        H.check("T-PEEK-RET", on_n + none_n == 5 and tonumber(off_n) == 5 and tonumber(off_d) == 1, "10 atis: " .. line:sub(14, 200))
     end)
     H.run("T-EXP-BODY", function()
         -- V1.0.18 govde hatti: kafaya mermi 0, pelvise 60. Cizgi acikken "gordu" (duvar hatti yok); duvar varken

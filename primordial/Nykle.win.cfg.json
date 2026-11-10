@@ -1243,6 +1243,12 @@
      "Safe peek: hold at the autopeek spot until weapon + DT are ready": {
       "is active": true
      },
+     "Shot retreat test (every other shot without it)": {
+      "is active": true
+     },
+     "Shot retreat: walk back to the last unseen spot after a sniper shot": {
+      "is active": true
+     },
      "Wall escape: step out of a wallbang lane while standing still": {
       "is active": true
      },
