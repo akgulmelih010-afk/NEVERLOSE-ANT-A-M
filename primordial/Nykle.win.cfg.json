@@ -1343,6 +1343,9 @@
      "Jitter timing: hold head on the enemy's bad jitter side": {
       "is active": true
      },
+     "Scout body test (every other life: body shots of 50+ damage)": {
+      "is active": true
+     },
      "Smart body aim": {
       "is active": true
      },

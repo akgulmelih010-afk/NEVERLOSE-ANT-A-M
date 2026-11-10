@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.24"
+H.VER = "V1.0.25"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -427,6 +427,7 @@ H.EL = {
     { "jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", "cb", true },
     { "wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", "cb", true },
     { "wait_seen", "rage", "Wait for real record even while the enemy sees you", "cb", true },
+    { "body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", "cb", true },
     { "wall_dist", "rage", "Wall hunt: min distance", "sl", 900, 300, 2500 },
     { "wall_dmg", "rage", "Wall hunt: min damage", "sl", 50, 30, 99 },
     { "ext_body", "rage", "Body vs extended (repeated head misses)", "cb", true },
@@ -969,6 +970,11 @@ function H.make(opts)
             and dist >= (T.el("wall_dist") and T.el("wall_dist").value or 900)
             and body >= (T.el("wall_dmg") and T.el("wall_dmg").value or 50) and hp > body and not W.keys.md_ovr then
             why = "R8"
+        end
+        -- R9 govde testi (V1.0.25, kullanici onayi): test acik, scout, govde >= 50 ama oldurmuyor, tam 50, override yok.
+        if why == nil and not mel and el("body_test") == true and lw == "ssg08" and body >= 50 and hp > body
+            and v == 50 and not W.keys.md_ovr then
+            why = "R9"
         end
         if why == nil then
             H.G.md_bad[#H.G.md_bad + 1] = T.name .. ": set_min_dmg(" .. H.f1(v) .. ") hedef " .. p.name .. " hp " .. hp
@@ -2079,6 +2085,8 @@ function H.make(opts)
         -- V1.0.24: eski atis / fake duck senaryolari "Shot defensive" ve "Safe head: while fake ducking" kapali kosar;
         -- T-EX-26 / T-AA-FD (opts.shot_def / opts.safe_fd = true) varsayilanlari sinar.
         if not opts.shot_def and T.el("shot_def") ~= nil then T.set("shot_def", false) end
+        -- V1.0.25: eski Min. damage senaryolari "Scout body test" kapali kosar; T-RAGE-BT opts.body_test = true verir.
+        if not opts.body_test and T.el("body_test") ~= nil then T.set("body_test", false) end
         if not opts.safe_fd and T.el("safe_fd") ~= nil then T.set("safe_fd", false) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
@@ -3841,6 +3849,51 @@ function C.rage()
             .. "); atis oncesi bekletme "
             .. a_before .. " (>= 1); ates edince: ignore_target " .. a_ign .. " (0), prioritize_target " .. a_prio
             .. " (>= 3); ayar kapali: ignore " .. b_ign .. " (>= 3), prioritize " .. b_prio .. " (0)")
+    end)
+    H.run("T-RAGE-BT", function()
+        -- V1.0.25 scout govde testi: test kolu acik yasamda scout, govde 80 (can 100) -> set_min_dmg(50); sonraki
+        -- yasamda (kol kapali) cagri yok; override tusu / AWP / govde 40 / ayar kapali -> yok. 10 yasamda bir satir,
+        -- AFK yasami sayilmaz.
+        local function respawn(T, W)
+            T.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
+            W.p[1].alive = false
+            T.tick(3)
+            W.p[1].alive = true; W.p[1].health = 100
+            T.event("player_spawn", { userid = 101 })
+            T.tick(3)
+        end
+        local function inst(name, setup)
+            local T = H.boot({ name = name, rec_off = true, body_test = true })
+            local W = T.W
+            W.body_dmg[2] = 80; W.head_dmg[2] = 0
+            W.scan[2] = true
+            if setup then setup(T, W) end
+            T.tick(20)
+            return T, W
+        end
+        local A, W = inst("rage-bt")
+        local t1 = W.tick
+        local on1 = H.has_md(A.hsr(2, 0, t1), 50)
+        respawn(A, W)
+        A.tick(20)
+        local off2 = H.any_md(A.hsr(2, t1 + 8, W.tick))
+        local t3 = W.tick
+        respawn(A, W)
+        A.tick(20)
+        local on3 = H.has_md(A.hsr(2, t3 + 8, W.tick), 50)
+        local key = H.any_md(inst("rage-bt-tus", function(T, W) W.keys.md_ovr = true end).hsr(2, 0))
+        local awp = H.any_md(inst("rage-bt-awp", function(T, W) W.p[1].weapon = H.weapon("awp") end).hsr(2, 0))
+        local low = H.any_md(inst("rage-bt-dusuk", function(T, W) W.body_dmg[2] = 40 end).hsr(2, 0))
+        local off = H.any_md(inst("rage-bt-kapali", function(T) T.set("body_test", false) end).hsr(2, 0))
+        H.check("T-RAGE-BT", on1 and not off2 and on3 and not key and not awp and not low and not off, "1. yasam set_min_dmg(50) "
+            .. tostring(on1) .. ", 2. yasam cagri " .. tostring(off2) .. " (false), 3. yasam " .. tostring(on3)
+            .. "; override tusu " .. tostring(key) .. ", AWP " .. tostring(awp) .. ", govde 40 " .. tostring(low) .. ", ayar kapali "
+            .. tostring(off) .. " (hepsi false)")
+        for _ = 1, 9 do respawn(A, W); A.tick(10) end
+        local line = A.printed("govde testi:") or ""
+        local a_l = tonumber(line:match("govde acik (%d+) yasam")) or -1
+        local b_l = tonumber(line:match("govde kapali (%d+) yasam")) or -1
+        H.check("T-RAGE-BT", a_l + b_l == 10 and math.abs(a_l - b_l) <= 1, "10 yasam: " .. line:sub(14, 220))
     end)
     H.run("T-RAGE-1", function()
         local function inst(name, shift, seen, old, ticks)

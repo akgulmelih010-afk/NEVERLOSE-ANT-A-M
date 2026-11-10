@@ -1,4 +1,4 @@
-# Nykle.win V1.0.24 — primordial edition
+# Nykle.win V1.0.25 — primordial edition
 
 primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense sürümünün (`Nykle.win.gamesense.lua` V1.0.79) loglarla kanıtlanmış özelliklerinin ve Neverlose sürümünün (`Nykle.win.lua` V1.1.x) kurallarının primordial API'sine taşınmış hali. Sadece HvH sunucuları için.
 
@@ -16,7 +16,7 @@ primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense s�
    - MOUSE3 = thirdperson (toggle), Insert = menü. Native Nade Helper kapalı.
    Config yüklemesen de script native AA taşıyıcılarını kendisi nötrde tutar.
 4. Başka AA / resolver / ideal-tick / recharge script'i (metasett, IDEAL-TICK vb.) yanında yükleme: recharge, fakelag ve resolver'ın tek sahibi bu script.
-5. Konsolda `[Nykle.win] V1.0.24 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
+5. Konsolda `[Nykle.win] V1.0.25 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
 
 **Log dosyası:** `nykle_log.txt` ve hafıza dosyası `nykle_memory.txt`, oyunun `Counter-Strike Global Offensive/csgo/` klasörüne yazılır (yoksa oyunun kök klasörüne bak). Analiz için `nykle_log.txt`'yi gönder. Dosya yazılamazsa (ffi kapalı vb.) loglar hafızada kalır: **Console → Print all logs to console** ile konsola yazdır.
 
@@ -58,6 +58,7 @@ Varsayılan: "açık" = kutu varsayılan işaretli. "İzlenen" = Always use reco
 | Spin | Düşman kalmayınca (açık) / ısınmada (kapalı) dönme | açık | GS |
 | Desync keeper | Eğikken (≥ 0.9) görülürken tehdide doğru yürüme komutu "Crouch speed" (38) / 0.34'e kısılır; geri çekilme / ateşten 0.6 sn sonrası / peek'te yok | açık, 38 | GS V1.0.58 |
 | Defensive | Durum başına Off / On peek / Smart / Always on / Tick based. Smart: ragebot hedef tarıyorken + görülürken / 1800 birimde düşman varken + görüş kesilince 8 tick. Sadece DT doluyken, tick başına bir tetik. Re-arm cooldown: defensive bitince görülürken 1 sn yeniden yok (ilk görüş, hava, AI peek, silah değişimi, bıçak, AFK hariç). Anti-peek: yeni gören / hızlı düşmanda 8 tick | GS `EXPLOIT_DEFAULTS` | GS V1.0.23/43/45 |
+| Scout gövde testi (V1.0.25) | **Scout body test** (senin onayınla): her iki yaşamdan birinde scout, öldürmeyen ama en az 50 hasarlık gövde atışını da sıkar (Min. damage 50, iki mermide öldürür); diğer yaşamda Min. damage 100 aynen. 10 yaşamda bir `govde testi: govde acik N yasam, oldurme K (yasam basina X), omur ..., scout atis A isabet H \| govde kapali ...`. AFK yaşamları sayılmaz; override tuşun basılıyken çalışmaz. Ayrıca: havadaki `air` defensive tekrarı sadece düşman yakınken; "Landing teleport" kapalıyken `inise yok` satırları yazılmaz | test açık | log 8-12: yaşam başına ~1.1 scout atışı; 50+ gövde atışı 13 kez sıkılmadı, 8'inde aynı rakip 4 sn içinde öldürdü |
 | Atış sonrası koruma, fake duck, jump scout, hava (V1.0.24) | **Shot defensive** (hide shots'un gelişmişi): scout / AWP atışının ertesi tick'inde defensive zorlanır ve desync tarafı çevrilir; sniper'da atıştan sonraki 6 tick'lik "lag yok" penceresi kalktı. **Safe head: while fake ducking:** fake duck'ta Safe head satırı (sabit yaw, jitter yok, desync 30, pitch 89). **Jump scout:** scout ile havadayken hiçbir yürüme tuşu basılı değilse yatay hız hava freniyle sıfırlanır ve autostrafer kapanır (tuş basılıyken karışmaz); havadayken sahte kayıt beklemesi en fazla 4 tick. **Hava:** defensive tekrar aralığı havadayken 8 tick; `dbg sen ozeti` sonunda `havada N tick, DEF'li M (%P)` | hepsi açık | log 9-11: havada yenen 16 merminin 16'sı defensive kapalıyken, ölümlerin %20-25'i havada; öldürmeyen atıştan sonraki 2 sn'de %56-75 ölüm |
 | AFK (V1.0.23) | Otomatik AFK eşiği 8 sn yerine 4 sn. Bir yaşamı hiç tuşa / fareye dokunmadan bitirdiysen sonraki doğuşta AFK modu **hemen** açılır (herhangi bir girdi kapatır). AFK iken yenen mermi ve ölüm satırları ` \| AFK` ile işaretlenir, faz testine sayılmaz; rapor aracı bunları ayrı gösterir | açık | log 10: DM'de AFK iken doğduktan ~2 sn sonra vuruluyordun; 8 sn dolmadığı için AFK modu sadece 2 kez açıldı |
 | İniş teleportu kapalı, sahte kayıt kapısı (V1.0.22) | **Landing teleport** varsayılan **kapalı** (yeni ayar; açarsan eski davranış). Test sonucu: teleport açık kolda yaşam başına 0.33 öldürme ve 16.5 sn ömür, kapalı kolda 0.88 ve 24 sn (2 log, 52 yaşam); kapalıyken DT dolu kalır, defensive çalışır. **Sahte kayıt:** karşı atak penceresi kaydı sahte olan hedefin beklemesini artık kaldırmaz; kayıt sahte kaldıkça 64 tick'e kadar beklenir, 22 tick'ten sonra ilk gerçek kayıtta ateş serbest. **Duvar kaçışı** geri-çapraz / geri yönleri ve 96 birimi de arar; **geri çekilme** geçmişte görülmeyen nokta yoksa tehdidin görmediği noktaya gider | teleport kapalı | log 8-10: sahte kayda 20/44, gerçeğe 63/88 isabet; log 10: 16 kaçış aramasının 7'si "güvenli nokta yok" |
@@ -159,7 +160,7 @@ Satırlar:
 
 Vurulabilirlik taraması: her düşman kendi sırasında 4 tick'te bir (tick başına ortalama ≤ 2 düşmana iz), gözünden kafa / göğüs / pelvis; ragebot'un 2 tick'ten taze izi varsa yeniden iz atılmaz.
 
-Dosya: yeni sürümde (dosyada `V1.0.24 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
+Dosya: yeni sürümde (dosyada `V1.0.25 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
 
 ## Bilinen belirsizlikler (oyunda doğrulanacak)
 

@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.24  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.25  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,12 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.25 (primordial edition): log 12 (V1.0.24, 16 yasam; K3 / D16). Scout govde testi ("Scout body test", acik;
+        kullanici onayi): her iki yasamdan birinde scout, oldurmeyen ama 50+ hasarlik govde atisini da sikar (Min.
+        damage 50), digerinde Min. damage 100; "govde testi: ..." satiri iki kolu karsilastirir (yasam basina ~1.1
+        scout atisi yapiliyordu; 50+ govde atisi 13 kez sikilmadi, 8'inde ayni rakip 4 sn icinde oldurdu). Havadaki
+        defensive calisiyor (havada %46 DEF, havada yenen 4 merminin 0'i DEF acikken); "air" tekrari artik sadece
+        dusman yakinken (1193 gereksiz zorlama). "Landing teleport" kapaliyken "inise yok" satirlari yazilmaz.
       V1.0.24 (primordial edition): log 11 (V1.0.23, 7 dk DM; K19 / D37) + istekler. "Shot defensive" (acik; hide
         shots'un gelismisi): bolt sniper atisinin ertesi tick'inde defensive zorlanir ve desync tarafi cevrilir
         (atistan sonraki 6 tick'lik "lag yok" penceresi sniper'da kalkti). "Safe head: while fake ducking" (acik).
@@ -186,7 +192,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.24", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.25", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1804,6 +1810,7 @@ do
         B.cb("jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", true, true)
         B.cb("wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", true, true)
         B.cb("wait_seen", "rage", "Wait for real record even while the enemy sees you", true, true)
+        B.cb("body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", true, false)
         B.sl("wall_dist", "rage", "Wall hunt: min distance", 300, 2500, 900, true, "u")
         B.sl("wall_dmg", "rage", "Wall hunt: min damage", 30, 99, 50, true, "")
         B.cb("ext_body", "rage", "Body vs extended (repeated head misses)", true, false)
@@ -5256,7 +5263,9 @@ do
                 fresh = not P.shot
             elseif why == "air" then
                 fresh = not P.air
-                if rep_t > 0 then
+                -- V1.0.25 (log 12: 1193 "air" zorlamasi, cogu etrafta kimse yokken): tekrar sadece uyanik dusman
+                -- yakinken / gorecekken; yoksa eskisi gibi ucus basina bir.
+                if rep_t > 0 and active then
                     fresh, gap = true, rep_t
                 end
             elseif why == "aipeek" then
@@ -5597,7 +5606,8 @@ do
     -- Tek inis teleportu. Sira: pencere / gorulme / temiz atis / durdurma / sarj / 3D mesafe.
     X.land_fire = function(cmd, lp, lt, h)
         local L, E = X.land, N.exposure
-        if L.fired then
+        -- V1.0.25: "Landing teleport" kapaliyken ucus basina "inise yok (...)" satiri yazilmaz.
+        if L.fired or not N.on("land_tp") then
             return
         end
         local c, m = N.ref.charge()
@@ -6090,6 +6100,7 @@ do
         CH.shift_watch(tick, c, m)
         r.ticks = r.ticks + 1
         X.tpt_add("ticks")
+        N.rage.bt_add("ticks")
         if dt then
             r.dt = r.dt + 1
             r.top = max(r.top, c)
@@ -7259,6 +7270,14 @@ do
                     U.name(target), U.R(d), U.R(body), U.R(hp), U.R(body - 1)), true)
             end
         end
+        -- R9 govde testi (V1.0.25; kullanici onayi: "Test et"): test kolu acik olan yasamda scout, oldurmeyen ama en az
+        -- 50 hasarlik govde atisini da sikar (Min. damage 50: iki mermide oldurur). Log 8-12: yasam basina ~1.1 scout
+        -- atisi; kayitli 13 durumda 50+ govde atisi Min. damage 100 yuzunden sikilmadi, 8'inde ayni rakip 4 sn icinde
+        -- oldurdu. Diger yasamlarda kural aynen (Min. damage 100).
+        if not info.md_set and RG.bt_active() and wname == "ssg08" and target_melee == nil and hp > body
+            and body >= RG.BT_MIN and RG.BT_MIN < need then
+            RG.set_md(ctx, info, RG.BT_MIN, "govde")
+        end
         -- R3: sniper, biri seni goruyorken sadece oldurucu atis (MD can; yukseltir, dusurmez).
         if not info.md_set and N.on("head_only") and sniper and need < hp and N.exposure.seen then
             RG.set_md(ctx, info, hp, "head")
@@ -7303,6 +7322,63 @@ do
     RG.WALL_BOXES = { "HEAD", "PELVIS" }
     RG.WAIT_LIMIT = 22
     RG.WAIT_FAKE = 64
+
+    -- V1.0.25 govde testi ("Scout body test", acik): her dogusta kol degisir (kol 1: govde 50+ serbest, kol 2: Min.
+    -- damage 100). Yasam bitince (AFK degilse) o yasamin oldurme / omur / scout atis / isabet sayilari kola yazilir;
+    -- 10 yasamda bir "govde testi: ..." satiri.
+    RG.BT_MIN = 50
+    RG.bt = { arm = 2, lives = 0, cur = nil, s = { { lives = 0, kills = 0, ticks = 0, shots = 0, hits = 0 },
+        { lives = 0, kills = 0, ticks = 0, shots = 0, hits = 0 } } }
+    RG.bt_active = function()
+        return N.on("body_test") and RG.bt.cur ~= nil and RG.bt.arm == 1
+    end
+    RG.bt_text = function()
+        local parts = {}
+        for arm = 1, 2 do
+            local a = RG.bt.s[arm]
+            parts[#parts + 1] = fmt("%s %d yasam, oldurme %d (yasam basina %.2f), omur ort %.1f sn, scout atis %d isabet %d",
+                arm == 1 and "govde acik" or "govde kapali", a.lives, a.kills, a.lives > 0 and a.kills / a.lives or 0,
+                a.lives > 0 and a.ticks * U.ipt() / a.lives or 0, a.shots, a.hits)
+        end
+        return concat(parts, " | ")
+    end
+    -- Biten yasami kola yaz (AFK yasami sayilmaz).
+    RG.bt_commit = function()
+        local B = RG.bt
+        local c = B.cur
+        if c == nil or c.afk or c.ticks <= 0 then
+            return
+        end
+        local a = B.s[B.arm]
+        a.lives, a.kills, a.ticks = a.lives + 1, a.kills + c.kills, a.ticks + c.ticks
+        a.shots, a.hits = a.shots + c.shots, a.hits + c.hits
+        B.lives = B.lives + 1
+        if B.lives % 10 == 0 and N.on("hit_log") then
+            N.log.line("govde testi: " .. RG.bt_text())
+        end
+    end
+    RG.bt_spawn = function()
+        local B = RG.bt
+        if not N.on("body_test") then
+            B.cur = nil
+            return
+        end
+        RG.bt_commit()
+        B.arm = B.arm == 1 and 2 or 1
+        B.cur = { kills = 0, ticks = 0, shots = 0, hits = 0, afk = false }
+    end
+    RG.bt_add = function(what)
+        local c = RG.bt.cur
+        if c ~= nil then
+            c[what] = c[what] + 1
+        end
+    end
+    RG.bt_death = function()
+        local c = RG.bt.cur
+        if c ~= nil and N.afk.idle() then
+            c.afk = true
+        end
+    end
 
     -- R12: havadayken sniper hit chance (0 = kapali; senin degerin daha yuksekse dokunulmaz).
     RG.air_hc = function(ctx, wname, w)
@@ -8615,6 +8691,9 @@ do
         -- Diger moduller.
         X.shot_tick, X.after_shot, X.aim = tick, true, { target = ent, time = now }
         X.shot_bolt = U.is_bolt(st.weapon)
+        if st.weapon == "ssg08" then
+            N.rage.bt_add("shots")
+        end
         if X.shot_bolt and N.on("shot_def") then
             N.aa.flip.shot = true
         end
@@ -8683,6 +8762,9 @@ do
         local hg = tonumber(field(hit, "hitgroup"))
         local dmg = tonumber(field(hit, "damage")) or 0
         local result = fmt("isabet %s -%d", K.HITGROUPS[hg or -1] or "?", U.R(dmg))
+        if N.st.weapon == "ssg08" then
+            N.rage.bt_add("hits")
+        end
         if N.on("shot_log") then
             N.log.line(S.line(rec, result))
         end
@@ -8841,6 +8923,7 @@ do
             if U.is_enemy(victim) then
                 ST.kd("kills")
                 N.ex.tpt_add("kills")
+                N.rage.bt_add("kills")
                 N.peek.ret_kill()
             end
             if N.on("hit_log") then
@@ -8863,6 +8946,7 @@ do
         elseif victim == lp then
             if attacker ~= nil and attacker ~= lp and U.is_enemy(attacker) then
                 ST.kd("deaths")
+                N.rage.bt_death()
                 N.peek.ret_death()
                 if N.st.airborne then
                     N.ex.tpt_add("air")
@@ -10920,6 +11004,7 @@ do
             st.spawn_at = U.now()
             N.afk.spawn()
             N.ex.tpt_spawn()
+            N.rage.bt_spawn()
         end
         st.alive = true
         st.on = st.enabled
