@@ -886,10 +886,10 @@
       "value": 14.0
      },
      "[Air crouch] Hidden pitch": {
-      "active item": 2
+      "active item": 0
      },
      "[Air crouch] Hidden yaw": {
-      "active item": 3
+      "active item": 0
      },
      "[Air crouch] Pitch value": {
       "value": 0.0
@@ -904,10 +904,10 @@
       "value": 14.0
      },
      "[Air] Hidden pitch": {
-      "active item": 2
+      "active item": 0
      },
      "[Air] Hidden yaw": {
-      "active item": 2
+      "active item": 0
      },
      "[Air] Pitch value": {
       "value": 0.0
@@ -922,10 +922,10 @@
       "value": 14.0
      },
      "[Crouch move] Hidden pitch": {
-      "active item": 2
+      "active item": 0
      },
      "[Crouch move] Hidden yaw": {
-      "active item": 3
+      "active item": 0
      },
      "[Crouch move] Pitch value": {
       "value": 0.0
@@ -994,10 +994,10 @@
       "value": 14.0
      },
      "[Moving] Hidden pitch": {
-      "active item": 2
+      "active item": 0
      },
      "[Moving] Hidden yaw": {
-      "active item": 3
+      "active item": 0
      },
      "[Moving] Pitch value": {
       "value": 0.0
@@ -1048,10 +1048,10 @@
       "value": 14.0
      },
      "[Slow walk] Hidden pitch": {
-      "active item": 2
+      "active item": 0
      },
      "[Slow walk] Hidden yaw": {
-      "active item": 3
+      "active item": 0
      },
      "[Slow walk] Pitch value": {
       "value": 0.0

@@ -38,7 +38,7 @@ def parse(path, from_line=1):
          'kills': [], 'deaths': [], 'duels': [], 'sikmadi': Counter(), 'tp': Counter(), 'tp_no': Counter(),
          'def_shift': Counter(), 'def_refill': [], 'def_unspent': 0, 'waits': Counter(), 'peek': Counter(),
          'levels': 0, 'last': {}, 'wall': Counter(), 'wall_head': Counter(), 'first_t': None, 'last_t': None,
-         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter(), 'air': 0, 'air_def': 0, 'cond': Counter()}
+         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter(), 'air': 0, 'air_def': 0, 'cond': Counter(), 'bul': Counter()}
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
              'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
@@ -159,6 +159,19 @@ def parse(path, from_line=1):
                     r['air_def'] += int(ma.group(2))
             elif b.startswith('dbg harita') or b.startswith('===== harita'):
                 r['maps'][b[:60]] += 1
+            # V1.0.30: dusman mermisi kirilimi (isabet + iska): defensive / gizli aci ve AA hedefi.
+            mb = re.match(r'(vuruldun|iska): (.*)', b)
+            if mb and not b.endswith('| AFK'):
+                res = 'iska' if mb.group(1) == 'iska' else ('kafa' if mb.group(2).startswith('head') else 'govde')
+                hid = re.search(r'gizli (\d+)t', b)
+                if 'DEF acik' in b:
+                    k = 'DEF acik + gizli aci' if hid else 'DEF acik'
+                else:
+                    k = 'DEF bitti, gizli acidan sonra' if hid else 'DEF yok'
+                r['bul'][('def', k, res)] += 1
+                tg = ('AA hedefi' if ('AA hedefi,' in b or 'AA hedefi)' in b) else
+                      'AA hedefi degil' if 'AA hedefi degil' in b else 'AA hedefi yok')
+                r['bul'][('hedef', tg + (', gormedi' if 'gormedi' in b else ', gordu'), res)] += 1
             if b.startswith('atis:') and ('| isabet' in b or '| iska' in b):
                 hit = 1 if '| isabet' in b else 0
                 # V1.0.26: atis kosulu (kendi defensive'imiz acik mi, rakibin kaydi sahte mi).
@@ -325,6 +338,14 @@ def report(r, prev=None):
         if r['sikmadi']:
             print('  sikmadi nedenleri: ' + ', '.join('%s %d' % kv for kv in r['sikmadi'].most_common(6)))
 
+    if r['bul']:
+        print('== DUSMAN MERMISI KIRILIMI (isabet + iska) ==')
+        for grp in ('def', 'hedef'):
+            keys = sorted(set(k[1] for k in r['bul'] if k[0] == grp))
+            for k in keys:
+                mi, bo, he = r['bul'][(grp, k, 'iska')], r['bul'][(grp, k, 'govde')], r['bul'][(grp, k, 'kafa')]
+                n = mi + bo + he
+                print('  %-34s %3d mermi | iska %s govde %s kafa %s' % (k, n, pct(mi, n), pct(bo, n), pct(he, n)))
     if r['afk']:
         print('== AFK (istatistik disi) == olum %d, mermi %d' % (r['afk']['olum'], r['afk']['mermi']))
     print('== EXPLOIT ==')

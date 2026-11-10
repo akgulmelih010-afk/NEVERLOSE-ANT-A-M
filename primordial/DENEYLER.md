@@ -24,23 +24,45 @@ Lua bunu kendisi yapar ("Experiments"); bu dosya sonuçların kaydıdır.
 | Atıştan sonra geri çekilme | Açık (zayıf kanıt) | 12 atışta 7 ölüm; kapalıyken 8 |
 | Sahte kayda ateş etmeme + temiz ateş | Kalıcı | sahte kayıtta %40, gerçekte %72; kendi defensive açıkken %58, kapalıyken %80 |
 
-## Süren deney
+## V1.0.30 analizi: 7 log, 509 düşman mermisi (isabet + ıska)
 
-| Deney | Durum (log 14, V1.0.28) |
-|---|---|
-| `crouch_safe` eğik AA sabit yaw + desync 30 | Kötü gidiyor: şimdiki 40 yaşam, 0.47 öldürme/yaşam, eğikken kafa 21/32 (%66); aday 40 yaşam, 0.35, kafa 22/28 (%79). V1.0.29 kuralıyla (1 standart hata geride = ret) bir sonraki oturumda reddedilir. |
+Defensive ve "gizli açı" (defensive sırasında pitch yukarı / rastgele yaw / spin):
 
-Log 14 notu: güçlü lobi (yediğimiz mermilerde kafa %69, önceki log %50; scout isabeti temiz koşulda %66, önceki %82).
-İki kol aynı lobide oynandığı için deney karşılaştırması geçerli; taban çizgisiyle karşılaştırma değil.
+| Mermi anında durum | Mermi | Iska | Gövde | Kafa |
+|---|---|---|---|---|
+| Defensive açık, gizli açı yok | 73 | %30 | %39 | %30 |
+| Defensive açık + gizli açı | 26 | %11 | %46 | %42 |
+| Gizli açıdan sonraki 16 tick | 86 | %8 | %34 | %57 |
+| Defensive yok | 324 | %20 | %30 | %48 |
 
-## Sıradaki deneyler (lua sırayla dener)
+Havada: gizli açıdan sonraki 1-8 tick'te kafa %70-88. Karar: gizli açılar bütün satırlarda kapatıldı.
 
-1. `def_hidden` — Peek / eğik / dururken defensive sırasında gizli açı (pitch yukarı, yaw rastgele). Ölçü: yenen mermilerde kafa oranı. Sebep: yenen 104 merminin 45'i Peek (eğik)'te, %73 kafa; bu satırlarda gizli açı kapalıydı.
-2. `ret_notp` — geri çekilmede DT ışınlanması yok (şarj kalır, atış sonrası defensive çalışır). Ölçü: öldürmeyen atıştan sonra 2 sn sağ kalma. Sebep: 17 atışın 13'ünde 2 sn içinde ölüm.
-3. `scout_hc90` — scout hit chance en az 90. Ölçü: scout atış isabet oranı.
-4. `crouch_stand` — eğikken Standing ayarı (jitter 51, desync 60). Ölçü: eğikken kafa oranı.
-5. `sp_off` — resolver safe point'siz. Ölçü: scout atış isabet oranı.
+AA hedefi (AA'nın döndüğü düşman) ile vuran düşman:
 
-Karar kuralı (V1.0.29): iki kolda da en az örnek varken aday 2 standart hata öndeyse kazanır, 1 standart hata
-gerideyse hemen reddedilir; 3 kat örnekte 1 standart hata öndeyse kazanır, değilse şimdiki kalır. Aday yaşam başına
-öldürmede 2 standart hata gerideyse her durumda reddedilir.
+| Vuran | Mermi | Iska | Gövde | Kafa |
+|---|---|---|---|---|
+| AA hedefi | 281 | %21 | %38 | %39 |
+| AA hedefi değil, lua "görüyor" diyordu | 74 | %24 | %29 | %46 |
+| AA hedefi değil, lua "görmedi" diyordu | 154 | %13 | %25 | %61 |
+
+Sebep: hedef dışındaki düşmanlar sırayla, 16-24 tick'te bir taranıyordu. Karar: 900 birim içindeki en yakın 5
+düşman 2 tick'te bir taranır; görenler arasında AA hedefi hattı yeni açan, sonra en yakın olan.
+
+Diğer gözlemler (karar verilmedi): duvardan gelen isabetlerde kafa %72, açıkta %48; rakip bizi ilk gördüğü 0.15 sn
+içinde ya da "görmedi" derken sıkıyor (mermilerin %70'i); kendi atışımızdan sonraki 1 sn içinde mermilerin %32'si.
+
+## Süren ve sıradaki deneyler (lua sırayla dener)
+
+1. `hidden_old` — doğrulama: eski gizli açılar aday kolunda. Ölçü: yenen mermilerde kafa oranı. Beklenti: reddedilir.
+2. `aa_nearest` — kimse görmüyorken AA nişangaha en yakın yerine mesafece en yakın düşmana döner. Ölçü: kafa oranı.
+3. `def_dense` — yerde de 8 tick'te bir defensive (şimdi 12). Ölçü: kafa oranı; öldürme düşerse reddedilir.
+4. `ret_notp` — geri çekilmede DT ışınlanması yok. Ölçü: öldürmeyen atıştan sonra 2 sn sağ kalma.
+5. `scout_hc90` — scout hit chance en az 90. Ölçü: scout atış isabet oranı.
+6. `crouch_stand` — eğikken Standing ayarı. Ölçü: eğikken kafa oranı.
+7. `sp_off` — resolver safe point'siz. Ölçü: scout atış isabet oranı.
+
+Reddedilen: `crouch_safe` (eğik AA sabit yaw + desync 30): aday kafa 22/28 (%79), şimdiki 21/32 (%66).
+
+Karar kuralı: iki kolda da en az örnek varken aday 2 standart hata öndeyse kazanır, 1 standart hata gerideyse hemen
+reddedilir; 3 kat örnekte 1 standart hata öndeyse kazanır, değilse şimdiki kalır. Aday yaşam başına öldürmede 2
+standart hata gerideyse her durumda reddedilir.

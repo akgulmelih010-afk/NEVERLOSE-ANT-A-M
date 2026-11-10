@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.29"
+H.VER = "V1.0.30"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -473,8 +473,8 @@ H.OVR_STATES = { Standing = true, Moving = true, ["Slow walk"] = true, Crouching
     Peek = true, Air = true, ["Air crouch"] = true }
 H.SPECIAL = { Manual = true, Freestanding = true, ["Safe head"] = true }
 H.XDEF = { -- { Defensive, Hidden pitch, Hidden yaw } (1-tabanli)
-    Standing = { 3, 1, 1 }, Moving = { 3, 3, 4 }, ["Slow walk"] = { 3, 3, 4 }, Crouching = { 3, 1, 1 },
-    ["Crouch move"] = { 3, 3, 4 }, Peek = { 3, 1, 1 }, Air = { 3, 3, 3 }, ["Air crouch"] = { 3, 3, 4 },
+    Standing = { 3, 1, 1 }, Moving = { 3, 1, 1 }, ["Slow walk"] = { 3, 1, 1 }, Crouching = { 3, 1, 1 },
+    ["Crouch move"] = { 3, 1, 1 }, Peek = { 3, 1, 1 }, Air = { 3, 1, 1 }, ["Air crouch"] = { 3, 1, 1 },
     Manual = { 3, 1, 1 }, Freestanding = { 3, 1, 1 }, ["Safe head"] = { 2, 1, 1 },
 }
 do
@@ -3228,10 +3228,11 @@ function C.brute()
             .. tostring(n_ok) .. ") [" .. table.concat(ra, ",", 1, math.min(#ra, 12)) .. " | " .. table.concat(rb, ",", 1, math.min(#rb, 12)) .. "]")
     end)
     H.run("T-XP", function()
-        -- V1.0.28 deney motoru: her dogusta kol degisir; B kolunda egikken builder satiri Safe head (|desync| 0.5),
-        -- A kolunda Crouching satiri. A yasamlarinda kafadan, B yasamlarinda govdeden 32'ser mermi -> "deney bitti:
-        -- ... ADAY KAZANDI"; sonra her yasamda aday gecerli ve siradaki deney baslar. Hafizaya X kaydi yazilir ve
-        -- yeni oturumda aday kalici. AFK / ayar kapali: sayilmaz.
+        -- Deney motoru (V1.0.28-30). Ilk deney "hidden_old": B kolunda Moving'de kendi defensive'imiz sirasinda eski
+        -- gizli aci (pitch -89), A kolunda (varsayilan) yok. Her dogusta kol degisir. A yasamlarinda kafadan, B
+        -- yasamlarinda govdeden 40'ar mermi -> "deney bitti: ... ADAY KAZANDI", sonra her yasamda aday gecerli,
+        -- siradaki deney baslar, hafizaya X kaydi yazilir ve yeni oturumda kalici. Tersi -> "aday reddedildi".
+        -- "Experiments" kapali: aday hic calismaz.
         local function respawn(T, W)
             T.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
             W.p[1].alive = false
@@ -3240,77 +3241,78 @@ function C.brute()
             T.event("player_spawn", { userid = 101 })
             T.tick(3)
         end
-        local function half(T, W)
-            T.tick(12)
-            local recs = T.recs(W.tick - 6, W.tick)
-            local n, hf = 0, 0
-            for _, r in ipairs(recs) do
-                n = n + 1
-                if math.abs(math.abs(r.desync or 0) - 0.5) < 0.05 then hf = hf + 1 end
+        local function def_up(T, W)
+            W.p[1].vel = V.v3(150, 0, 0)
+            T.tick(10)
+            local t0 = W.tick
+            W.p[1].sim_shift = 8
+            T.tick(4)
+            local up = false
+            for _, r in ipairs(T.recs(t0 + 1, W.tick)) do if r.pitch ~= nil and r.pitch < -80 then up = true end end
+            W.p[1].sim_shift = 0
+            T.tick(20)
+            return up
+        end
+        local function run(name, b_gets_head)
+            local T = H.boot({ name = name, rec_off = true, experiments = true })
+            local W = T.W
+            local arms = {}
+            for i = 1, 4 do arms[i] = def_up(T, W) and "B" or "A"; respawn(T, W) end
+            for i = 1, 10 do
+                local is_b = def_up(T, W)
+                local hg = (is_b == b_gets_head) and 1 or 2
+                for _ = 1, 8 do W.p[1].health = 100; T.hurt_me(2, hg, 5); T.tick(1) end
+                respawn(T, W)
             end
-            return n > 0 and hf == n
+            return T, W, table.concat(arms)
         end
-        local T = H.boot({ name = "xp", rec_off = true, experiments = true })
-        local W = T.W
-        W.p[1].ducking = true; W.p[1].duck = 1
-        local arms = {}
-        for i = 1, 4 do arms[i] = half(T, W) and "B" or "A"; respawn(T, W) end
-        local alt = table.concat(arms)
-        -- 8 yasam: A yasamlarinda 8 kafa, B yasamlarinda 8 govde mermisi (egikken) -> 32'ser ornek.
-        for i = 1, 8 do
-            local is_b = half(T, W)
-            for _ = 1, 8 do W.p[1].health = 100; T.hurt_me(2, is_b and 2 or 1, 5); T.tick(1) end
-            respawn(T, W)
-        end
-        local done = T.printed("deney bitti: egik AA: sabit yaw") or ""
-        local nxt = T.count("deney: siradaki -> defensive'de gizli aci")
-        local stay = half(T, W); respawn(T, W); local stay2 = half(T, W)
+        local T, W, alt = run("xp", false)
+        local done = T.printed("deney bitti: defensive'de gizli aci") or ""
+        local nxt = T.count("deney: siradaki -> AA hedefi: kimse gormuyorken")
+        local stay = def_up(T, W); respawn(T, W); local stay2 = def_up(T, W)
         T.shutdown()
-        local rec = H.mem_rec(T, "X", "crouch_safe")
+        local rec = H.mem_rec(T, "X", "hidden_old")
         local T2 = H.boot({ name = "xp-kalici", rec_off = true, experiments = true,
             files = { ["nykle_memory.txt"] = T.W.files["nykle_memory.txt"] } })
-        T2.W.p[1].ducking = true; T2.W.p[1].duck = 1
-        local kept = half(T2, T2.W)
+        local kept = def_up(T2, T2.W)
         H.check("T-XP", (alt == "ABAB" or alt == "BABA") and done:find("ADAY KAZANDI", 1, true) ~= nil and nxt == 1 and stay and stay2
             and rec ~= nil and rec[3] == "B" and kept, "kollar " .. alt .. "; " .. done:sub(14, 150) .. "; siradaki satiri " .. nxt
             .. "; karardan sonra iki yasamda da aday (" .. tostring(stay) .. "/" .. tostring(stay2) .. "); hafiza X kaydi "
             .. tostring(rec and rec[3]) .. "; yeni oturumda kalici (" .. tostring(kept) .. ")")
-        -- Aday kotuyse reddedilir: B yasamlarinda kafa, A yasamlarinda govde.
-        local R = H.boot({ name = "xp-red", rec_off = true, experiments = true })
-        local Wr = R.W
-        Wr.p[1].ducking = true; Wr.p[1].duck = 1
-        for i = 1, 8 do
-            local is_b = half(R, Wr)
-            for _ = 1, 8 do Wr.p[1].health = 100; R.hurt_me(2, is_b and 1 or 2, 5); R.tick(1) end
-            respawn(R, Wr)
-        end
-        local red = R.printed("deney bitti: egik AA: sabit yaw") or ""
-        local back = half(R, Wr); respawn(R, Wr); local back2 = half(R, Wr)
+        local R, Wr = run("xp-red", true)
+        local red = R.printed("deney bitti: defensive'de gizli aci") or ""
+        local back = def_up(R, Wr); respawn(R, Wr); local back2 = def_up(R, Wr)
         local Off = H.boot({ name = "xp-kapali", rec_off = true })
-        Off.W.p[1].ducking = true; Off.W.p[1].duck = 1
-        local off1 = half(Off, Off.W); respawn(Off, Off.W); local off2 = half(Off, Off.W)
-        -- V1.0.29: ilk deney hafizada "A" (reddedildi) ise siradaki "def_hidden" calisir: B yasaminda dururken
-        -- kendi defensive'imiz sirasinda pitch yukari (-89), A yasaminda normal (89).
-        local seed = H.mem2({ "X\tcrouch_safe\tA\t40\t19\t27000\t32\t21\t40\t14\t26000\t30\t24" })
-        local D = H.boot({ name = "xp-gizli", rec_off = true, experiments = true, files = { ["nykle_memory.txt"] = seed } })
-        local Wd = D.W
-        local function def_pitch()
-            D.tick(10)
-            local t0 = Wd.tick
-            Wd.p[1].sim_shift = 8
-            D.tick(4)
-            local up = false
-            for _, r in ipairs(D.recs(t0 + 1, Wd.tick)) do if r.pitch ~= nil and r.pitch < -80 then up = true end end
-            Wd.p[1].sim_shift = 0
-            D.tick(20)
-            return up
-        end
-        local p1 = def_pitch(); respawn(D, Wd); local p2 = def_pitch()
-        H.check("T-XP", p1 ~= p2, "def_hidden: bir yasamda defensive'de pitch yukari (" .. tostring(p1) .. "), digerinde degil ("
-            .. tostring(p2) .. ")")
+        local off1 = def_up(Off, Off.W); respawn(Off, Off.W); local off2 = def_up(Off, Off.W)
         H.check("T-XP", red:find("aday reddedildi", 1, true) ~= nil and not back and not back2 and not off1 and not off2,
-            "kotu aday: " .. red:sub(14, 110) .. "; sonra aday yok (" .. tostring(back) .. "/" .. tostring(back2)
-            .. "); 'Experiments' kapali: aday yok (" .. tostring(off1) .. "/" .. tostring(off2) .. ")")
+            "kotu aday: " .. red:sub(14, 120) .. "; sonra aday yok (" .. tostring(back) .. "/" .. tostring(back2)
+            .. "); 'Experiments' kapali: gizli aci yok (" .. tostring(off1) .. "/" .. tostring(off2) .. ")")
+        -- Ilk deney hafizada "A" (reddedildi) ise siradaki "def_dense" calisir: goruluyorken yerde zorlama araligi
+        -- bir yasamda 8 tick, digerinde 12 tick.
+        local seed = H.mem2({ "X\thidden_old\tA\t40\t19\t27000\t48\t21\t40\t14\t26000\t44\t30",
+            "X\taa_nearest\tA\t40\t19\t27000\t48\t21\t40\t14\t26000\t44\t30" })
+        local D = H.boot({ name = "xp-sik", rec_off = true, experiments = true, def_repeat = true,
+            files = { ["nykle_memory.txt"] = seed } })
+        local Wd = D.W
+        Wd.sees[2] = 60
+        local function gap()
+            D.tick(20)
+            local t0 = Wd.tick
+            D.tick(100)
+            local _, at = H.shift_all(D)
+            local g = 99
+            local prev = nil
+            for _, x in ipairs(at) do
+                if x > t0 then
+                    if prev ~= nil then g = math.min(g, x - prev) end
+                    prev = x
+                end
+            end
+            return g
+        end
+        local g1 = gap(); respawn(D, Wd); local g2 = gap()
+        H.check("T-XP", math.min(g1, g2) >= 8 and math.min(g1, g2) <= 9 and math.max(g1, g2) >= 12, "def_dense: zorlama araligi "
+            .. g1 .. " / " .. g2 .. " tick (bir yasamda 8, digerinde 12)")
     end)
     H.run("T-BR-FIX", function()
         -- V1.0.26 "AA: fixed phase" (varsayilan acik): faz hep 1 (asym): vuruldun satirlari "faz 1", round'lar arasinda
@@ -3481,7 +3483,8 @@ function C.exploits()
         H.check("T-EX-2", before == 1 and late == 0, "varsayilan: atistan once " .. before .. " zorlama (1), atistan sonraki 40"
             .. " tick'te gorulme surerken tekrar yok (" .. late .. ")")
         local function hid(clean, name)
-            local X = H.boot({ name = name })
+            -- V1.0.30: gizli acilar varsayilan kapali; mekanizma satir ayariyla sinanir (Moving: pitch Up).
+            local X = H.boot({ name = name, rec_off = true, setup = function(T) T.xset("Moving", "Hidden pitch", 3) end })
             local W3 = X.W
             W3.p[1].vel = V.v3(100, 0, 0)
             if clean then W3.can_fire = true; W3.head_dmg[2] = 120 end
@@ -3568,8 +3571,35 @@ function C.exploits()
             .. " zorlama (" .. na .. "), oncesi " .. nb .. ", sonrasi " .. nb2 .. "; 10 tick kesilip donunce " .. ns
             .. " (0), 60 tick kesilip donunce " .. nl .. " (1)")
     end)
+    H.run("T-EX-27", function()
+        -- V1.0.30: varsayilanlarda gizli aci yok: Moving / Air / Air crouch'ta kendi defensive'imiz sirasinda da pitch
+        -- 89 kalir (eskiden -89) ve vuruldun satirina "gizli Nt" etiketi dusmez.
+        local function up_frac(name, setup)
+            local T = H.boot({ name = name })
+            local W = T.W
+            setup(W)
+            W.sees[2] = 60
+            T.tick(30)
+            local t0 = W.tick
+            W.p[1].sim_shift = 12
+            T.tick(12)
+            local f = H.frac(T.recs(t0 + 2, t0 + 9), function(r) return r.pitch == -89 end)
+            local m = T.mark()
+            T.hurt_me(2, 2, 10)
+            T.tick(1)
+            return f, (T.printed("vuruldun:", m) or ""):find("gizli", 1, true) ~= nil
+        end
+        local mv, mv_tag = up_frac("ex-27-moving", function(W) W.p[1].vel = V.v3(150, 0, 0) end)
+        local air, air_tag = up_frac("ex-27-air", function(W) W.p[1].ground = false end)
+        H.check("T-EX-27", mv == 0 and air == 0 and not mv_tag and not air_tag, "defensive sirasinda pitch -89 orani: Moving "
+            .. H.f1(mv * 100) .. "%, Air " .. H.f1(air * 100) .. "% (0); 'gizli' etiketi " .. tostring(mv_tag) .. " / "
+            .. tostring(air_tag) .. " (false)")
+    end)
     H.run("T-EX-5", function()
-        local T = H.boot({ name = "ex-5" })
+        -- V1.0.30: gizli acilar varsayilan kapali; mekanizma satir ayariyla sinanir (Air: pitch Up, yaw Spin).
+        local T = H.boot({ name = "ex-5", rec_off = true, setup = function(T)
+            T.xset("Air", "Hidden pitch", 3); T.xset("Air", "Hidden yaw", 3)
+        end })
         local W = T.W
         W.p[1].ground = false
         T.tick(30)
@@ -5666,6 +5696,25 @@ function C.review()
         local off_n, off_d = line:match("kapali (%d+) atis, 2 sn icinde olum (%d+)")
         local none_n = tonumber(line:match("nokta yok (%d+) atis")) or -1
         H.check("T-PEEK-RET", on_n + none_n == 5 and tonumber(off_n) == 5 and tonumber(off_d) == 1, "10 atis: " .. line:sub(14, 200))
+    end)
+    H.run("T-EXP-NEAR", function()
+        -- V1.0.30: 9 dusman varken AA hedefi olmayan, 900 birim icindeki bir dusman hatti acinca en gec 4 tick'te
+        -- "goruyor" sayilir (eskiden sirayla 2 x dusman sayisi tick) ve AA hedefi ona gecer (hatti yeni acan).
+        local T = H.boot({ name = "exp-near", pre = function(T, W)
+            for i = 4, 10 do W.p[i] = H.mkplayer(i, "E" .. i, 300 + i * 40, 600 - i * 120, 0, true, "ssg08") end
+        end })
+        local W = T.W
+        W.sees[2] = 60
+        T.tick(40)
+        W.sees[5] = 60
+        T.tick(4)
+        local m = T.mark()
+        T.hurt_me(5, 2, 5)
+        T.tick(1)
+        local line = T.printed("vuruldun:", m) or ""
+        H.check("T-EXP-NEAR", line:find("gordu", 1, true) ~= nil
+            and line:find("gormedi", 1, true) == nil and line:find("AA hedefi,", 1, true) ~= nil, "9 dusman; hatti acan yakin dusman 4"
+            .. " tick sonra: " .. line:sub(-95))
     end)
     H.run("T-EXP-BODY", function()
         -- V1.0.18 govde hatti: kafaya mermi 0, pelvise 60. Cizgi acikken "gordu" (duvar hatti yok); duvar varken

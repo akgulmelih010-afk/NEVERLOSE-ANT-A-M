@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.29  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.30  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,17 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.30 (primordial edition): 7 logdaki 509 dusman mermisinin ayrintili analizi. Bulgu: defensive sirasindaki
+        "gizli aci" (pitch yukari / rastgele yaw / spin) zarar veriyor: gizli acisiz defensive'de iska %30, kafa %30;
+        gizli acili defensive'de iska %11, kafa %42; gizli acidan sonraki 16 tick'te iska %0-15, kafa %50-66 (havada
+        %70-88); defensive yokken iska %20, kafa %48. Gizli acilar butun satirlarda KAPATILDI (Moving, Slow walk,
+        Crouch move, Air, Air crouch'ta aciktilar). Deney sirasi yenilendi: (1) eski gizli acilar dogrulama kolu
+        olarak, (2) yerde de sik defensive, (3) isinlanmasiz geri cekilme, (4) scout hit chance 90, (5) egik AA
+        Standing ayari, (6) safe point'siz resolver. Egik AA sabit yaw adayi reddedildi (kafa %79, simdiki %66).
+        Ikinci bulgu: AA hedefi olmayan dusmandan gelen mermilerde kafa %56, hedeften gelenlerde %39; bunlarin 154'u
+        (butun mermilerin %30'u) "gormedi" denirken geldi, %61'i kafa. Sebep gorus taramasinin yavasligi: en yakin 3
+        dusman artik her taramada kontrol edilir; gorenler arasinda AA hedefi hatti yeni acan, sonra en yakin olan.
+        Deney "aa_nearest": kimse gormuyorken AA mesafece en yakin dusmana doner.
       V1.0.29 (primordial edition): log 14 (V1.0.28, 20 dk DM; K33 / D81, guclu lobi: yenen mermilerde kafa %69).
         Ilk deney kotu gidiyor (egik AA adayi %79 kafa, simdiki %66): karar kurali "red hizli, kabul temkinli" oldu
         (aday 1 standart hata gerideyse hemen reddedilir). Siraya iki aday eklendi: defensive sirasinda gizli aci
@@ -217,7 +228,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.29", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.30", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 }, xp = {},
@@ -252,14 +263,21 @@ do
         Manual = { 0, 0, 1, 60, 60 }, Freestanding = { 0, 0, 1, 60, 60 }, ["Safe head"] = { 0, 0, 1, 30, 30 },
     }
     -- { defensive, hidden pitch, hidden yaw } (GS EXPLOIT_DEFAULTS; "Exploit" sutunu primordial'da yok)
+    -- V1.0.30: gizli aci (defensive sirasinda pitch yukari / rastgele yaw / spin) butun satirlarda KAPALI. 7 log, 509
+    -- dusman mermisi: defensive acik + gizli aci yok -> iska %30, kafa %30; defensive acik + gizli aci -> iska %11, kafa
+    -- %42; gizli acidan sonraki 16 tick -> iska %0-15, kafa %50-66 (havada %70-88); defensive yok -> iska %20, kafa %48.
+    -- Gizli acili satirlarin durumlarinda (Moving / Crouch move / Air / Air crouch) kafa %57, digerlerinde %42.
     K.EXPLOIT_DEFAULTS = {
-        Standing = { "Smart", "Off", "Off" }, Moving = { "Smart", "Up", "Random" },
-        ["Slow walk"] = { "Smart", "Up", "Random" }, Crouching = { "Smart", "Off", "Off" },
-        ["Crouch move"] = { "Smart", "Up", "Random" }, Peek = { "Smart", "Off", "Off" },
-        Air = { "Smart", "Up", "Spin" }, ["Air crouch"] = { "Smart", "Up", "Random" },
+        Standing = { "Smart", "Off", "Off" }, Moving = { "Smart", "Off", "Off" },
+        ["Slow walk"] = { "Smart", "Off", "Off" }, Crouching = { "Smart", "Off", "Off" },
+        ["Crouch move"] = { "Smart", "Off", "Off" }, Peek = { "Smart", "Off", "Off" },
+        Air = { "Smart", "Off", "Off" }, ["Air crouch"] = { "Smart", "Off", "Off" },
         Manual = { "Smart", "Off", "Off" }, Freestanding = { "Smart", "Off", "Off" },
         ["Safe head"] = { "On peek", "Off", "Off" },
     }
+    -- Deney "hidden_old" (dogrulama): eski gizli acilar { pitch, yaw } (3 = Up; 4 = Random, 3 = Spin).
+    K.HIDDEN_OLD = { Moving = { 3, 4 }, ["Slow walk"] = { 3, 4 }, ["Crouch move"] = { 3, 4 }, Air = { 3, 3 },
+        ["Air crouch"] = { 3, 4 } }
     K.WAY_DEFAULTS = { -30, 0, 30, -15, 15 }
     K.YAW_MODES = { "L&R", "X-Way" }
     K.MODIFIERS = { "Off", "Center", "Offset", "Random", "Spin", "3-Way", "5-Way" }
@@ -3427,6 +3445,19 @@ do
     E.sight, E.now_set, E.soon_set = {}, {}, {}
     E.now, E.soon, E.seen, E.near = false, false, false, false
     E.turn, E.last_tick, E.first_edge = 0, -1000, {}
+    E.NEAREST, E.NEAR_FAST = 5, 900
+
+    -- Hizli gorus kontrolu: dusmanin gozunden kafa merkezime ya da pelvisime mermi geciyor mu (en fazla 2 iz).
+    E.check_fast = function(enemy, lp, head, pel)
+        local eye = U.eye(enemy)
+        if eye == nil or head == nil then
+            return false
+        end
+        if U.tdmg(eye, head, enemy, lp) > 0 then
+            return true
+        end
+        return pel ~= nil and U.tdmg(eye, pel, enemy, lp) > 0
+    end
     -- N2: wake_edge[idx] = islenen son uyanma tick'i (T.wake). Yeni uyanan dusman (dormant'tan cikti) NEAR icindeyse
     -- ilk gorus kenari sayilir (sunucu gorunmeyen dusmani gondermiyor: uyanma = peek) ve 16 tick boyunca her tick
     -- kontrol edilir (sira beklemez).
@@ -3509,12 +3540,17 @@ do
         local mine = U.origin(lp)
         local near = false
         local check = {}
+        local byd = {}
         if mine ~= nil then
             for _, enemy in ipairs(list) do
                 local o = U.origin(enemy)
-                local close = o ~= nil and U.dist(o, mine) <= N.K.NEAR
+                local dist = o ~= nil and U.dist(o, mine) or huge
+                local close = dist <= N.K.NEAR
                 if close then
                     near = true
+                end
+                if dist <= E.NEAR_FAST then
+                    byd[#byd + 1] = { e = enemy, d = dist }
                 end
                 local idx = U.index(enemy)
                 local tr = idx ~= nil and N.track.p[idx] or nil
@@ -3530,6 +3566,7 @@ do
         end
         E.near = near
         local due = tick - E.last_tick >= N.K.EXPOSE_EVERY or tick < E.last_tick
+        local fast = {}
         if due or #check > 0 then
             local head = U.hitbox(lp, "HEAD")
             local pel = U.hitbox(lp, "PELVIS")
@@ -3547,19 +3584,47 @@ do
                 if threat ~= nil then
                     add(threat)
                 end
+                -- V1.0.30 (7 log, 509 mermi): AA hedefi olmayan ve "gormedi" denen dusmanlardan 154 mermi geldi, %61'i
+                -- kafa (AA hedefinden gelenlerde %39). Sebep: hedef disindaki dusmanlar sirayla, 8-12 dusmanda 16-24
+                -- tick'te bir taraniyordu; rakip hatti acinca 0.15 sn icinde sikiyor. Artik 900 birim icindeki en yakin 5
+                -- dusman her taramada (2 tick'te bir) hizli kontrol edilir (kafa merkezi + pelvis, 2 iz; tahminli
+                -- kontrol ve duz iz yedegi yok), digerleri yine sirayla tam kontrol.
+                if #byd > 1 then
+                    table.sort(byd, function(a, b) return a.d < b.d end)
+                end
+                local full_n = #check
+                for i = 1, min(E.NEAREST, #byd) do
+                    add(byd[i].e)
+                end
+                for i = full_n + 1, #check do
+                    fast[check[i]] = true
+                end
                 if #list > 0 then
                     E.turn = E.turn % #list + 1
-                    add(list[E.turn])
+                    local rr = list[E.turn]
+                    add(rr)
+                    fast[rr] = nil
                 end
             end
             for _, enemy in ipairs(check) do
                 local idx = U.index(enemy)
                 if idx ~= nil then
-                    local now_seen = E.check(enemy, lp, head, false, pel)
-                    local soon = now_seen or E.check(enemy, lp, head, true, nil)
-                    E.now_set[idx] = now_seen and tick or nil
-                    E.soon_set[idx] = soon and tick or nil
-                    E.wall_lane(enemy, idx, lp, head, now_seen, tick)
+                    local now_seen, soon
+                    if fast[enemy] then
+                        now_seen = E.check_fast(enemy, lp, head, pel)
+                        soon = now_seen
+                    else
+                        now_seen = E.check(enemy, lp, head, false, pel)
+                        soon = now_seen or E.check(enemy, lp, head, true, nil)
+                    end
+                    -- Hizli kontrol "gormuyor" derse onceki (tam) sonuc 12 tick gecerliligini korur; "goruyor" derse yazar.
+                    if not fast[enemy] or now_seen then
+                        E.now_set[idx] = now_seen and tick or nil
+                        E.soon_set[idx] = soon and tick or nil
+                    end
+                    if not fast[enemy] or now_seen then
+                        E.wall_lane(enemy, idx, lp, head, now_seen, tick)
+                    end
                     if now_seen then
                         local s = E.sight[idx]
                         if s == nil or tick - s.last > N.K.SIGHT_GAP or tick < s.last then
@@ -3958,28 +4023,36 @@ do
                 end
             end
         end
+        local mine = U.origin(st.lp)
         if best == nil then
-            local last = -1000
+            -- V1.0.30: gorenler arasinda once hatti yeni acan (son 32 tick: birazdan sikacak olan), sonra en yakin.
+            -- Eskiden "son guncellenen" seciliyordu (taramalar ayni tick'te olunca listedeki ilk goren = rastgele).
+            local best_s = -huge
             for _, e in ipairs(list) do
                 local idx = U.index(e)
                 local s = idx ~= nil and E.sight[idx] or nil
-                if s ~= nil and E.sees(idx) and s.last > last then
-                    best, last = e, s.last
+                if s ~= nil and E.sees(idx) then
+                    local o = U.origin(e)
+                    local d = (mine ~= nil and o ~= nil) and U.dist(mine, o) or 4000
+                    local age = tick - s.first
+                    local score = -d / 10 + ((age >= 0 and age <= 32) and (500 - age * 10) or 0)
+                    if score > best_s then
+                        best, best_s = e, score
+                    end
                 end
             end
         end
-        if best == nil then
-            local mine = U.origin(st.lp)
+        if best == nil and mine ~= nil then
+            -- Kimse gormuyorken: nisangaha en yakin dusman; deney "aa_nearest": mesafece en yakin dusman.
+            local nearest = N.xp.on("aa_nearest")
             local view = A.view_yaw(nil)
             local best_d = huge
-            if mine ~= nil then
-                for _, e in ipairs(list) do
-                    local o = U.origin(e)
-                    if o ~= nil then
-                        local d = abs(U.norm(U.yaw_to(mine, o) - view))
-                        if d < best_d then
-                            best, best_d = e, d
-                        end
+            for _, e in ipairs(list) do
+                local o = U.origin(e)
+                if o ~= nil then
+                    local d = nearest and U.dist(mine, o) or abs(U.norm(U.yaw_to(mine, o) - view))
+                    if d < best_d then
+                        best, best_d = e, d
                     end
                 end
             end
@@ -4010,9 +4083,6 @@ do
         if N.st.crouch and (state == "Crouching" or state == "Crouch move" or state == "Peek") then
             if N.xp.on("crouch_stand") and N.ui.b["Standing"] ~= nil then
                 return "Standing"
-            end
-            if N.xp.on("crouch_safe") and N.ui.b["Safe head"] ~= nil then
-                return "Safe head"
             end
         end
         if K.OVERRIDABLE[state] and N.bv(state, "override") == false then
@@ -4376,10 +4446,9 @@ do
         local tick = U.tick()
         local hp = N.xv(state, "hidden_pitch") or 1
         local hy = N.xv(state, "hidden_yaw") or 1
-        -- V1.0.29 deney "def_hidden": ikisi de kapali olan satirlarda (Peek / Crouching / Standing / ...) defensive
-        -- sirasinda pitch yukari + yaw rastgele (Moving satirinin ayari).
-        if hp == 1 and hy == 1 and N.xp.on("def_hidden") then
-            hp, hy = 3, 4
+        -- V1.0.30 deney "hidden_old" (dogrulama kolu): ikisi de kapaliyken eski gizli acilar.
+        if hp == 1 and hy == 1 and K.HIDDEN_OLD[state] ~= nil and N.xp.on("hidden_old") then
+            hp, hy = K.HIDDEN_OLD[state][1], K.HIDDEN_OLD[state][2]
         end
         local pitch, yaw
         if hp == 2 then
@@ -5328,7 +5397,7 @@ do
             -- V1.0.24 (istek: "havada fazlaca vuruluyorum"; log 9-11: havada yenen 16 merminin 16'si defensive
             -- kapaliyken, olumlerin %20-25'i havada): havadayken tekrar araligi 8 tick (defensive ort. 6.4 tick
             -- suruyor) ve "air" sebebi de ucus basina bir degil, aralikla tekrar eder.
-            if st.airborne and not st.ladder and rep_t > 0 then
+            if rep_t > 0 and ((st.airborne and not st.ladder) or N.xp.on("def_dense")) then
                 rep_t = min(rep_t, X.AIR_REP)
             end
             if why == "smart" then
@@ -5390,7 +5459,7 @@ do
                 -- Tarama dizisinin basi (olay) ya da gorulurken def_repeat tick'te bir.
                 local rep_t = floor(N.v("def_repeat") or 0)
                 local E = N.exposure
-                if N.st.airborne and not N.st.ladder and rep_t > 0 then
+                if rep_t > 0 and ((N.st.airborne and not N.st.ladder) or N.xp.on("def_dense")) then
                     rep_t = min(rep_t, X.AIR_REP)
                 end
                 local again = rep_t > 0 and (E.now or E.seen or E.near or E.soon) and X.gap_ok(tick, rep_t)
@@ -7709,12 +7778,15 @@ end
 do
     local U, XP = N.util, N.xp
     XP.LIST = {
-        { id = "crouch_safe", kind = "head", crouch = true, min = 30,
-            name = "egik AA: sabit yaw, jitter yok, desync 30" },
-        -- V1.0.29 (log 14): Peek / Crouching / Standing satirlarinda defensive sirasinda gizli pitch / yaw kapaliydi
-        -- (yenen mermilerin cogu Peek (egik)'te: 45 mermi, %73 kafa).
-        { id = "def_hidden", kind = "head", min = 30,
-            name = "defensive'de gizli aci (pitch yukari, yaw rastgele) Peek / egik / dururken" },
+        -- V1.0.30 dogrulama: gizli acilar varsayilan olarak kapatildi (gozlem verisi); eski davranis aday olarak
+        -- denenir, gercekten kotuyse reddedilir, degilse geri gelir.
+        { id = "hidden_old", kind = "head", min = 40,
+            name = "defensive'de gizli aci (eski: pitch yukari + rastgele yaw / spin)" },
+        -- AA hedefi olmayan dusmandan gelen mermilerde kafa %56 (hedeften gelenlerde %39): kimse gormuyorken AA
+        -- nisangaha en yakin dusman yerine mesafece en yakin dusmana donsun.
+        { id = "aa_nearest", kind = "head", min = 40, name = "AA hedefi: kimse gormuyorken en yakin dusman" },
+        -- Gizli acisiz defensive'de kafa %30 (yokken %48): yerde de 8 tick'te bir tekrar (kapsama artar).
+        { id = "def_dense", kind = "head", min = 40, name = "yerde de sik defensive (8 tick'te bir)" },
         -- Geri cekilmedeki DT isinlanmasi sarji bosaltiyor, atistan sonraki 1 sn defensive'siz kaliyoruz.
         { id = "ret_notp", kind = "surv", min = 20, name = "geri cekilme: DT isinlanmasi yok (defensive kalsin)" },
         { id = "scout_hc90", kind = "hit", min = 25, name = "scout hit chance 90" },
