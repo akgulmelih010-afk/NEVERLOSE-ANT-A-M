@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.12"
+H.VER = "V1.0.13"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -413,6 +413,7 @@ H.EL = {
     { "fake_body", "rage", "Snipers: lethal body on fake records", "cb", true },
     { "wait_real", "rage", "Wait for real record (enemy defensive)", "cb", true },
     { "fresh_only", "rage", "Snipers: fresh record only", "cb", true },
+    { "counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", "cb", true },
     { "ext_body", "rage", "Body vs extended (repeated head misses)", "cb", true },
     { "hider_body", "rage", "Body vs head hiders (head share <= 35 pct over 12+ shots)", "cb", true },
     { "indicators", "visuals", "Crosshair indicators", "cb", true },
@@ -844,7 +845,7 @@ function H.make(opts)
         "set_fakelag", "set_invert_desync" }))
     local HSC_MT = H.objmt("hitscan_ctx", HSC, H.set_of({ "set_min_dmg", "set_hitchance", "set_safepoint_state",
         "set_hitscan_group_state" }))
-    local TSC_MT = H.objmt("target_ctx", TSC, H.set_of({ "ignore_target" }))
+    local TSC_MT = H.objmt("target_ctx", TSC, H.set_of({ "ignore_target", "prioritize_target" }))
     local function rec(c) return rawget(c, "_r") end
     AAC.set_yaw = function(c, v) H.num_ok(v, "set_yaw"); local r = rec(c); r.yaw = v; r.n = r.n + 1 end
     AAC.set_pitch = function(c, v) H.num_ok(v, "set_pitch"); local r = rec(c); r.pitch = v; r.n = r.n + 1 end
@@ -885,7 +886,11 @@ function H.make(opts)
         if type(i) ~= "number" then error("ignore_target: index sayi degil (" .. type(i) .. ")", 2) end
         T.ts[#T.ts + 1] = { tick = W.tick, idx = i }
     end
-    TSC.prioritize_target = function() end
+    TSC.prioritize_target = function(c, i)
+        if type(i) ~= "number" then error("prioritize_target: index sayi degil (" .. type(i) .. ")", 2) end
+        T.prio = T.prio or {}
+        T.prio[#T.prio + 1] = { tick = W.tick, idx = i }
+    end
 
     -- U3 korumasi (T-RAGE-12): MD gercek gereksinimin altina sadece R4-R7 on kosullariyla inebilir.
     function T.md_need(idx)
@@ -3658,6 +3663,30 @@ function H.ext_misses(T, idx, n)
     end
 end
 function C.rage()
+    H.run("T-RAGE-CW", function()
+        -- V1.0.13 karsi atak penceresi: sahte kayitta bekletilen dusman scout ile ates edince bekleme kalkar
+        -- (ignore_target yok) ve prioritize_target gelir; ayar kapaliyken bekleme surer.
+        local function inst(name, on)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            T.set("counter_window", on)
+            W.head_dmg[2] = 50
+            T.tick(30)
+            W.p[2].sim_shift = 6
+            T.tick(3)
+            local t0 = W.tick
+            T.event("weapon_fire", { userid = 102, weapon = "weapon_ssg08" })
+            T.tick(6)
+            local prio = 0
+            for _, x in ipairs(T.prio or {}) do if x.idx == 2 and x.tick > t0 then prio = prio + 1 end end
+            return T.ignored(2, t0 + 1, t0 + 6), prio, T.ignored(2, t0 - 2, t0)
+        end
+        local a_ign, a_prio, a_before = inst("rage-cw-acik", true)
+        local b_ign, b_prio = inst("rage-cw-kapali", false)
+        H.check("T-RAGE-CW", a_before >= 1 and a_ign == 0 and a_prio >= 3 and b_ign >= 3 and b_prio == 0, "atis oncesi bekletme "
+            .. a_before .. " (>= 1); ates edince: ignore_target " .. a_ign .. " (0), prioritize_target " .. a_prio
+            .. " (>= 3); ayar kapali: ignore " .. b_ign .. " (>= 3), prioritize " .. b_prio .. " (0)")
+    end)
     H.run("T-RAGE-1", function()
         local function inst(name, shift, seen)
             local T = H.boot({ name = name })

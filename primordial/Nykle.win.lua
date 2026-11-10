@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.12  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.13  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,9 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.13 (primordial edition): karsi atak penceresi ("Counter window", acik). Az once ates eden dusmana (scout /
+        AWP 1.2 sn, diger silahlar 0.3 sn) gercek / taze kayit beklemesi uygulanmaz ve hedef seciminde one alinir
+        (prioritize_target). Loglar: rakibin ilk mermisi iskalarsa duelloyu kazanma %63-79.
       V1.0.12 (primordial edition): vur-kac ("Ideal tick: teleport back after an autopeek sniper shot", acik). Autopeek
         tusu basiliyken scout / AWP atisindan sonra, kendi defensive'imiz bitince tek force_uncharge: DT sarjiyla
         autopeek noktasina geri isinlanma (paketteki en temiz lua'nin, metasett'in Lagpeek deseni). cfg'de "Dont Use
@@ -113,7 +116,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.12", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.13", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1650,6 +1653,7 @@ do
         B.cb("fake_body", "rage", "Snipers: lethal body on fake records", true, true)
         B.cb("wait_real", "rage", "Wait for real record (enemy defensive)", true, true)
         B.cb("fresh_only", "rage", "Snipers: fresh record only", true, true)
+        B.cb("counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", true, true)
         B.cb("ext_body", "rage", "Body vs extended (repeated head misses)", true, false)
         B.cb("hider_body", "rage", "Body vs head hiders (head share <= 35 pct over 12+ shots)", true, false)
         -- Visuals
@@ -6466,6 +6470,25 @@ do
                 end
             end
         end
+        -- V1.0.13 karsi atak penceresi (log: ilk mermisi iskalayan rakibe karsi kazanma %63-79; scout 1.25 sn surgu
+        -- ceker): az once ates eden dusmana gercek / taze kayit beklemesi uygulanmaz ve hedef seciminde one alinir.
+        RG.counter = {}
+        if N.on("counter_window") then
+            for _, ent in ipairs(list) do
+                local idx = U.index(ent)
+                local t = idx ~= nil and T.p[idx] or nil
+                if t ~= nil and t.fired_at ~= nil and now >= t.fired_at and now - t.fired_at <= (t.fired_win or 0.3) then
+                    RG.counter[idx] = true
+                    if hold[idx] ~= nil then
+                        hold[idx] = nil
+                        if N.on("resolver_log") then
+                            N.log.every("counter:" .. idx, 5, fmt("resolver: %s az once ates etti: bekleme kaldirildi"
+                                .. " (karsi atak penceresi %.1f sn)", U.name(ent), t.fired_win or 0.3), true)
+                        end
+                    end
+                end
+            end
+        end
         RG.hold = hold
         RG.sikmadi()
     end
@@ -6474,6 +6497,9 @@ do
     RG.select = function(ctx)
         for idx in pairs(RG.hold) do
             pcall(ctx.ignore_target, ctx, idx)
+        end
+        for idx in pairs(RG.counter or {}) do
+            pcall(ctx.prioritize_target, ctx, idx)
         end
     end
 
@@ -8005,6 +8031,11 @@ do
         end
         if idx ~= nil and U.is_enemy(p) then
             N.dlog.enemy_fire(idx)
+            -- V1.0.13 karsi atak penceresi: scout / AWP surgu cekerken 1.2 sn, diger silahlar 0.3 sn.
+            local w = tostring(e.weapon or "")
+            local t = N.track.get(idx)
+            t.fired_at = U.now()
+            t.fired_win = (w:find("ssg08", 1, true) or w:find("awp", 1, true)) and 1.2 or 0.3
         end
     end
 

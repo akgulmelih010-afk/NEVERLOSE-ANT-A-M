@@ -1298,6 +1298,9 @@
      "Body vs head hiders (head share <= 35 pct over 12+ shots)": {
       "is active": true
      },
+     "Counter window: no waits + priority vs an enemy who just fired": {
+      "is active": true
+     },
      "DT pair counts as lethal (body x2 >= HP)": {
       "is active": false
      },
