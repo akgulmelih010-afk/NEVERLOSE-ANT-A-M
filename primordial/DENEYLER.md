@@ -24,11 +24,23 @@ Lua bunu kendisi yapar ("Experiments"); bu dosya sonuçların kaydıdır.
 | Atıştan sonra geri çekilme | Açık (zayıf kanıt) | 12 atışta 7 ölüm; kapalıyken 8 |
 | Sahte kayda ateş etmeme + temiz ateş | Kalıcı | sahte kayıtta %40, gerçekte %72; kendi defensive açıkken %58, kapalıyken %80 |
 
+## Süren deney
+
+| Deney | Durum (log 14, V1.0.28) |
+|---|---|
+| `crouch_safe` eğik AA sabit yaw + desync 30 | Kötü gidiyor: şimdiki 40 yaşam, 0.47 öldürme/yaşam, eğikken kafa 21/32 (%66); aday 40 yaşam, 0.35, kafa 22/28 (%79). V1.0.29 kuralıyla (1 standart hata geride = ret) bir sonraki oturumda reddedilir. |
+
+Log 14 notu: güçlü lobi (yediğimiz mermilerde kafa %69, önceki log %50; scout isabeti temiz koşulda %66, önceki %82).
+İki kol aynı lobide oynandığı için deney karşılaştırması geçerli; taban çizgisiyle karşılaştırma değil.
+
 ## Sıradaki deneyler (lua sırayla dener)
 
-1. `crouch_safe` — eğikken sabit yaw, jitter yok, desync 30. Ölçü: eğikken yenen mermilerde kafa oranı.
-2. `scout_hc90` — scout hit chance en az 90. Ölçü: scout atış isabet oranı.
-3. `crouch_stand` — eğikken Standing ayarı (jitter 51, desync 60). Ölçü: eğikken kafa oranı.
-4. `sp_off` — resolver safe point'siz. Ölçü: scout atış isabet oranı.
+1. `def_hidden` — Peek / eğik / dururken defensive sırasında gizli açı (pitch yukarı, yaw rastgele). Ölçü: yenen mermilerde kafa oranı. Sebep: yenen 104 merminin 45'i Peek (eğik)'te, %73 kafa; bu satırlarda gizli açı kapalıydı.
+2. `ret_notp` — geri çekilmede DT ışınlanması yok (şarj kalır, atış sonrası defensive çalışır). Ölçü: öldürmeyen atıştan sonra 2 sn sağ kalma. Sebep: 17 atışın 13'ünde 2 sn içinde ölüm.
+3. `scout_hc90` — scout hit chance en az 90. Ölçü: scout atış isabet oranı.
+4. `crouch_stand` — eğikken Standing ayarı (jitter 51, desync 60). Ölçü: eğikken kafa oranı.
+5. `sp_off` — resolver safe point'siz. Ölçü: scout atış isabet oranı.
 
-Her deney için sonuç satırı (`deney bitti: ...`) buraya işlenir.
+Karar kuralı (V1.0.29): iki kolda da en az örnek varken aday 2 standart hata öndeyse kazanır, 1 standart hata
+gerideyse hemen reddedilir; 3 kat örnekte 1 standart hata öndeyse kazanır, değilse şimdiki kalır. Aday yaşam başına
+öldürmede 2 standart hata gerideyse her durumda reddedilir.

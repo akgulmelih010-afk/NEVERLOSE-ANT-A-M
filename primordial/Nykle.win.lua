@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.28  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.29  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,11 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.29 (primordial edition): log 14 (V1.0.28, 20 dk DM; K33 / D81, guclu lobi: yenen mermilerde kafa %69).
+        Ilk deney kotu gidiyor (egik AA adayi %79 kafa, simdiki %66): karar kurali "red hizli, kabul temkinli" oldu
+        (aday 1 standart hata gerideyse hemen reddedilir). Siraya iki aday eklendi: defensive sirasinda gizli aci
+        (Peek / egik / dururken kapaliydi; yenen 104 merminin 45'i Peek (egik)'te, %73 kafa) ve geri cekilmede DT
+        isinlanmasi olmadan (atis sonrasi defensive kalsin; oldurmeyen 17 atisin 13'unde 2 sn icinde olum).
       V1.0.28 (primordial edition): deney motoru ("Experiments", acik; istek: bozmadan daha iyi sonuc, kotulesirse
         diger yola). Ayni anda tek aday, her dogusta simdiki / aday kol degisir, karar kendiliginden (2 standart
         hata; aday yasam basina oldurmede belirgin gerideyse reddedilir), kazanan kalici olur ve hafizada saklanir.
@@ -212,7 +217,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.28", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.29", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 }, xp = {},
@@ -4371,6 +4376,11 @@ do
         local tick = U.tick()
         local hp = N.xv(state, "hidden_pitch") or 1
         local hy = N.xv(state, "hidden_yaw") or 1
+        -- V1.0.29 deney "def_hidden": ikisi de kapali olan satirlarda (Peek / Crouching / Standing / ...) defensive
+        -- sirasinda pitch yukari + yaw rastgele (Moving satirinin ayari).
+        if hp == 1 and hy == 1 and N.xp.on("def_hidden") then
+            hp, hy = 3, 4
+        end
         local pitch, yaw
         if hp == 2 then
             pitch = 89
@@ -5530,7 +5540,8 @@ do
         local st = N.st
         -- V1.0.15: AI peek / AFK yuruyusunde de (tus basili olmasa da).
         if not N.on("ideal_tick") or not st.alive or st.airborne or st.fd
-            or not (N.ref.on("autopeek") or N.peek.mode ~= nil or N.peek.ret.mode ~= nil) or not U.is_bolt(st.weapon)
+            or not (N.ref.on("autopeek") or N.peek.mode ~= nil
+                or (N.peek.ret.mode ~= nil and not N.xp.on("ret_notp"))) or not U.is_bolt(st.weapon)
             or X.paused("TP") then
             return
         end
@@ -7700,6 +7711,12 @@ do
     XP.LIST = {
         { id = "crouch_safe", kind = "head", crouch = true, min = 30,
             name = "egik AA: sabit yaw, jitter yok, desync 30" },
+        -- V1.0.29 (log 14): Peek / Crouching / Standing satirlarinda defensive sirasinda gizli pitch / yaw kapaliydi
+        -- (yenen mermilerin cogu Peek (egik)'te: 45 mermi, %73 kafa).
+        { id = "def_hidden", kind = "head", min = 30,
+            name = "defensive'de gizli aci (pitch yukari, yaw rastgele) Peek / egik / dururken" },
+        -- Geri cekilmedeki DT isinlanmasi sarji bosaltiyor, atistan sonraki 1 sn defensive'siz kaliyoruz.
+        { id = "ret_notp", kind = "surv", min = 20, name = "geri cekilme: DT isinlanmasi yok (defensive kalsin)" },
         { id = "scout_hc90", kind = "hit", min = 25, name = "scout hit chance 90" },
         { id = "crouch_stand", kind = "head", crouch = true, min = 30,
             name = "egik AA: Standing ayari (jitter 51, desync 60)" },
@@ -7714,6 +7731,7 @@ do
         XP.by_id[e.id] = e
     end
     XP.arm, XP.cur, XP.lives = "B", nil, 0
+    XP.KIND = { head = "kafa", hit = "isabet", surv = "atis sonrasi sag" }
 
     XP.current = function()
         for _, e in ipairs(XP.LIST) do
@@ -7764,7 +7782,7 @@ do
     XP.arm_text = function(e, name, a)
         return fmt("%s %d yasam, yasam basina %.2f oldurme, omur %.0f sn, %s %d/%d (%%%d)", name, a.lives,
             a.lives > 0 and a.kills / a.lives or 0, a.lives > 0 and a.ticks * U.ipt() / a.lives or 0,
-            e.kind == "head" and "kafa" or "isabet", U.R(a.x), U.R(a.n), a.n > 0 and U.R(100 * a.x / a.n) or 0)
+            XP.KIND[e.kind] or "ornek", U.R(a.x), U.R(a.n), a.n > 0 and U.R(100 * a.x / a.n) or 0)
     end
     XP.text = function(e)
         local st = XP.s[e.id]
@@ -7784,11 +7802,13 @@ do
         end
         local zk = XP.z_kills(a, b)
         local verdict = nil
+        -- V1.0.29: red hizli, kabul temkinli (simdikini korumak ucuz): aday 1 standart hata gerideyse hemen reddedilir
+        -- (log 14: egik AA adayi %79 kafa, simdiki %66 -> beklemeye gerek yok), kazanmak icin 2 standart hata gerekir.
         if zk <= -2 then
             verdict = "A"
         elseif z >= 2 then
             verdict = "B"
-        elseif z <= -2 then
+        elseif z <= -1 then
             verdict = "A"
         elseif a.n >= 3 * e.min and b.n >= 3 * e.min then
             verdict = z >= 1 and "B" or "A"
@@ -7860,17 +7880,20 @@ do
         end
     end
 
-    -- Sonuclanan scout atisi (olurken / hedef olurken atilanlar haric): "hit" deneylerinin ornegi.
-    XP.shot = function(hit)
+    -- Olay ornegi: "hit" = sonuclanan scout atisi (isabet mi), "surv" = oldurmeyen atistan sonraki 2 sn (sag mi).
+    XP.sample = function(kind, ok)
         local c = XP.cur
         local e = c ~= nil and XP.by_id[c.id] or nil
-        if e == nil or e.kind ~= "hit" then
+        if e == nil or e.kind ~= kind then
             return
         end
         c.n = c.n + 1
-        if hit then
+        if ok then
             c.x = c.x + 1
         end
+    end
+    XP.shot = function(hit)
+        XP.sample("hit", hit)
     end
 
     XP.death = function()
@@ -8342,9 +8365,11 @@ do
             elseif died and age >= 0 and age <= PK.RET.JUDGE then
                 R.s[p.arm].n, R.s[p.arm].died = R.s[p.arm].n + 1, R.s[p.arm].died + 1
                 R.done = R.done + 1
+                N.xp.sample("surv", false)
             elseif age > PK.RET.JUDGE or age < 0 then
                 R.s[p.arm].n = R.s[p.arm].n + 1
                 R.done = R.done + 1
+                N.xp.sample("surv", true)
             else
                 keep[#keep + 1] = p
             end

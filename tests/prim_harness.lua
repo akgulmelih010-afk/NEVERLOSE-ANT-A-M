@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.28"
+H.VER = "V1.0.29"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -3263,7 +3263,7 @@ function C.brute()
             respawn(T, W)
         end
         local done = T.printed("deney bitti: egik AA: sabit yaw") or ""
-        local nxt = T.count("deney: siradaki -> scout hit chance 90")
+        local nxt = T.count("deney: siradaki -> defensive'de gizli aci")
         local stay = half(T, W); respawn(T, W); local stay2 = half(T, W)
         T.shutdown()
         local rec = H.mem_rec(T, "X", "crouch_safe")
@@ -3289,6 +3289,25 @@ function C.brute()
         local Off = H.boot({ name = "xp-kapali", rec_off = true })
         Off.W.p[1].ducking = true; Off.W.p[1].duck = 1
         local off1 = half(Off, Off.W); respawn(Off, Off.W); local off2 = half(Off, Off.W)
+        -- V1.0.29: ilk deney hafizada "A" (reddedildi) ise siradaki "def_hidden" calisir: B yasaminda dururken
+        -- kendi defensive'imiz sirasinda pitch yukari (-89), A yasaminda normal (89).
+        local seed = H.mem2({ "X\tcrouch_safe\tA\t40\t19\t27000\t32\t21\t40\t14\t26000\t30\t24" })
+        local D = H.boot({ name = "xp-gizli", rec_off = true, experiments = true, files = { ["nykle_memory.txt"] = seed } })
+        local Wd = D.W
+        local function def_pitch()
+            D.tick(10)
+            local t0 = Wd.tick
+            Wd.p[1].sim_shift = 8
+            D.tick(4)
+            local up = false
+            for _, r in ipairs(D.recs(t0 + 1, Wd.tick)) do if r.pitch ~= nil and r.pitch < -80 then up = true end end
+            Wd.p[1].sim_shift = 0
+            D.tick(20)
+            return up
+        end
+        local p1 = def_pitch(); respawn(D, Wd); local p2 = def_pitch()
+        H.check("T-XP", p1 ~= p2, "def_hidden: bir yasamda defensive'de pitch yukari (" .. tostring(p1) .. "), digerinde degil ("
+            .. tostring(p2) .. ")")
         H.check("T-XP", red:find("aday reddedildi", 1, true) ~= nil and not back and not back2 and not off1 and not off2,
             "kotu aday: " .. red:sub(14, 110) .. "; sonra aday yok (" .. tostring(back) .. "/" .. tostring(back2)
             .. "); 'Experiments' kapali: aday yok (" .. tostring(off1) .. "/" .. tostring(off2) .. ")")
