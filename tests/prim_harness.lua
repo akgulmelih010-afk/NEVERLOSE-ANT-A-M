@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.26"
+H.VER = "V1.0.27"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -412,7 +412,7 @@ H.EL = {
     { "safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", "cb", true },
     { "wall_escape", "peek", "Wall escape: step out of a wallbang lane while standing still", "cb", true },
     { "shot_retreat", "peek", "Shot retreat: walk back to the last unseen spot after a sniper shot", "cb", true },
-    { "ret_test", "peek", "Shot retreat test (every other shot without it)", "cb", true },
+    { "ret_test", "peek", "Shot retreat test (every other shot without it)", "cb", false },
     { "peek_defensive", "peek", "Defensive during AI peek", "cb", true },
     { "afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", "cb", false },
     { "afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", "cb", true },
@@ -428,7 +428,7 @@ H.EL = {
     { "jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", "cb", true },
     { "wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", "cb", true },
     { "wait_seen", "rage", "Wait for real record even while the enemy sees you", "cb", true },
-    { "body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", "cb", true },
+    { "body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", "cb", false },
     { "clean_fire", "rage", "Clean fire: hold fire while own defensive is active", "cb", true },
     { "wall_dist", "rage", "Wall hunt: min distance", "sl", 900, 300, 2500 },
     { "wall_dmg", "rage", "Wall hunt: min damage", "sl", 50, 30, 99 },
@@ -2088,7 +2088,9 @@ function H.make(opts)
         -- T-EX-26 / T-AA-FD (opts.shot_def / opts.safe_fd = true) varsayilanlari sinar.
         if not opts.shot_def and T.el("shot_def") ~= nil then T.set("shot_def", false) end
         -- V1.0.25: eski Min. damage senaryolari "Scout body test" kapali kosar; T-RAGE-BT opts.body_test = true verir.
-        if not opts.body_test and T.el("body_test") ~= nil then T.set("body_test", false) end
+        if T.el("body_test") ~= nil then T.set("body_test", opts.body_test == true) end
+        -- V1.0.27: "Shot retreat test" varsayilan kapali; T-PEEK-RET kolu sinamak icin opts.ret_test = true verir.
+        if T.el("ret_test") ~= nil then T.set("ret_test", opts.ret_test == true) end
         -- V1.0.26: eski tarama senaryolari "Clean fire" kapali kosar; T-RAGE-CF opts.clean_fire = true verir.
         if not opts.clean_fire and T.el("clean_fire") ~= nil then T.set("clean_fire", false) end
         -- V1.0.26: faz / anti-brute senaryolari "AA: fixed phase" kapali kosar; T-BR-FIX opts.phase_fixed = true verir.
@@ -5490,7 +5492,7 @@ function C.review()
         -- konuma geri yurur (basili tus yok sayilir); sonraki atis kontrol kolu (geri cekilme yok); yeni tus / hedefin
         -- olmesi bitirir; ayar kapali ve autopeek tusu basiliyken yok. 10 atista bir test satiri.
         local function inst(name, setup)
-            local T = H.boot({ name = name, rec_off = true, shot_retreat = true })
+            local T = H.boot({ name = name, rec_off = true, shot_retreat = true, ret_test = true })
             local W = T.W
             W.p[2].origin.x = 800
             W.p[3].origin.x = 4200
@@ -5532,6 +5534,9 @@ function C.review()
         local ymin2 = y1
         for _ = 1, 20 do A.tick(1); ymin2 = math.min(ymin2, W.p[1].origin.y) end
         local a_line2 = A.count("geri cekilme: atistan sonra")
+        -- V1.0.27: geri cekilme yan hareket isaretini olcmez / cevirmez (hareket halindeyken baslar).
+        H.check("T-PEEK-RET", A.count("yan hareket isareti") == 0, "geri cekilmede 'yan hareket isareti' satiri "
+            .. A.count("yan hareket isareti") .. " (0)")
         H.check("T-PEEK-RET", a_line == 1 and ymin <= y0 - 24 and a_end:find("varildi", 1, true) ~= nil and a_line2 == 1
             and ymin2 >= y1 - 1, "1. atis: geri cekilme satiri " .. a_line .. " (1), y " .. string.format("%.0f -> %.0f", y0, ymin)
             .. " (>= 24 u geri), " .. a_end:sub(-40) .. "; 2. atis (kontrol): satir " .. a_line2 .. " (1), y "

@@ -1250,7 +1250,7 @@
       "is active": true
      },
      "Shot retreat test (every other shot without it)": {
-      "is active": true
+      "is active": false
      },
      "Shot retreat: walk back to the last unseen spot after a sniper shot": {
       "is active": true
@@ -1350,7 +1350,7 @@
       "is active": true
      },
      "Scout body test (every other life: body shots of 50+ damage)": {
-      "is active": true
+      "is active": false
      },
      "Smart body aim": {
       "is active": true

@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.26  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.27  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,12 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.27 (primordial edition): log 13 (V1.0.26, 27 dk; K19 / D47). Govde testi bitti, kural hakli cikti: govde
+        acik kolda 20 yasamda 1 oldurme ve 15 sn omur, kapali kolda 20 yasamda 16 oldurme ve 30 sn omur (oldurmeyen
+        govde atisi 12 atista 2 oldurme, 5'inde 2 sn icinde olum) -> "Scout body test" varsayilan KAPALI, Min. damage
+        100 aynen. Temiz ates calisti: temiz kosulda 34 atisin 28'i (%82). Geri cekilme testi kapatildi (hep acik).
+        Hata: geri cekilme / duvar kacisi yan hareket isaretini yanlis cevirip AI peek'i oturum boyunca
+        kapatabiliyordu; isaret artik sadece AI peek / AFK yuruyusunde olculur.
       V1.0.26 (primordial edition): atis analizi (5 log, 182 scout atisi, %64 isabet; istek: "reso kotu"). Iki sebep:
         rakip defensive'deyken atis %40 (gercek kayitta %72) ve kendi defensive'imiz acikken atis %58 (kapaliyken
         %80); ikisi de temizken 82 atisin %80'i. Safe point (seviye 1) fark yaratmiyor (%71 / %72). Duzeltme: sahte
@@ -200,7 +206,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.26", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.27", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1803,7 +1809,7 @@ do
         B.cb("safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", true, true)
         B.cb("wall_escape", "peek", "Wall escape: step out of a wallbang lane while standing still", true, true)
         B.cb("shot_retreat", "peek", "Shot retreat: walk back to the last unseen spot after a sniper shot", true, false)
-        B.cb("ret_test", "peek", "Shot retreat test (every other shot without it)", true, false)
+        B.cb("ret_test", "peek", "Shot retreat test (every other shot without it)", false, false)
         B.cb("peek_defensive", "peek", "Defensive during AI peek", true, true)
         B.cb("afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", false, false)
         B.cb("afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", true, false) -- V1.0.23: 4 sn (ad sabit)
@@ -1820,7 +1826,7 @@ do
         B.cb("jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", true, true)
         B.cb("wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", true, true)
         B.cb("wait_seen", "rage", "Wait for real record even while the enemy sees you", true, true)
-        B.cb("body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", true, false)
+        B.cb("body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", false, false)
         B.cb("clean_fire", "rage", "Clean fire: hold fire while own defensive is active", true, false)
         B.sl("wall_dist", "rage", "Wall hunt: min distance", 300, 2500, 900, true, "u")
         B.sl("wall_dmg", "rage", "Wall hunt: min damage", 30, 99, 50, true, "")
@@ -7685,7 +7691,11 @@ do
     end
 
     -- Hedefe yuru; varildiysa true.
-    PK.move_to = function(cmd, goal, tolerance)
+    -- calibrate: yan hareket isareti olcumu sadece duran yerden baslayan yuruyuslerde (AI peek, AFK). V1.0.27 (log 13:
+    -- "yan hareket isareti olculemedi, ai peek / afk bu oturum kapatildi" 2 kez): geri cekilme / duvar kacisi hareket
+    -- halindeyken baslar, ilk tick'lerde hiz eski yonde oldugu icin isaret yanlis "ters" olculup cevriliyordu (sonra
+    -- yanlis yone itiyor, 3 cevirmede butun yuruyus ozellikleri kapaniyordu).
+    PK.move_to = function(cmd, goal, tolerance, calibrate)
         local lp = N.st.lp
         local o = U.origin(lp)
         if o == nil or goal == nil then
@@ -7701,7 +7711,7 @@ do
         local speed = min(450, max(80, d * 12))
         local right = -math.sin(a)
         PK.set_move(cmd, math.cos(a) * speed, right * speed * PK.side_mul)
-        if abs(right) > 0.5 then
+        if calibrate and abs(right) > 0.5 then
             PK.calibrate(right, view)
         end
         return false
@@ -8336,7 +8346,7 @@ do
         if PK.mode == "walk" then
             if PK.shot_at ~= nil then
                 PK.mode, PK.back_at = "back", now
-            elseif PK.move_to(cmd, PK.point, 6) then
+            elseif PK.move_to(cmd, PK.point, 6, true) then
                 local wait = st.weapon == "revolver" and 0.75 or 0.5
                 PK.mode, PK.wait_until = "wait", now + wait
             elseif now - PK.started > 1.2 then
@@ -8518,7 +8528,7 @@ do
                 dest = AF.anchor
             end
         end
-        PK.move_to(cmd, dest, 4)
+        PK.move_to(cmd, dest, 4, true)
     end
 
     AF.spawn = function()

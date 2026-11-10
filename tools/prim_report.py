@@ -343,9 +343,9 @@ def report(r, prev=None):
         parts = []
         for own in ('kendi temiz', 'kendi DEF'):
             for en in ('rakip gercek', 'rakip sahte'):
-                h, m = c[(own, en, 1)], c[(own, en, 0)]
-                if h + m:
-                    parts.append('%s + %s %d/%d (%s)' % (own, en, h, h + m, pct(h, h + m)))
+                ch, cm = c[(own, en, 1)], c[(own, en, 0)]
+                if ch + cm:
+                    parts.append('%s + %s %d/%d (%s)' % (own, en, ch, ch + cm, pct(ch, ch + cm)))
         print('  scout atis kosulu: ' + ' | '.join(parts))
     if r['esc']:
         print('  duvar kacisi: %s' % dict(r['esc']))
