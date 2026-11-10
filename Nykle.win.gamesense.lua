@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.80"
+local VERSION = "1.0.81"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -243,6 +243,12 @@ local K = {
     DT_PAIR_MIN = 60,        -- hasar; DT ciftinin oldurucu sayilmasi icin tek govde mermisinin en azi (V1.0.26)
     MOVETYPE_LADDER = 9,
 }
+
+-- Deney motoru (V1.0.81): can basina A / B. Bir aday bir ya da birkac menu salterinin baska degeridir; B canlarinda
+-- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). Uc kulvar ayni anda
+-- calisir (yerde AA, havada AA, atis); kol sirasi kulvara gore 1 / 4 / 2 canda bir degisir, boylece birbirlerine
+-- karismazlar. Geri kalani asagida (bkz. "Deney motoru").
+K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, s = {}, cur = {}, lifec = nil, bad = {} }
 
 -- Bir olay fonksiyonu hata verirse script sessizce durmasin ve konsol dolmasin: hata bir kez
 -- yazilir, sonraki olaylarda yine calisir.
@@ -959,7 +965,16 @@ end
 local Element = {}
 Element.__index = Element
 
+-- V1.0.81: deney motorunun B kolu bu salteri eziyorsa o deger (bkz. K.xp); menudeki gercek deger icin :raw().
 function Element:get()
+    local o = K.xp.over[self]
+    if o ~= nil then
+        return o
+    end
+    return self:raw()
+end
+
+function Element:raw()
     local ok, a, b, c, d = pcall(ui.get, self.ref)
     if not ok then
         return nil
@@ -1454,6 +1469,20 @@ menu.hider_body     = grp.protect_raw:switch("Body vs head hiders (head share <=
 -- kayitli config anahtari oldugu icin degismedi. HS / DT'siz Binds durumlarinda V1.0.79 aynen.
 menu.air_lc         = grp.protect_raw:switch("Air: break LC (DT / HS off in air, full fake lag)", true)
 menu.side_gs        = grp.protect_raw:switch("Sideways static enemy: no forced body yaw (head to GS resolver)", true)
+-- V1.0.81 (istek: "sonsuza kadar fix mi aticaz", "en mukemmel seyi bulana kadar devam edelim"): deney motoru. Acikken
+-- her can bir kol (A = simdiki ayar, B = aday); aday olculerek kabul ya da reddedilir, kabul edilen kalici olur
+-- (database). Izlenmeyen grupta: "Always use recommended settings" kapatmaz, eski config'te yoksa acik gelir.
+menu.experiments    = grp.protect_raw:switch("Experiments (auto A/B test per life, keeps what wins)", true)
+menu.xp_reset       = grp.protect_raw:button("Reset experiment results", function()
+    if K.xp.reset ~= nil then
+        K.xp.reset()
+    end
+end)
+-- V1.0.81 (senin cfg'n: SSG 08 hit chance 55; paketteki 5 cfg'de 60-80, cogu 72-75. Tum GS loglari, yerdeki hedefe
+-- scout: hc < 60 %55 isabet (209 atis), 60-69 %59 (268), 70-79 %71 (220), 90+ %75 (694); atislarin %28'i 70'in altinda):
+-- yerdeyken scout'un Minimum hit chance'i en az bu deger (senin degerin daha yuksekse dokunulmaz). 0 = kapali; once
+-- deney olarak olculur (aday "hc70"), kazanirsa kalici olur.
+menu.scout_hc       = grp.protect_raw:slider("Scout hit chance floor on ground (0 = off)", 0, 100, 0, "%")
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
 -- giden 178 atis %57, gercek kayda giden %75 tuttu (correction iskasi %25'e karsi %9); scout'ta her iska
@@ -1716,7 +1745,8 @@ apply_recommended = function()
     rec.report_off = false
     local count, example = 0, nil
     for _, item in ipairs(recommended) do
-        local value = item.element:get()
+        -- V1.0.81: menudeki gercek deger (deneyin ezdigi deger "farkli ayar" sayilmasin).
+        local value = item.element:raw()
         if value ~= nil and not same(value, item.value) then
             count = count + 1
             example = example or ("%s %s, onerilen %s"):format(item.label, tostring(value), tostring(item.value))
@@ -3395,6 +3425,7 @@ local function process_pending_misses()
             if now >= miss.time then
                 local entry = stat_for(miss.state)
                 entry.misses = entry.misses + 1
+                K.xp.bullet(0, miss.state)
                 if not miss.frozen then
                     record_phase(miss.group, miss.applied, false)
                 end
@@ -5165,6 +5196,14 @@ resolver.air_hitchance = function(lp, class)
             local user_hc = user_value("hit_chance")
             if not finite(user_hc) or user_hc > value then
                 wanted = value
+            end
+        end
+        -- V1.0.81: yerde scout icin taban (bkz. menu.scout_hc). Havadaki atislar senin degerinde kalir.
+        local floor_hc = menu.scout_hc ~= nil and menu.scout_hc:get() or 0
+        if wanted == nil and finite(floor_hc) and floor_hc > 0 and class == "CWeaponSSG08" and lp ~= nil and on_ground(lp) then
+            local user_hc = user_value("hit_chance")
+            if finite(user_hc) and user_hc < floor_hc then
+                wanted = floor_hc
             end
         end
         override("hit_chance", wanted, scope)
@@ -8360,6 +8399,8 @@ listen("player_hurt", protect("player_hurt", function(e)
 
     local info = attacker_info(attacker)
     if not melee then
+        -- V1.0.81: deney motoru (kafa 1, govde 0.5; AFK mermisi sayilmaz).
+        K.xp.bullet(e.hitgroup == 1 and 1 or 0.5, current.state)
         local entry = stat_for(current.state)
         entry.hits = entry.hits + 1
         if e.hitgroup == 1 then
@@ -8370,11 +8411,12 @@ listen("player_hurt", protect("player_hurt", function(e)
     if on(menu.hit_log) then
         local lp_now = local_player()
         local duck = lp_now ~= nil and prop(lp_now, "m_flDuckAmount") or nil
-        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d%s"):format(
+        -- V1.0.81: AFK'dayken yenen mermi isaretlenir (analizde ve deneylerde sayilmaz).
+        print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d%s%s"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
             current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info,
             lp_now ~= nil and round(speed2d(lp_now)) or 0, round((finite(duck) and duck or 0) * 100),
-            lp_now ~= nil and own.aa.text(lp_now) or ""))
+            lp_now ~= nil and own.aa.text(lp_now) or "", afk.on and " | AFK" or ""))
     end
 end))
 
@@ -11230,6 +11272,450 @@ listen("paint_ui", protect("paint_ui", function()
         end
     end
 end))
+
+-------------------------------------------------------------------------------
+-- Deney motoru (V1.0.81)
+-------------------------------------------------------------------------------
+-- Neden: 48 GameSense logunda surumden surume degisen sonuclarin cogu rakip degisimiydi (erken ve gec surumlerde ortak
+-- rakip yok); "bu ayar daha iyi" kararlarini loglari elle karsilastirarak vermek guvenilir degil. Burada her aday
+-- ayni oturumda, ayni rakiplere karsi, can basina sirayla olculur.
+-- Kulvarlar (ayni anda birer aday): yer = yerde yenen mermi basina zarar (kafa 1, govde 0.5, iska 0; dusuk iyi);
+-- hava = can basina havada yenen zarar (dusuk iyi); atis = scout atisi basina kill / can basina kill (yuksek iyi).
+-- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
+-- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 (gate adayda <= -1) ise her zaman ret. AFK
+-- canlari sayilmaz.
+-- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
+K.xp.init = function()
+    local xp = K.xp
+    xp.LANES = { "yer", "hava", "atis" }
+    xp.PERIOD = { yer = 1, hava = 4, atis = 2 }
+    xp.LANE_KEY = { yer = "y", hava = "h", atis = "a" }
+    xp.LIST = {
+        -- Yer (V1.0.45+ loglari: yenen mermilerin %68'i Peek durumunda; Peek'te DEF acikken rakip iskasi %35, kapaliyken
+        -- %23; kendi defensive'in sirasinda attigin mermi isabet kaybetmiyor: %68 / %67, 2095 atis).
+        { id = "clean_off", lane = "yer", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
+            name = "temiz atis kapali (ates edebilirken de defensive surer)" },
+        { id = "cooldown_off", lane = "yer", kind = "harm", min = 40, set = { def_cooldown = false },
+            name = "defensive bitince 1 sn bekleme yok (daha sik defensive)" },
+        { id = "peek_delay2", lane = "yer", kind = "harm", min = 40, states = { Peek = { delay = 2 } },
+            name = "Peek jitter gecikmesi 2 tick" },
+        { id = "peek_static", lane = "yer", kind = "harm", min = 40,
+            states = { Peek = { body_yaw = "Static", body_fs = "On" } },
+            name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
+        { id = "brute_off", lane = "yer", kind = "harm", min = 40, set = { anti_brute = false },
+            name = "anti-brute kapali (fazlar arasinda fark yok: %26-39)" },
+        -- Hava (V1.0.78-80 oyunda hic denenmedi; havada rakip iskasi DEF kapaliyken %6, acikken %20). Uc secenek de
+        -- simdiki inis teleportuna karsi olculur; salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
+        { id = "air_def", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
+            set = { air_lc = false, air_teleport = false },
+            name = "havada DT acik + surekli defensive, isinlanma yok" },
+        { id = "air_fl", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
+            set = { air_lc = true, air_teleport = false },
+            name = "havada DT kapali, tam fake lag (V1.0.79)" },
+        { id = "air_first", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
+            set = { air_lc = false, air_teleport = true },
+            name = "havada ilk goruste isinlanma (V1.0.77)" },
+        -- Atis (V1.0.34'ten beri her atis "BA Prefer"; oncesinde "BA Off" ve isabet %73-74, sonrasinda %51-65, ama
+        -- rakipler de degisti: olculmeden bilinmez).
+        { id = "hc70", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 70 },
+            name = "scout hit chance tabani 70 (senin ayarin 55; hc 70 alti atislar %55-59, 70-79 %71 isabet)" },
+        { id = "baim_off", lane = "atis", kind = "kps", min = 30, set = { smart_baim = false },
+            name = "Smart body aim kapali (hitbox secimi GameSense'te; Min. damage kurali ayni)" },
+        { id = "own_off", lane = "atis", kind = "kps", min = 30, set = { own_res = false },
+            name = "kendi resolver kapali (sadece GameSense)" },
+        { id = "fakebody_off", lane = "atis", kind = "kps", min = 30, set = { fake_body = false },
+            name = "sahte kayitta govde zorlamasi yok" },
+        { id = "wait_off", lane = "atis", kind = "kpl", min = 40, set = { wait_real = false },
+            name = "gercek kayit beklenmez (sahte kayda da sikilir)" },
+    }
+
+    local function new_arm()
+        return { l = 0, k = 0, n = 0, x = 0, q = 0 }
+    end
+
+    xp.stat = function(id)
+        local st = xp.s[id]
+        if st == nil then
+            st = { st = nil, a = new_arm(), b = new_arm() }
+            xp.s[id] = st
+        end
+        return st
+    end
+
+    -- Adayin dokundugu ogeler: { element, deger } listesi; bilinmeyen anahtar varsa nil (aday atlanir).
+    xp.targets = function(c)
+        local out = {}
+        for key, value in pairs(c.set or {}) do
+            if menu[key] == nil then
+                return nil
+            end
+            out[#out + 1] = { menu[key], value }
+        end
+        for state, fields in pairs(c.states or {}) do
+            local s = builder[state]
+            for field, value in pairs(fields) do
+                if s == nil or s[field] == nil then
+                    return nil
+                end
+                out[#out + 1] = { s[field], value }
+            end
+        end
+        return out
+    end
+
+    xp.pick = function(lane)
+        for _, c in ipairs(xp.LIST) do
+            if c.lane == lane and not xp.bad[c.id] and xp.stat(c.id).st == nil then
+                return c
+            end
+        end
+        return nil
+    end
+
+    -- "over" yeniden kurulur: once kabul edilenler (liste sirasiyla), sonra bu canda B kolunda olan adaylar.
+    xp.apply = function()
+        local over = {}
+        local function put(c)
+            for _, t in ipairs(xp.targets(c) or {}) do
+                over[t[1]] = t[2]
+            end
+        end
+        if on(menu.enabled) then
+            for _, c in ipairs(xp.LIST) do
+                if xp.stat(c.id).st == "B" and not xp.bad[c.id] then
+                    put(c)
+                end
+            end
+            if on(menu.experiments) then
+                for _, lane in ipairs(xp.LANES) do
+                    local cur = xp.cur[lane]
+                    if cur ~= nil and cur.arm == "b" then
+                        put(cur.c)
+                    end
+                end
+            end
+        end
+        xp.over = over
+    end
+
+    local function size(c, r)
+        return c.kind == "kpl" and r.l or r.n
+    end
+
+    -- Can basina kill farki (pozitif = B daha iyi).
+    xp.zk = function(a, b)
+        if a.l < 1 or b.l < 1 or a.k + b.k <= 0 then
+            return 0
+        end
+        local pooled = (a.k + b.k) / (a.l + b.l)
+        return (b.k / b.l - a.k / a.l) / sqrt(pooled * (1 / a.l + 1 / b.l))
+    end
+
+    -- Adayin kendi olcusu (pozitif = B daha iyi).
+    xp.z = function(c)
+        local st = xp.stat(c.id)
+        local a, b = st.a, st.b
+        if c.kind == "kpl" then
+            return xp.zk(a, b)
+        end
+        if a.n < 2 or b.n < 2 then
+            return 0
+        end
+        if c.kind == "kps" then
+            local p = (a.x + b.x) / (a.n + b.n)
+            if p <= 0 or p >= 1 then
+                return 0
+            end
+            return (b.x / b.n - a.x / a.n) / sqrt(p * (1 - p) * (1 / a.n + 1 / b.n))
+        end
+        local ma, mb = a.x / a.n, b.x / b.n
+        local va = max(a.q / a.n - ma * ma, 0.0004) * a.n / (a.n - 1)
+        local vb = max(b.q / b.n - mb * mb, 0.0004) * b.n / (b.n - 1)
+        return (ma - mb) / sqrt(va / a.n + vb / b.n)
+    end
+
+    xp.text = function(c)
+        local st = xp.stat(c.id)
+        local function arm(r)
+            if c.kind == "harm" then
+                return ("%d can %d mermi zarar %.2f"):format(r.l, r.n, r.n > 0 and r.x / r.n or 0)
+            elseif c.kind == "airharm" then
+                return ("%d can hava zarari %.2f/can"):format(r.l, r.n > 0 and r.x / r.n or 0)
+            elseif c.kind == "kps" then
+                return ("%d can %d atis %d kill"):format(r.l, r.n, r.x)
+            end
+            return ("%d can %d kill"):format(r.l, r.k)
+        end
+        return ("A %s | B %s | z %+.1f | kill/can z %+.1f"):format(arm(st.a), arm(st.b), xp.z(c), xp.zk(st.a, st.b))
+    end
+
+    xp.judge = function(c)
+        local st = xp.stat(c.id)
+        if st.st ~= nil then
+            return
+        end
+        local a, b = st.a, st.b
+        local verdict, why
+        -- gate adaylari (atis sayisini azaltabilenler): atis basina kill tek basina yaniltir, can basina kill
+        -- z <= -1 de ret sebebi.
+        if a.l >= 15 and b.l >= 15 and xp.zk(a, b) <= (c.gate and -1 or -2) then
+            verdict, why = "A", "can basina kill dustu"
+        elseif size(c, a) >= c.min and size(c, b) >= c.min then
+            local z = xp.z(c)
+            local cap = (c.cap or 3) * c.min
+            if z >= 2 then
+                verdict, why = "B", "belirgin daha iyi"
+            elseif z <= -1 then
+                verdict, why = "A", "daha kotu"
+            elseif size(c, a) >= cap and size(c, b) >= cap then
+                if z >= (c.fair and 0 or 1) then
+                    verdict, why = "B", "ornek doldu, daha iyi tarafta"
+                else
+                    verdict, why = "A", "ornek doldu, fark yok"
+                end
+            end
+        end
+        if verdict ~= nil then
+            local text = xp.text(c)
+            st.st = verdict
+            print(("[%s] deney SONUCU: %s (%s) -> %s (%s) | %s"):format(SCRIPT, c.id, c.name,
+                verdict == "B" and "KABUL, kalici" or "RED, eski ayar kalir", why, text))
+        end
+    end
+
+    xp.save = function()
+        local c = {}
+        for _, cand in ipairs(xp.LIST) do
+            local st = xp.s[cand.id]
+            if st ~= nil then
+                c[cand.id] = { st = st.st,
+                    a = { l = st.a.l, k = st.a.k, n = st.a.n, x = st.a.x, q = st.a.q },
+                    b = { l = st.b.l, k = st.b.k, n = st.b.n, x = st.b.x, q = st.b.q } }
+            end
+        end
+        pcall(database.write, xp.key, { v = 1, life = xp.life, c = c })
+    end
+
+    xp.load = function()
+        local ok, d = pcall(database.read, xp.key)
+        if not ok or type(d) ~= "table" or d.v ~= 1 then
+            return
+        end
+        if finite(d.life) and d.life >= 0 then
+            xp.life = floor(d.life)
+        end
+        if type(d.c) ~= "table" then
+            return
+        end
+        for _, cand in ipairs(xp.LIST) do
+            local r = d.c[cand.id]
+            if type(r) == "table" then
+                local st = xp.stat(cand.id)
+                if r.st == "A" or r.st == "B" then
+                    st.st = r.st
+                end
+                for _, arm in ipairs({ "a", "b" }) do
+                    local src = r[arm]
+                    if type(src) == "table" then
+                        for _, f in ipairs({ "l", "k", "n", "x", "q" }) do
+                            if finite(src[f]) and src[f] >= 0 then
+                                st[arm][f] = src[f]
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    xp.reset = function()
+        xp.s, xp.cur, xp.lifec, xp.life = {}, {}, nil, 0
+        xp.apply()
+        xp.save()
+        print(("[%s] deney sonuclari silindi: butun adaylar bastan olculecek"):format(SCRIPT))
+    end
+
+    -- Kulvar ozeti (yukleme satiri ve ara durum).
+    xp.summary = function()
+        local parts, kept = {}, {}
+        for _, lane in ipairs(xp.LANES) do
+            local c = xp.pick(lane)
+            parts[#parts + 1] = ("%s: %s"):format(lane, c ~= nil and c.id or "bitti")
+        end
+        for _, c in ipairs(xp.LIST) do
+            if xp.stat(c.id).st == "B" then
+                kept[#kept + 1] = c.id
+            end
+        end
+        return ("%s | kalici: %s"):format(table.concat(parts, ", "), #kept > 0 and table.concat(kept, ", ") or "yok")
+    end
+
+    -- Canin sonu: olum ya da (round sunucusunda) hayatta kalinan round. AFK cani ve 5 sn'den kisa olumsuz can sayilmaz.
+    xp.close = function(died)
+        local L = xp.lifec
+        if L == nil then
+            return
+        end
+        xp.lifec = nil
+        if L.afk or (not died and realtime() - L.at < 5) then
+            return
+        end
+        for _, lane in ipairs(xp.LANES) do
+            local cur = xp.cur[lane]
+            if cur ~= nil then
+                local r = xp.stat(cur.c.id)[cur.arm]
+                r.l, r.k = r.l + 1, r.k + L.kills
+                if cur.c.kind == "airharm" then
+                    r.n, r.x, r.q = r.n + 1, r.x + L.air, r.q + L.air * L.air
+                end
+                xp.judge(cur.c)
+                if xp.stat(cur.c.id).st == nil and xp.life % 10 == 0 and on(menu.hit_log) then
+                    print(("[%s] deney durumu: %s %s | %s"):format(SCRIPT, lane, cur.c.id, xp.text(cur.c)))
+                end
+            end
+        end
+        xp.save()
+    end
+
+    xp.begin = function()
+        xp.close(false)
+        xp.cur = {}
+        if not (on(menu.enabled) and on(menu.experiments)) then
+            xp.apply()
+            return
+        end
+        xp.life = xp.life + 1
+        local parts = {}
+        for _, lane in ipairs(xp.LANES) do
+            local c = xp.pick(lane)
+            if c ~= nil then
+                -- Kol, adayin SAYILAN can sayisindan: sayilmayan can (AFK, cift dogus) ayni kolu tekrarlar; boylece
+                -- her olumde iki kez dogus olayi gelen sunucuda gercek canlarin hepsi ayni kola dusmez.
+                local st = xp.stat(c.id)
+                local b_arm = floor((st.a.l + st.b.l) / xp.PERIOD[lane]) % 2 == 1
+                xp.cur[lane] = { c = c, arm = b_arm and "b" or "a" }
+                parts[#parts + 1] = ("%s %s %s"):format(lane, c.id, b_arm and "B" or "A")
+            end
+        end
+        xp.lifec = { afk = false, kills = 0, air = 0, at = realtime() }
+        xp.apply()
+        if #parts > 0 and on(menu.hit_log) then
+            print(("[%s] deney: can %d | %s"):format(SCRIPT, xp.life, table.concat(parts, " | ")))
+        end
+    end
+
+    -- AFK modu ya da dogdugundan beri 3+ sn hic tusa basmadin (otomatik AFK 8 sn'de acilir; aradaki olumler de
+    -- oyun degil).
+    xp.idle = function()
+        return afk.on or (afk.idle_since ~= nil and realtime() - afk.idle_since >= 3)
+    end
+
+    -- Yenen mermi (zarar: kafa 1, govde 0.5, iska 0). Havadaki mermi hava kulvarina (can basina toplam) gider.
+    xp.bullet = function(harm, state)
+        local L = xp.lifec
+        if L == nil then
+            return
+        end
+        -- Bostayken yenen mermi sayilmaz; AFK modu actiysa can da sayilmaz (dogusta 3-8 sn bos durup sonra oynanan can
+        -- sayilir, sadece o bos saniyelerin mermileri atilir).
+        if xp.idle() then
+            if afk.on then
+                L.afk = true
+            end
+            return
+        end
+        if state == "Air" or state == "Air crouch" then
+            L.air = L.air + harm
+            return
+        end
+        local cur = xp.cur.yer
+        if cur ~= nil and cur.c.kind == "harm" then
+            local r = xp.stat(cur.c.id)[cur.arm]
+            r.n, r.x, r.q = r.n + 1, r.x + harm, r.q + harm * harm
+        end
+    end
+
+    listen("setup_command", protect("deney tick", function()
+        if xp.lifec ~= nil then
+            if afk.on then
+                xp.lifec.afk = true
+            end
+            return
+        end
+        -- Acik can yok: dogus olayi kacmis ya da script can ortasinda yuklenmis olabilir (olumden sonraki 1 sn haric).
+        local lp = local_player()
+        if lp ~= nil and alive(lp) and realtime() >= (xp.dead_until or -huge) then
+            xp.begin()
+        end
+    end))
+
+    listen("player_spawn", protect("deney spawn", function(e)
+        local lp = local_player()
+        if lp == nil or userid_index(e.userid) ~= lp then
+            return
+        end
+        -- Onceki can aciksa (round sonu, olmedin) kapanir; yenisi ilk canli tick'te baslar.
+        xp.close(false)
+        xp.dead_until = nil
+    end))
+
+    listen("player_death", protect("deney death", function(e)
+        local lp = local_player()
+        if lp == nil then
+            return
+        end
+        local victim, attacker = userid_index(e.userid), userid_index(e.attacker)
+        if victim == lp then
+            xp.dead_until = realtime() + 1
+            -- Hic tusa basmadan olduysen (otomatik AFK henuz acilmadan) o can da sayilmaz.
+            if xp.lifec ~= nil and xp.idle() then
+                xp.lifec.afk = true
+            end
+            xp.close(true)
+        elseif attacker == lp and victim ~= nil and is_enemy(victim) and xp.lifec ~= nil and not xp.idle() then
+            xp.lifec.kills = xp.lifec.kills + 1
+            local shot = xp.shot
+            if shot ~= nil and e.weapon == "ssg08" and realtime() - shot.at <= 0.5 and not shot.done then
+                shot.done = true
+                shot.arm.x = shot.arm.x + 1
+            end
+        end
+    end))
+
+    -- Scout atisi (atis kulvari, kps): AFK'nin otomatik atislari sayilmaz.
+    listen("aim_fire", protect("deney aim_fire", function()
+        if xp.lifec == nil or xp.idle() or current.weapon ~= "CWeaponSSG08" then
+            return
+        end
+        local cur = xp.cur.atis
+        if cur ~= nil and cur.c.kind == "kps" then
+            local r = xp.stat(cur.c.id)[cur.arm]
+            r.n = r.n + 1
+            xp.shot = { at = realtime(), arm = r, done = false }
+        end
+    end))
+
+    listen("level_init", protect("deney level_init", function()
+        -- Harita degisimi: acik can sayilmadan atilir.
+        xp.lifec, xp.shot, xp.dead_until = nil, nil, nil
+    end))
+
+    listen("shutdown", protect("deney shutdown", function()
+        xp.save()
+    end))
+
+    -- Yukleme: taninmayan salteri olan aday atlanir (bir kez yazilir), kayit okunur, kabul edilenler uygulanir.
+    for _, c in ipairs(xp.LIST) do
+        if xp.targets(c) == nil then
+            xp.bad[c.id] = true
+            print(("[%s] deney: %s atlandi (menude salteri yok)"):format(SCRIPT, c.id))
+        end
+    end
+    xp.load()
+    xp.apply()
+    print(("[%s] deney motoru: %s (%d can olculdu)"):format(SCRIPT, xp.summary(), xp.life))
+end
+K.xp.init()
 
 listen("shutdown", protect("shutdown", function()
     set_native_visible(true)

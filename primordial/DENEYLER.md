@@ -3,6 +3,25 @@
 Kural: aynı anda tek değişiklik denenir, ölçüyle karar verilir. Kötüleşen geri alınır, iyileşen kalıcı olur.
 Lua bunu kendisi yapar ("Experiments"); bu dosya sonuçların kaydıdır.
 
+## Hile karşılaştırması: GameSense'e dönüş (10 Kasım)
+
+Bütün loglar, olay bazında tekilleştirilmiş (48 GameSense / Neverlose logu + 10 Primordial logu):
+
+| Hile | Round sunucusu K/D | DM K/D | Sana gelen kafa oranı |
+|---|---|---|---|
+| GameSense | 1.02 (775 / 763) | 0.67 (442 / 656) | round %34, DM %55 |
+| Neverlose | 0.89–0.97 (4 log, az örnek) | | ~%35 |
+| Primordial | 0.42 (41 / 97) | 0.48 (126 / 262) | round %45, DM %59 |
+
+Aynı rakiplere karşı (furkan, Sativa, got blessed, DUVARCI): GameSense 70 / 83 = **0.84**, Primordial 17 / 46 = **0.37**.
+Primordial'ı ilk küçük loglardaki "atış başına kafa" oranına bakarak seçmiştim; K/D ile bakınca açık ara en kötüsü.
+Karar: GameSense. Deney motoru GameSense lua'sına V1.0.81'de taşındı (bkz. kök README, "GameSense edition", V1.0.81);
+bu dosyadaki Primordial sonuçları (gizli açı zararlı, iniş teleportu zararlı, gövde testi zararlı) GameSense'te
+varsayım olarak değil aday olarak ölçülüyor.
+
+Son Primordial logu (V1.0.30, 16 dk, güçlü lobi): 2 kill / 22 ölüm, 7 atış; `hidden_old` ara sonucu şimdiki ayar 9/15
+kafa (%60), eski gizli açı 10/14 (%71), karar yok.
+
 ## Taban çizgisi (V1.0.26-27, Min. damage 100 kolu)
 
 | Ölçü | Değer | Kaynak |

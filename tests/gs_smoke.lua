@@ -430,7 +430,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.80 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.80")
+check(printed("V1.0.81 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.81")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -450,6 +450,15 @@ local function errors_since(i)
 end
 local errs = errors_since(1)
 check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or ""))
+-- V1.0.81: deney motoru varsayilan acik; eski testler deney kollarindan etkilenmesin diye burada kapatilir, kendi
+-- testi en sonda (bkz. "V1.0.81: deney motoru").
+do
+    local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
+    check(xp_ref ~= nil and xp_ref.value == true, "V1.0.81: deney motoru varsayilan acik")
+    check(printed("deney motoru: yer: clean_off, hava: air_def, atis: hc70 | kalici: yok (0 can olculdu)") ~= nil,
+        "V1.0.81: yukleme satiri ilk adaylari yazar")
+    if xp_ref ~= nil then xp_ref.value = false end
+end
 
 -------------------------------------------------------------------------------
 -- Tick surucusu
@@ -2486,7 +2495,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.80 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.81 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2517,6 +2526,187 @@ check(arms ~= nil and arms["lby+"] ~= nil and arms["lby+"].shots == 1 and arms["
 local aa_arm = W.absa or "abs+"
 check(arms ~= nil and arms[aa_arm] ~= nil and arms[aa_arm].hits == 1,
     "V1.0.34: " .. aa_arm .. " kafa isabeti 1, gogse giden isabet sayilmadi (" .. (arms and arms[aa_arm] and (arms[aa_arm].hits .. "/" .. arms[aa_arm].shots) or "?") .. ")")
+-------------------------------------------------------------------------------
+-- V1.0.81: deney motoru (can basina A / B, salter ezme, karar, kalici kayit, AFK)
+-------------------------------------------------------------------------------
+do
+    local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
+    local reset_ref = find_ref("Reset experiment results")
+    local cd_ref = find_ref("Clean shot (no lag while shooting)")
+    local afk_ref = find_ref("AFK mode (AI peek here + strafe, full exploits)")
+    local auto_afk = find_ref("  » Auto AFK (no input 8 s after spawn)")
+    local tp_ref = find_ref("Teleport in air when seen")
+    check(reset_ref ~= nil and type(reset_ref.value) == "function", "V1.0.81: sifirlama dugmesi var")
+    W.dead, W.jump, W.z, W.vz, W.flags, W.speed, W.lag = nil, nil, 0, 0, 1, 0, 12
+    W.sees[2], W.sees[3], W.head_dmg[2], W.body_dmg[2] = false, false, 0, 0
+    afk_ref.value, auto_afk.value, airlc_ref.value, tp_ref.value, cd_ref.value = false, false, true, true, true
+    xp_ref.value = true
+    local start = #prints + 1
+    reset_ref.value()
+    check(printed("deney sonuclari silindi", start) ~= nil, "V1.0.81: sifirlama satiri")
+    local n, shot_id = 0, 9000
+    -- Siradaki canin kolu: adayin sayilan can sayisindan (database, her can sonunda yazilir).
+    local function arm_b(id, period)
+        local r = type(db.nykle_win_gs_xp) == "table" and db.nykle_win_gs_xp.c[id] or nil
+        local lives = r ~= nil and (r.a.l + r.b.l) or 0
+        return math.floor(lives / period) % 2 == 1
+    end
+    -- Bir can: dogus, 2 tick, fn (mermiler / atislar), olum. Donus: "deney: can N" satiri.
+    local function life(fn)
+        n = n + 1
+        local from = #prints + 1
+        fire("player_spawn", { userid = 1 })
+        tick(2)
+        local line = printed(("deney: can %d |"):format(n), from)
+        if fn then fn() end
+        fire("player_death", { userid = 1, attacker = 2, weapon = "ssg08" })
+        return line or ""
+    end
+    local function hurt(group)
+        tick(1)
+        fire("player_hurt", { userid = 1, attacker = 2, dmg_health = group == 1 and 120 or 60, hitgroup = group, weapon = "ssg08" })
+    end
+    local function shoot(kill)
+        shot_id = shot_id + 1
+        tick(1)
+        fire("aim_fire", { id = shot_id, target = 2, hitgroup = 1, damage = 120, hit_chance = 80, backtrack = 0, x = 500, y = 0, z = 70 })
+        if kill then
+            fire("aim_hit", { id = shot_id, target = 2, hitgroup = 1, damage = 120 })
+            fire("player_death", { userid = 2, attacker = 1, headshot = true, weapon = "ssg08" })
+        else
+            fire("aim_miss", { id = shot_id, target = 2, reason = "spread" })
+        end
+    end
+
+    -- Kol sirasi: yer her can, atis 2 canda bir, hava 4 canda bir.
+    local l1 = life(function() for _ = 1, 5 do hurt(1) end end)
+    check(l1:find("yer clean_off A | hava air_def A | atis hc70 A", 1, true) ~= nil, "V1.0.81: can 1 hepsi A (" .. l1 .. ")")
+    local l2 = life(function()
+        check(cd_ref.value == true, "V1.0.81: B kolunda menudeki salter degismez (ezme sadece okurken)")
+        for _ = 1, 5 do hurt(3) end
+    end)
+    check(l2:find("yer clean_off B | hava air_def A | atis hc70 A", 1, true) ~= nil, "V1.0.81: can 2 yer B (" .. l2 .. ")")
+    local l3 = life(function() for _ = 1, 5 do hurt(1) end end)
+    check(l3:find("yer clean_off A", 1, true) ~= nil and l3:find("atis hc70 B", 1, true) ~= nil, "V1.0.81: can 3 atis B (" .. l3 .. ")")
+    life(function() for _ = 1, 5 do hurt(3) end end)
+    local l5 = life(function() for _ = 1, 5 do hurt(1) end end)
+    check(l5:find("hava air_def B", 1, true) ~= nil and l5:find("atis hc70 A", 1, true) ~= nil, "V1.0.81: can 5 hava B (" .. l5 .. ")")
+    -- Yer: A canlarinda hep kafa (zarar 1), B canlarinda hep govde (0.5): 40 + 40 mermide aday kabul edilir.
+    for i = 6, 16 do
+        life(function() for _ = 1, 5 do hurt(i % 2 == 1 and 1 or 3) end end)
+    end
+    local verdict = printed("deney SONUCU: clean_off", start)
+    check(verdict ~= nil and verdict:find("KABUL, kalici", 1, true) ~= nil and verdict:find("40 mermi zarar 1.00", 1, true) ~= nil
+        and verdict:find("40 mermi zarar 0.50", 1, true) ~= nil, "V1.0.81: yer adayi 40 + 40 mermide kabul (" .. tostring(verdict) .. ")")
+    local saved_xp = db.nykle_win_gs_xp
+    check(type(saved_xp) == "table" and saved_xp.v == 1 and saved_xp.life == 16 and saved_xp.c.clean_off.st == "B"
+        and saved_xp.c.clean_off.a.n == 40 and saved_xp.c.clean_off.b.l == 8, "V1.0.81: sonuc database'e yazildi")
+    check(printed("ayar onerilen degerine donduruldu", start) == nil, "V1.0.81: ezilen salter 'onerilen ayar' duzeltmesini tetiklemez")
+
+    -- AFK cani sayilmaz; siradaki yer adayi peek_delay2.
+    afk_ref.value = true
+    local l17 = life(function() tick(3); for _ = 1, 4 do hurt(1) end end)
+    afk_ref.value = false
+    tick(2)
+    check(l17:find("yer cooldown_off", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
+    saved_xp = db.nykle_win_gs_xp
+    check(saved_xp.c.cooldown_off == nil or (saved_xp.c.cooldown_off.a.l + saved_xp.c.cooldown_off.b.l == 0
+        and saved_xp.c.cooldown_off.a.n + saved_xp.c.cooldown_off.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
+
+    -- AFK cani sayilmadigi icin siradaki can ayni kolda baslar; 5 sn'den kisa olumsuz can (cift dogus) da oyle.
+    local from18 = #prints + 1
+    fire("player_spawn", { userid = 1 })
+    tick(2)
+    local first = printed("deney: can", from18) or ""
+    fire("player_spawn", { userid = 1 })
+    tick(2)
+    local second = printed("deney: can", from18 + 1) and prints[#prints] or ""
+    for i = #prints, from18, -1 do
+        if prints[i]:find("deney: can", 1, true) then second = prints[i]; break end
+    end
+    n = n + 2
+    check(l17:match("yer cooldown_off (%u)") == first:match("yer cooldown_off (%u)")
+        and first:match("yer cooldown_off (%u)") == second:match("yer cooldown_off (%u)") and first ~= second,
+        "V1.0.81: sayilmayan candan sonra kol tekrarlanir (" .. first .. " / " .. second .. ")")
+    fire("player_death", { userid = 1, attacker = 2, weapon = "ssg08" })
+
+    -- Atis: A canlarinda 6 iska, B canlarinda 6 kill; 30 + 30 atista aday kabul edilir.
+    local hc_a, hc_b = nil, nil
+    for _ = 1, 14 do
+        if printed("deney SONUCU: hc70", start) ~= nil then break end
+        local b_arm = arm_b("hc70", 2)
+        life(function()
+            tick(2)
+            if b_arm then hc_b = hc_ref.value else hc_a = hc_ref.value end
+            for _ = 1, 6 do shoot(b_arm) end
+        end)
+    end
+    check(hc_a == 55 and hc_b == 70, "V1.0.81: hc70 A kolunda Minimum hit chance senin degerin (55), B kolunda 70 ("
+        .. tostring(hc_a) .. " / " .. tostring(hc_b) .. ")")
+    verdict = printed("deney SONUCU: hc70", start)
+    check(verdict ~= nil and verdict:find("KABUL, kalici", 1, true) ~= nil and verdict:find("30 atis 0 kill", 1, true) ~= nil
+        and verdict:find("30 atis 30 kill", 1, true) ~= nil, "V1.0.81: atis adayi 30 + 30 atista kabul (" .. tostring(verdict) .. ")")
+
+    -- Hava: B canlarinda havada kafa yenir; 50 + 50 canda aday reddedilir, sirada air_fl.
+    for _ = 1, 140 do
+        if printed("deney SONUCU: air_def", start) ~= nil then break end
+        local b_arm = arm_b("air_def", 4)
+        life(function()
+            if b_arm then
+                W.flags, W.z = 0, 60
+                tick(3)
+                fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 120, hitgroup = 1, weapon = "ssg08" })
+                W.flags, W.z = 1, 0
+                tick(1)
+            end
+        end)
+    end
+    verdict = printed("deney SONUCU: air_def", start)
+    check(verdict ~= nil and verdict:find("RED, eski ayar kalir", 1, true) ~= nil, "V1.0.81: hava adayi reddedildi (" .. tostring(verdict) .. ")")
+
+    -- air_fl (havada teleport kapali sayilir): B canda goruluyorken havada DT kapanir, A canda (inis teleportu) acik kalir.
+    local seen_b, seen_a = nil, nil
+    for _ = 1, 12 do
+        if seen_a ~= nil and seen_b ~= nil then break end
+        local b_arm = arm_b("air_fl", 4)
+        local line = life(function()
+            W.sees[2], W.lag, W.speed = true, 12, 240
+            tick(24)
+            local ground = dt_ref.value
+            W.flags, W.z = 0, 60
+            tick(4)
+            local air = dt_ref.value
+            W.flags, W.z = 1, 0
+            tick(4)
+            if b_arm then seen_b = { ground, air } else seen_a = { ground, air } end
+            W.sees[2], W.speed = false, 0
+        end)
+        if line:find("hava air_fl", 1, true) == nil then seen_a, seen_b = nil, nil end
+    end
+    check(seen_a ~= nil and seen_a[1] == true and seen_a[2] == true, "V1.0.81: air_fl A kolu: havada DT acik ("
+        .. tostring(seen_a and seen_a[2]) .. ")")
+    check(seen_b ~= nil and seen_b[1] == true and seen_b[2] == false, "V1.0.81: air_fl B kolu: havada DT kapali, menudeki salter acik ("
+        .. tostring(seen_b and seen_b[2]) .. ", " .. tostring(tp_ref.value) .. ")")
+    check(tp_ref.value == true, "V1.0.81: hava salteri menude degismedi")
+
+    -- Kapali: yeni kol yok; sifirlama kayitlari siler.
+    xp_ref.value = false
+    local off_from = #prints + 1
+    fire("player_spawn", { userid = 1 })
+    tick(3)
+    check(printed("deney: can", off_from) == nil, "V1.0.81: deney kapaliyken can satiri yok")
+    reset_ref.value()
+    tick(3)
+    check(hc_ref.value == 55, "V1.0.81: sifirlamadan sonra kalici taban da kalkar (hit chance " .. tostring(hc_ref.value) .. ")")
+    saved_xp = db.nykle_win_gs_xp
+    local cleared = type(saved_xp) == "table" and saved_xp.life == 0
+    for _, r in pairs(cleared and saved_xp.c or {}) do
+        if r.st ~= nil or r.a.l + r.b.l + r.a.n + r.b.n ~= 0 then cleared = false end
+    end
+    check(cleared, "V1.0.81: sifirlama database'i bosaltir")
+    W.sees[2], W.speed, W.flags, W.z = false, 0, 1, 0
+end
+
 errs = errors_since(1)
 check(#errs == 0, "hic hata satiri yok" .. (#errs > 0 and (": " .. errs[1]) or ""))
 
