@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.15  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.16  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,8 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.16 (primordial edition): resolver paneli GS duzeninde (kutu yok; buyuk renkli cozum yuzdesi + beyaz dusman
+        adi, altinda "COZUM   HIT %N   isabet/atis   L<seviye>"; hedef yokken soluk "--").
       V1.0.15 (primordial edition): resolver + peek paketi. Resolver: iska penceresi durum ailesi basina (Yer / Egik /
         Hava; seviye saniyede bir 0 <-> 1 gidip geliyordu), cok tarafli desen on bilgisi 2 sn tutulur. Jitter tarafi
         ("Jitter timing", acik): jitter yapan dusmanda atis anindaki taraf (+ / -) ve sonucu sayilir; bir tarafta kafa
@@ -128,7 +130,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.15", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.16", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -9783,10 +9785,38 @@ do
 
     -- Resolver paneli. GS V1.0.59 (FPS): hedef, isim, hafiza kaydi, seviye, faz ve cozum / HIT tahmini tick basina bir
     -- kez hesaplanir (isim / anahtar N.mem.cached'ten, 1 sn onbellekli); her karede onbellekten cizilir.
-    D.rc = { tick = nil, lines = nil }
+    D.rc = { tick = nil, data = nil }
 
-    D.res_lines = function(target)
-        local B = N.brute
+    -- V1.0.16 (istek: "resolver gostergesi GS'deki gibi dursun"): GS res_panel duzeni. Kutu yok; buyuk yazi ile
+    -- cozum yuzdesi (dusuk kirmizi, orta sari, yuksek yesil) ve yaninda beyaz dusman adi, altinda kucuk bilgi satiri
+    -- ("COZUM   HIT %72   3/3   L2"). Hedef yokken soluk "--" ve "COZUM   hedef yok". Veri tick basina bir kez okunur.
+    D.RES = { LOW = { 235, 80, 80 }, MID = { 245, 200, 85 }, HIGH = { 110, 225, 130 } }
+    D.tint = function(pct)
+        local t = U.clamp(pct / 100, 0, 1)
+        local a, b = D.RES.MID, D.RES.HIGH
+        if t < 0.5 then
+            a, b, t = D.RES.LOW, D.RES.MID, t * 2
+        else
+            t = (t - 0.5) * 2
+        end
+        return color_t(floor(a[1] + (b[1] - a[1]) * t), floor(a[2] + (b[2] - a[2]) * t), floor(a[3] + (b[3] - a[3]) * t), 255)
+    end
+
+    -- Panel yazi tipleri: boyut degisince (nadiren, menuden) yeniden olusturulur.
+    D.panel_fonts = function()
+        local size = N.v("panel_size") or 160
+        local c = D.pf
+        if c == nil or c.size ~= size then
+            local bp, sp = max(12, floor(13 * size / 100 + 0.5)), max(10, floor(8 * size / 100 + 0.5))
+            local ok1, big = pcall(render.create_font, "Verdana", bp, 700, e_font_flags.DROPSHADOW)
+            local ok2, small = pcall(render.create_font, "Verdana", sp, 700, e_font_flags.DROPSHADOW)
+            c = { size = size, big = ok1 and big or D.big, small = ok2 and small or D.small, bp = bp, widths = {} }
+            D.pf = c
+        end
+        return c
+    end
+
+    D.res_data = function(target)
         local idx = U.index(target)
         local p, key = N.mem.entry(target)
         local _, name = N.mem.cached(target)
@@ -9795,16 +9825,9 @@ do
         local tr = idx ~= nil and N.track.p[idx] or nil
         local skey = key or (idx ~= nil and ("i" .. idx)) or nil
         local cozum, hit = N.stats.estimate(target, idx, skey, p)
-        local stage = B.entry_stage(key ~= nil and B.enemies[key] or nil, B.group_for(N.st.move_state))
-        return {
-            #name > 16 and (name:sub(1, 15) .. ".") or name,
-            fmt("RES L%d", t ~= nil and t.level or 0),
-            fmt("cozum %%%d", cozum),
-            fmt("HIT %%%d", hit),
-            fmt("kafa %d/%d", U.R(p ~= nil and p.hider.h or 0), U.R(p ~= nil and p.hider.n or 0)),
-            fmt("isabet %d/%d", tr ~= nil and (tr.our_hits or 0) or 0, tr ~= nil and (tr.our_shots or 0) or 0),
-            fmt("faz %d", stage),
-        }
+        return { name = #name > 16 and (name:sub(1, 15) .. ".") or name, cozum = cozum, hit = hit,
+            level = t ~= nil and t.level or 0, hits = tr ~= nil and (tr.our_hits or 0) or 0,
+            shots = tr ~= nil and (tr.our_shots or 0) or 0 }
     end
 
     D.res_panel = function(sx, sy)
@@ -9815,21 +9838,30 @@ do
         if c.tick ~= tick then
             c.tick = tick
             local target = N.aa.target_ent
-            c.lines = (target ~= nil and U.alive(target)) and D.res_lines(target) or nil
+            c.data = (target ~= nil and U.alive(target)) and D.res_data(target) or nil
         end
-        local lines = c.lines
-        if lines == nil then
-            return
-        end
-        local scale = (N.v("panel_size") or 160) / 100
+        local F = D.panel_fonts()
         local x = sx * (N.v("panel_x") or 560) / 1000
         local y = sy * (N.v("panel_y") or 380) / 1000
-        local h = 14 * scale
-        pcall(render.rect_filled, vec2_t(x - 6, y - 4), vec2_t(110 * scale, h * #lines + 8), color_t(0, 0, 0, 110), 4)
-        local col = D.color("accent", 150, 190, 255)
-        for i, s in ipairs(lines) do
-            D.text(D.small, s, x, y + (i - 1) * h, i == 1 and col or color_t(230, 230, 230, 255), false)
+        local d = c.data
+        local main, name, info, col
+        if d ~= nil then
+            main, name, col = fmt("%d%%", d.cozum), d.name, D.tint(d.cozum)
+            info = fmt("COZUM   HIT %d%%   %d/%d   L%d", d.hit, d.hits, d.shots, d.level)
+        else
+            main, name, col, info = "--", "", color_t(160, 160, 165, 200), "COZUM   hedef yok"
         end
+        local w = F.widths[main]
+        if w == nil then
+            local ok, size = pcall(render.get_text_size, F.big, main)
+            w = (ok and size ~= nil) and size.x or (#main * F.bp * 0.6)
+            F.widths[main] = w
+        end
+        D.text(F.big, main, x, y, col, false)
+        if name ~= "" then
+            D.text(F.big, name, x + w + floor(8 * F.size / 100), y, color_t(255, 255, 255, 255), false)
+        end
+        D.text(F.small, info, x, y + F.bp + 3, color_t(225, 225, 230, 200), false)
     end
 
     -- Stats paneli yazisi ekran yuksekligine gore (1080 = 12 px); boyut degisince bir kez yeniden olusturulur.

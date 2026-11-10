@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.15"
+H.VER = "V1.0.16"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -6688,6 +6688,13 @@ function H.paint(T, n)
     end
 end
 -- Bu tick'te cizilen ve s'yi iceren ilk yazi.
+-- V1.0.16 resolver paneli (GS duzeni): buyuk "NN%" yazisi ve "COZUM   HIT NN%   h/n   Ln" bilgi satiri.
+function H.res_main(T)
+    for _, x in ipairs(T.texts(T.W.tick, T.W.tick)) do
+        if x.s:match("^%d+%%$") or x.s == "--" then return x end
+    end
+    return nil
+end
 function H.text_at(T, s)
     for _, x in ipairs(T.texts(T.W.tick, T.W.tick)) do
         if x.s:find(s, 1, true) then return x end
@@ -6844,14 +6851,14 @@ function C.stat_full()
     H.run("T-STAT-6", function()
         local A = H.boot({ name = "stat-6-bos" })
         A.tick(20)
-        local a1, a2 = H.text_at(A, "cozum %"), H.text_at(A, "HIT %")
+        local a1, a2 = H.res_main(A), H.text_at(A, "COZUM   HIT ")
         local B = H.boot({ name = "stat-6-jit" })
         local W = B.W
         B.tick(30, H.yaw_hook(2, { 120, 240 }))
         W.p[2].ground = false
         W.p[2].sim_shift = 10
         B.tick(1, H.yaw_hook(2, { 120, 240 }))
-        local b1, b2 = H.text_at(B, "cozum %"), H.text_at(B, "HIT %")
+        local b1, b2 = H.res_main(B), H.text_at(B, "COZUM   HIT ")
         local Cc = H.boot({ name = "stat-6-corr" })
         Cc.tick(20)
         for _, r in ipairs({ "hit", "resolver", "hit", "resolver" }) do
@@ -6861,10 +6868,18 @@ function C.stat_full()
             Cc.tick(2)
         end
         Cc.tick(70)
-        local c1, c2 = H.text_at(Cc, "cozum %"), H.text_at(Cc, "HIT %")
-        local function s(x) return x and x.s or "yok" end
-        H.check("T-STAT-6", s(a1) == "cozum %80" and s(a2) == "HIT %72" and s(b1) == "cozum %29" and s(b2) == "HIT %26"
-            and s(c1) == "cozum %60" and s(c2) == "HIT %56", "veri yok: " .. s(a1) .. " " .. s(a2) .. " (80 / 72); jitter 120 +"
+        local c1, c2 = H.res_main(Cc), H.text_at(Cc, "COZUM   HIT ")
+        local function s(x)
+            if x == nil then return "yok" end
+            return x.s:match("HIT (%d+%%)") or x.s
+        end
+        -- GS duzeni: buyuk yazi dusukte kirmizi, yuksekte yesil; bilgi satiri kucuk yazi tipinde ve altinda.
+        local tint_ok = a1 ~= nil and b1 ~= nil and a1.col ~= nil and b1.col ~= nil and a1.col.g > a1.col.r and b1.col.r > b1.col.g
+            and a2 ~= nil and a2.y > a1.y and (a2.fs or 0) < (a1.fs or 0)
+        H.check("T-STAT-6", tint_ok, "resolver paneli GS duzeni: %80 yesil, %29 kirmizi, bilgi satiri altta ve kucuk ("
+            .. tostring(tint_ok) .. ")")
+        H.check("T-STAT-6", s(a1) == "80%" and s(a2) == "72%" and s(b1) == "29%" and s(b2) == "26%"
+            and s(c1) == "60%" and s(c2) == "56%", "veri yok: " .. s(a1) .. " " .. s(a2) .. " (80 / 72); jitter 120 +"
             .. " havada + sahte kayit: " .. s(b1) .. " " .. s(b2) .. " (29 / 26); son 4 sonucun 2'si correction: " .. s(c1) .. " "
             .. s(c2) .. " (60 / 56)")
     end)
@@ -6889,7 +6904,7 @@ function C.stat_full()
             H.paint(T, 2)
         end
         local w = worst(t0, W.tick)
-        local drawn = H.text_at(T, "cozum %") ~= nil and H.text_at(T, "AA STATS") ~= nil
+        local drawn = H.text_at(T, "COZUM   HIT ") ~= nil and H.text_at(T, "AA STATS") ~= nil
         H.check("T-STAT-7", drawn and w.name <= 1 and w.sid <= 1 and w.trace == 0 and one.ent > 0 and w.ent <= one.ent,
             "tick basina 3 kare, paneller acik: PAINT'te tick basina en fazla 1 isim / 1 Steam ID okumasi, hic iz, dusman"
             .. " okumasi tek karelik tick kadar (isim " .. w.name .. ", sid " .. w.sid .. ", iz " .. w.trace .. ", dusman "
