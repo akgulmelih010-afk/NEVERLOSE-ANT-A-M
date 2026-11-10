@@ -430,7 +430,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.83 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.83")
+check(printed("V1.0.84 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.84")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -455,7 +455,7 @@ check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or 
 do
     local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
     check(xp_ref ~= nil and xp_ref.value == true, "V1.0.81: deney motoru varsayilan acik")
-    check(printed("deney motoru: yer: slow_jit, yer2: def_full, hava: air_def, atis: hc70 | kalici: yok (0 can olculdu)") ~= nil,
+    check(printed("deney motoru: yer: slow_jit, yer2: def_full, hava: air_def2, atis: hc70 | kalici: yok (0 can olculdu)") ~= nil,
         "V1.0.81: yukleme satiri ilk adaylari yazar")
     if xp_ref ~= nil then xp_ref.value = false end
 end
@@ -2231,8 +2231,10 @@ do
         "V1.0.80 (b): ziplamada tek discharge, inisten 1-12 tick once (" .. #fires .. " kez, ates " .. tostring(f1)
         .. ", inis " .. tostring(land) .. ")")
     local rf, r1, r2, r3 = f1 and at(rec, f1), f1 and at(rec, f1 + 1), f1 and at(rec, f1 + 2), f1 and at(rec, f1 + 3)
-    check(rf ~= nil and rf.jump == 0 and r1 ~= nil and r1.jump == 0 and r2 ~= nil and r2.jump == 0 and r3 ~= nil and r3.jump == 1,
-        "V1.0.80 (b): ates komutunda ve sonraki 2 komutta ziplama bastirilir, 3. komutta yine basili ("
+    -- V1.0.84: yerde tutma acikken 3. komutta da (ve tutma boyunca) ziplama engelli; eski "3. komutta yine basili"
+    -- davranisi secenek kapaliyken (asagida, V1.0.84 testleri).
+    check(rf ~= nil and rf.jump == 0 and r1 ~= nil and r1.jump == 0 and r2 ~= nil and r2.jump == 0 and r3 ~= nil and r3.jump == 0,
+        "V1.0.84 (b): ates komutunda ve sonraki komutlarda ziplama bastirilir (yerde tutma) ("
         .. tostring(rf and rf.jump) .. tostring(r1 and r1.jump) .. tostring(r2 and r2.jump) .. tostring(r3 and r3.jump) .. ")")
     local fl = printed("teleport: inise ", before80)
     local n80 = inise_n(fl)
@@ -2346,14 +2348,23 @@ do
         "V1.0.80 (h): 100 birimden dusus ~32 tick, tek discharge inisten 1-12 tick once (inis " .. tostring(land) .. ", ates "
         .. tostring(fires[1]) .. ")")
 
-    -- (i): temiz atis penceresinde discharge yok
+    -- (i): temiz atis penceresi. V1.0.84: hizli ucusta (240 u/s) teleportu engellemez, yerinde ziplarken (40 u/s)
+    -- engeller (jump scout).
     W.head_dmg[2], W.body_dmg[2], W.next_attack = 150, 150, 0
+    settle(20)
+    b = #prints + 1
+    rec, land, fires = fly({})
+    check(#fires == 1 and printed("teleport: inise ", b) ~= nil and printed("inise yok (temiz atis)", b) == nil,
+        "V1.0.84 (i): hizli ucusta temiz atis penceresi inis teleportunu engellemez (" .. #fires .. ")")
+    settle(60)
+    W.speed = 40
     settle(20)
     b = #prints + 1
     rec, land, fires = fly({})
     local il = printed("inise yok", b)
     check(#fires == 0 and il ~= nil and il:find("temiz atis", 1, true) ~= nil,
-        "V1.0.80 (i): temiz atis varken discharge yok, sebep 'temiz atis' (" .. tostring(il) .. ")")
+        "V1.0.84 (i): yerinde ziplarken temiz atis varken discharge yok, sebep 'temiz atis' (" .. tostring(il) .. ")")
+    W.speed = 240
 
     -- (j): dolu DT kapaninca tickbase olcumu
     W.head_dmg[2], W.body_dmg[2], W.speed = 0, 0, 0
@@ -2434,6 +2445,69 @@ do
         "V1.0.80 (inceleme): havada olunce dogusta eski ucusun sonuc satiri yok (" .. tostring(died) .. ", "
         .. tostring(printed("teleport sonucu: tahmin", b)) .. ")")
 
+    -- V1.0.84: inis teleportundan sonra yerde tutma (istek: "yere isinlanip sonra tekrar yukari zipliyor ve
+    -- oluyorum, oto stop da olmasi lazim"). Bosluk basili, dusman goruyor, temiz atis yok.
+    do
+        local hold_ref = find_ref("  » After landing teleport: stay on ground (no jump + stop)")
+        check(hold_ref ~= nil and hold_ref.value == true, "V1.0.84: yerde tutma secenegi var, varsayilan acik")
+        W.dead = nil
+        W.floor_z, W.lag, W.speed, W.next_attack = 0, 12, 240, 1e9
+        W.sees[2], W.sees[3], W.head_dmg[2], W.body_dmg[2] = true, false, 0, 0
+        settle(200)
+        local hb = #prints + 1
+        -- Inisten sonra 40 yer tick'i izlenir; her tick'te ziplama ve hareket girdisi kaydedilir.
+        local ground = {}
+        local rec84, land84, fires84 = fly({ after = 40 })
+        local jumps, counter, stopped_n, first_free = 0, 0, 0, nil
+        for _, r in ipairs(rec84) do
+            if r.phase:sub(1, 6) == "ground" then
+                ground[#ground + 1] = r
+            end
+        end
+        for k, r in ipairs(ground) do
+            if r.jump == 1 and first_free == nil then first_free = k end
+            if r.jump == 0 then jumps = jumps + 1 end
+        end
+        check(#fires84 == 1 and land84 ~= nil, "V1.0.84 kurulum: goruluyorken ucus, tek inis teleportu (" .. #fires84 .. ")")
+        check(first_free ~= nil and first_free >= 30 and first_free <= 36,
+            "V1.0.84: inisten sonra ziplama ~32 yer tick'i engellenir, sonra serbest (ilk serbest yer tick'i "
+            .. tostring(first_free) .. ", engelli " .. jumps .. ")")
+        local endl = printed("teleport: yerde tutma bitti (sure)", hb)
+        check(endl ~= nil and endl:find("ziplama", 1, true) ~= nil, "V1.0.84: tutma bitince satir yazilir (" .. tostring(endl) .. ")")
+
+        -- Oto stop: tutma sirasinda hizin tersine girdi (hiz +x, bakis 0 -> forwardmove -450); durunca sifir.
+        settle(200)
+        W.speed = 240
+        local fm_moving, fm_still, jump_hold = nil, nil, nil
+        fly({ after = 12 })
+        fm_moving, jump_hold = last_cmd.forwardmove, last_cmd.in_jump
+        W.speed = 0
+        tick(1)
+        fm_still = last_cmd.forwardmove
+        check(fm_moving == -450 and fm_still == 0 and jump_hold == 0,
+            "V1.0.84: tutma sirasinda hizin tersine girdi (-450), durunca 0, ziplama engelli (" .. tostring(fm_moving) .. ", "
+            .. tostring(fm_still) .. ", " .. tostring(jump_hold) .. ")")
+        -- Kimse gormuyorsa (en az 8 yer tick'inden sonra) erken biter.
+        W.sees[2] = false
+        local eb = #prints + 1
+        tick(30)
+        check(printed("teleport: yerde tutma bitti (kimse gormuyor)", eb) ~= nil or printed("teleport: yerde tutma bitti", eb) ~= nil,
+            "V1.0.84: kimse gormuyorken tutma erken biter (" .. tostring(printed("teleport: yerde tutma bitti", eb)) .. ")")
+        check(last_cmd.in_jump == 1, "V1.0.84: tutma bitince basili bosluk yine gecer (" .. tostring(last_cmd.in_jump) .. ")")
+
+        -- Secenek kapaliyken eski davranis: ates komutu + 2 komut, 3. komutta ziplama yine basili.
+        hold_ref.value = false
+        W.sees[2], W.speed = true, 240
+        settle(200)
+        local rec_off, land_off, fires_off = fly({ after = 6 })
+        local fo = fires_off[1]
+        local o3 = fo and at(rec_off, fo + 3)
+        check(#fires_off == 1 and o3 ~= nil and o3.jump == 1,
+            "V1.0.84: secenek kapaliyken 3. komutta ziplama yine basili (" .. tostring(o3 and o3.jump) .. ")")
+        hold_ref.value = true
+        W.next_attack = 0
+    end
+
     W.z, W.vz, W.floor_z, W.jump = nil, nil, nil, nil
     W.sees[2], W.head_dmg[2], W.body_dmg[2], W.speed = false, 0, 0, 0
     W.flags = 1
@@ -2495,7 +2569,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.83 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.84 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2617,13 +2691,13 @@ do
     local pr = {}
     -- Kol sirasi: yer her can, yer2 2 canda bir, atis 4 canda bir, hava 8 canda bir.
     local l1 = life(function() pr[1] = { probe() }; for _ = 1, 5 do hurt(1) end end)
-    check(l1:find("yer slow_jit A | yer2 def_full A | hava air_def A | atis hc70 A", 1, true) ~= nil, "V1.0.82: can 1 hepsi A (" .. l1 .. ")")
+    check(l1:find("yer slow_jit A | yer2 def_full A | hava air_def2 A | atis hc70 A", 1, true) ~= nil, "V1.0.82: can 1 hepsi A (" .. l1 .. ")")
     local l2 = life(function()
         check(cd_ref ~= nil and cd_ref.value == 1, "V1.0.81: B kolunda menudeki ayar degismez (ezme sadece okurken)")
         pr[2] = { probe() }
         for _ = 1, 5 do hurt(3) end
     end)
-    check(l2:find("yer slow_jit B | yer2 def_full A | hava air_def A | atis hc70 A", 1, true) ~= nil, "V1.0.82: can 2 yer B (" .. l2 .. ")")
+    check(l2:find("yer slow_jit B | yer2 def_full A | hava air_def2 A | atis hc70 A", 1, true) ~= nil, "V1.0.82: can 2 yer B (" .. l2 .. ")")
     local l3 = life(function() pr[3] = { probe() }; for _ = 1, 5 do hurt(1) end end)
     check(pr[1] ~= nil and pr[2] ~= nil and pr[3] ~= nil and pr[2][2] * 2 <= pr[1][2] and pr[1][2] >= 15,
         "V1.0.82: slow_jit B kolunda govde tarafi en az iki kat seyrek degisir (A " .. tostring(pr[1] and pr[1][2])
@@ -2638,13 +2712,13 @@ do
     check(l3:find("yer slow_jit A | yer2 def_full B", 1, true) ~= nil and l3:find("atis hc70 A", 1, true) ~= nil, "V1.0.82: can 3 yer2 B (" .. l3 .. ")")
     life(function() for _ = 1, 5 do hurt(3) end end)
     local l5 = life(function() for _ = 1, 5 do hurt(1) end end)
-    check(l5:find("yer2 def_full A", 1, true) ~= nil and l5:find("atis hc70 B", 1, true) ~= nil and l5:find("hava air_def A", 1, true) ~= nil,
+    check(l5:find("yer2 def_full A", 1, true) ~= nil and l5:find("atis hc70 B", 1, true) ~= nil and l5:find("hava air_def2 A", 1, true) ~= nil,
         "V1.0.82: can 5 atis B (" .. l5 .. ")")
     for i = 6, 8 do
         life(function() for _ = 1, 5 do hurt(i % 2 == 1 and 1 or 3) end end)
     end
     local l9 = life(function() for _ = 1, 5 do hurt(1) end end)
-    check(l9:find("hava air_def B", 1, true) ~= nil and l9:find("atis hc70 A", 1, true) ~= nil, "V1.0.82: can 9 hava B (" .. l9 .. ")")
+    check(l9:find("hava air_def2 B", 1, true) ~= nil and l9:find("atis hc70 A", 1, true) ~= nil, "V1.0.82: can 9 hava B (" .. l9 .. ")")
     -- Yer: A canlarinda hep kafa (zarar 1), B canlarinda hep govde (0.5): 40 + 40 mermide aday kabul edilir.
     for i = 10, 16 do
         life(function() for _ = 1, 5 do hurt(i % 2 == 1 and 1 or 3) end end)
@@ -2706,8 +2780,8 @@ do
 
     -- Hava: B canlarinda havada kafa yenir; 50 + 50 canda aday reddedilir, sirada air_fl.
     for _ = 1, 140 do
-        if printed("deney SONUCU: air_def", start) ~= nil then break end
-        local b_arm = arm_b("air_def", 8)
+        if printed("deney SONUCU: air_def2", start) ~= nil then break end
+        local b_arm = arm_b("air_def2", 8)
         life(function()
             if b_arm then
                 W.flags, W.z = 0, 60
@@ -2718,14 +2792,14 @@ do
             end
         end)
     end
-    verdict = printed("deney SONUCU: air_def", start)
+    verdict = printed("deney SONUCU: air_def2", start)
     check(verdict ~= nil and verdict:find("RED, eski ayar kalir", 1, true) ~= nil, "V1.0.81: hava adayi reddedildi (" .. tostring(verdict) .. ")")
 
     -- air_fl (havada teleport kapali sayilir): B canda goruluyorken havada DT kapanir, A canda (inis teleportu) acik kalir.
     local seen_b, seen_a = nil, nil
     for _ = 1, 20 do
         if seen_a ~= nil and seen_b ~= nil then break end
-        local b_arm = arm_b("air_fl", 8)
+        local b_arm = arm_b("air_fl2", 8)
         local line = life(function()
             W.sees[2], W.lag, W.speed = true, 12, 240
             tick(24)
@@ -2738,7 +2812,7 @@ do
             if b_arm then seen_b = { ground, air } else seen_a = { ground, air } end
             W.sees[2], W.speed = false, 0
         end)
-        if line:find("hava air_fl", 1, true) == nil then seen_a, seen_b = nil, nil end
+        if line:find("hava air_fl2", 1, true) == nil then seen_a, seen_b = nil, nil end
     end
     check(seen_a ~= nil and seen_a[1] == true and seen_a[2] == true, "V1.0.81: air_fl A kolu: havada DT acik ("
         .. tostring(seen_a and seen_a[2]) .. ")")

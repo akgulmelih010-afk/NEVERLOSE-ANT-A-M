@@ -720,6 +720,14 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.84** (istek: "oto stop da olması lazım, beni yere indirmesi lazım, yoksa yere ışınlanıp sonra tekrar yukarı zıplıyor ve ölüyorum".)
+
+| Ne | Önce | Şimdi |
+|---|---|---|
+| **İniş teleportundan sonra yerde tutma** ("» After landing teleport: stay on ground (no jump + stop)", Exploits sekmesi, varsayılan AÇIK) | Zıplama sadece teleport komutunda ve sonraki 2 komutta bastırılıyordu; boşluk basılıyken 3. tick'te yeniden havalanıyordun, DT teleporta gittiği için havada korumasız kalıyordun | Teleporttan sonra yere değene kadar ve yerde en fazla 0.5 sn (32 tick) zıplama engellenir ve hızının tersine girdiyle durdurulursun (oto stop; durunca girdi sıfır). Ateş edince hemen, kimse görmüyorsa 8 tick sonra biter. Bitince `teleport: yerde tutma bitti (sebep): yerde N tick, ziplama M kez engellendi, hiz a -> b` yazılır. |
+| Temiz atış penceresi ve iniş teleportu | Pencere açıkken teleport hiç atılmıyordu: ilk logda görülen 20 uçuşun 11'i | Sadece yerinde zıplarken (yatay hız < 60, jump scout) engeller; hızlı uçuşta scout zaten isabetli sıkamadığı için teleport atılır |
+| Hava deneyi | `air_def` 26 / 27 canda 0.15 → 0.00 (eski, kusurlu iniş teleportuna karşı) | Şimdiki ayar değiştiği için adaylar yeni adla baştan başlar (`air_def2`, `air_fl2`, `air_first2`); ölçüye inişten sonraki 0.75 sn'de yenen mermiler de eklendi (iniş davranışının sonucu yerde ortaya çıkıyor) |
+
 **V1.0.83** (ilk GameSense logu, V1.0.82, 12 dk, de_mirage: **23 kill / 25 ölüm = 0.92**; son Primordial oturumu 2 / 22 idi. Deney motoru oyunda çalışıyor, hata satırı yok.)
 
 Bu logda ve bütün GameSense loglarında ölçülenler:

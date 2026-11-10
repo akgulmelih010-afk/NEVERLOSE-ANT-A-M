@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.83"
+local VERSION = "1.0.84"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1399,6 +1399,13 @@ menu.def_ab         = grp.defensive:switch("Defensive A/B test (even rounds: no 
 -- V1.0.80: "Air: break LC" ile birlikte acikken DT durumlarinda teleport inise zamanlanir (bkz. teleport.land_fire);
 -- kapaliyken eski hava teleportu yok, V1.0.78/79 hava kurallari.
 menu.air_teleport   = grp.defensive:switch("Teleport in air when seen", true)
+-- V1.0.84 (istek: "oto stop da olmasi lazim, beni yere indirmesi lazim, yoksa yere isinlanip sonra tekrar yukari
+-- zipliyor ve oluyorum"): inis teleportundan sonra ziplama sadece 2 komut bastiriliyordu; bosluk basiliyken 3. tick'te
+-- yeniden havalaniyordun, DT de teleporta gittigi icin havada korumasiz kaliyordun. Acikken teleporttan sonra yerde
+-- tutulursun: ziplama engellenir ve hizin tersine girdiyle durdurulursun (en fazla 0.5 sn; ates edince ya da kimse
+-- gormuyorken daha erken biter). Bkz. teleport.hold.
+menu.land_hold      = grp.defensive:switch("  » After landing teleport: stay on ground (no jump + stop)", true,
+    function() return on(menu.air_teleport) end)
 -- V1.0.44: havadayken biri seni goruyorsa (ya da birazdan gorecekse) egil. Tum GameSense loglarinda havada
 -- egikken %33 kafa (6/18), duz havada %58 (18/31); egik + teleport 1/9.
 -- V1.0.45: varsayilan KAPALI. Duruma gore yeniden sayildi: havada egik 17/32 kafa, duz havada 55/85 (p=0.29, fark yok);
@@ -6286,7 +6293,12 @@ local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_
 exposure.land = { policy = false, lt = nil, h = nil, gt = 64, seen_at = -1000, seen_hold = 24, margin = 3,
     min_d3 = 64, nojump_until = -1000, fired_at = -1000, fire_lt = nil, fire_d2 = nil, fire_d3 = nil,
     landed_at = nil, pred = nil, seen_flight = false, reason = nil, res = nil,
-    err_n = 0, err_sum = 0, err_abs = 0, dt = false, air_move = false, jump_blocked = false }
+    err_n = 0, err_sum = 0, err_abs = 0, dt = false, air_move = false, jump_blocked = false,
+    -- V1.0.84 yerde tutma: HOLD_AIR = teleporttan sonra yere degmesi icin taninan tick, HOLD = yerde en fazla tutma,
+    -- HOLD_MIN = en az (bundan once "kimse gormuyor" ile bitmez), CLEAN_SPEED = temiz atisin teleportu engelledigi en
+    -- yuksek yatay hiz (yerinde ziplama; hizli ucusta scout zaten isabetli sikamaz).
+    HOLD_AIR = 16, HOLD = 32, HOLD_MIN = 8, CLEAN_SPEED = 60,
+    hold_from = nil, hold_until = nil, hold_ground = nil, hold_jumps = 0, hold_v0 = 0, hold_rt = 0 }
 
 -- Teleportun sonucunu yazar; son 3'te 2 vurulma olunca bu harita icin kapatir.
 teleport.judge = function(hit)
@@ -6327,6 +6339,7 @@ teleport.reset = function()
     local L = exposure.land
     L.seen_at, L.nojump_until, L.fired_at, L.gt = -1000, -1000, -1000, 64
     L.pred, L.seen_flight, L.reason, L.res, L.landed_at = nil, false, nil, nil, nil
+    L.hold_from, L.hold_until, L.hold_ground = nil, nil, nil
 end
 
 teleport.land_time = function(lp)
@@ -6510,7 +6523,9 @@ teleport.land_fire = function(cmd, lp)
         teleport.land_why(L, "gorulmedi")
         return
     end
-    if current.clean then
+    -- V1.0.84: temiz atis sadece yerinde ziplarken (jump scout) engeller. Ilk logda gorulen 20 ucusun 11'inde teleport
+    -- "temiz atis" yuzunden atilmadi; hizli ucusta scout isabetli sikamadigi icin o pencere bosa gidiyordu.
+    if current.clean and speed2d(lp) < L.CLEAN_SPEED then
         teleport.land_why(L, "temiz atis")
         return
     end
@@ -6535,6 +6550,9 @@ teleport.land_fire = function(cmd, lp)
     L.fired_at, L.fire_lt, L.fire_d2, L.fire_d3, L.reason = now, (L.gt == 1 and 0 or lt), d2, d3, nil
     L.res = { sent = nil, ground_tick = nil, rejump = false }
     local rt = realtime()
+    if on(menu.land_hold) then
+        L.hold_from, L.hold_until, L.hold_ground, L.hold_jumps, L.hold_rt = now, now + L.HOLD_AIR + L.HOLD, nil, 0, rt
+    end
     teleport.count, teleport.last, teleport.watch, teleport.kind = teleport.count + 1, rt, rt, "inis"
     teleport.pending = { tick = now }
     if on(menu.hit_log) then
@@ -6542,6 +6560,72 @@ teleport.land_fire = function(cmd, lp)
             L.fire_lt, S, round(speed2d(lp)), round(d2), round(d3), round(hz),
             d3 > 64 and " LC kirilir(3D)" or "", d2 > 64 and " 2D kirik" or ""))
     end
+end
+
+-- V1.0.84: inis teleportundan sonra yerde tutma (bkz. menu.land_hold). own.aa.move'un basinda her tick cagrilir;
+-- true donerse o tick'in hareketi burada yazilmistir.
+teleport.hold_end = function(why)
+    local L = exposure.land
+    if L.hold_until == nil then
+        return
+    end
+    if on(menu.hit_log) then
+        local lp = local_player()
+        print(("[%s] teleport: yerde tutma bitti (%s): yerde %s tick, ziplama %d kez engellendi, hiz %d -> %d"):format(
+            SCRIPT, why, L.hold_ground ~= nil and tostring(tickcount() - L.hold_ground) or "0", L.hold_jumps,
+            round(L.hold_v0 or 0), lp ~= nil and round(speed2d(lp)) or 0))
+    end
+    L.hold_from, L.hold_until, L.hold_ground = nil, nil, nil
+end
+
+teleport.hold = function(cmd, lp)
+    local L = exposure.land
+    if L.hold_until == nil then
+        return false
+    end
+    local now = tickcount()
+    if now < L.hold_from or now > L.hold_until then
+        teleport.hold_end(L.hold_ground ~= nil and "sure" or "yere inmedi")
+        return false
+    end
+    if not on(menu.land_hold) or fd_on() or prop(lp, "m_MoveType") == K.MOVETYPE_LADDER then
+        teleport.hold_end("kapali")
+        return false
+    end
+    -- Ziplama butun tutma boyunca engellenir (havadaki son tick'lerde basili bosluk da inince hemen ziplatir).
+    if pressed(cmd.in_jump) then
+        pcall(function() cmd.in_jump = 0 end)
+        L.hold_jumps = L.hold_jumps + 1
+    end
+    if not on_ground(lp) then
+        return true
+    end
+    if L.hold_ground == nil then
+        L.hold_ground, L.hold_v0 = now, speed2d(lp)
+        L.hold_until = min(L.hold_until, now + L.HOLD)
+    end
+    -- Erken bitis: ates ettin (atis cikti, hareket sana doner) ya da en az sure doldu ve kimse gormuyor.
+    if own.last_shot > L.hold_rt then
+        teleport.hold_end("ates ettin")
+        return false
+    end
+    if now - L.hold_ground >= L.HOLD_MIN and not seen_by_enemy() then
+        teleport.hold_end("kimse gormuyor")
+        return false
+    end
+    -- Oto stop: hizin tersine tam girdi (surtunmeden hizli durur), durunca girdi sifir.
+    local v = velocity_of(lp)
+    local speed = sqrt(v.x * v.x + v.y * v.y)
+    local yaw = view_yaw(cmd)
+    if speed > 15 and yaw ~= nil then
+        local r = math.rad(yaw)
+        local vf = v.x * math.cos(r) + v.y * math.sin(r)
+        local vs = v.x * math.sin(r) - v.y * math.cos(r)
+        pcall(function() cmd.forwardmove, cmd.sidemove = -vf / speed * 450, -vs / speed * 450 end)
+    else
+        pcall(function() cmd.forwardmove, cmd.sidemove = 0, 0 end)
+    end
+    return true
 end
 
 teleport.update = function(cmd, lp, move_state)
@@ -7312,6 +7396,7 @@ own.dead_cleanup = function()
     -- sapma istatistigine yuzlerce tick girer ve onceki ucusun sonuc satiri dogusta yazilir. err_* toplamlari kalir.
     local L = exposure.land
     L.pred, L.res, L.reason, L.seen_flight, L.gt, L.lt, L.h = nil, nil, nil, false, 64, nil, nil
+    L.hold_from, L.hold_until, L.hold_ground = nil, nil, nil
     -- Olunce oyuncu listesi ezmeleri (safe point, body aim, hipotez, sahte kayit bekleme whitelist'i)
     -- geri verilir; dogunca yeniden kurulur.
     plist_reset(false)
@@ -7663,6 +7748,11 @@ end
 own.aa.move = function(cmd, lp, class)
     local A = own.aa
     A.slowed, A.stopped, A.nojump = nil, nil, nil
+    -- V1.0.84: inis teleportundan sonra yerde tutma (havadaki son tick'lerde de ziplamayi keser).
+    if teleport.hold(cmd, lp) then
+        A.stopped, A.nojump = true, true
+        return
+    end
     if not on_ground(lp) or fd_on() or ai_peek.mode ~= nil or afk.on or afk.key()
         or prop(lp, "m_MoveType") == K.MOVETYPE_LADDER then
         return
@@ -11280,8 +11370,8 @@ end))
 -- rakip yok); "bu ayar daha iyi" kararlarini loglari elle karsilastirarak vermek guvenilir degil. Burada her aday
 -- ayni oturumda, ayni rakiplere karsi, can basina sirayla olculur.
 -- Kulvarlar (ayni anda birer aday): yer ve yer2 = yerde yenen mermi basina zarar (kafa 1, govde 0.5, iska 0; dusuk
--- iyi; yer AA acilarini, yer2 defensive'i dener); hava = can basina havada yenen zarar (dusuk iyi); atis = scout atisi
--- basina kill / can basina kill (yuksek iyi).
+-- iyi; yer AA acilarini, yer2 defensive'i dener); hava = can basina havada ve inisten sonraki 0.75 sn'de yenen zarar
+-- (dusuk iyi); atis = scout atisi basina kill / can basina kill (yuksek iyi).
 -- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
 -- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 ise ret (iki kolda 20+ can, 10 canda bir bakilir);
 -- gate adayda kabul aninda z <= -1 de ret sebebi. AFK canlari sayilmaz.
@@ -11336,13 +11426,16 @@ K.xp.init = function()
         -- simdiki inis teleportuna karsi olculur; salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
         -- Pakette: LuaSense / gay-yaw / hysteria havada defensive'i zorluyor (air_def), hysteria'nin teleportunda
         -- "inis" secenegi var (simdiki ayarimiz).
-        { id = "air_def", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
+        -- V1.0.84: simdiki ayar (inis teleportu) degisti: hizli ucusta temiz atis engellemiyor, inisten sonra yerde
+        -- tutuluyorsun. Olcu de genisledi: inisten sonraki 0.75 sn'de yenen mermi de hava zararina yazilir (inis
+        -- davranisinin sonucu). Eski sayimlar yeni ayari anlatmadigi icin adaylar yeni adla bastan baslar.
+        { id = "air_def2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = false },
             name = "havada DT acik + surekli defensive, isinlanma yok" },
-        { id = "air_fl", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
+        { id = "air_fl2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = true, air_teleport = false },
             name = "havada DT kapali, tam fake lag (V1.0.79)" },
-        { id = "air_first", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
+        { id = "air_first2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = true },
             name = "havada ilk goruste isinlanma (V1.0.77)" },
         -- Atis (V1.0.34'ten beri her atis "BA Prefer"; oncesinde "BA Off" ve isabet %73-74, sonrasinda %51-65, ama
@@ -11635,6 +11728,7 @@ K.xp.init = function()
             end
         end
         xp.lifec = { afk = false, kills = 0, air = 0, at = realtime() }
+        xp.air_at = nil
         xp.apply()
         if #parts > 0 and on(menu.hit_log) then
             print(("[%s] deney: can %d | %s"):format(SCRIPT, xp.life, table.concat(parts, " | ")))
@@ -11661,7 +11755,9 @@ K.xp.init = function()
             end
             return
         end
-        if state == "Air" or state == "Air crouch" then
+        -- V1.0.84: inisten sonraki 0.75 sn de hava kulvarina (inis teleportu / yerde tutma / yeniden ziplama sonucu).
+        local since_air = realtime() - (xp.air_at or -huge)
+        if state == "Air" or state == "Air crouch" or (since_air >= 0 and since_air <= 0.75) then
             L.air = L.air + harm
             return
         end
@@ -11679,6 +11775,9 @@ K.xp.init = function()
         if xp.lifec ~= nil then
             if afk.on then
                 xp.lifec.afk = true
+            end
+            if exposure.airborne == true then
+                xp.air_at = realtime()
             end
             return
         end
