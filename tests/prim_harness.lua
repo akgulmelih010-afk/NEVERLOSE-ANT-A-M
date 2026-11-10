@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.10"
+H.VER = "V1.0.11"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -1409,7 +1409,7 @@ function H.make(opts)
         in_paint("text")
         if type(pos) ~= "table" then error("render.text: konum vec2 olmali", 2) end
         T.frame[#T.frame + 1] = { s = tostring(s), x = pos.x, y = pos.y, cx = cx,
-            fs = type(font) == "table" and font.size or nil }
+            fs = type(font) == "table" and font.size or nil, col = col }
     end
     RN.get_text_size = function(font, s) return V.v2(#tostring(s) * 7, 12) end
     -- W.screen_h: ekran yuksekligi (T-STAT-9, DPI'li stats paneli yazisi).
@@ -4729,6 +4729,34 @@ function C.misc()
     end)
 end
 function C.draw()
+    H.run("T-DRAW-WB", function()
+        -- V1.0.11 duvar hatti: mermi izi 60, duz cizgi duvarla kapali -> sol listede "WB 60"; can 50 iken kirmizi;
+        -- duvar yokken (acik gorus) WB yok; vuruldun satirinda "duvar hatti 60 hasar".
+        local left = function(x) return x.x < 300 end
+        local T = H.boot({ name = "draw-wb" })
+        T.W.sees[2] = 60
+        T.W.wall[2] = true
+        T.tick(20)
+        local wb = T.has_text(T.W.tick - 2, T.W.tick, "WB 60", left)
+        local m = T.mark()
+        T.hurt_me(2, 2, 30)
+        T.tick(2)
+        local line = T.printed("vuruldun:", m) or ""
+        local col_y, col_r = nil, nil
+        for _, x in ipairs(T.texts(T.W.tick - 1, T.W.tick, left)) do if x.s == "WB 60" then col_y = x.col end end
+        T.W.p[1].health = 50
+        T.tick(6)
+        for _, x in ipairs(T.texts(T.W.tick - 1, T.W.tick, left)) do if x.s == "WB 60" then col_r = x.col end end
+        local O = H.boot({ name = "draw-wb-acik" })
+        O.W.sees[2] = 60
+        O.tick(20)
+        local none = true
+        for _, x in ipairs(O.texts(O.W.tick - 3, O.W.tick, left)) do if x.s:find("^WB") then none = false end end
+        local red = col_r ~= nil and col_y ~= nil and (col_r.r ~= col_y.r or col_r.g ~= col_y.g)
+        H.check("T-DRAW-WB", wb and none and line:find("duvar hatti 60 hasar", 1, true) ~= nil and red, "duvar arkasindan 60 hasar: 'WB 60' ("
+            .. tostring(wb) .. "), acik goruste WB yok (" .. tostring(none) .. "), can 50 iken renk degisir (" .. tostring(red)
+            .. "), vuruldun: " .. line:sub(1, 200))
+    end)
     H.run("T-DRAW-1", function()
         local left = function(x) return x.x < 300 end
         local T = H.boot({ name = "draw-1" })

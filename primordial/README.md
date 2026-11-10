@@ -1,4 +1,4 @@
-# Nykle.win V1.0.10 — primordial edition
+# Nykle.win V1.0.11 — primordial edition
 
 primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense sürümünün (`Nykle.win.gamesense.lua` V1.0.79) loglarla kanıtlanmış özelliklerinin ve Neverlose sürümünün (`Nykle.win.lua` V1.1.x) kurallarının primordial API'sine taşınmış hali. Sadece HvH sunucuları için.
 
@@ -16,7 +16,7 @@ primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense s�
    - MOUSE3 = thirdperson (toggle), Insert = menü. Native Nade Helper kapalı.
    Config yüklemesen de script native AA taşıyıcılarını kendisi nötrde tutar.
 4. Başka AA / resolver / ideal-tick / recharge script'i (metasett, IDEAL-TICK vb.) yanında yükleme: recharge, fakelag ve resolver'ın tek sahibi bu script.
-5. Konsolda `[Nykle.win] V1.0.10 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
+5. Konsolda `[Nykle.win] V1.0.11 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
 
 **Log dosyası:** `nykle_log.txt` ve hafıza dosyası `nykle_memory.txt`, oyunun `Counter-Strike Global Offensive/csgo/` klasörüne yazılır (yoksa oyunun kök klasörüne bak). Analiz için `nykle_log.txt`'yi gönder. Dosya yazılamazsa (ffi kapalı vb.) loglar hafızada kalır: **Console → Print all logs to console** ile konsola yazdır.
 
@@ -58,6 +58,7 @@ Varsayılan: "açık" = kutu varsayılan işaretli. "İzlenen" = Always use reco
 | Spin | Düşman kalmayınca (açık) / ısınmada (kapalı) dönme | açık | GS |
 | Desync keeper | Eğikken (≥ 0.9) görülürken tehdide doğru yürüme komutu "Crouch speed" (38) / 0.34'e kısılır; geri çekilme / ateşten 0.6 sn sonrası / peek'te yok | açık, 38 | GS V1.0.58 |
 | Defensive | Durum başına Off / On peek / Smart / Always on / Tick based. Smart: ragebot hedef tarıyorken + görülürken / 1800 birimde düşman varken + görüş kesilince 8 tick. Sadece DT doluyken, tick başına bir tetik. Re-arm cooldown: defensive bitince görülürken 1 sn yeniden yok (ilk görüş, hava, AI peek, silah değişimi, bıçak, AFK hariç). Anti-peek: yeni gören / hızlı düşmanda 8 tick | GS `EXPLOIT_DEFAULTS` | GS V1.0.23/43/45 |
+| Duvar hattı (V1.0.11) | Düşman seni görmüyor ama duvardan hasar verebiliyorsa sol listede `WB <hasar>` (sarı; canına yetiyorsa kırmızı). Vuruldun / ıska satırında `duvar hatti <hasar> hasar <süre>s` | otomatik | log 4: yenen 9 merminin 9'u duvardan |
 | Defensive tekrarı (V1.0.10) | "Defensive: repeat while seen (ticks, 0 = once)". Düşman seni gördüğü sürece zorlanan defensive bu kadar tick'te bir yenilenir (16 = her defensive döngüsünde bir). 0 = görülme başına tek shift | 16 | log 3-4: shift şarjı harcamıyor; takılma her tick çağırmaktan geliyordu |
 | Faz testi (V1.0.9) | "Phase test (one phase per round, fair comparison)". Faz seti: normal, asym (eski en iyi), rnd-asym, asym+duvar, atis-sonrasi (son üçü bizim). Her round tek faz; her fazda 40 mermi birikene kadar eşit rotasyon, sonra en düşük kafa oranlı faz roundların %60'ı. Sayım sana atılan mermi başına, hafızada kalır. Logda `faz testi: bu round ...` ve `faz karsilastirma: ...`. Kapatınca eski düzen (her mermide sıradaki faz) yeni setle | açık | 2429 mermilik GS / NL logu: eski 1-7 fazları normalden iyi değil, sadece asimetrik %36 |
 | Görüş tespiti (V1.0.6) | Düşman gözünden kafana mermi izi 0 dönse de düz çizgi açıksa "görüyor" sayılır; yakında (1800 u) dormant'tan çıkan düşman ilk görüş sayılır (tek defensive olayı) ve 16 tick her tick kontrol edilir. Desync işareti varsayılanı oyunda ölçülen yön | otomatik | log 1-2: gelen mermilerin %50-81'i "gormedi"; işaret her yüklemede 10-45 sn tersti |
@@ -147,7 +148,7 @@ Satırlar:
 
 Vurulabilirlik taraması: her düşman kendi sırasında 4 tick'te bir (tick başına ortalama ≤ 2 düşmana iz), gözünden kafa / göğüs / pelvis; ragebot'un 2 tick'ten taze izi varsa yeniden iz atılmaz.
 
-Dosya: yeni sürümde (dosyada `V1.0.10 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
+Dosya: yeni sürümde (dosyada `V1.0.11 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
 
 ## Bilinen belirsizlikler (oyunda doğrulanacak)
 

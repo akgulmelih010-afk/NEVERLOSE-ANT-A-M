@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.10  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.11  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,9 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.11 (primordial edition): duvar hatti. Dusmanin mermi izi bana hasar veriyor ama gozunden kafama duz cizgi
+        kapaliysa (duvardan vurabiliyor) sol listede "WB <hasar>" (sari; canina yetiyorsa kirmizi) ve vuruldun /
+        iska satirinda "duvar hatti <hasar> hasar <sure>s". Log 4: yenen 9 merminin 9'u duvardan.
       V1.0.10 (primordial edition): "Defensive: repeat while seen" (varsayilan 16 tick): dusman gorurken zorlanan
         defensive her defensive dongusunde bir yenilenir (V1.0.5-9: gorulme basina tek shift; istek: "def az
         kullaniyor"). Log 3-4: force_anti_exploit_shift sarji harcamiyor ("sarj harcamadi"), takilma her tick
@@ -105,7 +108,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.10", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.11", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -3191,6 +3194,9 @@ do
     -- ilk gorus kenari sayilir (sunucu gorunmeyen dusmani gondermiyor: uyanma = peek) ve 16 tick boyunca her tick
     -- kontrol edilir (sira beklemez).
     E.wake_edge = {}
+    -- V1.0.11 duvar hatti: wb[idx] = { dmg = dusmanin duvardan bana verebilecegi hasar (kafa / pelvis izinin buyugu),
+    -- tick = son olcum, since = hattin acildigi tick }. Log 4: yenen 9 merminin 9'u duvardan.
+    E.wb = {}
 
     E.enemies = function()
         local st = N.st
@@ -3310,6 +3316,7 @@ do
                     local soon = now_seen or E.check(enemy, lp, head, true)
                     E.now_set[idx] = now_seen and tick or nil
                     E.soon_set[idx] = soon and tick or nil
+                    E.wall_lane(enemy, idx, lp, head, now_seen, tick)
                     if now_seen then
                         local s = E.sight[idx]
                         if s == nil or tick - s.last > N.K.SIGHT_GAP or tick < s.last then
@@ -3346,6 +3353,52 @@ do
         E.now, E.soon, E.seen = any_now, any_soon, any_seen
     end
 
+    -- Dusman beni "goruyor" (mermi izi > 0) ama gozunden kafama duz cizgi kapaliysa duvardan vurabiliyor demektir.
+    E.wall_lane = function(enemy, idx, lp, head, now_seen, tick)
+        if not now_seen or head == nil then
+            E.wb[idx] = nil
+            return
+        end
+        local eye = U.eye(enemy)
+        if eye == nil then
+            E.wb[idx] = nil
+            return
+        end
+        local f, hit, okl = U.tline(eye, head, enemy)
+        if okl ~= true or f >= 0.97 or (hit ~= nil and hit == lp) then
+            E.wb[idx] = nil
+            return
+        end
+        local d = U.tdmg(eye, head, enemy, lp)
+        local pel = U.hitbox(lp, "PELVIS")
+        if pel ~= nil then
+            d = max(d, U.tdmg(eye, pel, enemy, lp))
+        end
+        if d <= 0 then
+            E.wb[idx] = nil
+            return
+        end
+        local old = E.wb[idx]
+        local since = (old ~= nil and tick >= old.tick and tick - old.tick <= 16) and old.since or tick
+        E.wb[idx] = { dmg = d, tick = tick, since = since, ent = enemy }
+    end
+
+    -- En buyuk taze (12 tick) duvar hatti: hasar, kayit; yoksa 0.
+    E.wb_best = function()
+        local tick = U.tick()
+        local best, rec = 0, nil
+        for idx, w in pairs(E.wb) do
+            if tick >= w.tick and tick - w.tick <= 12 then
+                if w.dmg > best then
+                    best, rec = w.dmg, w
+                end
+            else
+                E.wb[idx] = nil
+            end
+        end
+        return best, rec
+    end
+
     E.sees = function(idx)
         local s = E.sight[idx]
         local tick = U.tick()
@@ -3369,7 +3422,7 @@ do
     end
 
     E.reset = function()
-        E.sight, E.now_set, E.soon_set, E.first_edge, E.wake_edge = {}, {}, {}, {}, {}
+        E.sight, E.now_set, E.soon_set, E.first_edge, E.wake_edge, E.wb = {}, {}, {}, {}, {}, {}
         E.now, E.soon, E.seen = false, false, false
     end
 end
@@ -7356,6 +7409,10 @@ do
         else
             parts[#parts + 1] = "AA hedefi degil"
         end
+        local wbr = idx ~= nil and E.wb[idx] or nil
+        if wbr ~= nil and U.tick() - wbr.tick <= 16 and U.tick() >= wbr.tick then
+            parts[#parts + 1] = fmt("duvar hatti %d hasar %.1fs", U.R(wbr.dmg), (wbr.tick - wbr.since) * U.ipt())
+        end
         local s = idx ~= nil and E.sight[idx] or nil
         if s ~= nil and E.sees(idx) then
             parts[#parts + 1] = fmt("gordu %.2fs", (s.last - s.first) * U.ipt())
@@ -9342,6 +9399,12 @@ do
         end
         if X.air.latched then
             add("AIR LC", yellow)
+        end
+        -- V1.0.11: duvardan vurulabiliyorsun (tahmini hasar); canina yetiyorsa kirmizi.
+        local wbd = N.exposure.wb_best()
+        if wbd > 0 then
+            local hp = U.num(st.lp, "m_iHealth") or 100
+            add("WB " .. U.numtext(U.R(wbd)), wbd >= hp and red or yellow)
         end
         local md = N.rage.last_md
         local ovr_v, ovr = P.md_eff(st.wgroup)
