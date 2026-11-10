@@ -1278,6 +1278,9 @@
      "Desync keeper: slow crouch-walk when seen": {
       "is active": true
      },
+     "Experiments: test one candidate change per life and keep the winner": {
+      "is active": true
+     },
      "FS: auto when standing still": {
       "is active": true
      },

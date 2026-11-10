@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.27  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.28  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,12 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.28 (primordial edition): deney motoru ("Experiments", acik; istek: bozmadan daha iyi sonuc, kotulesirse
+        diger yola). Ayni anda tek aday, her dogusta simdiki / aday kol degisir, karar kendiliginden (2 standart
+        hata; aday yasam basina oldurmede belirgin gerideyse reddedilir), kazanan kalici olur ve hafizada saklanir.
+        Sira: egik AA sabit yaw + desync 30 (fake duck'ta bu ayarla kafa orani %21, egik durumlarda ~%50), scout hit
+        chance 90 (hc 80-94 atislar %63, 95+ %75), egik AA Standing ayari, safe point'siz resolver. "deney: ..." ve
+        "deney bitti: ..." satirlari.
       V1.0.27 (primordial edition): log 13 (V1.0.26, 27 dk; K19 / D47). Govde testi bitti, kural hakli cikti: govde
         acik kolda 20 yasamda 1 oldurme ve 15 sn omur, kapali kolda 20 yasamda 16 oldurme ve 30 sn omur (oldurmeyen
         govde atisi 12 atista 2 oldurme, 5'inde 2 sn icinde olum) -> "Scout body test" varsayilan KAPALI, Min. damage
@@ -206,10 +212,10 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.27", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.28", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
-    draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
+    draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 }, xp = {},
     st = { on = false, enabled = true, tick = 0, cmdn = -1, lp = nil, alive = false, dead = true, idx = nil,
         enemies = {}, enemies_tick = -1, any_enemy_alive = true, state = "Standing", move_state = "Standing",
         label = "Standing", threat = nil, weapon = nil, wgroup = "auto", round_start_at = -1000,
@@ -1777,6 +1783,7 @@ do
         B.cb("brute_random", "protect", "Random anti-brute order", true, true)
         B.cb("phase_test", "protect", "Phase test (one phase per round, fair comparison)", true, true)
         B.cb("phase_fixed", "protect", "AA: fixed phase (asym), no rotation", true, false)
+        B.cb("experiments", "protect", "Experiments: test one candidate change per life and keep the winner", true, false)
         B.cb("knife_md", "protect", "Lower Min. damage vs close knife/zeus", true, true)
         B.cb("crouch_cap", "protect", "Desync keeper: slow crouch-walk when seen", true, false)
         B.sl("crouch_speed", "protect", "Crouch speed", 20, 78, 38, false, "u/s")
@@ -2464,7 +2471,8 @@ do
             end
             last = #lines - 1
         end
-        local d = { session = tonumber(head[3]) or 0, players = {}, count = 0, phases = {}, cvars = {}, test = {} }
+        local d = { session = tonumber(head[3]) or 0, players = {}, count = 0, phases = {}, cvars = {}, test = {},
+            xp = {} }
         local extra = {}
         local PR = N.profile
         for i = 2, last do
@@ -2491,6 +2499,8 @@ do
             elseif kind == "T" and #f >= 6 then
                 d.test[#d.test + 1] = { phase = tonumber(f[2]), n = tonumber(f[3]) or 0, h = tonumber(f[4]) or 0,
                     hit = tonumber(f[5]) or 0, rounds = tonumber(f[6]) or 0 }
+            elseif kind == "X" and #f >= 13 then
+                d.xp[#d.xp + 1] = f
             elseif kind == "V" and f[2] == "phases" then
                 d.phase_set = tonumber(f[3])
             elseif kind == "R" and #f >= 3 + #PR.PATTERNS + 2 then
@@ -2547,6 +2557,19 @@ do
             local x = t.phase ~= nil and N.brute.test[t.phase] or nil
             if x ~= nil then
                 x.n, x.h, x.hit, x.rounds = t.n, t.h, t.hit, t.rounds
+            end
+        end
+        -- V1.0.28 deney durumu: X <id> <A|B|-> A(lives kills ticks n x) B(lives kills ticks n x).
+        for _, f in ipairs(d.xp or {}) do
+            local st = N.xp.s[f[2]]
+            if st ~= nil then
+                st.done = (f[3] == "A" or f[3] == "B") and f[3] or nil
+                for i, arm in ipairs({ "A", "B" }) do
+                    local o = 3 + (i - 1) * 5
+                    local a = st[arm]
+                    a.lives, a.kills, a.ticks = tonumber(f[o + 1]) or 0, tonumber(f[o + 2]) or 0, tonumber(f[o + 3]) or 0
+                    a.n, a.x = tonumber(f[o + 4]) or 0, tonumber(f[o + 5]) or 0
+                end
             end
         end
         M.cvars = d.cvars
@@ -2660,6 +2683,19 @@ do
                 if s ~= nil and s.shots > 0 then
                     out[#out + 1] = concat({ "F2", g, fmt("%d", phase), num(s.shots), num(s.hits) }, "\t")
                 end
+            end
+        end
+        for _, e in ipairs(N.xp.LIST) do
+            local st = N.xp.s[e.id]
+            if st.done ~= nil or st.A.lives > 0 or st.B.lives > 0 then
+                local rec = { "X", e.id, st.done or "-" }
+                for _, arm in ipairs({ "A", "B" }) do
+                    local a = st[arm]
+                    for _, v in ipairs({ a.lives, a.kills, a.ticks, a.n, a.x }) do
+                        rec[#rec + 1] = num(v)
+                    end
+                end
+                out[#out + 1] = concat(rec, "\t")
             end
         end
         out[#out + 1] = "V\tphases\t" .. fmt("%d", N.K.PHASE_SET)
@@ -3964,6 +4000,15 @@ do
     A.row = function(state)
         if state == "Ladder" or state == "Legit" or state == "Spin" then
             return "Global"
+        end
+        -- V1.0.28 deneyler: egikken (Crouching / Crouch move / egik Peek) builder satiri adaya gore.
+        if N.st.crouch and (state == "Crouching" or state == "Crouch move" or state == "Peek") then
+            if N.xp.on("crouch_stand") and N.ui.b["Standing"] ~= nil then
+                return "Standing"
+            end
+            if N.xp.on("crouch_safe") and N.ui.b["Safe head"] ~= nil then
+                return "Safe head"
+            end
         end
         if K.OVERRIDABLE[state] and N.bv(state, "override") == false then
             return "Global"
@@ -6130,6 +6175,7 @@ do
         r.ticks = r.ticks + 1
         X.tpt_add("ticks")
         N.rage.bt_add("ticks")
+        N.xp.add("ticks")
         if dt then
             r.dt = r.dt + 1
             r.top = max(r.top, c)
@@ -7187,6 +7233,10 @@ do
             local level = RG.level(target, idx, hp, head, body, sniper and N.on("head_only"))
             info.sp = level
             N.diag.level(idx, level, head, body)
+            if N.xp.on("sp_off") then
+                level = 0
+                info.sp = 0
+            end
             if level == 1 then
                 pcall(ctx.set_safepoint_state, ctx, true, e_hitscan_groups.HEAD)
             elseif level == 2 then
@@ -7420,6 +7470,13 @@ do
 
     -- R12: havadayken sniper hit chance (0 = kapali; senin degerin daha yuksekse dokunulmaz).
     RG.air_hc = function(ctx, wname, w)
+        -- V1.0.28 deney "scout_hc90": scout hit chance en az 90 (5 log: hc 80-94 atislar %63, 95-100 atislar %75).
+        if wname == "ssg08" and N.xp.on("scout_hc90") then
+            local native = N.ref.get("hc:" .. w)
+            if not (U.finite(native) and native >= 90) then
+                pcall(ctx.set_hitchance, ctx, 90)
+            end
+        end
         local v = N.v("air_hc") or 0
         if v <= 0 or not N.st.airborne or not U.is_bolt(wname) then
             return
@@ -7625,6 +7682,201 @@ do
         end
         for _, f in pairs(RG.freshw) do
             f.active = false
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Deney motoru (V1.0.28; istek: "bozmadan daha iyi sonuc; kotulesirse anla ve diger yola yonlen"). Ayni anda TEK
+-- deney. Her dogusta kol degisir: A = simdiki davranis, B = aday. Olcu deneye gore: "head" (yenen mermilerde kafa
+-- orani, dusuk iyi) ya da "hit" (scout atis isabet orani, yuksek iyi). Karar kendiliginden: iki kolda da en az MIN
+-- ornek varken fark 2 standart hatayi gecerse hemen; 3 x MIN'e ulasilinca aday ancak 1 standart hata ondeyse kazanir,
+-- yoksa simdiki kalir. Aday yasam basina oldurmede 2 standart hata gerideyse olcusu iyi olsa da reddedilir. Kazanan
+-- aday kalici olur (hafiza dosyasinda saklanir, oturumlar arasi surer), sonra siradaki deney baslar. AFK yasamlari ve
+-- AFK iken yenen mermiler sayilmaz.
+-------------------------------------------------------------------------------
+do
+    local U, XP = N.util, N.xp
+    XP.LIST = {
+        { id = "crouch_safe", kind = "head", crouch = true, min = 30,
+            name = "egik AA: sabit yaw, jitter yok, desync 30" },
+        { id = "scout_hc90", kind = "hit", min = 25, name = "scout hit chance 90" },
+        { id = "crouch_stand", kind = "head", crouch = true, min = 30,
+            name = "egik AA: Standing ayari (jitter 51, desync 60)" },
+        { id = "sp_off", kind = "hit", min = 25, name = "resolver: safe point yok" },
+    }
+    XP.new_arm = function()
+        return { lives = 0, kills = 0, ticks = 0, n = 0, x = 0 }
+    end
+    XP.s, XP.by_id = {}, {}
+    for _, e in ipairs(XP.LIST) do
+        XP.s[e.id] = { A = XP.new_arm(), B = XP.new_arm(), done = nil }
+        XP.by_id[e.id] = e
+    end
+    XP.arm, XP.cur, XP.lives = "B", nil, 0
+
+    XP.current = function()
+        for _, e in ipairs(XP.LIST) do
+            if XP.s[e.id].done == nil then
+                return e
+            end
+        end
+        return nil
+    end
+
+    -- Aday davranis su an gecerli mi: kazanmis (kalici) ya da su an denenen deneyin B kolu.
+    XP.on = function(id)
+        local st = XP.s[id]
+        if st == nil then
+            return false
+        end
+        if st.done ~= nil then
+            return st.done == "B"
+        end
+        local c = XP.cur
+        return c ~= nil and c.id == id and c.arm == "B" and N.on("experiments")
+    end
+
+    -- Oran farki (B - A) icin z; ornek yoksa 0.
+    XP.z_prop = function(a, b)
+        if a.n <= 0 or b.n <= 0 then
+            return 0
+        end
+        local p = (a.x + b.x) / (a.n + b.n)
+        local se = sqrt(p * (1 - p) * (1 / a.n + 1 / b.n))
+        if se <= 0 then
+            return 0
+        end
+        return (b.x / b.n - a.x / a.n) / se
+    end
+    -- Yasam basina oldurme farki (B - A) icin z (Poisson).
+    XP.z_kills = function(a, b)
+        if a.lives <= 0 or b.lives <= 0 then
+            return 0
+        end
+        local se = sqrt(a.kills / (a.lives * a.lives) + b.kills / (b.lives * b.lives))
+        if se <= 0 then
+            return 0
+        end
+        return (b.kills / b.lives - a.kills / a.lives) / se
+    end
+
+    XP.arm_text = function(e, name, a)
+        return fmt("%s %d yasam, yasam basina %.2f oldurme, omur %.0f sn, %s %d/%d (%%%d)", name, a.lives,
+            a.lives > 0 and a.kills / a.lives or 0, a.lives > 0 and a.ticks * U.ipt() / a.lives or 0,
+            e.kind == "head" and "kafa" or "isabet", U.R(a.x), U.R(a.n), a.n > 0 and U.R(100 * a.x / a.n) or 0)
+    end
+    XP.text = function(e)
+        local st = XP.s[e.id]
+        return fmt("%s | %s | %s", e.name, XP.arm_text(e, "simdiki:", st.A), XP.arm_text(e, "aday:", st.B))
+    end
+
+    XP.judge = function(e)
+        local st = XP.s[e.id]
+        local a, b = st.A, st.B
+        if a.n < e.min or b.n < e.min then
+            return
+        end
+        local z = XP.z_prop(a, b)
+        -- "head": dusuk iyi -> isaret cevrilir; z > 0 = aday iyi.
+        if e.kind == "head" then
+            z = -z
+        end
+        local zk = XP.z_kills(a, b)
+        local verdict = nil
+        if zk <= -2 then
+            verdict = "A"
+        elseif z >= 2 then
+            verdict = "B"
+        elseif z <= -2 then
+            verdict = "A"
+        elseif a.n >= 3 * e.min and b.n >= 3 * e.min then
+            verdict = z >= 1 and "B" or "A"
+        end
+        if verdict == nil then
+            return
+        end
+        st.done = verdict
+        N.mem.dirty = true
+        N.log.line(fmt("deney bitti: %s -> %s (fark %.1f standart hata, oldurme farki %.1f) | %s", e.name,
+            verdict == "B" and "ADAY KAZANDI, kalici" or "simdiki kaldi, aday reddedildi", z, zk, XP.text(e)))
+        local nxt = XP.current()
+        N.log.line(nxt ~= nil and ("deney: siradaki -> " .. nxt.name) or "deney: sirada deney kalmadi")
+    end
+
+    -- Biten yasami kola yaz.
+    XP.commit = function()
+        local c = XP.cur
+        XP.cur = nil
+        if c == nil or c.afk or c.ticks <= 0 then
+            return
+        end
+        local e = XP.by_id[c.id]
+        local st = e ~= nil and XP.s[c.id] or nil
+        if st == nil or st.done ~= nil then
+            return
+        end
+        local a = st[c.arm]
+        a.lives, a.kills, a.ticks = a.lives + 1, a.kills + c.kills, a.ticks + c.ticks
+        a.n, a.x = a.n + c.n, a.x + c.x
+        N.mem.dirty = true
+        XP.lives = XP.lives + 1
+        if XP.lives % 10 == 0 and N.on("hit_log") then
+            N.log.line("deney: " .. XP.text(e))
+        end
+        XP.judge(e)
+    end
+
+    XP.spawn = function()
+        XP.commit()
+        if not N.on("experiments") then
+            return
+        end
+        local e = XP.current()
+        if e == nil then
+            return
+        end
+        XP.arm = XP.arm == "A" and "B" or "A"
+        XP.cur = { id = e.id, arm = XP.arm, kills = 0, ticks = 0, n = 0, x = 0, afk = false }
+    end
+
+    XP.add = function(what)
+        local c = XP.cur
+        if c ~= nil then
+            c[what] = c[what] + 1
+        end
+    end
+
+    -- Dusman mermisi isabet etti (S.on_hurt): "head" deneylerinin ornegi.
+    XP.bullet = function(head)
+        local c = XP.cur
+        local e = c ~= nil and XP.by_id[c.id] or nil
+        if e == nil or e.kind ~= "head" or N.afk.idle() or (e.crouch and not N.st.crouch) then
+            return
+        end
+        c.n = c.n + 1
+        if head then
+            c.x = c.x + 1
+        end
+    end
+
+    -- Sonuclanan scout atisi (olurken / hedef olurken atilanlar haric): "hit" deneylerinin ornegi.
+    XP.shot = function(hit)
+        local c = XP.cur
+        local e = c ~= nil and XP.by_id[c.id] or nil
+        if e == nil or e.kind ~= "hit" then
+            return
+        end
+        c.n = c.n + 1
+        if hit then
+            c.x = c.x + 1
+        end
+    end
+
+    XP.death = function()
+        local c = XP.cur
+        if c ~= nil and N.afk.idle() then
+            c.afk = true
         end
     end
 end
@@ -8820,6 +9072,7 @@ do
         local result = fmt("isabet %s -%d", K.HITGROUPS[hg or -1] or "?", U.R(dmg))
         if N.st.weapon == "ssg08" then
             N.rage.bt_add("hits")
+            N.xp.shot(true)
         end
         if N.on("shot_log") then
             N.log.line(S.line(rec, result))
@@ -8856,6 +9109,9 @@ do
         local reason = tostring(field(miss, "reason_string") or "?")
         local mapped = reason == "resolver" and "correction" or reason
         local result = "iska " .. mapped:sub(1, 32)
+        if N.st.weapon == "ssg08" and mapped:find("ping", 1, true) == nil then
+            N.xp.shot(false)
+        end
         if N.on("shot_log") then
             N.log.line(S.line(rec, result))
         end
@@ -8939,6 +9195,7 @@ do
         N.peek.hurt(hitgroup, dmg, name)
         N.peek.esc_hurt(U.index(attacker))
         N.ex.tpt_add("hits")
+        N.xp.bullet(hitgroup == 1)
         if st.fd and (weapon == "ssg08" or weapon == "awp") then
             st.fd_hint_until = U.now() + 2
             N.log.every("fd_sniper", 5, fmt("fake duck: %s %s ile vurdu -> fake duck'i birak", name, weapon))
@@ -8980,6 +9237,7 @@ do
                 ST.kd("kills")
                 N.ex.tpt_add("kills")
                 N.rage.bt_add("kills")
+                N.xp.add("kills")
                 N.peek.ret_kill()
             end
             if N.on("hit_log") then
@@ -9003,6 +9261,7 @@ do
             if attacker ~= nil and attacker ~= lp and U.is_enemy(attacker) then
                 ST.kd("deaths")
                 N.rage.bt_death()
+                N.xp.death()
                 N.peek.ret_death()
                 if N.st.airborne then
                     N.ex.tpt_add("air")
@@ -11061,6 +11320,7 @@ do
             N.afk.spawn()
             N.ex.tpt_spawn()
             N.rage.bt_spawn()
+            N.xp.spawn()
         end
         st.alive = true
         st.on = st.enabled

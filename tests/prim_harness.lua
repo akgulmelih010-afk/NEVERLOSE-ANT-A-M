@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.27"
+H.VER = "V1.0.28"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -384,6 +384,7 @@ H.EL = {
     { "brute_random", "protect", "Random anti-brute order", "cb", true },
     { "phase_test", "protect", "Phase test (one phase per round, fair comparison)", "cb", true },
     { "phase_fixed", "protect", "AA: fixed phase (asym), no rotation", "cb", true },
+    { "experiments", "protect", "Experiments: test one candidate change per life and keep the winner", "cb", true },
     { "knife_md", "protect", "Lower Min. damage vs close knife/zeus", "cb", true },
     { "crouch_cap", "protect", "Desync keeper: slow crouch-walk when seen", "cb", true },
     { "crouch_speed", "protect", "Crouch speed", "sl", 38, 20, 78 },
@@ -2091,6 +2092,8 @@ function H.make(opts)
         if T.el("body_test") ~= nil then T.set("body_test", opts.body_test == true) end
         -- V1.0.27: "Shot retreat test" varsayilan kapali; T-PEEK-RET kolu sinamak icin opts.ret_test = true verir.
         if T.el("ret_test") ~= nil then T.set("ret_test", opts.ret_test == true) end
+        -- V1.0.28: eski senaryolar "Experiments" kapali kosar; T-XP opts.experiments = true verir.
+        if T.el("experiments") ~= nil then T.set("experiments", opts.experiments == true) end
         -- V1.0.26: eski tarama senaryolari "Clean fire" kapali kosar; T-RAGE-CF opts.clean_fire = true verir.
         if not opts.clean_fire and T.el("clean_fire") ~= nil then T.set("clean_fire", false) end
         -- V1.0.26: faz / anti-brute senaryolari "AA: fixed phase" kapali kosar; T-BR-FIX opts.phase_fixed = true verir.
@@ -3223,6 +3226,72 @@ function C.brute()
         H.check("T-BR-8", a_ok and a3 >= 5 and b_ok and nk >= 3 and n_ok, "asym: sureler 1 ya da 3 paket (" .. tostring(a_ok) .. ", 3'luk "
             .. a3 .. "); rnd-asym: 1-4 arasi, en az 3 farkli sure (" .. tostring(b_ok) .. ", " .. nk .. "); normal: hep 1 ("
             .. tostring(n_ok) .. ") [" .. table.concat(ra, ",", 1, math.min(#ra, 12)) .. " | " .. table.concat(rb, ",", 1, math.min(#rb, 12)) .. "]")
+    end)
+    H.run("T-XP", function()
+        -- V1.0.28 deney motoru: her dogusta kol degisir; B kolunda egikken builder satiri Safe head (|desync| 0.5),
+        -- A kolunda Crouching satiri. A yasamlarinda kafadan, B yasamlarinda govdeden 32'ser mermi -> "deney bitti:
+        -- ... ADAY KAZANDI"; sonra her yasamda aday gecerli ve siradaki deney baslar. Hafizaya X kaydi yazilir ve
+        -- yeni oturumda aday kalici. AFK / ayar kapali: sayilmaz.
+        local function respawn(T, W)
+            T.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
+            W.p[1].alive = false
+            T.tick(3)
+            W.p[1].alive = true; W.p[1].health = 100
+            T.event("player_spawn", { userid = 101 })
+            T.tick(3)
+        end
+        local function half(T, W)
+            T.tick(12)
+            local recs = T.recs(W.tick - 6, W.tick)
+            local n, hf = 0, 0
+            for _, r in ipairs(recs) do
+                n = n + 1
+                if math.abs(math.abs(r.desync or 0) - 0.5) < 0.05 then hf = hf + 1 end
+            end
+            return n > 0 and hf == n
+        end
+        local T = H.boot({ name = "xp", rec_off = true, experiments = true })
+        local W = T.W
+        W.p[1].ducking = true; W.p[1].duck = 1
+        local arms = {}
+        for i = 1, 4 do arms[i] = half(T, W) and "B" or "A"; respawn(T, W) end
+        local alt = table.concat(arms)
+        -- 8 yasam: A yasamlarinda 8 kafa, B yasamlarinda 8 govde mermisi (egikken) -> 32'ser ornek.
+        for i = 1, 8 do
+            local is_b = half(T, W)
+            for _ = 1, 8 do W.p[1].health = 100; T.hurt_me(2, is_b and 2 or 1, 5); T.tick(1) end
+            respawn(T, W)
+        end
+        local done = T.printed("deney bitti: egik AA: sabit yaw") or ""
+        local nxt = T.count("deney: siradaki -> scout hit chance 90")
+        local stay = half(T, W); respawn(T, W); local stay2 = half(T, W)
+        T.shutdown()
+        local rec = H.mem_rec(T, "X", "crouch_safe")
+        local T2 = H.boot({ name = "xp-kalici", rec_off = true, experiments = true,
+            files = { ["nykle_memory.txt"] = T.W.files["nykle_memory.txt"] } })
+        T2.W.p[1].ducking = true; T2.W.p[1].duck = 1
+        local kept = half(T2, T2.W)
+        H.check("T-XP", (alt == "ABAB" or alt == "BABA") and done:find("ADAY KAZANDI", 1, true) ~= nil and nxt == 1 and stay and stay2
+            and rec ~= nil and rec[3] == "B" and kept, "kollar " .. alt .. "; " .. done:sub(14, 150) .. "; siradaki satiri " .. nxt
+            .. "; karardan sonra iki yasamda da aday (" .. tostring(stay) .. "/" .. tostring(stay2) .. "); hafiza X kaydi "
+            .. tostring(rec and rec[3]) .. "; yeni oturumda kalici (" .. tostring(kept) .. ")")
+        -- Aday kotuyse reddedilir: B yasamlarinda kafa, A yasamlarinda govde.
+        local R = H.boot({ name = "xp-red", rec_off = true, experiments = true })
+        local Wr = R.W
+        Wr.p[1].ducking = true; Wr.p[1].duck = 1
+        for i = 1, 8 do
+            local is_b = half(R, Wr)
+            for _ = 1, 8 do Wr.p[1].health = 100; R.hurt_me(2, is_b and 1 or 2, 5); R.tick(1) end
+            respawn(R, Wr)
+        end
+        local red = R.printed("deney bitti: egik AA: sabit yaw") or ""
+        local back = half(R, Wr); respawn(R, Wr); local back2 = half(R, Wr)
+        local Off = H.boot({ name = "xp-kapali", rec_off = true })
+        Off.W.p[1].ducking = true; Off.W.p[1].duck = 1
+        local off1 = half(Off, Off.W); respawn(Off, Off.W); local off2 = half(Off, Off.W)
+        H.check("T-XP", red:find("aday reddedildi", 1, true) ~= nil and not back and not back2 and not off1 and not off2,
+            "kotu aday: " .. red:sub(14, 110) .. "; sonra aday yok (" .. tostring(back) .. "/" .. tostring(back2)
+            .. "); 'Experiments' kapali: aday yok (" .. tostring(off1) .. "/" .. tostring(off2) .. ")")
     end)
     H.run("T-BR-FIX", function()
         -- V1.0.26 "AA: fixed phase" (varsayilan acik): faz hep 1 (asym): vuruldun satirlari "faz 1", round'lar arasinda

@@ -1,4 +1,4 @@
-# Nykle.win V1.0.27 — primordial edition
+# Nykle.win V1.0.28 — primordial edition
 
 primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense sürümünün (`Nykle.win.gamesense.lua` V1.0.79) loglarla kanıtlanmış özelliklerinin ve Neverlose sürümünün (`Nykle.win.lua` V1.1.x) kurallarının primordial API'sine taşınmış hali. Sadece HvH sunucuları için.
 
@@ -16,7 +16,7 @@ primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense s�
    - MOUSE3 = thirdperson (toggle), Insert = menü. Native Nade Helper kapalı.
    Config yüklemesen de script native AA taşıyıcılarını kendisi nötrde tutar.
 4. Başka AA / resolver / ideal-tick / recharge script'i (metasett, IDEAL-TICK vb.) yanında yükleme: recharge, fakelag ve resolver'ın tek sahibi bu script.
-5. Konsolda `[Nykle.win] V1.0.27 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
+5. Konsolda `[Nykle.win] V1.0.28 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
 
 **Log dosyası:** `nykle_log.txt` ve hafıza dosyası `nykle_memory.txt`, oyunun `Counter-Strike Global Offensive/csgo/` klasörüne yazılır (yoksa oyunun kök klasörüne bak). Analiz için `nykle_log.txt`'yi gönder. Dosya yazılamazsa (ffi kapalı vb.) loglar hafızada kalır: **Console → Print all logs to console** ile konsola yazdır.
 
@@ -58,6 +58,7 @@ Varsayılan: "açık" = kutu varsayılan işaretli. "İzlenen" = Always use reco
 | Spin | Düşman kalmayınca (açık) / ısınmada (kapalı) dönme | açık | GS |
 | Desync keeper | Eğikken (≥ 0.9) görülürken tehdide doğru yürüme komutu "Crouch speed" (38) / 0.34'e kısılır; geri çekilme / ateşten 0.6 sn sonrası / peek'te yok | açık, 38 | GS V1.0.58 |
 | Defensive | Durum başına Off / On peek / Smart / Always on / Tick based. Smart: ragebot hedef tarıyorken + görülürken / 1800 birimde düşman varken + görüş kesilince 8 tick. Sadece DT doluyken, tick başına bir tetik. Re-arm cooldown: defensive bitince görülürken 1 sn yeniden yok (ilk görüş, hava, AI peek, silah değişimi, bıçak, AFK hariç). Anti-peek: yeni gören / hızlı düşmanda 8 tick | GS `EXPLOIT_DEFAULTS` | GS V1.0.23/43/45 |
+| Deney motoru (V1.0.28) | **Experiments:** aynı anda tek aday değişiklik denenir. Her doğuşta kol değişir (şimdiki / aday); karar kendiliğinden verilir: ölçüdeki fark 2 standart hatayı geçerse hemen, yoksa 3 kat örnekte aday ancak 1 standart hata öndeyse kazanır. Aday yaşam başına öldürmede belirgin gerideyse ölçüsü iyi olsa da reddedilir. Kazanan kalıcı olur ve hafıza dosyasında saklanır (oturumlar arası sürer); sonra sıradaki deney başlar. AFK yaşamları sayılmaz. Sıra: (1) eğik AA sabit yaw + desync 30, (2) scout hit chance 90, (3) eğik AA Standing ayarı, (4) safe point'siz resolver. Log: `deney: <ad> \| simdiki: ... \| aday: ...` ve `deney bitti: ... -> ADAY KAZANDI / simdiki kaldi`. Sonuçlar: `primordial/DENEYLER.md` | açık | fake duck'ta safe head ayarıyla kafa oranı %21, eğik durumlarda ~%50; hc 80-94 atışlar %63, 95+ %75 |
 | Testler kapandı (V1.0.27) | **Gövde testi bitti, Min. damage 100 kuralı haklı çıktı:** gövde açık kolda 20 yaşamda 1 öldürme ve 15 sn ömür, kapalı kolda 20 yaşamda 16 öldürme ve 30 sn ömür. "Scout body test" varsayılan kapalı. **Geri çekilme** artık her atışta (test kapalı). **Düzeltme:** geri çekilme / duvar kaçışı yan hareket işaretini yanlış çevirip AI peek ve yürüyüş özelliklerini oturum boyunca kapatabiliyordu; işaret artık sadece AI peek / AFK yürüyüşünde ölçülür | testler kapalı | log 13: temiz koşulda 34 scout atışının 28'i isabet (%82); öldürmeyen gövde atışı 12 atışta 2 öldürme |
 | Temiz ateş, sabit AA (V1.0.26) | **Atış analizi (5 log, 182 scout atışı, %64):** rakip defensive'deyken atış %40, gerçek kayıtta %72; kendi defensive'imiz açıkken %58, kapalıyken %80; ikisi de temizken %80. Safe point fark yaratmıyor. **Sahte kayıtta ateş yok** (emniyet 128 tick; ilk gerçek kayıtta hemen serbest). **Clean fire:** kendi defensive'imiz sürerken ateş bekletilir (en fazla 16 tick) ve o sırada yeni defensive zorlanmaz. **AA: fixed phase:** faz testi bitti (656 mermi, fazlar arası fark yok denecek kadar küçük); AA artık hep asym, yaşam / round başına değişmez. **AI peek:** hedefin kaydı sahteyken peek başlamaz; gövde testi kolunda 50+ gövde atışı için de çıkar | hepsi açık | 57 AI peek'in 25'i atışsız; faz puanları 0.20-0.26 |
 | Scout gövde testi (V1.0.25) | **Scout body test** (senin onayınla): her iki yaşamdan birinde scout, öldürmeyen ama en az 50 hasarlık gövde atışını da sıkar (Min. damage 50, iki mermide öldürür); diğer yaşamda Min. damage 100 aynen. 10 yaşamda bir `govde testi: govde acik N yasam, oldurme K (yasam basina X), omur ..., scout atis A isabet H \| govde kapali ...`. AFK yaşamları sayılmaz; override tuşun basılıyken çalışmaz. Ayrıca: havadaki `air` defensive tekrarı sadece düşman yakınken; "Landing teleport" kapalıyken `inise yok` satırları yazılmaz | test açık | log 8-12: yaşam başına ~1.1 scout atışı; 50+ gövde atışı 13 kez sıkılmadı, 8'inde aynı rakip 4 sn içinde öldürdü |
@@ -162,7 +163,7 @@ Satırlar:
 
 Vurulabilirlik taraması: her düşman kendi sırasında 4 tick'te bir (tick başına ortalama ≤ 2 düşmana iz), gözünden kafa / göğüs / pelvis; ragebot'un 2 tick'ten taze izi varsa yeniden iz atılmaz.
 
-Dosya: yeni sürümde (dosyada `V1.0.27 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
+Dosya: yeni sürümde (dosyada `V1.0.28 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
 
 ## Bilinen belirsizlikler (oyunda doğrulanacak)
 
