@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.13"
+H.VER = "V1.0.14"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -414,6 +414,9 @@ H.EL = {
     { "wait_real", "rage", "Wait for real record (enemy defensive)", "cb", true },
     { "fresh_only", "rage", "Snipers: fresh record only", "cb", true },
     { "counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", "cb", true },
+    { "wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", "cb", true },
+    { "wall_dist", "rage", "Wall hunt: min distance", "sl", 900, 300, 2500 },
+    { "wall_dmg", "rage", "Wall hunt: min damage", "sl", 50, 30, 99 },
     { "ext_body", "rage", "Body vs extended (repeated head misses)", "cb", true },
     { "hider_body", "rage", "Body vs head hiders (head share <= 35 pct over 12+ shots)", "cb", true },
     { "indicators", "visuals", "Crosshair indicators", "cb", true },
@@ -945,6 +948,14 @@ function H.make(opts)
         if why == nil and bodyv and el("dt_pair") == true and T.el("dt_pair") ~= nil and p.sim_shift >= 8
             and body >= 60 and body * 2 >= hp then
             why = "R7"
+        end
+        -- R8 duvar avi (V1.0.14, kullanici onayi): bolt sniper, hedef duvar arkasinda, >= wall_dist, govde >= wall_dmg,
+        -- govde oldurmuyor, override tusu basili degil.
+        local lw = lp.weapon and lp.weapon.name
+        if why == nil and not mel and bodyv and el("wall_hunt") == true and W.wall[idx] and (lw == "ssg08" or lw == "awp")
+            and dist >= (T.el("wall_dist") and T.el("wall_dist").value or 900)
+            and body >= (T.el("wall_dmg") and T.el("wall_dmg").value or 50) and hp > body and not W.keys.md_ovr then
+            why = "R8"
         end
         if why == nil then
             H.G.md_bad[#H.G.md_bad + 1] = T.name .. ": set_min_dmg(" .. H.f1(v) .. ") hedef " .. p.name .. " hp " .. hp
@@ -3663,6 +3674,31 @@ function H.ext_misses(T, idx, n)
     end
 end
 function C.rage()
+    H.run("T-RAGE-WH", function()
+        -- V1.0.14 duvar avi: scout, hedef 1200 u'da duvar arkasinda, duvardan govde 60 (can 100) -> set_min_dmg(59) +
+        -- log; 500 u'da / duvarsiz / ayar kapali / override tusu basili -> cagri yok.
+        local function inst(name, dist, wall, setup)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            W.p[2].origin.x = dist
+            W.p[3].origin.x = dist + 3000
+            W.wall[2] = wall or nil
+            W.body_dmg[2] = 60
+            if setup then setup(T, W) end
+            T.tick(20)
+            return T
+        end
+        local A = inst("rage-wh", 1200, true)
+        local a = H.has_md(A.hsr(2, 0), 59)
+        local near = H.any_md(inst("rage-wh-yakin", 500, true).hsr(2, 0))
+        local open = H.any_md(inst("rage-wh-acik", 1200, false).hsr(2, 0))
+        local off = H.any_md(inst("rage-wh-kapali", 1200, true, function(T) T.set("wall_hunt", false) end).hsr(2, 0))
+        local key = H.any_md(inst("rage-wh-tus", 1200, true, function(T, W) W.keys.md_ovr = true end).hsr(2, 0))
+        H.check("T-RAGE-WH", a and A.count("duvar avi: Alpha 1200 u, duvardan govde 60 (can 100), Min. damage gecici 59") >= 1
+            and not near and not open and not off and not key, "1200 u, duvar arkasi, govde 60: set_min_dmg(59) (" .. tostring(a)
+            .. ") + log (" .. A.count("duvar avi:") .. "); 500 u: " .. tostring(near) .. ", duvarsiz: " .. tostring(open)
+            .. ", ayar kapali: " .. tostring(off) .. ", override tusu: " .. tostring(key) .. " (hepsi false)")
+    end)
     H.run("T-RAGE-CW", function()
         -- V1.0.13 karsi atak penceresi: sahte kayitta bekletilen dusman scout ile ates edince bekleme kalkar
         -- (ignore_target yok) ve prioritize_target gelir; ayar kapaliyken bekleme surer.
@@ -6895,7 +6931,7 @@ function C.aggregate()
     H.check("T-LOAD-8", #G.hata == 0, "hicbir senaryoda 'hata verdi' yok (" .. #G.hata .. ")" .. (#G.hata > 0 and (": " .. H.list(G.hata, 3)) or ""))
     H.check("T-OV-5", #G.native_bad == 0, "native yazmalar sadece §3.4 anahtarlarina, keybind :set yok (" .. #G.native_bad .. ")"
         .. (#G.native_bad > 0 and (": " .. H.list(G.native_bad, 4)) or ""))
-    H.check("T-RAGE-12", #G.md_bad == 0, "U3: md_need altindaki her set_min_dmg R4-R7 on kosuluyla (" .. #G.md_bad .. " ihlal)"
+    H.check("T-RAGE-12", #G.md_bad == 0, "U3: md_need altindaki her set_min_dmg R4-R8 on kosuluyla (" .. #G.md_bad .. " ihlal)"
         .. (#G.md_bad > 0 and (": " .. H.list(G.md_bad, 3)) or ""))
     H.check("T-RAGE-14", #G.sp_false == 0, "set_safepoint_state(false, ...) hic yok (" .. #G.sp_false .. ")")
     H.check("T-RC-1", #G.rc_left == 0, "her ornek SHUTDOWN'dan sonra sarj kilidi acik (" .. H.list(G.rc_left, 4) .. ")")

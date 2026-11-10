@@ -1322,6 +1322,15 @@
      "Wait for real record (enemy defensive)": {
       "is active": true
      },
+     "Wall hunt: min damage": {
+      "value": 50.0
+     },
+     "Wall hunt: min distance": {
+      "value": 900.0
+     },
+     "Wall hunt: non-lethal wallbang vs far enemies (snipers)": {
+      "is active": true
+     },
      "column": 0,
      "is collapsed": false,
      "order": 8

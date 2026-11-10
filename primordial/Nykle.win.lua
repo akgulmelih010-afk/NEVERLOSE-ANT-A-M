@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.13  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.14  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,11 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.14 (primordial edition): duvar avi ("Wall hunt", acik; Min. damage kuralina kullanicinin onayladigi yeni
+        istisna: "rakip uzaksa olur"). Sniper ile, duvar arkasindaki (duz cizgi kapali), en az 900 birim uzaktaki
+        hedefe duvardan govde hasari >= 50 ise Min. damage govde - 1 (oldurmese de vur). Senin override tusun
+        basiliyken calismaz. Log: "duvar avi: <ad> <mesafe> u, duvardan govde N ...". "inise yok (durduruldu)" satiri
+        5 dakikada bir (log 5'te 105 satir).
       V1.0.13 (primordial edition): karsi atak penceresi ("Counter window", acik). Az once ates eden dusmana (scout /
         AWP 1.2 sn, diger silahlar 0.3 sn) gercek / taze kayit beklemesi uygulanmaz ve hedef seciminde one alinir
         (prioritize_target). Loglar: rakibin ilk mermisi iskalarsa duelloyu kazanma %63-79.
@@ -116,7 +121,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.13", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.14", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1654,6 +1659,9 @@ do
         B.cb("wait_real", "rage", "Wait for real record (enemy defensive)", true, true)
         B.cb("fresh_only", "rage", "Snipers: fresh record only", true, true)
         B.cb("counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", true, true)
+        B.cb("wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", true, true)
+        B.sl("wall_dist", "rage", "Wall hunt: min distance", 300, 2500, 900, true, "u")
+        B.sl("wall_dmg", "rage", "Wall hunt: min damage", 30, 99, 50, true, "")
         B.cb("ext_body", "rage", "Body vs extended (repeated head misses)", true, false)
         B.cb("hider_body", "rage", "Body vs head hiders (head share <= 35 pct over 12+ shots)", true, false)
         -- Visuals
@@ -5899,7 +5907,12 @@ do
                     res.rejump and "evet" or "hayir"))
             end
         elseif not L.fired and L.seen_flight and L.reason ~= nil then
-            N.log.line("teleport: inise yok (" .. L.reason .. ")")
+            -- V1.0.14 (log 5: harita boyunca kapaliyken 105 satir): "durduruldu" 5 dakikada bir.
+            if L.reason == "durduruldu" then
+                N.log.every("tp_off_note", 300, "teleport: inise yok (durduruldu: teleport bu haritada kapali / duraklatildi)")
+            else
+                N.log.line("teleport: inise yok (" .. L.reason .. ")")
+            end
         end
         L.res, L.pred, L.seen_flight, L.reason = nil, nil, false, nil
     end
@@ -6748,12 +6761,53 @@ do
                 end
             end
         end
+        -- R8 duvar avi (V1.0.14; kullanici karari: "rakip uzaksa olur"): sniper, hedef duvar arkasinda (gozumden kafasina
+        -- ve pelvisine duz cizgi kapali), en az "wall_dist" (900) birim uzakta, duvardan govde hasari en az "wall_dmg"
+        -- (50) ama oldurmuyor -> Min. damage govde - 1. Log 5: 15 olumun 9'u 500-1080 birimden duvar arkasi kafa;
+        -- govdeden vurulan taraf sonraki duelloyu %77-91 kaybediyor. Oldurucu duvar atisi zaten serbest (MD = can).
+        if not info.md_set and N.on("wall_hunt") and U.is_bolt(wname) and target_melee == nil and hp > body
+            and body >= (N.v("wall_dmg") or 50) and body - 1 < need then
+            local mine, theirs = U.origin(N.st.lp), U.origin(target)
+            local d = (mine ~= nil and theirs ~= nil) and U.dist(mine, theirs) or 0
+            if d >= (N.v("wall_dist") or 900) and RG.walled(target, idx) then
+                RG.set_md(ctx, info, body - 1, "duvar")
+                N.log.every("r8:" .. idx, 3, fmt("duvar avi: %s %d u, duvardan govde %d (can %d), Min. damage gecici %d",
+                    U.name(target), U.R(d), U.R(body), U.R(hp), U.R(body - 1)), true)
+            end
+        end
         -- R3: sniper, biri seni goruyorken sadece oldurucu atis (MD can; yukseltir, dusurmez).
         if not info.md_set and N.on("head_only") and sniper and need < hp and N.exposure.seen then
             RG.set_md(ctx, info, hp, "head")
         end
         RG.air_hc(ctx, wname, w)
     end
+
+    -- Hedef duvar arkasinda mi: gozumden kafasina ve pelvisine duz cizgi kapali (2 tick onbellek).
+    RG.walled = function(target, idx)
+        local t = RG.get(idx)
+        local tick = U.tick()
+        if t.wall_tick ~= nil and tick >= t.wall_tick and tick - t.wall_tick <= 2 then
+            return t.wall_val
+        end
+        local eye = U.eye(N.st.lp)
+        local walled = false
+        if eye ~= nil then
+            walled = true
+            for _, name in ipairs(RG.WALL_BOXES) do
+                local p = U.hitbox(target, name)
+                if p ~= nil then
+                    local f, hit, okl = U.tline(eye, p, N.st.lp)
+                    if okl ~= true or f >= 0.97 or (hit ~= nil and hit == target) then
+                        walled = false
+                        break
+                    end
+                end
+            end
+        end
+        t.wall_tick, t.wall_val = tick, walled
+        return walled
+    end
+    RG.WALL_BOXES = { "HEAD", "PELVIS" }
 
     -- R12: havadayken sniper hit chance (0 = kapali; senin degerin daha yuksekse dokunulmaz).
     RG.air_hc = function(ctx, wname, w)
