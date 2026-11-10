@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.23  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.24  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,13 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.24 (primordial edition): log 11 (V1.0.23, 7 dk DM; K19 / D37) + istekler. "Shot defensive" (acik; hide
+        shots'un gelismisi): bolt sniper atisinin ertesi tick'inde defensive zorlanir ve desync tarafi cevrilir
+        (atistan sonraki 6 tick'lik "lag yok" penceresi sniper'da kalkti). "Safe head: while fake ducking" (acik).
+        Jump scout: scout ile havadayken yurume tusu basili degilse hava freni (yatay hiz sifirlanir) ve autostrafer
+        kapali; havadayken sahte kayit beklemesi en fazla 4 tick. Hava: defensive tekrar araligi havadayken 8 tick
+        ve "air" sebebi de tekrar eder (havada yenen 16 merminin 16'si defensive kapaliyken); dbg sen ozeti "havada
+        N tick, DEF'li M".
       V1.0.23 (primordial edition): log 10'daki hareketsiz olumler AFK'ymis. Otomatik AFK 8 sn yerine 4 sn; onceki
         yasamda hic tusa basmadiysan dogar dogmaz AFK modu (DM'de 2 sn'de vuruluyordun). AFK iken yenen mermi / olum
         satirlari " | AFK" ile isaretlenir ve faz testine sayilmaz (istatistikleri bozmasin).
@@ -179,7 +186,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.23", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.24", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1743,6 +1750,7 @@ do
         B.cb("safe_knife", "protect", "Safe head: knife/zeus in air crouch", true, true)
         B.cb("safe_air", "protect", "Safe head: any air crouch", false, true)
         B.cb("safe_high", "protect", "Safe head: high ground", false, true)
+        B.cb("safe_fd", "protect", "Safe head: while fake ducking", true, false)
         B.cb("anti_brute", "protect", "Anti-bruteforce", true, true)
         B.sl("brute_reset", "protect", "Anti-brute reset after", 1, 15, 6, true, "s")
         B.cb("brute_random", "protect", "Random anti-brute order", true, true)
@@ -1768,6 +1776,7 @@ do
         B.cb("air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", true, false)
         B.cb("air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", true, false)
         B.cb("air_def", "exploits", "Air: defensive in the air", true, false)
+        B.cb("shot_def", "exploits", "Shot defensive: defensive + side flip right after a sniper shot", true, false)
         B.cb("tp_test", "exploits", "Landing teleport test (every other life without it)", false, false)
         B.cb("land_tp", "exploits", "Landing teleport (DT) when seen in the air", false, false)
         B.cb("air_lag", "exploits", "Air lag (defensive every tick)", true, true)
@@ -1844,7 +1853,7 @@ do
         for _, k in ipairs({ "spin_warmup", "spin_enemies", "spin_pitch", "spin_speed" }) do
             rule(k, function() return N.on("spin") end)
         end
-        for _, k in ipairs({ "safe_knife", "safe_air", "safe_high" }) do
+        for _, k in ipairs({ "safe_knife", "safe_air", "safe_high", "safe_fd" }) do
             rule(k, function() return N.on("safe_head") end)
         end
         rule("brute_reset", function() return N.on("anti_brute") end)
@@ -3787,6 +3796,11 @@ do
             return false
         end
         local st = N.st
+        -- V1.0.24 (istek): fake duck'ta Safe head satiri (sabit yaw, jitter yok, desync 30, pitch 89): kafa inip
+        -- kalkarken yana acilmaz.
+        if ms == "Fake duck" and N.on("safe_fd") then
+            return true
+        end
         if ms == "Air crouch" then
             if N.on("safe_knife") and st.melee ~= nil then
                 return true
@@ -4028,6 +4042,10 @@ do
             if phase.kick and F.kick then
                 target, kicked = 0, true
             end
+        end
+        if F.shot then
+            -- V1.0.24: kendi atisimizdan sonraki ilk pakette taraf hemen cevrilir (atis anindaki kafa konumu kalmasin).
+            target, F.shot = 0, nil
         end
         if F.packets < target then
             return
@@ -4932,7 +4950,8 @@ do
     -- tarama dizisinin basladigi tick (16 tick'ten uzun aradan sonra); GAP: sebep basina iki zorlama arasi en az tick
     -- (air: ucus basina bir, tick: max(14, def_ticks)).
     X.shift_last, X.want_prev, X.scan_start = -1000, {}, -1000
-    X.GAP = { smart = 64, peek = 48, switch = 64, knife = 32, aipeek = 48, afk = 64, always = 64 }
+    X.GAP = { smart = 64, peek = 48, switch = 64, knife = 32, aipeek = 48, afk = 64, always = 64, shot = 0 }
+    X.AIR_REP = 8
     X.switch = { name = nil, at = -1000 }
     -- flight_tp: bu ucustaki teleport sayisi (bekci); c0 / cmin: teleport oncesi sarj ve sonraki en dusuk sarj (G26).
     X.air = { was_air = false, used = false, latched = false, takeoff_z = 0, left = 0, calls = 0, maxchoke = 0,
@@ -5198,6 +5217,10 @@ do
         if N.afk.on then
             want, why = true, "afk"
         end
+        local shot = N.on("shot_def") and X.shot_bolt == true and tick > X.shot_tick and tick - X.shot_tick <= 3
+        if shot and mode ~= 1 then
+            want, why = true, "shot"
+        end
         -- A1: olay kapisi (def_edge). Kenarlar her tick guncellenir (istek olmasa da, baska sebep oncelikli olsa da).
         local seen = E.now or E.seen
         if want and N.on("def_edge") then
@@ -5211,6 +5234,12 @@ do
             -- kapisi defensive'i kaciriyor): tekrar artik uyanik bir dusman NEAR (1800 u) icindeyken ya da birazdan
             -- gorecekken de surer.
             local active = seen or E.near or E.soon
+            -- V1.0.24 (istek: "havada fazlaca vuruluyorum"; log 9-11: havada yenen 16 merminin 16'si defensive
+            -- kapaliyken, olumlerin %20-25'i havada): havadayken tekrar araligi 8 tick (defensive ort. 6.4 tick
+            -- suruyor) ve "air" sebebi de ucus basina bir degil, aralikla tekrar eder.
+            if st.airborne and not st.ladder and rep_t > 0 then
+                rep_t = min(rep_t, X.AIR_REP)
+            end
             if why == "smart" then
                 fresh = seen and not P.smart
                 if rep_t > 0 and active then
@@ -5223,8 +5252,13 @@ do
                 end
             elseif why == "switch" then
                 fresh = not P.switch
+            elseif why == "shot" then
+                fresh = not P.shot
             elseif why == "air" then
                 fresh = not P.air
+                if rep_t > 0 then
+                    fresh, gap = true, rep_t
+                end
             elseif why == "aipeek" then
                 fresh = not P.aipeek
             elseif why == "tick" then
@@ -5238,7 +5272,7 @@ do
                 end
             end
         end
-        P.smart, P.fast, P.switch, P.aipeek = seen, fast, switching, walk
+        P.smart, P.fast, P.switch, P.aipeek, P.shot = seen, fast, switching, walk, shot
         if not st.airborne then
             P.air = false
         elseif air then
@@ -5263,6 +5297,9 @@ do
                 -- Tarama dizisinin basi (olay) ya da gorulurken def_repeat tick'te bir.
                 local rep_t = floor(N.v("def_repeat") or 0)
                 local E = N.exposure
+                if N.st.airborne and not N.st.ladder and rep_t > 0 then
+                    rep_t = min(rep_t, X.AIR_REP)
+                end
                 local again = rep_t > 0 and (E.now or E.seen or E.near or E.soon) and X.gap_ok(tick, rep_t)
                 if not again and (X.scan_start ~= tick or not X.gap_ok(tick, X.GAP.peek)) then
                     return
@@ -5280,7 +5317,11 @@ do
         if not N.on("clean_shot") then
             return
         end
-        if tick - X.shot_tick <= 6 and tick >= X.shot_tick then
+        -- V1.0.24 "Shot defensive" (istek: hide shots'un gelismisi; atistan sonraki 2 sn'de %56-75 oluyoruz): bolt
+        -- sniper'da atistan sonraki 6 tick'lik "lag yok" penceresi yok (ikinci mermi yok, korunacak atis kalmadi);
+        -- atisin ertesi tick'inde defensive zorlanir (X.defensive "shot") ve desync tarafi cevrilir.
+        local win = (X.shot_bolt and N.on("shot_def")) and 0 or 6
+        if tick - X.shot_tick <= win and tick >= X.shot_tick then
             X.clean, X.clean_src = true, "atis"
             return
         end
@@ -5970,7 +6011,7 @@ do
     CH.round_new = function()
         CH.r = { ticks = 0, dt = 0, forced = 0, switch = 0, knife = 0, seen = 0, both = 0, tp = 0, tp_hit = 0,
             partial = 0, partial_seen = 0, def_ends = 0, def_end_at = X.def_end, top = 0, refill_n = 0, refill_sum = 0,
-            vis = 0, vis_def = 0 }
+            vis = 0, vis_def = 0, air = 0, air_def = 0 }
         CH.sw.on = false
     end
     CH.round_new()
@@ -6074,6 +6115,12 @@ do
                 r.vis_def = r.vis_def + 1
             end
         end
+        if N.st.airborne then
+            r.air = r.air + 1
+            if own_def then
+                r.air_def = r.air_def + 1
+            end
+        end
         if X.def_end ~= r.def_end_at then
             r.def_end_at, r.def_ends = X.def_end, r.def_ends + 1
         end
@@ -6175,11 +6222,12 @@ do
             or "")
         N.log.line(fmt("dbg sen ozeti: %d tick canli, DT acik %d | defensive zorlanan %d tick%s, gorulen (sim) %d,"
             .. " zorlanip gorulen %d | teleport %d, sonrasi 1.5 sn icinde vurulma %d%s | yarim sarj %d tick (goruluyorken"
-            .. " %d), defensive bitisi %d | sarj tavani %d | shift %d, dolum ort %st | gorulurken %d tick, DEF'li %d (%%%d)%s",
+            .. " %d), defensive bitisi %d | sarj tavani %d | shift %d, dolum ort %st | gorulurken %d tick, DEF'li %d (%%%d) | havada %d tick, DEF'li %d (%%%d)%s",
             r.ticks, r.dt, r.forced, extra, r.seen,
             r.both, r.tp, r.tp_hit, off, r.partial, r.partial_seen, r.def_ends, U.R(r.top), r.forced,
             r.refill_n > 0 and fmt("%.1f", r.refill_sum / r.refill_n) or "?", r.vis, r.vis_def,
-            r.vis > 0 and U.R(100 * r.vis_def / r.vis) or 0, N.peek.esc_text()))
+            r.vis > 0 and U.R(100 * r.vis_def / r.vis) or 0, r.air, r.air_def,
+            r.air > 0 and U.R(100 * r.air_def / r.air) or 0, N.peek.esc_text()))
     end
 
     -- Yerde 1. tick: bu ucusun inis tahmininin sapmasi (|e| <= 64; daha fazlasi = ucus kesildi) ve 10 inis'te bir
@@ -6718,6 +6766,10 @@ do
                     -- sahte" bitti ve sahte kayda atislar 15/31 tuttu (gercek kayda 20/31). Sinir 22 tick.
                     local limit = RG.WAIT_LIMIT
                     if st.move_state == "Peek" and not E.seen and U.flag(ent, "ON_GROUND") == false then
+                        limit = 4
+                    end
+                    -- V1.0.24 jump scout: havadayken atis penceresi kisa (tepe noktasi ~0.2 sn), bekleme en fazla 4 tick.
+                    if st.airborne and not st.ladder and U.is_bolt(st.weapon) then
                         limit = 4
                     end
                     if w.active then
@@ -8562,6 +8614,10 @@ do
         end
         -- Diger moduller.
         X.shot_tick, X.after_shot, X.aim = tick, true, { target = ent, time = now }
+        X.shot_bolt = U.is_bolt(st.weapon)
+        if X.shot_bolt and N.on("shot_def") then
+            N.aa.flip.shot = true
+        end
         X.safe.want_at = now
         st.last_shot = now
         S.last_shoot_at = now
@@ -10297,7 +10353,27 @@ do
     end
 
     -- M8: scout ile durarak ziplayinca autostrafer kalkistan inise kadar kapali.
-    MI.jump_scout = function()
+    -- V1.0.24 (istek: "js de olsun, havada guzel siksin"): eskiden sadece duran ziplamada (yer hizi < 10) autostrafer
+    -- kapanirdi. Artik scout ile havadayken hicbir yurume tusuna basmiyorsan da jump scout sayilir ve yatay hiz 15'in
+    -- ustundeyse ters yone hava freni verilir (hiz sifira iner: scout tepe noktasinda isabetli). Bir yurume tusu
+    -- basiliyken (bhop) karismaz.
+    MI.air_stop = function(cmd)
+        local st = N.st
+        if cmd == nil or not N.on("jump_scout") or not st.airborne or st.ladder or st.weapon ~= "ssg08"
+            or N.peek.user_moving(cmd) or N.peek.cal.off then
+            return false
+        end
+        local v = U.vel(st.lp)
+        local sp = sqrt(v.x * v.x + v.y * v.y)
+        if sp <= 15 then
+            return true
+        end
+        local a = math.rad(math.deg(math.atan2(-v.y, -v.x)) - N.aa.view_yaw(cmd))
+        N.peek.set_move(cmd, math.cos(a) * 450, -math.sin(a) * 450 * N.peek.side_mul)
+        return true
+    end
+
+    MI.jump_scout = function(cmd)
         local st = N.st
         local ref = N.ref.items.autostrafer
         if ref == nil then
@@ -10324,8 +10400,11 @@ do
         if MI.js_active == nil then
             MI.js_active = N.on("jump_scout") and st.weapon == "ssg08" and MI.ground_speed < 10
         end
-        if MI.js_active then
+        local stop = MI.air_stop(cmd)
+        if MI.js_active or stop then
             N.ov.set("autostrafer", ref, false)
+        elseif MI.js_active == false then
+            N.ov.release("autostrafer")
         end
     end
 
@@ -10868,7 +10947,7 @@ do
         N.peek.retreat(cmd)
         N.peek.escape(cmd)
         N.aa.crouch_keeper(cmd)
-        N.misc.jump_scout()
+        N.misc.jump_scout(cmd)
         N.ex.air_update(cmd)
         N.ex.safe_recharge()
         N.rc.tick()

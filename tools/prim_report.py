@@ -38,7 +38,7 @@ def parse(path, from_line=1):
          'kills': [], 'deaths': [], 'duels': [], 'sikmadi': Counter(), 'tp': Counter(), 'tp_no': Counter(),
          'def_shift': Counter(), 'def_refill': [], 'def_unspent': 0, 'waits': Counter(), 'peek': Counter(),
          'levels': 0, 'last': {}, 'wall': Counter(), 'wall_head': Counter(), 'first_t': None, 'last_t': None,
-         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter()}
+         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter(), 'air': 0, 'air_def': 0}
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
              'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
@@ -153,6 +153,10 @@ def parse(path, from_line=1):
                 if mm:
                     r['vis'] += int(mm.group(1))
                     r['vis_def'] += int(mm.group(2))
+                ma = re.search(r"havada (\d+) tick, DEF'li (\d+)", b)
+                if ma:
+                    r['air'] += int(ma.group(1))
+                    r['air_def'] += int(ma.group(2))
             elif b.startswith('dbg harita') or b.startswith('===== harita'):
                 r['maps'][b[:60]] += 1
             if b.startswith('atis:') and ('| isabet' in b or '| iska' in b):
@@ -339,6 +343,11 @@ def report(r, prev=None):
         hd = sum(1 for x in hits if x['def'])
         print("  DEF korumasi: gorulurken %d tick, DEF'li %s | yenen mermilerin DEF acik payi %s (%d/%d)" % (
             r['vis'], pct(r['vis_def'], r['vis']), pct(hd, len(hits)), hd, len(hits)))
+    if r['air'] > 0:
+        ah = [x for x in r['hurt'] if 'Air' in x['state']]
+        ad = sum(1 for x in ah if x['def'])
+        print("  havada: %d tick, DEF'li %s | havada yenen mermi %d, DEF acikken %d" % (
+            r['air'], pct(r['air_def'], r['air']), len(ah), ad))
     if r['last']:
         print('== DENEY / OZET SATIRLARI (son) ==')
         for k, v in r['last'].items():

@@ -1159,6 +1159,9 @@
      "Safe recharge": {
       "is active": true
      },
+     "Shot defensive: defensive + side flip right after a sniper shot": {
+      "is active": true
+     },
      "Teleport in air when seen": {
       "is active": true
      },
@@ -1306,6 +1309,9 @@
       "is active": false
      },
      "Safe head: knife/zeus in air crouch": {
+      "is active": true
+     },
+     "Safe head: while fake ducking": {
       "is active": true
      },
      "column": 1,

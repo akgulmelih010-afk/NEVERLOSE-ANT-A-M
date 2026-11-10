@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.23"
+H.VER = "V1.0.24"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -378,6 +378,7 @@ H.EL = {
     { "safe_knife", "protect", "Safe head: knife/zeus in air crouch", "cb", true },
     { "safe_air", "protect", "Safe head: any air crouch", "cb", false },
     { "safe_high", "protect", "Safe head: high ground", "cb", false },
+    { "safe_fd", "protect", "Safe head: while fake ducking", "cb", true },
     { "anti_brute", "protect", "Anti-bruteforce", "cb", true },
     { "brute_reset", "protect", "Anti-brute reset after", "sl", 6, 1, 15 },
     { "brute_random", "protect", "Random anti-brute order", "cb", true },
@@ -400,6 +401,7 @@ H.EL = {
     { "air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", "cb", true },
     { "air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", "cb", true },
     { "air_def", "exploits", "Air: defensive in the air", "cb", true },
+    { "shot_def", "exploits", "Shot defensive: defensive + side flip right after a sniper shot", "cb", true },
     { "tp_test", "exploits", "Landing teleport test (every other life without it)", "cb", false },
     { "land_tp", "exploits", "Landing teleport (DT) when seen in the air", "cb", false },
     { "air_lag", "exploits", "Air lag (defensive every tick)", "cb", true },
@@ -2074,6 +2076,10 @@ function H.make(opts)
         if not opts.land_tp_default and T.el("land_tp") ~= nil then T.set("land_tp", true) end
         -- V1.0.21: eski atis senaryolari "Shot retreat" kapali kosar; T-PEEK-RET opts.shot_retreat = true verir.
         if not opts.shot_retreat and T.el("shot_retreat") ~= nil then T.set("shot_retreat", false) end
+        -- V1.0.24: eski atis / fake duck senaryolari "Shot defensive" ve "Safe head: while fake ducking" kapali kosar;
+        -- T-EX-26 / T-AA-FD (opts.shot_def / opts.safe_fd = true) varsayilanlari sinar.
+        if not opts.shot_def and T.el("shot_def") ~= nil then T.set("shot_def", false) end
+        if not opts.safe_fd and T.el("safe_fd") ~= nil then T.set("safe_fd", false) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
     end
@@ -5327,8 +5333,8 @@ function C.review()
         A.event("round_start", {})
         A.tick(3)
         local line = A.printed("dbg sen ozeti:", sum) or ""
-        H.check("T-PEEK-ESC", line:find("gorulurken %d+ tick, DEF'li %d+ %(%%%d+%) | duvar kacisi 1 %(sonrasi vurulma 0, temiz 1, tusla birakilan 0, nokta yok 0%)") ~= nil,
-            "dbg sen ozeti: " .. line:sub(-120))
+        H.check("T-PEEK-ESC", line:find("gorulurken %d+ tick, DEF'li %d+ %(%%%d+%) | havada %d+ tick, DEF'li %d+ %(%%%d+%) | duvar kacisi 1 %(sonrasi vurulma 0, temiz 1, tusla birakilan 0, nokta yok 0%)") ~= nil,
+            "dbg sen ozeti: " .. line:sub(-150))
     end)
     H.run("T-PEEK-OPEN", function()
         -- V1.0.21: silah ates edemiyorken (dolum) acik goruste goren dusman da kacisi tetikler; silah hazirken ve onu
@@ -5625,6 +5631,96 @@ function C.review()
         H.check("T-EX-25", a_tp == nil and A.count("teleport: inise") == 0 and a_def >= 2 and b_tp ~= nil,
             "varsayilan: inis teleportu " .. tostring(a_tp) .. " (nil), 'teleport: inise' satiri " .. A.count("teleport: inise")
             .. " (0), ucusta defensive " .. a_def .. " (>= 2); 'Landing teleport' acik: teleport tick " .. tostring(b_tp))
+    end)
+    H.run("T-EX-26", function()
+        -- V1.0.24 "Shot defensive" (varsayilan acik): scout atisinin ertesi 1-3 tick'inde defensive zorlanir ("shot")
+        -- ve atistan sonraki ilk pakette desync tarafi cevrilir; kapaliyken atistan sonraki 6 tick'te zorlama yok.
+        local function inst(name, on)
+            local T = H.boot({ name = name, shot_def = on, rec_off = true })
+            local W = T.W
+            W.sees[2] = 60
+            T.tick(80)
+            local t0 = W.tick
+            local r0 = T.recs(t0 - 1, t0)
+            local s0 = H.sgn(r0[#r0] and r0[#r0].desync)
+            T.shoot(2)
+            T.tick(6)
+            local r1 = T.recs(t0 + 1, t0 + 3)
+            local flipped = false
+            for _, r in ipairs(r1) do if H.sgn(r.desync) == -s0 and s0 ~= 0 then flipped = true end end
+            return T.shifts(t0 + 1, t0 + 3), flipped, T.count("def: shift (shot)"), T.shifts(t0 + 1, t0 + 6)
+        end
+        local a_n, a_flip, a_line = inst("ex-26", true)
+        local _, _, b_line, b_n = inst("ex-26-kapali", false)
+        H.check("T-EX-26", a_n >= 1 and a_flip and a_line >= 1 and b_n == 0 and b_line == 0, "scout atisindan sonraki 3 tick'te zorlama "
+            .. a_n .. " (>= 1), taraf cevrildi (" .. tostring(a_flip) .. "), 'def: shift (shot)' " .. a_line
+            .. "; ayar kapali: 6 tick'te zorlama " .. b_n .. " (0)")
+        -- Hava: goruluyorken ucusta tekrar araligi 8 tick (yerde 12); dbg sen ozeti "havada N tick".
+        local T = H.boot({ name = "ex-26-hava", air_def = true, def_repeat = true })
+        local W = T.W
+        W.sees[2] = 60
+        T.tick(40)
+        local m = T.mark()
+        T.event("round_start", {})
+        local t0 = W.tick
+        T.jump(300)
+        for _ = 1, 200 do T.tick(1); if W.p[1].ground then break end end
+        local n, at = H.shift_all(T)
+        local air_at = {}
+        for _, x in ipairs(at) do if x > t0 + 1 and x < W.tick then air_at[#air_at + 1] = x end end
+        local gap8 = #air_at >= 3
+        for i = 2, #air_at do if air_at[i] - air_at[i - 1] < 8 or air_at[i] - air_at[i - 1] > 10 then gap8 = false end end
+        T.tick(5)
+        T.event("round_start", {})
+        local line = ""
+        for i = m, #T.prints do if T.prints[i]:find("dbg sen ozeti:", 1, true) then line = T.prints[i] end end
+        H.check("T-EX-26", gap8 and line:find("| havada [1-9]%d* tick, DEF'li %d+") ~= nil, "ucusta " .. #air_at
+            .. " zorlama, aralar 8-10 tick (" .. tostring(gap8) .. "); ozet: " .. line:sub(-70))
+    end)
+    H.run("T-AA-FD", function()
+        -- V1.0.24 "Safe head: while fake ducking" (varsayilan acik): fake duck'ta durum Safe head (pitch 89, |desync|
+        -- 0.5 = limit 30, jitter yok); kapaliyken Fake duck satiri.
+        local function inst(name, on)
+            local T = H.boot({ name = name, safe_fd = on, rec_off = true })
+            local W = T.W
+            W.keys.fd = true
+            T.tick(60)
+            local recs = T.recs(W.tick - 20, W.tick)
+            local half, n = 0, 0
+            for _, r in ipairs(recs) do
+                n = n + 1
+                if math.abs(math.abs(r.desync or 0) - 0.5) < 0.05 then half = half + 1 end
+            end
+            return half, n
+        end
+        local a_h, a_n = inst("aa-fd", true)
+        local b_h = inst("aa-fd-kapali", false)
+        H.check("T-AA-FD", a_n > 0 and a_h == a_n and b_h == 0, "fake duck + Safe head: |desync| 0.5 olan kayit " .. a_h .. "/" .. a_n
+            .. "; ayar kapali: " .. b_h .. " (0)")
+    end)
+    H.run("T-MISC-JS", function()
+        -- V1.0.24 jump scout hava freni: scout ile havada, yurume tusu yok, yatay hiz 200 -> cmd.move hizin tersine;
+        -- hiz 10 iken dokunulmaz; tus basiliyken dokunulmaz; ayar kapaliyken dokunulmaz.
+        local function inst(name, vx, setup)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            if setup then setup(T, W) end
+            T.tick(10)
+            W.p[1].vel = V.v3(vx, 0, 0)
+            T.jump(300)
+            T.tick(3)
+            W.p[1].vel = V.v3(vx, 0, W.p[1].vel.z)
+            T.tick(1)
+            local m = T.moves[W.tick] or { x = 0, y = 0 }
+            return m.x, m.y
+        end
+        local ax = inst("misc-js", 200)
+        local sx = inst("misc-js-yavas", 10)
+        local kx = inst("misc-js-tus", 200, function(T, W) W.buttons.FORWARD = true; W.move = { x = 450, y = 0 } end)
+        local ox = inst("misc-js-kapali", 200, function(T) T.set("jump_scout", false) end)
+        H.check("T-MISC-JS", ax < -400 and math.abs(sx) < 1 and kx > 400 and math.abs(ox) < 1, "hiz +200 (ileri): cmd.move.x "
+            .. string.format("%.0f", ax) .. " (< -400); hiz 10: " .. string.format("%.0f", sx) .. " (0); W basili: "
+            .. string.format("%.0f", kx) .. " (450); ayar kapali: " .. string.format("%.0f", ox) .. " (0)")
     end)
     H.run("T-EX-21", function()
         -- V1.0.19: varsayilan def_repeat 12: gorulme surerken 12 tick'te bir zorlama; uyanik dusman sadece yakinken
