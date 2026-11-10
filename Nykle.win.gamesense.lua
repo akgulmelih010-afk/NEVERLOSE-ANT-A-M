@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.82"
+local VERSION = "1.0.83"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -11283,8 +11283,8 @@ end))
 -- iyi; yer AA acilarini, yer2 defensive'i dener); hava = can basina havada yenen zarar (dusuk iyi); atis = scout atisi
 -- basina kill / can basina kill (yuksek iyi).
 -- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
--- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 (gate adayda <= -1) ise her zaman ret. AFK
--- canlari sayilmaz.
+-- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 ise ret (iki kolda 20+ can, 10 canda bir bakilir);
+-- gate adayda kabul aninda z <= -1 de ret sebebi. AFK canlari sayilmaz.
 -- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
 K.xp.init = function()
     local xp = K.xp
@@ -11308,25 +11308,41 @@ K.xp.init = function()
         -- Yer, defensive. V1.0.45+ loglari: yenen mermilerin %68'i Peek durumunda; Peek'te DEF acikken rakip iskasi
         -- %35, kapaliyken %23; atis yokken yenen 509 merminin sadece %33'unde DEF acikti. Paketteki AA lualarinin
         -- dordu (LuaSense, king, metaset, gay-yaw) defensive'i gorulmeyi beklemeden her komutta zorluyor.
-        { id = "def_always", lane = "yer2", kind = "harm", min = 40,
+        -- V1.0.83 (ilk V1.0.82 logu + butun loglar): seni vuran 1782 scout mermisinin %45'i rakip kendi defensive'inin
+        -- ICINDEYKEN atildi (kafa %55), %16'si bittikten sonraki 8 tick'te; rakibin defensive'i duellonun yarisindan
+        -- fazlasinda acikken duellolarin %29'unu kazaniyorsun (hic acik degilken %58; 4618 duello) ve o kayiplarin
+        -- %76'sinda hic sikamadin. Bizde "temiz atis" ates edebildigin an kendi defensive'ini kesiyor: scout olumlerinin
+        -- %27'si o pencere acikken; oysa kendi defensive'in acikken attigin mermi isabet kaybetmiyor (%68 / %67, 2158
+        -- atis). Aday: rakipler gibi oyna, defensive hep zorlansin ve atis icin kesilmesin.
+        { id = "def_full", lane = "yer2", kind = "harm", min = 40, fair = true, gate = true,
+            set = { clean_shot = false },
+            states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
+                ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
+                ["Crouch move"] = { def_mode = "Always on" }, Peek = { def_mode = "Always on" },
+                Freestanding = { def_mode = "Always on" } },
+            name = "defensive hep acik, atis icin de kesilmez (simdi: gorulunce acilir, ates edebilince kesilir)" },
+        { id = "def_always", lane = "yer2", kind = "harm", min = 40, after = "def_full",
             states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
                 ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
                 ["Crouch move"] = { def_mode = "Always on" }, Peek = { def_mode = "Always on" },
                 Freestanding = { def_mode = "Always on" } },
             name = "yerde defensive her zaman zorlanir (simdi: gorulunce / 1800 birimde dusman varken, bitince 1 sn ara)" },
-        { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
+        { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, after = "def_full", set = { clean_shot = false },
             name = "temiz atis kapali (ates edebilirken de defensive surer)" },
+        -- V1.0.83: en az ornek 50 -> 25 can. Ilk logda inis teleportu gorulen 20 ucusun 2'sinde atildi (11'inde temiz
+        -- atis engelledi, 4'unde hiz yetmedi) ve o kolda ucus boyunca defensive yok; 26 canda havada 0.15 zarar / can,
+        -- air_def kolunda 27 canda 0.
         -- Hava (V1.0.78-80 oyunda hic denenmedi; havada rakip iskasi DEF kapaliyken %6, acikken %20). Uc secenek de
         -- simdiki inis teleportuna karsi olculur; salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
         -- Pakette: LuaSense / gay-yaw / hysteria havada defensive'i zorluyor (air_def), hysteria'nin teleportunda
         -- "inis" secenegi var (simdiki ayarimiz).
-        { id = "air_def", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
+        { id = "air_def", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = false },
             name = "havada DT acik + surekli defensive, isinlanma yok" },
-        { id = "air_fl", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
+        { id = "air_fl", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = true, air_teleport = false },
             name = "havada DT kapali, tam fake lag (V1.0.79)" },
-        { id = "air_first", lane = "hava", kind = "airharm", min = 50, cap = 2, fair = true,
+        { id = "air_first", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = true },
             name = "havada ilk goruste isinlanma (V1.0.77)" },
         -- Atis (V1.0.34'ten beri her atis "BA Prefer"; oncesinde "BA Off" ve isabet %73-74, sonrasinda %51-65, ama
@@ -11379,7 +11395,9 @@ K.xp.init = function()
 
     xp.pick = function(lane)
         for _, c in ipairs(xp.LIST) do
-            if c.lane == lane and not xp.bad[c.id] and xp.stat(c.id).st == nil then
+            -- after: adi gecen aday kabul edildiyse bu aday (onun alt kumesi) atlanir.
+            if c.lane == lane and not xp.bad[c.id] and xp.stat(c.id).st == nil
+                and not (c.after ~= nil and xp.stat(c.after).st == "B") then
                 return c
             end
         end
@@ -11470,9 +11488,9 @@ K.xp.init = function()
         end
         local a, b = st.a, st.b
         local verdict, why
-        -- gate adaylari (atis sayisini azaltabilenler): atis basina kill tek basina yaniltir, can basina kill
-        -- z <= -1 de ret sebebi.
-        if a.l >= 15 and b.l >= 15 and xp.zk(a, b) <= (c.gate and -1 or -2) then
+        -- Can basina kill bekcisi: her canda bakmak yanlis ret olasiligini buyutur; iki kolda 20+ can varken ve 10 canda
+        -- bir bakilir.
+        if a.l >= 20 and b.l >= 20 and (a.l + b.l) % 10 == 0 and xp.zk(a, b) <= -2 then
             verdict, why = "A", "can basina kill dustu"
         elseif size(c, a) >= c.min and size(c, b) >= c.min then
             local z = xp.z(c)
@@ -11487,6 +11505,11 @@ K.xp.init = function()
                 else
                     verdict, why = "A", "ornek doldu, fark yok"
                 end
+            end
+            -- gate adaylari (atis sayisini azaltabilen / atisi etkileyebilen): kendi olcusu iyi olsa da can basina kill
+            -- z <= -1 ise kabul edilmez.
+            if verdict == "B" and c.gate and a.l >= 15 and b.l >= 15 and xp.zk(a, b) <= -1 then
+                verdict, why = "A", "olcusu iyi ama can basina kill dustu"
             end
         end
         if verdict ~= nil then

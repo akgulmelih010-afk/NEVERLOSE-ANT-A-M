@@ -720,6 +720,28 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.83** (ilk GameSense logu, V1.0.82, 12 dk, de_mirage: **23 kill / 25 ölüm = 0.92**; son Primordial oturumu 2 / 22 idi. Deney motoru oyunda çalışıyor, hata satırı yok.)
+
+Bu logda ve bütün GameSense loglarında ölçülenler:
+
+| Ölçüm | Sonuç |
+|---|---|
+| Rakibin defensive'i düellonun ne kadarında açık (4618 düello) | Hiç açık değilken düelloların **%58**'ini kazanıyorsun, yarısından azında %44, **yarısından fazlasında %29**; o durumda rakip mermilerinin %84'ü isabet ediyor ve kayıpların %76'sında hiç sıkamadan ölüyorsun |
+| Seni vuran scout mermileri (1782) | **%45'i rakip kendi defensive'inin içindeyken** atılmış (kafa %55), %16'sı bittikten sonraki 8 tick'te |
+| Kendi defensive'in açıkken attığın mermi (819) / kapalıyken (1339) | İsabet **%68 / %67**: defensive'in içinden sıkmak isabet kaybettirmiyor |
+| Scout ölümleri (1094) | **%27**'si "temiz atış" penceresi açıkken (lua ateş edebildiği için kendi defensive'ini kesmişken); %25'inde DEF açıktı |
+| Bu logda yediğin 37 mermi | Sadece 3'ünde DEF açıktı; 16'sında DT boştu (9'u kendi atışından sonra, 7'si defensive bittikten 0.1–0.5 sn sonra) |
+
+Sonuç: rakipler defensive'i sürekli açık tutup içinden sıkıyor; bizim lua ateş edebildiği an kendi defensive'ini kesiyordu. Değişiklikler:
+
+| Ne | Nasıl |
+|---|---|
+| Yeni aday **`def_full`** (yer2 kulvarının başında) | Yer durumlarında defensive "Always on" **ve** temiz atış kapalı: defensive atış için de kesilmez. Test: ateş edebilirken 40 tick'in 40'ında zorlanır (şimdiki ayarda 0). Kazanırsa `def_always` ve `clean_off` atlanır (alt kümeleri). |
+| Hava adaylarında en az örnek 50 → 25 can | İniş teleportu (şimdiki ayar) görülen 20 uçuşun 2'sinde atıldı (11'inde temiz atış engelledi, 4'ünde hız yetmedi) ve o kolda uçuşta defensive yok: 26 canda can başına 0.15 hava zararı; `air_def` kolunda 27 canda 0 (z +2.3). Yeni sınırla bir sonraki canda karar çıkar. |
+| Can başına kill bekçisi | Her canda değil 10 canda bir ve iki kolda 20+ can varken bakılır (her canda bakmak yanlış ret olasılığını büyütüyordu); atışı etkileyebilen adaylarda (gate) kabul anında z ≤ −1 ise kabul edilmez. |
+
+Ara durum (karar yok): `slow_jit` kötü gidiyor (15 / 15 can, zarar 0.50 → 0.71, rakip ıskası %27 → %5, z −1.6); `def_always` hafif iyi (0.66 → 0.58; defensive görülen tick payı %22 → %39); `hc70` nötr (29 atış 15 kill / 26 atış 14 kill). Zeus'la zıplayarak gelen rakibe 3 kez sıkmadan öldün (kafası kendi gövdesinin arkasında, gövde 86–92 hasar < MD 100); Min. damage kuralına dokunulmadı, bütün loglarda zeus ölümleri %2.2.
+
 **V1.0.82** (istek: "luaları oku, ne yapacağına sen karar ver". Paylaştığın paketteki okunabilir AA luaları (LuaSense, king, metaset, hysteria, gay-yaw, ратка) ve hazır ayarlar çalıştırılmadan okundu; bizim lua ile iki sistematik fark çıktı, ikisi de varsayım olarak değil deney adayı olarak eklendi.)
 
 | Bulgu (paket) | Bizde | Ne yapıldı |
