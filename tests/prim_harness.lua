@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.22"
+H.VER = "V1.0.23"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -4266,8 +4266,47 @@ function C.peek()
         local B = inst("afk-oto-menu", function(T, W) W.menu_open = true end)
         local Cn = inst("afk-oto-freeze", function(T, W) W.freeze = true end)
         H.check("T-PEEK-4", on and off:find("fare", 1, true) ~= nil and B.printed("otomatik afk:") == nil
-            and Cn.printed("otomatik afk:") == nil, "dogduktan sonra 8 sn girdi yok -> 'otomatik afk:' (" .. tostring(on)
+            and Cn.printed("otomatik afk:") == nil, "dogduktan sonra girdi yok -> 'otomatik afk:' (" .. tostring(on)
             .. "); fare -> '" .. off .. "'; menu acik / freeze sayilmaz")
+        -- V1.0.23: esik 4 sn (3 sn'de yok, 5 sn'de var). Hic girdi olmadan olunen yasamda vuruldun / oldun satirlari
+        -- " | AFK" ile isaretlenir, faz testine sayilmaz ve sonraki dogusta AFK modu hemen acilir; girdi olan
+        -- yasamdan sonra bu olmaz.
+        local T = H.boot({ name = "afk-oto-tasima", keep_afk = true })
+        local W = T.W
+        T.event("player_spawn", { userid = 101 })
+        T.tick(64 * 3)
+        local at3 = T.printed("otomatik afk:") ~= nil
+        T.tick(64 * 2)
+        local at5 = T.printed("otomatik afk: dogduktan sonra 4 sn tusa basmadin") ~= nil
+        local function die_respawn()
+            T.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
+            W.p[1].alive = false
+            T.tick(3)
+            W.p[1].alive = true; W.p[1].health = 100
+            T.event("player_spawn", { userid = 101 })
+        end
+        local m = T.mark()
+        T.hurt_me(2, 1, 30)
+        T.tick(1)
+        local hurt = T.printed("vuruldun:", m) or ""
+        die_respawn()
+        local dead = T.printed("oldun:", m) or ""
+        local m2 = T.mark()
+        T.tick(3)
+        local carried = T.printed("otomatik afk: onceki yasamda hic tusa basmadin", m2) ~= nil
+        W.view.y = W.view.y + 5
+        T.tick(3)
+        die_respawn()
+        local m3 = T.mark()
+        T.tick(20)
+        local after_input = T.printed("otomatik afk:", m3) ~= nil
+        local dead2 = T.printed("oldun:", m2) or ""
+        H.check("T-PEEK-4", not at3 and at5 and hurt:find("| AFK", 1, true) ~= nil and dead:find("| AFK", 1, true) ~= nil
+            and carried and not after_input and dead2:find("| AFK", 1, true) == nil, "3 sn'de afk " .. tostring(at3)
+            .. " (false), 5 sn'de " .. tostring(at5) .. "; AFK iken vuruldun / oldun isaretli (" .. tostring(hurt:find("| AFK", 1, true) ~= nil)
+            .. " / " .. tostring(dead:find("| AFK", 1, true) ~= nil) .. "); sonraki dogusta hemen afk (" .. tostring(carried)
+            .. "); girdi olan yasamdan sonra yok (" .. tostring(not after_input) .. "), o olum isaretsiz ("
+            .. tostring(dead2:find("| AFK", 1, true) == nil) .. ")")
     end)
 end
 

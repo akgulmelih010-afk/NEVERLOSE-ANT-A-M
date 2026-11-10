@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.22  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.23  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,9 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.23 (primordial edition): log 10'daki hareketsiz olumler AFK'ymis. Otomatik AFK 8 sn yerine 4 sn; onceki
+        yasamda hic tusa basmadiysan dogar dogmaz AFK modu (DM'de 2 sn'de vuruluyordun). AFK iken yenen mermi / olum
+        satirlari " | AFK" ile isaretlenir ve faz testine sayilmaz (istatistikleri bozmasin).
       V1.0.22 (primordial edition): log 10 (V1.0.21, 11 dk, DM office; K13 / D34: 15 olum tek rakibin yukaridan
         dogus noktasina duvardan kafasi). Inis teleportu testi bitti (2 log, 52 yasam): teleport acik kolda yasam
         basina 0.33 oldurme / 16.5 sn omur, kapalida 0.88 / 24 sn -> "Landing teleport" varsayilan KAPALI (yeni
@@ -176,7 +179,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.22", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.23", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1778,7 +1781,7 @@ do
         B.cb("ret_test", "peek", "Shot retreat test (every other shot without it)", true, false)
         B.cb("peek_defensive", "peek", "Defensive during AI peek", true, true)
         B.cb("afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", false, false)
-        B.cb("afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", true, false)
+        B.cb("afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", true, false) -- V1.0.23: 4 sn (ad sabit)
         -- Ragebot
         B.cb("resolver", "rage", "Adaptive resolver", true, true)
         B.cb("low_hp_safe", "rage", "Finish low HP (<=30) with safe point", true, true)
@@ -4851,7 +4854,9 @@ do
                     N.stats.enemy_miss(m.state)
                     if m.group ~= nil then
                         B.record_phase(m.group, m.applied, false)
-                        B.test_count(m.applied, false, false)
+                        if not N.afk.idle() then
+                            B.test_count(m.applied, false, false)
+                        end
                     end
                     if N.on("hit_log") then
                         N.log.line(fmt("iska: %s | faz %d%s | %s | %s | %s | %s (%s) | silah %s", m.state, m.applied,
@@ -4891,7 +4896,9 @@ do
             end
         end
         if not melee and g ~= nil and hitgroup ~= 0 then
-            B.test_count(phase or 0, hitgroup == 1, true)
+            if not N.afk.idle() then
+                B.test_count(phase or 0, hitgroup == 1, true)
+            end
         end
         if not melee and g ~= nil then
             if hitgroup == 1 then
@@ -8270,14 +8277,17 @@ do
             if AF.auto then
                 N.log.line("otomatik afk kapandi: " .. why)
             end
-            AF.auto, AF.armed, AF.idle_since = false, false, nil
+            AF.auto, AF.armed, AF.idle_since, AF.carry = false, false, nil, false
         elseif paused or not N.on("afk_auto") then
             AF.idle_since = nil
         elseif AF.armed then
             AF.idle_since = AF.idle_since or now
-            if not AF.auto and now - AF.idle_since >= 8 then
+            -- V1.0.23 (log 10: DM'de AFK iken 8 sn dolmadan 2 sn'de oluyordun): 4 sn; onceki yasamda hic tusa
+            -- basmadiysan (AF.carry) dogar dogmaz.
+            if not AF.auto and (AF.carry or now - AF.idle_since >= AF.IDLE) then
                 AF.auto = true
-                N.log.line("otomatik afk: dogduktan sonra 8 sn tusa basmadin")
+                N.log.line(AF.carry and "otomatik afk: onceki yasamda hic tusa basmadin, dogar dogmaz afk modu"
+                    or fmt("otomatik afk: dogduktan sonra %d sn tusa basmadin", AF.IDLE))
             end
         end
         if not N.on("afk_auto") then
@@ -8339,11 +8349,29 @@ do
 
     AF.spawn = function()
         AF.auto, AF.armed, AF.idle_since, AF.anchor = false, true, nil, nil
+        AF.idle_death = nil
+    end
+
+    -- V1.0.23: AFK sayilir mi (AFK modu acik ya da dogustan beri en az 2 sn hic girdi yok; olum aninda da gecerli).
+    -- AFK iken yenen mermiler / olumler " | AFK" ile isaretlenir ve faz testine sayilmaz.
+    AF.IDLE = 4
+    AF.idle = function()
+        local now = U.now()
+        if AF.on or (AF.idle_death ~= nil and now >= AF.idle_death and now - AF.idle_death < 1) then
+            return true
+        end
+        return AF.armed and AF.idle_since ~= nil and now - AF.idle_since >= 2
     end
 
     AF.death = function()
         if AF.on then
             N.log.line("afk modu kapali: oldun")
+        end
+        -- Olu iken her tick cagrilabilir: sadece ilk cagrida (durum henuz sifirlanmamisken) karar verilir.
+        if AF.on or AF.idle_since ~= nil or not AF.armed then
+            AF.idle_death = AF.idle() and U.now() or nil
+            -- Bu yasamda hic girdi yoktu (armed hala acik): sonraki dogusta AFK modu hemen.
+            AF.carry = AF.armed and N.on("afk_auto")
         end
         AF.on, AF.auto, AF.armed, AF.idle_since, AF.anchor = false, false, true, nil, nil
         PK.reset()
@@ -8736,10 +8764,10 @@ do
             d.their_hits, d.their_dmg = d.their_hits + 1, d.their_dmg + dmg
         end
         if N.on("hit_log") then
-            N.log.line(fmt("vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d",
+            N.log.line(fmt("vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s) | v%d duck%d%s",
                 hitgroup ~= nil and (K.HITGROUPS[hitgroup] or "?") or "?", U.R(dmg), weapon, st.label, phase or 0,
                 S.aa_status(), S.exploit_status(), U.wlabel(st.weapon), name, info, U.R(U.speed(lp)),
-                U.R((st.duck or 0) * 100)))
+                U.R((st.duck or 0) * 100), N.afk.idle() and " | AFK" or ""))
         end
         N.dlog.hurt(attacker, hitgroup, dmg, weapon)
     end
@@ -8785,8 +8813,8 @@ do
                 end
             end
             if N.on("hit_log") then
-                N.log.line(fmt("oldun: %s | %s | %s", attacker ~= nil and U.name(attacker) or "?", st.label,
-                    U.wlabel(st.weapon)))
+                N.log.line(fmt("oldun: %s | %s | %s%s", attacker ~= nil and U.name(attacker) or "?", st.label,
+                    U.wlabel(st.weapon), N.afk.idle() and " | AFK" or ""))
             end
             if attacker ~= nil and attacker ~= lp then
                 N.dlog.death(e, attacker, lp, weapon)

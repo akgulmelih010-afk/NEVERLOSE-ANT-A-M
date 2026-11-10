@@ -1,4 +1,4 @@
-# Nykle.win V1.0.22 — primordial edition
+# Nykle.win V1.0.23 — primordial edition
 
 primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense sürümünün (`Nykle.win.gamesense.lua` V1.0.79) loglarla kanıtlanmış özelliklerinin ve Neverlose sürümünün (`Nykle.win.lua` V1.1.x) kurallarının primordial API'sine taşınmış hali. Sadece HvH sunucuları için.
 
@@ -16,7 +16,7 @@ primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense s�
    - MOUSE3 = thirdperson (toggle), Insert = menü. Native Nade Helper kapalı.
    Config yüklemesen de script native AA taşıyıcılarını kendisi nötrde tutar.
 4. Başka AA / resolver / ideal-tick / recharge script'i (metasett, IDEAL-TICK vb.) yanında yükleme: recharge, fakelag ve resolver'ın tek sahibi bu script.
-5. Konsolda `[Nykle.win] V1.0.22 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
+5. Konsolda `[Nykle.win] V1.0.23 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
 
 **Log dosyası:** `nykle_log.txt` ve hafıza dosyası `nykle_memory.txt`, oyunun `Counter-Strike Global Offensive/csgo/` klasörüne yazılır (yoksa oyunun kök klasörüne bak). Analiz için `nykle_log.txt`'yi gönder. Dosya yazılamazsa (ffi kapalı vb.) loglar hafızada kalır: **Console → Print all logs to console** ile konsola yazdır.
 
@@ -58,6 +58,7 @@ Varsayılan: "açık" = kutu varsayılan işaretli. "İzlenen" = Always use reco
 | Spin | Düşman kalmayınca (açık) / ısınmada (kapalı) dönme | açık | GS |
 | Desync keeper | Eğikken (≥ 0.9) görülürken tehdide doğru yürüme komutu "Crouch speed" (38) / 0.34'e kısılır; geri çekilme / ateşten 0.6 sn sonrası / peek'te yok | açık, 38 | GS V1.0.58 |
 | Defensive | Durum başına Off / On peek / Smart / Always on / Tick based. Smart: ragebot hedef tarıyorken + görülürken / 1800 birimde düşman varken + görüş kesilince 8 tick. Sadece DT doluyken, tick başına bir tetik. Re-arm cooldown: defensive bitince görülürken 1 sn yeniden yok (ilk görüş, hava, AI peek, silah değişimi, bıçak, AFK hariç). Anti-peek: yeni gören / hızlı düşmanda 8 tick | GS `EXPLOIT_DEFAULTS` | GS V1.0.23/43/45 |
+| AFK (V1.0.23) | Otomatik AFK eşiği 8 sn yerine 4 sn. Bir yaşamı hiç tuşa / fareye dokunmadan bitirdiysen sonraki doğuşta AFK modu **hemen** açılır (herhangi bir girdi kapatır). AFK iken yenen mermi ve ölüm satırları ` \| AFK` ile işaretlenir, faz testine sayılmaz; rapor aracı bunları ayrı gösterir | açık | log 10: DM'de AFK iken doğduktan ~2 sn sonra vuruluyordun; 8 sn dolmadığı için AFK modu sadece 2 kez açıldı |
 | İniş teleportu kapalı, sahte kayıt kapısı (V1.0.22) | **Landing teleport** varsayılan **kapalı** (yeni ayar; açarsan eski davranış). Test sonucu: teleport açık kolda yaşam başına 0.33 öldürme ve 16.5 sn ömür, kapalı kolda 0.88 ve 24 sn (2 log, 52 yaşam); kapalıyken DT dolu kalır, defensive çalışır. **Sahte kayıt:** karşı atak penceresi kaydı sahte olan hedefin beklemesini artık kaldırmaz; kayıt sahte kaldıkça 64 tick'e kadar beklenir, 22 tick'ten sonra ilk gerçek kayıtta ateş serbest. **Duvar kaçışı** geri-çapraz / geri yönleri ve 96 birimi de arar; **geri çekilme** geçmişte görülmeyen nokta yoksa tehdidin görmediği noktaya gider | teleport kapalı | log 8-10: sahte kayda 20/44, gerçeğe 63/88 isabet; log 10: 16 kaçış aramasının 7'si "güvenli nokta yok" |
 | Atıştan sonra geri çekilme (V1.0.21) | **Shot retreat:** scout / AWP atışından sonra (autopeek tuşu basılı değilken) son 3 sn'de görülmediğin en yakın eski konuma (24-220 birim) kendisi geri yürür; ideal tick açıksa DT ile geri ışınlanır. Atış anında basılı tuşlar yok sayılır, **yeni** bir yürüme tuşu kontrolü hemen geri verir; hedef ölünce, silah hazır olunca ya da 0.8 sn dolunca biter. **Shot retreat test:** öldürmeyen atışlar sırayla açık / kapalı kola gider; `geri cekilme testi: acik N atis, 2 sn icinde olum M (%P) \| kapali ...` satırı farkı gösterir. **Duvar kaçışı** artık silah ateş edemiyorken açık görüşte gören düşmana karşı da ve autopeek tuşu basılıyken (AI peek yürümüyorken) de çalışır | hepsi açık | 3 log: öldürmeyen 54 scout atışının 32'sinde 2 sn içinde ölüm (%59); log 9: 23 ölümün 5'i autopeek noktasında hareketsizken |
 | Faz puanı, havada defensive, teleport testi (V1.0.20) | **Faz testi sonucu:** normal %45 kafa, kendi fazlarımız %30-32. Faz puanı artık kafa − 0.8 × ıska (rakibin ilk mermisi kafaysa düello %0, gövdeyse %21, ıskaysa %38 kazanılıyor); belirgin kötü faz kontrolde de oynanmaz. **Air: defensive in the air:** uçuşta da defensive zorlanır (eskiden hiç zorlanmıyordu). **Sahte kayıt bekleme sınırı** 14 → 22 tick. **Landing teleport test:** her doğuşta iniş teleportu açık / kapalı değişir; 10 yaşamda bir `teleport testi: acik N yasam, oldurme K, omur ..., havada olum ... \| kapali ...` satırı iki kolu karşılaştırır | hepsi açık | log 8 (19 dk, DM): havada 13 ölüm / 0 öldürme; sahte kayda 15/31, gerçeğe 20/31 isabet; teleportlu uçuşta vurulma %9, şarjsızda %10 |
@@ -157,7 +158,7 @@ Satırlar:
 
 Vurulabilirlik taraması: her düşman kendi sırasında 4 tick'te bir (tick başına ortalama ≤ 2 düşmana iz), gözünden kafa / göğüs / pelvis; ragebot'un 2 tick'ten taze izi varsa yeniden iz atılmaz.
 
-Dosya: yeni sürümde (dosyada `V1.0.22 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
+Dosya: yeni sürümde (dosyada `V1.0.23 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
 
 ## Bilinen belirsizlikler (oyunda doğrulanacak)
 

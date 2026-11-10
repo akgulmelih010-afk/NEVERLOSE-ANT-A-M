@@ -38,7 +38,7 @@ def parse(path, from_line=1):
          'kills': [], 'deaths': [], 'duels': [], 'sikmadi': Counter(), 'tp': Counter(), 'tp_no': Counter(),
          'def_shift': Counter(), 'def_refill': [], 'def_unspent': 0, 'waits': Counter(), 'peek': Counter(),
          'levels': 0, 'last': {}, 'wall': Counter(), 'wall_head': Counter(), 'first_t': None, 'last_t': None,
-         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter()}
+         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter()}
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
              'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
@@ -69,6 +69,9 @@ def parse(path, from_line=1):
                 r['shots'].append({'t': t, 'enemy': norm(parts[0][5:]), 'state': parts[1] if len(parts) > 1 else '?',
                                    'aim': aim.split()[1] if len(aim.split()) > 1 else '?',
                                    'hit': hitgroup(hit[7:]) if hit else None, 'reason': reason})
+            elif b.startswith(('vuruldun:', 'oldun:')) and b.endswith('| AFK'):
+                # V1.0.23: AFK iken yenen mermi / olum istatistige girmez, ayri sayilir.
+                r['afk']['olum' if b.startswith('oldun:') else 'mermi'] += 1
             elif b.startswith('vuruldun:'):
                 head = parts[0][9:].strip()
                 att = norm(re.split(r' \(', parts[-1])[0]) if len(parts) > 5 else '?'
@@ -314,6 +317,8 @@ def report(r, prev=None):
         if r['sikmadi']:
             print('  sikmadi nedenleri: ' + ', '.join('%s %d' % kv for kv in r['sikmadi'].most_common(6)))
 
+    if r['afk']:
+        print('== AFK (istatistik disi) == olum %d, mermi %d' % (r['afk']['olum'], r['afk']['mermi']))
     print('== EXPLOIT ==')
     print('  teleport: %s | inise yok: %s' % (dict(r['tp']) or '-', dict(r['tp_no'].most_common(5)) or '-'))
     rf = r['def_refill']
