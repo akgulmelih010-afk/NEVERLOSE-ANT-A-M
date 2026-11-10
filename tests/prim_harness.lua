@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.21"
+H.VER = "V1.0.22"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -400,7 +400,8 @@ H.EL = {
     { "air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", "cb", true },
     { "air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", "cb", true },
     { "air_def", "exploits", "Air: defensive in the air", "cb", true },
-    { "tp_test", "exploits", "Landing teleport test (every other life without it)", "cb", true },
+    { "tp_test", "exploits", "Landing teleport test (every other life without it)", "cb", false },
+    { "land_tp", "exploits", "Landing teleport (DT) when seen in the air", "cb", false },
     { "air_lag", "exploits", "Air lag (defensive every tick)", "cb", true },
     { "air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", "sl", 0, 0, 100 },
     { "auto_peek", "peek", "Auto peek state (moving into view)", "cb", true },
@@ -2067,6 +2068,10 @@ function H.make(opts)
         -- varsayilanlari T-EX-24 (opts.air_def / opts.tp_test = true) sinar.
         if not opts.air_def and T.el("air_def") ~= nil then T.set("air_def", false) end
         if not opts.tp_test and T.el("tp_test") ~= nil then T.set("tp_test", false) end
+        if opts.tp_test and T.el("tp_test") ~= nil then T.set("tp_test", true) end
+        -- V1.0.22: "Landing teleport" varsayilan kapali; inis teleportu senaryolari acik kosar, varsayilani
+        -- T-EX-25 (opts.land_tp_default = true) sinar.
+        if not opts.land_tp_default and T.el("land_tp") ~= nil then T.set("land_tp", true) end
         -- V1.0.21: eski atis senaryolari "Shot retreat" kapali kosar; T-PEEK-RET opts.shot_retreat = true verir.
         if not opts.shot_retreat and T.el("shot_retreat") ~= nil then T.set("shot_retreat", false) end
         if opts.setup then opts.setup(T, W) end
@@ -3806,8 +3811,8 @@ function C.rage()
             .. ", ayar kapali: " .. tostring(off) .. ", override tusu: " .. tostring(key) .. " (hepsi false)")
     end)
     H.run("T-RAGE-CW", function()
-        -- V1.0.13 karsi atak penceresi: sahte kayitta bekletilen dusman scout ile ates edince bekleme kalkar
-        -- (ignore_target yok) ve prioritize_target gelir; ayar kapaliyken bekleme surer.
+        -- V1.0.13 karsi atak penceresi: az once scout ile ates eden dusman one alinir (prioritize_target). V1.0.22:
+        -- kaydi sahte (defensive) oldugu surece beklemesi pencerede de kalkmaz; gercek kayit gelince serbest.
         local function inst(name, on)
             local T = H.boot({ name = name, rec_off = true })
             local W = T.W
@@ -3818,19 +3823,21 @@ function C.rage()
             T.tick(3)
             local t0 = W.tick
             T.event("weapon_fire", { userid = 102, weapon = "weapon_ssg08" })
-            T.tick(6)
+            T.tick(20)
             local prio = 0
             for _, x in ipairs(T.prio or {}) do if x.idx == 2 and x.tick > t0 then prio = prio + 1 end end
-            return T.ignored(2, t0 + 1, t0 + 6), prio, T.ignored(2, t0 - 2, t0)
+            return T.ignored(2, t0 + 1, t0 + 6), prio, T.ignored(2, t0 - 2, t0), T.ignored(2, t0 + 12, t0 + 20)
         end
-        local a_ign, a_prio, a_before = inst("rage-cw-acik", true)
+        local a_ign, a_prio, a_before, a_late = inst("rage-cw-acik", true)
         local b_ign, b_prio = inst("rage-cw-kapali", false)
-        H.check("T-RAGE-CW", a_before >= 1 and a_ign == 0 and a_prio >= 3 and b_ign >= 3 and b_prio == 0, "atis oncesi bekletme "
+        H.check("T-RAGE-CW", a_before >= 1 and a_ign >= 1 and a_late == 0 and a_prio >= 3 and b_ign >= 3 and b_prio == 0,
+            "sahte kayitta bekleme pencerede de surer (" .. a_ign .. " >= 1), gercek kayittan sonra yok (" .. a_late
+            .. "); atis oncesi bekletme "
             .. a_before .. " (>= 1); ates edince: ignore_target " .. a_ign .. " (0), prioritize_target " .. a_prio
             .. " (>= 3); ayar kapali: ignore " .. b_ign .. " (>= 3), prioritize " .. b_prio .. " (0)")
     end)
     H.run("T-RAGE-1", function()
-        local function inst(name, shift, seen, old)
+        local function inst(name, shift, seen, old, ticks)
             local T = H.boot({ name = name })
             local W = T.W
             if old then T.set("wait_seen", false) end
@@ -3839,7 +3846,7 @@ function C.rage()
             T.tick(30)
             local t0 = W.tick
             W.p[2].sim_shift = shift
-            T.tick(40)
+            T.tick(ticks or 40)
             return T, t0
         end
         local A, a0 = inst("rage-1", 6)
@@ -3848,10 +3855,14 @@ function C.rage()
         local free = A.ignored(2, a0 + 13, a0 + 40)
         H.check("T-RAGE-1", held >= 3 and groups and free == 0, "sahte kayit + kimse gormuyor: ignore_target(2) " .. held
             .. " tick + 6 grup kapali (" .. tostring(groups) .. "); gercek kayittan 3 tick sonra serbest (" .. free .. ")")
-        local B, b0 = inst("rage-1-uzun", 30)
-        local bh = B.ignored(2, b0 + 1, b0 + 22)
-        local bf = B.ignored(2, b0 + 25, b0 + 48)
-        H.check("T-RAGE-1", bh >= 3 and bf == 0, "kayit 30 tick sahte kalsa da bekleme en fazla 22 tick (" .. bh .. " / sonra "
+        -- V1.0.22: kayit sahte kaldikca 64 tick'e kadar beklenir; 22 tick'ten sonra ilk gercek kayitta serbest.
+        local B, b0 = inst("rage-1-uzun", 30, false, false, 80)
+        local bh = B.ignored(2, b0 + 1, b0 + 26)
+        local bf = B.ignored(2, b0 + 36, b0 + 80)
+        local Bx, x0 = inst("rage-1-cok-uzun", 120, false, false, 110)
+        local xh, xf = Bx.ignored(2, x0 + 1, x0 + 62), Bx.ignored(2, x0 + 68, x0 + 96)
+        H.check("T-RAGE-1", xh >= 55 and xf == 0, "kayit 120 tick sahte: bekleme 64 tick'te biter (" .. xh .. " / sonra " .. xf .. ")")
+        H.check("T-RAGE-1", bh >= 20 and bf == 0, "kayit 30 tick sahte: gercek kayda kadar beklenir (" .. bh .. " / sonra "
             .. bf .. ")")
         -- V1.0.19: "Wait for real record even while the enemy sees you" (varsayilan acik): goruyorken de beklenir
         -- (en fazla 14 tick); kapaliyken eski davranis (bekleme yok).
@@ -3859,10 +3870,10 @@ function C.rage()
         local ch = Cn.ignored(2, c0, c0 + 40)
         local Co, o0 = inst("rage-1-goruyor-eski", 6, true, true)
         local oh = Co.ignored(2, o0, o0 + 40)
-        local Cl, l0 = inst("rage-1-goruyor-uzun", 30, true)
-        local lh, lf = Cl.ignored(2, l0 + 1, l0 + 22), Cl.ignored(2, l0 + 25, l0 + 48)
+        local Cl, l0 = inst("rage-1-goruyor-uzun", 30, true, false, 80)
+        local lh, lf = Cl.ignored(2, l0 + 1, l0 + 26), Cl.ignored(2, l0 + 36, l0 + 80)
         H.check("T-RAGE-1", ch >= 3 and oh == 0 and lh >= 3 and lf == 0, "hedef bizi goruyorken sahte kayit: beklenir (" .. ch
-            .. ", >= 3); 'Wait even when seen' kapali: bekleme yok (" .. oh .. "); 30 tick sahte: en fazla 22 tick (" .. lh
+            .. ", >= 3); 'Wait even when seen' kapali: bekleme yok (" .. oh .. "); 30 tick sahte: gercek kayda kadar (" .. lh
             .. " / sonra " .. lf .. ")")
     end)
     H.run("T-RAGE-2", function()
@@ -5555,6 +5566,26 @@ function C.review()
         H.check("T-EX-24", pat == "A-A-A-A-A-A-" and line:find("acik 6 yasam", 1, true) ~= nil
             and line:find("| kapali 5 yasam", 1, true) ~= nil and T.count("bu harita boyunca havada teleport kapali") == 0,
             "12 yasamda inis teleportu " .. pat .. " (A-A-A-A-A-A-); satir: " .. line:sub(1, 200))
+    end)
+    H.run("T-EX-25", function()
+        -- V1.0.22 "Landing teleport" varsayilan KAPALI: goruldu + hizli ziplamada uncharge yok, "inise yok" satiri yok,
+        -- ucusta defensive calisir; ayar acilinca teleport geri gelir.
+        local function inst(name, on)
+            local T = H.boot({ name = name, land_tp_default = true, air_def = true, def_repeat = true })
+            local W = T.W
+            if on then T.set("land_tp", true) end
+            T.tick(30)
+            W.p[1].vel = V.v3(250, 0, 0)
+            local t0 = W.tick
+            local tp = H.seen_jump(T, 300)
+            T.tick(10)
+            return T, tp, T.shifts(t0 + 2, W.tick - 12)
+        end
+        local A, a_tp, a_def = inst("ex-25", false)
+        local _, b_tp = inst("ex-25-acik", true)
+        H.check("T-EX-25", a_tp == nil and A.count("teleport: inise") == 0 and a_def >= 2 and b_tp ~= nil,
+            "varsayilan: inis teleportu " .. tostring(a_tp) .. " (nil), 'teleport: inise' satiri " .. A.count("teleport: inise")
+            .. " (0), ucusta defensive " .. a_def .. " (>= 2); 'Landing teleport' acik: teleport tick " .. tostring(b_tp))
     end)
     H.run("T-EX-21", function()
         -- V1.0.19: varsayilan def_repeat 12: gorulme surerken 12 tick'te bir zorlama; uyanik dusman sadece yakinken

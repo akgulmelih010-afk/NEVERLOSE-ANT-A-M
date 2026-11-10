@@ -1147,8 +1147,11 @@
      "In-air hit chance (snipers, 0 = off)": {
       "value": 0.0
      },
+     "Landing teleport (DT) when seen in the air": {
+      "is active": false
+     },
      "Landing teleport test (every other life without it)": {
-      "is active": true
+      "is active": false
      },
      "Re-arm cooldown (let DT refill after defensive)": {
       "is active": true

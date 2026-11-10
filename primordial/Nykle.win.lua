@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.21  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.22  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,13 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.22 (primordial edition): log 10 (V1.0.21, 11 dk, DM office; K13 / D34: 15 olum tek rakibin yukaridan
+        dogus noktasina duvardan kafasi). Inis teleportu testi bitti (2 log, 52 yasam): teleport acik kolda yasam
+        basina 0.33 oldurme / 16.5 sn omur, kapalida 0.88 / 24 sn -> "Landing teleport" varsayilan KAPALI (yeni
+        ayar; test de kapali). Sahte kayit: karsi atak penceresi sahte kayitli hedefin beklemesini artik kaldirmaz
+        ve kayit sahte kaldikca 64 tick'e kadar beklenir (sahte kayda 20/44, gercege 63/88 isabet). Duvar kacisi
+        geri-capraz / geri yonleri ve 96 birimi de arar (7 aramada "guvenli nokta yok"); geri cekilme gecmiste
+        gorulmeyen nokta yoksa tehdidin gormedigi noktaya gider.
       V1.0.21 (primordial edition): log 9 (V1.0.20, 11 dk, DM; K21 / D23, isabet %78). Atistan sonra geri cekilme
         ("Shot retreat", acik): oldurmeyen scout atisindan sonraki 2 sn'de %59 oluyorduk (3 log, 54 atisin 32'si);
         atistan sonra son gorulmeyen konuma geri yururuz (ideal tick aciksa DT ile isinlanarak), yeni bir yurume tusu
@@ -169,7 +176,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.21", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.22", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1758,7 +1765,8 @@ do
         B.cb("air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", true, false)
         B.cb("air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", true, false)
         B.cb("air_def", "exploits", "Air: defensive in the air", true, false)
-        B.cb("tp_test", "exploits", "Landing teleport test (every other life without it)", true, false)
+        B.cb("tp_test", "exploits", "Landing teleport test (every other life without it)", false, false)
+        B.cb("land_tp", "exploits", "Landing teleport (DT) when seen in the air", false, false)
         B.cb("air_lag", "exploits", "Air lag (defensive every tick)", true, true)
         B.sl("air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", 0, 100, 0, true, "%")
         -- Peek
@@ -4975,7 +4983,7 @@ do
     X.tpt = { arm = 2, lives = 0, s = { { lives = 0, kills = 0, ticks = 0, hits = 0, air = 0 },
         { lives = 0, kills = 0, ticks = 0, hits = 0, air = 0 } } }
     X.tpt_on = function()
-        return N.on("tp_test") and N.on("air_teleport") and N.on("air_lc")
+        return N.on("tp_test") and N.on("land_tp") and N.on("air_teleport") and N.on("air_lc")
     end
     X.tpt_text = function()
         local parts = {}
@@ -5009,7 +5017,10 @@ do
     end
 
     X.tp_off = function()
-        return X.tp.map_off or X.tp.session_off or (X.tpt_on() and X.tpt.lives > 0 and X.tpt.arm == 2)
+        -- V1.0.22: test sonucu (log 9-10, 52 yasam): teleport acik kolda yasam basina 0.33 oldurme / 16.5 sn omur,
+        -- kapali kolda 0.88 / 24 sn. "Landing teleport" varsayilan KAPALI (DT dolu kalir, defensive calisir).
+        return X.tp.map_off or X.tp.session_off or not N.on("land_tp")
+            or (X.tpt_on() and X.tpt.lives > 0 and X.tpt.arm == 2)
     end
 
     -- Tek tetik: tick basina en fazla bir force_anti_exploit_shift (sadece DT dolu iken).
@@ -6198,7 +6209,9 @@ do
             end
         elseif not L.fired and L.seen_flight and L.reason ~= nil then
             -- V1.0.14 (log 5: harita boyunca kapaliyken 105 satir): "durduruldu" 5 dakikada bir.
-            if L.reason == "durduruldu" then
+            if L.reason == "durduruldu" and not N.on("land_tp") then
+                L.reason = nil
+            elseif L.reason == "durduruldu" then
                 N.log.every("tp_off_note", 300, "teleport: inise yok (durduruldu: teleport bu haritada kapali / duraklatildi)")
             else
                 N.log.line("teleport: inise yok (" .. L.reason .. ")")
@@ -6710,7 +6723,9 @@ do
                                 -- 3 tick'lik dogrulama da siniri asamaz (log 2: 16-17 tick'lik beklemeler).
                                 RG.end_wait(idx, w, "sinir doldu (gercek kayit dogrulanirken)", ent)
                             end
-                        elseif w.ticks >= limit then
+                        elseif w.ticks >= (limit == 4 and 4 or RG.WAIT_FAKE) then
+                            -- V1.0.22 (log 8-10: sahte kayda atis 20/44, gercege 63/88): kayit sahte kaldikca 64 tick'e
+                            -- kadar beklenir; 22 tick'ten sonra gelen ilk gercek kayitta hemen serbest (ustteki dal).
                             RG.end_wait(idx, w, "sinir doldu, kayit hala sahte", ent)
                         elseif not N.on("wait_seen") and sees then
                             RG.end_wait(idx, w, "serbest birakildi (seni goruyor)", ent)
@@ -6793,7 +6808,9 @@ do
                 local t = idx ~= nil and T.p[idx] or nil
                 if t ~= nil and t.fired_at ~= nil and now >= t.fired_at and now - t.fired_at <= (t.fired_win or 0.3) then
                     RG.counter[idx] = true
-                    if hold[idx] ~= nil then
+                    -- V1.0.22: kaydi sahte (defensive) olan hedefin beklemesi pencerede de kalkmaz (log 10: pencere
+                    -- 64 kez beklemeyi kaldirdi, sahte kayda atilan 12 atisin 4'u tuttu); oncelik yine verilir.
+                    if hold[idx] ~= nil and not T.def(idx) then
                         hold[idx] = nil
                         if N.on("resolver_log") then
                             N.log.every("counter:" .. idx, 5, fmt("resolver: %s az once ates etti: bekleme kaldirildi"
@@ -7226,6 +7243,7 @@ do
     end
     RG.WALL_BOXES = { "HEAD", "PELVIS" }
     RG.WAIT_LIMIT = 22
+    RG.WAIT_FAKE = 64
 
     -- R12: havadayken sniper hit chance (0 = kapali; senin degerin daha yuksekse dokunulmaz).
     RG.air_hc = function(ctx, wname, w)
@@ -7652,7 +7670,7 @@ do
     -- sonraki 1.5 sn'de vuruldun mu (log bunu olcer). Min. damage'a dokunmaz.
     PK.esc = { mode = nil, goal = nil, started = 0, cool = -1000, scan_tick = -1000, ended = nil, s = 0, name = "?",
         hit_by = {}, n = 0, hit = 0, clean = 0, none = 0, left = 0 }
-    PK.ESC = { AGE = 6, DMG = 30, STEPS = { 24, 44, 64 }, MAX = 1.2, COOL = 1.0, NONE_COOL = 1.5, FAIL_COOL = 3,
+    PK.ESC = { AGE = 6, DMG = 30, STEPS = { 24, 44, 64, 96 }, ANGLES = { 90, 135, 180 }, MAX = 1.2, COOL = 1.0, NONE_COOL = 1.5, FAIL_COOL = 3,
         HOT = 3, JUDGE = 1.5 }
 
     -- Adaydan (goz + pelvis hizasi) dusmanin kafasina / pelvisine benim silahimla gecen en buyuk hasar.
@@ -7682,13 +7700,17 @@ do
         end
         local my_pel = U.hitbox(lp, "PELVIS")
         local base = U.yaw_to(org, theirs)
-        for _, s in ipairs(PK.ESC.STEPS) do
-            for _, side in ipairs({ 1, -1 }) do
-                local p = U.offset(org, base + 90 * side, s, 0)
-                if PK.walkable(org, p, true) then
-                    local d, pe = PK.esc_reach(org, p, eye, my_pel, ent, head, pel)
-                    if d <= 0 and not PK.others_see(pe, ent) then
-                        return { p = p, side = side, s = s }
+        -- V1.0.22 (log 10: 16 aramanin 7'si "guvenli nokta yok"): once hatta dik, sonra geri-capraz (135) ve tam
+        -- geri (180); 96 birim de denenir.
+        for _, ang in ipairs(PK.ESC.ANGLES) do
+            for _, s in ipairs(PK.ESC.STEPS) do
+                for _, side in ipairs(ang == 180 and { 1 } or { 1, -1 }) do
+                    local p = U.offset(org, base + ang * side, s, 0)
+                    if PK.walkable(org, p, true) then
+                        local d, pe = PK.esc_reach(org, p, eye, my_pel, ent, head, pel)
+                        if d <= 0 and not PK.others_see(pe, ent) then
+                            return { p = p, side = side, s = s, back = ang ~= 90 }
+                        end
                     end
                 end
             end
@@ -7812,7 +7834,8 @@ do
         end
         EC.mode, EC.goal, EC.started, EC.n, EC.s, EC.name = "walk", r.p, now, EC.n + 1, r.s, U.name(rec.ent)
         EC.ended = nil
-        N.log.line(fmt("duvar kacisi: %s %d birim (%s, %s %.1fs%s)", r.side > 0 and "sol" or "sag", r.s,
+        N.log.line(fmt("duvar kacisi: %s%s %d birim (%s, %s %.1fs%s)", r.side > 0 and "sol" or "sag",
+            r.back and "-geri" or "", r.s,
             EC.name, rec.open and "acik gorus, silah hazir degil" or fmt("hat %d hasar", U.R(dmg)),
             (tick - rec.since) * U.ipt(), hot and ", az once vurdu" or ""))
     end
@@ -7932,8 +7955,17 @@ do
         R.count = R.count + 1
         local arm = (N.on("ret_test") and R.count % 2 == 0) and 2 or 1
         local goal, d = nil, 0
+        local how = "son gorulmeyen nokta"
         if arm == 1 then
             goal, d = PK.ret_anchor(org)
+            -- V1.0.22 (log 10: 6 atisin 3'unde gecmiste gorulmeyen nokta yoktu): tehdide mermi gecmeyen en yakin nokta.
+            if goal == nil and st.threat ~= nil and U.alive(st.threat) then
+                local eye = U.eye(st.lp)
+                local r = eye ~= nil and PK.esc_scan(org, eye, st.threat) or nil
+                if r ~= nil then
+                    goal, d, how = r.p, r.s, "tehdidin gormedigi nokta"
+                end
+            end
             if goal == nil then
                 arm = 3
             end
@@ -7947,7 +7979,7 @@ do
             R.keys[k] = N.st.keys_now ~= nil and N.st.keys_now[k] or false
         end
         if N.on("hit_log") then
-            N.log.line(fmt("geri cekilme: atistan sonra %d birim geri (son gorulmeyen nokta)", U.R(d)))
+            N.log.line(fmt("geri cekilme: atistan sonra %d birim geri (%s)", U.R(d), how))
         end
     end
 
