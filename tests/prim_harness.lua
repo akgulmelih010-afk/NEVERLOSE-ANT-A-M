@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.9"
+H.VER = "V1.0.10"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -391,6 +391,7 @@ H.EL = {
     { "smart_force", "exploits", "Force defensive when seen / near (Smart)", "cb", true },
     { "def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", "cb", true },
     { "def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", "cb", true },
+    { "def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", "sl", 16, 0, 64 },
     { "anti_peek", "exploits", "Defensive vs enemy peeks", "cb", true },
     { "switch_def", "exploits", "Defensive while switching weapons", "cb", true },
     { "clean_shot", "exploits", "Clean shot (no lag while shooting)", "cb", true },
@@ -2016,6 +2017,9 @@ function H.make(opts)
         if a and not opts.keep_afk then a:set(false) end
         local r = T.el("recommended")
         if r and opts.rec_off then r:set(false) end
+        -- V1.0.10: eski "olay basina bir" senaryolari def_repeat 0 ile kosar; varsayilani (16) sinayan testler
+        -- opts.def_repeat = true verir.
+        if not opts.def_repeat and T.el("def_repeat") ~= nil then T.set("def_repeat", 0) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
     end
@@ -4956,6 +4960,21 @@ function C.review()
         B.tick(400)
         H.check("T-TRK-1", B.count("aa: desync olcumu ham:") >= 1 or B.count("aa: desync isareti") == 0,
             "desync olcumu bittiginde ham sayi satiri yazilir (" .. B.count("aa: desync olcumu ham:") .. ")")
+    end)
+
+    H.run("T-EX-21", function()
+        -- V1.0.10: varsayilan def_repeat 16: gorulme surerken 16 tick'te bir zorlama; sadece yakin -> 0; 0 -> tek.
+        local A = H.boot({ name = "ex-21-tekrar", def_repeat = true })
+        A.W.sees[2] = 60
+        A.tick(300)
+        local a, at = H.shift_all(A)
+        local gaps = #at >= 2
+        for i = 2, #at do if at[i] - at[i - 1] < 16 then gaps = false end end
+        local B = H.boot({ name = "ex-21-yakin", def_repeat = true })
+        B.tick(300)
+        local b = H.shift_all(B)
+        H.check("T-EX-21", a >= 17 and a <= 20 and gaps and b == 0, "300 tick goruluyor, varsayilan tekrar 16: " .. a
+            .. " zorlama (17-20), aralar >= 16 tick (" .. tostring(gaps) .. "); sadece yakin: " .. b .. " (0)")
     end)
 
     H.run("T-EX-20", function()

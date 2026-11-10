@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.9  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.10  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,10 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.10 (primordial edition): "Defensive: repeat while seen" (varsayilan 16 tick): dusman gorurken zorlanan
+        defensive her defensive dongusunde bir yenilenir (V1.0.5-9: gorulme basina tek shift; istek: "def az
+        kullaniyor"). Log 3-4: force_anti_exploit_shift sarji harcamiyor ("sarj harcamadi"), takilma her tick
+        cagirmaktan geliyordu; 16 tick'te bir cagri arada. 0 = olay basina bir kez (V1.0.9 davranisi).
       V1.0.9 (primordial edition): yeni faz seti ve adil faz testi. Eski 1-7 fazlari kaldirildi (2429 mermilik GS / NL
         logunda normal AA'dan iyi degillerdi: %42-48 kafa, normal %43); kalanlar: 0 normal, 1 asym (eski en iyi, %36),
         2 rnd-asym, 3 asym+duvar, 4 atis-sonrasi (son ucu bizim; hepsi taraf suresinin duzensizligiyle oynar). "Phase
@@ -101,7 +105,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.9", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.10", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1614,6 +1618,7 @@ do
         B.cb("smart_force", "exploits", "Force defensive when seen / near (Smart)", true, true)
         B.cb("def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", true, true)
         B.cb("def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", true, true)
+        B.sl("def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", 0, 64, 16, false, "t")
         B.cb("anti_peek", "exploits", "Defensive vs enemy peeks", true, true)
         B.cb("switch_def", "exploits", "Defensive while switching weapons", true, true)
         B.cb("clean_shot", "exploits", "Clean shot (no lag while shooting)", true, true)
@@ -4860,10 +4865,20 @@ do
         local seen = E.now or E.seen
         if want and N.on("def_edge") then
             local fresh, gap = true, X.GAP[why] or 0
+            -- V1.0.10 (istek: "def az kullaniyor"; log 3-4: shift sarji harcamiyor, takilma her tick cagirmaktan):
+            -- gorulme surerken "def_repeat" tick'te bir yeniden (varsayilan 16 = defensive dongusu basina bir);
+            -- 0 = olay basina bir kez.
+            local rep_t = floor(N.v("def_repeat") or 0)
             if why == "smart" then
                 fresh = seen and not P.smart
+                if rep_t > 0 and seen then
+                    fresh, gap = true, rep_t
+                end
             elseif why == "peek" then
                 fresh = first or (fast and not P.fast) or (tick >= X.scan_start and tick - X.scan_start <= 1)
+                if rep_t > 0 and seen then
+                    fresh, gap = true, min(gap, rep_t)
+                end
             elseif why == "switch" then
                 fresh = not P.switch
             elseif why == "air" then
@@ -4902,8 +4917,14 @@ do
         X.scan_tick = tick
         local mode = X.mode_for(N.st.state)
         if mode == 2 or mode == 3 then
-            if N.on("def_edge") and (X.scan_start ~= tick or not X.gap_ok(tick, X.GAP.peek)) then
-                return
+            if N.on("def_edge") then
+                -- Tarama dizisinin basi (olay) ya da gorulurken def_repeat tick'te bir.
+                local rep_t = floor(N.v("def_repeat") or 0)
+                local E = N.exposure
+                local again = rep_t > 0 and (E.now or E.seen) and X.gap_ok(tick, rep_t)
+                if not again and (X.scan_start ~= tick or not X.gap_ok(tick, X.GAP.peek)) then
+                    return
+                end
             end
             X.shift("peek")
         end

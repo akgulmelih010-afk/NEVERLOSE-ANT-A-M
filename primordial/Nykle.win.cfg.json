@@ -1126,6 +1126,9 @@
      "Defensive: one shift per event (no repeat while seen)": {
       "is active": true
      },
+     "Defensive: repeat while seen (ticks, 0 = once)": {
+      "value": 16.0
+     },
      "Force defensive when seen / near (Smart)": {
       "is active": true
      },
