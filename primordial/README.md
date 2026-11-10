@@ -1,4 +1,4 @@
-# Nykle.win V1.0.17 — primordial edition
+# Nykle.win V1.0.18 — primordial edition
 
 primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense sürümünün (`Nykle.win.gamesense.lua` V1.0.79) loglarla kanıtlanmış özelliklerinin ve Neverlose sürümünün (`Nykle.win.lua` V1.1.x) kurallarının primordial API'sine taşınmış hali. Sadece HvH sunucuları için.
 
@@ -16,7 +16,7 @@ primordial (CS:GO) için HvH anti-aim, exploit ve resolver lua'sı. GameSense s�
    - MOUSE3 = thirdperson (toggle), Insert = menü. Native Nade Helper kapalı.
    Config yüklemesen de script native AA taşıyıcılarını kendisi nötrde tutar.
 4. Başka AA / resolver / ideal-tick / recharge script'i (metasett, IDEAL-TICK vb.) yanında yükleme: recharge, fakelag ve resolver'ın tek sahibi bu script.
-5. Konsolda `[Nykle.win] V1.0.17 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
+5. Konsolda `[Nykle.win] V1.0.18 (primordial edition) yuklendi (hafiza: N oyuncu)` satırını görürsen hazır.
 
 **Log dosyası:** `nykle_log.txt` ve hafıza dosyası `nykle_memory.txt`, oyunun `Counter-Strike Global Offensive/csgo/` klasörüne yazılır (yoksa oyunun kök klasörüne bak). Analiz için `nykle_log.txt`'yi gönder. Dosya yazılamazsa (ffi kapalı vb.) loglar hafızada kalır: **Console → Print all logs to console** ile konsola yazdır.
 
@@ -58,6 +58,7 @@ Varsayılan: "açık" = kutu varsayılan işaretli. "İzlenen" = Always use reco
 | Spin | Düşman kalmayınca (açık) / ısınmada (kapalı) dönme | açık | GS |
 | Desync keeper | Eğikken (≥ 0.9) görülürken tehdide doğru yürüme komutu "Crouch speed" (38) / 0.34'e kısılır; geri çekilme / ateşten 0.6 sn sonrası / peek'te yok | açık, 38 | GS V1.0.58 |
 | Defensive | Durum başına Off / On peek / Smart / Always on / Tick based. Smart: ragebot hedef tarıyorken + görülürken / 1800 birimde düşman varken + görüş kesilince 8 tick. Sadece DT doluyken, tick başına bir tetik. Re-arm cooldown: defensive bitince görülürken 1 sn yeniden yok (ilk görüş, hava, AI peek, silah değişimi, bıçak, AFK hariç). Anti-peek: yeni gören / hızlı düşmanda 8 tick | GS `EXPLOIT_DEFAULTS` | GS V1.0.23/43/45 |
+| Duvar kaçışı + gövde hattı (V1.0.18) | **Wall escape:** yürüme tuşuna basmıyorken bir düşmanın duvar hattı açıksa (≥ 30 hasar, canına yetiyor ya da az önce vurdu) ve sen onu vuramıyorsan, hatta dik en yakın güvenli noktaya (24 / 44 / 64 birim; ona hiç mermi geçmeyen, başka düşmanın görmediği, düşmesiz) kendisi yürür. Tuşa bastığın an kontrol sende. Autopeek tuşu basılı, AI peek / AFK, defuse, bomba, merdiven, havada: karışmaz. Solda `KACIS`; log: `duvar kacisi: sag 24 birim (...)`, `duvar kacisi sonucu: 1.5 sn icinde vurulmadin / yine vuruldun`. **Gövde hattı:** kafa hattı kapalıyken pelvise mermi geçiyorsa artık "görülüyor" sayılır (defensive, WB, kaçış). **Mermi maskeli iz (G33):** düz iz mermiyi durdurmayan şeylere çarpıp "duvar" diyordu; ilk 30 çizgide ölçülür, güvenilirse kullanılır. `dbg sen ozeti` sonunda `gorulurken N tick, DEF'li M (%P)`: defensive koruyor mu ölçümü | açık | log 6: Scaffolding'de 14 sn hareketsiz, scar20 duvardan 18 mermi / 5 isabet / −104, 0 atış; 2. ölüm mideden 2 × −78 "gormedi" |
 | Resolver + peek paketi (V1.0.15) | **Resolver:** ıska penceresi durum ailesi başına (Yer / Eğik / Hava): seviye artık dur-kalk yapan düşmanda saniyede bir 0 ↔ 1 gidip gelmez. **Jitter timing:** jitter yapan düşmanda atış anındaki taraf (+ / −) ve sonucu sayılır; bir tarafta kafa oranı diğerinden en az 0.4 düşükse (3+ ve 2+ atış) o taraftayken kafa en fazla 6 tick bekletilir; harita sonunda `resolver karsilastirma: jitter tarafi ...`. **Safe peek:** autopeek noktasında silah / DT hazır değilken yürüme komutu en fazla 1 sn sıfırlanır. Vur-kaç AI peek / AFK yürüyüşünde de çalışır; AI peek başka bir düşmanın da gördüğü noktayı seçmez | hepsi açık | log 1-2: seviye satırlarının %43'ü 2 sn içinde; log 5: 3 jitter ıskası, ölümlerde `DT %0` |
 | Duvar avı (V1.0.14) | "Wall hunt". Sniper ile duvar arkasındaki, en az 900 birim uzaktaki hedefe duvardan gövde hasarı ≥ 50 ise (öldürmüyorsa da) ateş edilir: Min. damage gövde − 1. **Min. damage kuralına senin onayladığın istisna** ("rakip uzaksa olur"); override tuşun basılıyken çalışmaz. Mesafe ve hasar sürgüleri | açık, 900 u, 50 | log 5: 15 ölümün 9'u 500-1080 birimden duvar arkası kafa; gövdeden vurulan taraf düelloyu %77-91 kaybediyor |
 | Karşı atak penceresi (V1.0.13) | "Counter window: no waits + priority vs an enemy who just fired". Az önce ateş eden düşmana (scout / AWP 1.2 sn, diğer silahlar 0.3 sn) gerçek / taze kayıt beklemesi uygulanmaz, hedef seçiminde öne alınır | açık | loglar: rakibin ilk mermisi ıskalarsa düelloyu kazanma %63-79 |
@@ -152,7 +153,7 @@ Satırlar:
 
 Vurulabilirlik taraması: her düşman kendi sırasında 4 tick'te bir (tick başına ortalama ≤ 2 düşmana iz), gözünden kafa / göğüs / pelvis; ragebot'un 2 tick'ten taze izi varsa yeniden iz atılmaz.
 
-Dosya: yeni sürümde (dosyada `V1.0.17 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
+Dosya: yeni sürümde (dosyada `V1.0.18 (primordial edition) yuklendi` yoksa) sıfırlanır; 2 MB'yi geçerse son 1 MB tutulur, 4 MB'yi geçmişse sıfırlanır; bir oturumda 2 MB'yi geçince sığan kısım ve tek bir not (`log dosyasi bu oturumda 2 MB'yi gecti ...`) yazılır, sonra dosyaya sadece özet satırları (`harita ozeti`, `dusman ozeti`, `teshis` / `dbg teshis`, `script kaldirildi`) 128 KB'lik yedek payla gider; bütün loglar hafızada kalır. Round başında / sonunda, harita değişince, ölünce, kapanışta ve 5 dk'da bir (ölüyken 1 dk) yazılır.
 
 ## Bilinen belirsizlikler (oyunda doğrulanacak)
 

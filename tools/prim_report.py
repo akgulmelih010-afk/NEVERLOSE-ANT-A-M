@@ -38,10 +38,11 @@ def parse(path, from_line=1):
          'kills': [], 'deaths': [], 'duels': [], 'sikmadi': Counter(), 'tp': Counter(), 'tp_no': Counter(),
          'def_shift': Counter(), 'def_refill': [], 'def_unspent': 0, 'waits': Counter(), 'peek': Counter(),
          'levels': 0, 'last': {}, 'wall': Counter(), 'wall_head': Counter(), 'first_t': None, 'last_t': None,
-         'maps': Counter(), 'events': []}
+         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter()}
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
-             'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ')
+             'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
+             'duvar kacisi', 'AA (')
     with open(path, encoding='utf-8', errors='replace') as f:
         for no, raw in enumerate(f, 1):
             if no < from_line:
@@ -138,6 +139,16 @@ def parse(path, from_line=1):
                 key = 'baslangic' if '->' in b and 'birim ->' in b else ('atis olmadi' if 'atis olmadi' in b else
                       ('isabet' if 'isabet' in b else ('vuruldun' if 'vurul' in b else 'diger')))
                 r['peek'][key] += 1
+            elif b.startswith('duvar kacisi'):
+                key = ('nokta yok' if 'nokta yok' in b else 'yine vuruldu' if 'yine vuruldun' in b else
+                       'temiz' if 'vurulmadin' in b else 'varildi' if 'varildi' in b else
+                       'yarida' if 'yarida' in b else 'basladi')
+                r['esc'][key] += 1
+            elif b.startswith('dbg sen ozeti'):
+                mm = re.search(r"gorulurken (\d+) tick, DEF'li (\d+)", b)
+                if mm:
+                    r['vis'] += int(mm.group(1))
+                    r['vis_def'] += int(mm.group(2))
             elif b.startswith('dbg harita') or b.startswith('===== harita'):
                 r['maps'][b[:60]] += 1
             for key in ('faz karsilastirma', 'resolver karsilastirma', 'harita ozeti', 'dbg teshis', 'olum nedenleri',
@@ -302,6 +313,15 @@ def report(r, prev=None):
         dict(r['def_shift']) or '-', h['shift_dk'], ('%.1f' % (sum(rf) / len(rf))) if rf else '?', len(rf), r['def_unspent']))
     print('  kayit beklemeleri: %s | resolver seviye satiri %d (dakikada %.1f) | ai peek: %s' % (
         dict(r['waits']) or '-', r['levels'], r['levels'] / max(1.0, h['dk']), dict(r['peek']) or '-'))
+    if r['esc']:
+        print('  duvar kacisi: %s' % dict(r['esc']))
+    if r['vis'] > 0:
+        # DEF korumasi: gorulurken gecen surenin DEF'li payi ile yenen mermilerin "DEF acik" payi. Mermi payi sure
+        # payindan belirgin dusukse defensive koruyor (ayni olasilikla vurulsaydik iki pay esit olurdu).
+        hits = r['hurt']
+        hd = sum(1 for x in hits if x['def'])
+        print("  DEF korumasi: gorulurken %d tick, DEF'li %s | yenen mermilerin DEF acik payi %s (%d/%d)" % (
+            r['vis'], pct(r['vis_def'], r['vis']), pct(hd, len(hits)), hd, len(hits)))
     if r['last']:
         print('== DENEY / OZET SATIRLARI (son) ==')
         for k, v in r['last'].items():

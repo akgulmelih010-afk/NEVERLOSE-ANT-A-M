@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.17"
+H.VER = "V1.0.18"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -403,6 +403,7 @@ H.EL = {
     { "auto_peek", "peek", "Auto peek state (moving into view)", "cb", true },
     { "ai_peek", "peek", "AI peek (hold autopeek key)", "cb", true },
     { "safe_peek", "peek", "Safe peek: hold at the autopeek spot until weapon + DT are ready", "cb", true },
+    { "wall_escape", "peek", "Wall escape: step out of a wallbang lane while standing still", "cb", true },
     { "peek_defensive", "peek", "Defensive during AI peek", "cb", true },
     { "afk", "peek", "AFK mode (AI peek here + strafe, full exploits)", "cb", false },
     { "afk_auto", "peek", "Auto AFK (no input 8 s after spawn)", "cb", true },
@@ -797,6 +798,7 @@ function H.make(opts)
         elseif name == "m_bDucking" then return p.ducking and 1 or 0
         elseif name == "m_flMaxspeed" then return 250
         elseif name == "m_szLastPlaceName" then return p.place or ""
+        elseif name == "m_bIsDefusing" then return p.defusing and 1 or 0
         end
         T.props_unknown[tostring(name)] = true
         return 0
@@ -1029,6 +1031,16 @@ function H.make(opts)
     TR.line = function(a, b, skip, mask)
         count_trace()
         if type(a) ~= "table" or type(b) ~= "table" then error("trace.line: vec3 bekleniyor", 2) end
+        if mask ~= nil then
+            -- V1.0.18 mermi maskeli iz (U.shotline): W.mask_line(a, b) fraction dondururse o; W.mask_err hata verir.
+            T.masked = (T.masked or 0) + 1
+            if mask ~= 0x4600400B then error("trace.line: beklenmeyen maske " .. tostring(mask), 2) end
+            if W.mask_err then error("trace.line: maske desteklenmiyor", 2) end
+            if W.mask_line ~= nil then
+                local f = W.mask_line(a, b)
+                if f ~= nil then return { fraction = f, entity = nil } end
+            end
+        end
         local horiz = (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2
         if horiz < 4 and b.z < a.z then
             -- trace_dz: izin gordugu zemin fizik zemininden yuksek (inis tahmini sapmasi, T-CHG-4).
@@ -5155,6 +5167,130 @@ function C.review()
             "DT bos: " .. z1 .. "/" .. n1 .. " tick yurume 0; 1 sn sonra serbest (" .. late1 .. " tick); DT dolu: " .. z2
             .. " (0); ayar kapali: " .. z3 .. " (0); log " .. A.count("safe peek:"))
     end)
+    H.run("T-PEEK-ESC", function()
+        -- V1.0.18 duvar kacisi: hareketsiz + duvar hatti 74 + onu vuramiyorum -> hatta dik guvenli noktaya yurur,
+        -- "varildi" ve 1.5 sn sonra sonuc satiri. Tus basili / onu vurabiliyorum / ayar kapali / hat kucuk -> yok.
+        -- Guvenli nokta yoksa tek "guvenli nokta yok" satiri ve yurume yok. Kucuk hat + az once vurdu -> kacar.
+        local function inst(name, setup, ticks)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            W.p[2].origin.x = 1200
+            W.p[3].origin.x = 4200
+            W.wall[2] = true
+            W.head_dmg[2] = 0; W.body_dmg[2] = 0
+            W.physics = true
+            T.lane = 74
+            -- Hat sadece ilk durdugum yerde acik: 12 birim yana cikinca kapanir.
+            W.see_fn[2] = function(to) return (math.abs(to.x) < 12 and math.abs(to.y) < 12) and T.lane or 0 end
+            if setup then setup(T, W) end
+            T.tick(ticks or 60)
+            return T
+        end
+        local function walked(T)
+            local n = 0
+            for _, m in pairs(T.moves) do if math.abs(m.x) > 1 or math.abs(m.y) > 1 then n = n + 1 end end
+            return n
+        end
+        local A = inst("peek-esc")
+        local a_go, a_arr = A.count("duvar kacisi: sol 24 birim (Alpha, hat 74 hasar") + A.count("duvar kacisi: sag 24 birim (Alpha, hat 74 hasar"),
+            A.count("duvar kacisi: varildi")
+        local o = A.W.p[1].origin
+        local a_dist = math.sqrt(o.x * o.x + o.y * o.y)
+        A.tick(140)
+        local a_res = A.count("duvar kacisi sonucu: 1.5 sn icinde vurulmadin")
+        local a_again = A.count("duvar kacisi: varildi")
+        local Bk = inst("peek-esc-tus", function(T, W) W.buttons.FORWARD = true end)
+        local Ch = inst("peek-esc-vurabiliyorum", function(T, W) W.head_dmg[2] = 300 end)
+        local Off = inst("peek-esc-kapali", function(T) T.set("wall_escape", false) end)
+        local Sm = inst("peek-esc-kucuk", function(T) T.lane = 10 end)
+        local sm0 = Sm.count("duvar kacisi:")
+        Sm.hurt_me(2, 2, 10)
+        Sm.tick(40)
+        local sm1 = Sm.count("az once vurdu")
+        local No = inst("peek-esc-nokta-yok", function(T, W)
+            W.ldmg = function(from) return (math.abs(from.x) > 10 or math.abs(from.y) > 10) and 40 or 0 end
+        end, 200)
+        local Hit = inst("peek-esc-vuruldu")
+        Hit.hurt_me(2, 2, 20)
+        Hit.tick(120)
+        local def = inst("peek-esc-defuse", function(T, W) W.p[1].defusing = true end)
+        H.check("T-PEEK-ESC", a_go == 1 and a_arr == 1 and a_dist >= 16 and a_dist <= 40 and a_res == 1 and a_again == 1,
+            "hat 74, vuramiyorum: kacis satiri " .. a_go .. " (1), varildi " .. a_arr .. " (1), " .. string.format("%.0f", a_dist)
+            .. " u yana (16-40), sonuc 'vurulmadin' " .. a_res .. " (1), hat kapaninca yeniden kacis yok (" .. a_again .. ")")
+        H.check("T-PEEK-ESC", Bk.count("duvar kacisi") == 0 and Ch.count("duvar kacisi") == 0 and walked(Ch) == 0
+            and Off.count("duvar kacisi") == 0 and walked(Off) == 0 and def.count("duvar kacisi") == 0 and walked(def) == 0,
+            "tus basili: " .. Bk.count("duvar kacisi") .. ", onu vurabiliyorum: " .. Ch.count("duvar kacisi") .. ", ayar kapali: "
+            .. Off.count("duvar kacisi") .. ", defuse: " .. def.count("duvar kacisi") .. " (hepsi 0, yurume yok)")
+        H.check("T-PEEK-ESC", sm0 == 0 and sm1 == 1, "hat 10 hasar: kacis yok (" .. sm0 .. "); o dusman vurunca kacar ('az once vurdu' "
+            .. sm1 .. ")")
+        H.check("T-PEEK-ESC", No.count("duvar kacisi: guvenli nokta yok (Alpha, hat 74 hasar)") == 1 and walked(No) == 0
+            and No.count("duvar kacisi: sol") + No.count("duvar kacisi: sag") == 0, "her adaydan ona mermi geciyor: 'guvenli nokta yok' "
+            .. No.count("guvenli nokta yok") .. " (5 sn'de 1), yurume " .. walked(No) .. " (0)")
+        H.check("T-PEEK-ESC", Hit.count("duvar kacisi sonucu: 1.5 sn icinde yine vuruldun") == 1
+            and Hit.count("duvar kacisi sonucu: 1.5 sn icinde vurulmadin") == 0, "varistan sonra vurulunca: 'yine vuruldun' "
+            .. Hit.count("yine vuruldun") .. " (1), 'vurulmadin' " .. Hit.count("icinde vurulmadin") .. " (0)")
+        local sum = A.mark()
+        A.event("round_start", {})
+        A.tick(3)
+        local line = A.printed("dbg sen ozeti:", sum) or ""
+        H.check("T-PEEK-ESC", line:find("gorulurken %d+ tick, DEF'li %d+ %(%%%d+%) | duvar kacisi 1 %(sonrasi vurulma 0, temiz 1, tusla birakilan 0, nokta yok 0%)") ~= nil,
+            "dbg sen ozeti: " .. line:sub(-120))
+    end)
+    H.run("T-EXP-BODY", function()
+        -- V1.0.18 govde hatti: kafaya mermi 0, pelvise 60. Cizgi acikken "gordu" (duvar hatti yok); duvar varken
+        -- "duvar hatti 60 hasar" + "WB 60". Eskiden ikisi de "gormedi" idi.
+        local function inst(name, wall)
+            local T = H.boot({ name = name })
+            local W = T.W
+            W.see_fn[2] = function(to) return (to.z - W.p[1].origin.z) >= 58 and 0 or 60 end
+            W.wall[2] = wall or nil
+            T.tick(20)
+            local m = T.mark()
+            T.hurt_me(2, 3, 30)
+            T.tick(2)
+            return T, T.printed("vuruldun:", m) or ""
+        end
+        local _, open = inst("exp-govde-acik", false)
+        local Wl, wall = inst("exp-govde-duvar", true)
+        local wb = Wl.has_text(Wl.W.tick - 2, Wl.W.tick, "WB 60", function(x) return x.x < 300 end)
+        H.check("T-EXP-BODY", open:find("gordu", 1, true) ~= nil and open:find("gormedi", 1, true) == nil
+            and open:find("duvar hatti", 1, true) == nil and wall:find("duvar hatti 60 hasar", 1, true) ~= nil and wb,
+            "govde hatti acik: " .. open:sub(-70) .. " | duvardan: " .. wall:sub(-80) .. " | WB 60 " .. tostring(wb))
+    end)
+    H.run("T-UTIL-MASK", function()
+        -- V1.0.18 mermi maskeli iz (G33): 30 kapali cizgi olculur. Maske ayni sonucu veriyorsa kullanilir; sonradan
+        -- sadece maskenin acik dedigi cizgi (oyuncu clip'i) artik duvar hatti sayilmaz. Maske her seyi acik diyorsa
+        -- ya da hata veriyorsa varsayilan iz kalir (WB surer).
+        local left = function(x) return x.x < 300 end
+        local function inst(name, setup)
+            local T = H.boot({ name = name })
+            local W = T.W
+            W.sees[2] = 60
+            W.wall[2] = true
+            if setup then setup(T, W) end
+            T.tick(400)
+            return T, T.has_text(T.W.tick - 2, T.W.tick, "WB 60", left)
+        end
+        local A, a_wb = inst("util-mask")
+        local a_line = A.count("teshis: G33 mermi maskeli iz: varsayilan izin kapali dedigi 30 cizgiden 0 tanesi maskeyle acik -> maskeli iz kullaniliyor")
+        A.W.mask_line = function(a) return math.abs(a.x - A.W.p[2].origin.x) < 40 and 1 or nil end
+        A.tick(30)
+        local a_gone = not A.has_text(A.W.tick - 2, A.W.tick, "WB 60", left)
+        local m = A.mark()
+        A.hurt_me(2, 2, 30)
+        A.tick(2)
+        local a_det = A.printed("dbg vurulma-detay:", m) or ""
+        local Bd, b_wb = inst("util-mask-bozuk", function(T, W) W.mask_line = function() return 1 end end)
+        local b_line = Bd.count("tanesi maskeyle acik -> maske guvenilmez, varsayilan iz kullaniliyor")
+        local b_calls = Bd.masked or 0
+        local Er, e_wb = inst("util-mask-hata", function(T, W) W.mask_err = true end)
+        H.check("T-UTIL-MASK", a_line == 1 and a_wb and a_gone and a_det:find("iz acik", 1, true) ~= nil, "maske tutarli: G33 satiri "
+            .. a_line .. " (1), WB surer (" .. tostring(a_wb) .. "); sonra maske cizgiyi acik deyince WB yok (" .. tostring(a_gone)
+            .. "), vurulma-detay 'iz acik' (" .. tostring(a_det:find("iz acik", 1, true) ~= nil) .. ")")
+        H.check("T-UTIL-MASK", b_line == 1 and b_calls == 30 and b_wb and Er.count("teshis: G33 mermi maskeli iz alinamadi") == 1 and e_wb,
+            "maske her seyi acik diyor: 'guvenilmez' " .. b_line .. " (1), maskeli cagri " .. b_calls .. " (30, sonra yok), WB surer (" .. tostring(b_wb) .. "); maske hata veriyor: not "
+            .. Er.count("G33 mermi maskeli iz alinamadi") .. " (1), WB surer (" .. tostring(e_wb) .. ")")
+    end)
     H.run("T-EX-22", function()
         -- V1.0.12 vur-kac: autopeek basili + scout atisi -> 1-12 tick icinde tek force_uncharge + log; autopeek yokken,
         -- ayar kapaliyken yok; sarj 0 ise uyari (bir kez), uncharge yok.
@@ -6267,7 +6403,7 @@ function C.chg()
         T.tick(40)
         T.event("round_start", {})
         local l2 = T.printed("dbg sen ozeti:", m2)
-        H.check("T-CHG-3", H.bare(line) == want and r.tp ~= nil and H.in_order(l2, { "teleport 1, sonrasi 1.5 sn icinde"
+        H.check("T-CHG-3", H.bare(line):sub(1, #want) == want and line:find("| gorulurken 4 tick, DEF'li 0 (%0)", 1, true) ~= nil and r.tp ~= nil and H.in_order(l2, { "teleport 1, sonrasi 1.5 sn icinde"
             .. " vurulma 1", "defensive bitisi 1" }) and l2:find("gorulen %(sim%) [1-9]") ~= nil, "round basinda tam sayaclar: "
             .. tostring(line) .. " | teleport + vurulma + kendi defensive: " .. tostring(l2))
     end)

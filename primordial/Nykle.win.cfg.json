@@ -1234,6 +1234,9 @@
      "Safe peek: hold at the autopeek spot until weapon + DT are ready": {
       "is active": true
      },
+     "Wall escape: step out of a wallbang lane while standing still": {
+      "is active": true
+     },
      "column": 1,
      "is collapsed": false,
      "order": 7
