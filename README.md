@@ -720,6 +720,15 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.85** (V1.0.84 logu, 13 dk, üç ayrı sunucu: de_mirage 3 kill / 5 ölüm, rastgele silahlı `infinity_hvh_crackhouse_v4` (ping 150) 1 / 6, ikinci de_mirage 1 / 1; toplam 5 / 12, 6 scout atışı. Sunucu ve silah karışık olduğu için önceki oturumla karşılaştırılamaz. Hata satırı yok.)
+
+| Ne | Sonuç / değişiklik |
+|---|---|
+| Deney: `slow_jit` | **Reddedildi** (motorun ilk kararı): şimdiki ayar 35 can 40 mermi zarar 0.51, yavaş jitter 34 can 45 mermi zarar **0.68**, z −2.4. Paketteki luaların yaptığı şey senin rakiplerine karşı daha kötü çıktı; sıradaki aday devreye girdi. |
+| Yerde tutma (V1.0.84) oyunda | 4 iniş teleportu, 4'ünde de çalıştı: `ates ettin: yerde 15 tick, ziplama 6 kez engellendi, hiz 504 -> 0`, `sure: yerde 33 tick, hiz 290 -> 0`, iki kez `kimse gormuyor: 8 tick`. 4 teleportun 3'ünden sonraki 1.5 sn'de vuruldun (hepsi gövde); sayı az, kararı hava deneyi verecek. |
+| **Hata**: teleport harita için kapatılınca uçuş korumasız kalıyordu | "Son 2 ışınlanmanın 2'sinde hemen vuruldun, bu harita boyunca havada teleport kapalı" dedikten sonra da şarj inişe saklanıyor, yani uçuşta ne teleport ne defensive kalıyordu (bu logda öyle bir uçuşta AWP ile öldün). Artık teleport kapalıyken şarj saklanmaz, uçuşta defensive zorlanır (test: 48 hava tick'inde zorlandı). |
+| Yeni aday **`fast_charge`** ("Fast recharge: aimbot off while the bolt cycles and DT is empty (scout / AWP)", varsayılan kapalı) | Bütün GameSense logları, mermi yediğin anlar: kendi atışından 0.3–0.6 sn sonra DT'nin dolu olduğu an **%7**, 0.6–1.0 sn'de %40, 1–2 sn'de %67 (teleporttan sonra %7 / %29 / %55). Şarj 0.22 sn'de dolabilecekken GameSense vurulabilir hedef varken erteliyor; DT boşken defensive de yok. Sürgü çekilirken zaten ateş edemezsin: o sırada (silahın hazır olmasına 0.2 sn'den fazla varken) DT dolu değilse aimbot kapatılır, DT dolunca ya da silah hazırlanırken geri açılır. Logda `dbg hizli sarj: N tick aimbot kapali, DT doldu / dolmadan bitti` satırı işe yarayıp yaramadığını gösterecek. Yer kulvarında `peek_static`'in önüne alındı. |
+
 **V1.0.84** (istek: "oto stop da olması lazım, beni yere indirmesi lazım, yoksa yere ışınlanıp sonra tekrar yukarı zıplıyor ve ölüyorum".)
 
 | Ne | Önce | Şimdi |

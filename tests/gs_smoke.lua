@@ -430,7 +430,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.84 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.84")
+check(printed("V1.0.85 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.85")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -2506,6 +2506,68 @@ do
             "V1.0.84: secenek kapaliyken 3. komutta ziplama yine basili (" .. tostring(o3 and o3.jump) .. ")")
         hold_ref.value = true
         W.next_attack = 0
+
+        -- V1.0.85: inis teleportu harita icin kapatilinca (art arda iki isinlanmadan sonra vuruldun) ucusta sarj
+        -- saklanmaz, defensive yine zorlanir (V1.0.84 logu: o durumda ucus korumasiz kaliyordu).
+        W.sees[2], W.speed, W.next_attack = true, 240, 1e9
+        local ob = #prints + 1
+        for _ = 1, 3 do
+            if printed("bu harita boyunca havada teleport kapali", ob) ~= nil then break end
+            settle(200)
+            fly({ after = 2 })
+            tick(12)
+            fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 120, hitgroup = 1, weapon = "ssg08" })
+            tick(4)
+        end
+        check(printed("bu harita boyunca havada teleport kapali", ob) ~= nil, "V1.0.85 kurulum: iki isinlanmadan sonra vurulunca teleport harita icin kapanir")
+        settle(200)
+        local rec_o, land_o, fires_o = fly({ after = 2 })
+        local air_fd = 0
+        for _, r in ipairs(rec_o) do
+            if r.phase == "air" and r.fd == true then air_fd = air_fd + 1 end
+        end
+        check(#fires_o == 0 and air_fd >= 5, "V1.0.85: teleport kapaliyken ucusta defensive zorlanir (discharge " .. #fires_o
+            .. ", havada zorlanan tick " .. air_fd .. ")")
+        fire("level_init")
+        W.next_attack = 0
+        settle(40)
+    end
+
+    -- V1.0.85: hizli sarj. Scout elde, DT acik ama bos (lag 0), silah hazir degil (surgu): aimbot kapatilir; DT
+    -- dolunca ya da silah hazirlanirken geri acilir; secenek kapaliyken hic dokunulmaz.
+    do
+        local fc_ref = find_ref("Fast recharge: aimbot off while the bolt cycles and DT is empty (scout / AWP)")
+        local rage_ref = find_ref("Rage enabled")
+        check(fc_ref ~= nil and fc_ref.value == false and rage_ref ~= nil and rage_ref.value == true,
+            "V1.0.85: hizli sarj secenegi var, varsayilan kapali")
+        W.flags, W.z, W.vz, W.jump, W.speed = 1, 0, 0, nil, 0
+        W.sees[2], W.lag, W.next_attack = false, 0, 1e9
+        tick(6)
+        local off_untouched = rage_ref.value
+        fc_ref.value = true
+        local fb = #prints + 1
+        tick(6)
+        local during = rage_ref.value
+        W.lag = 12
+        tick(6)
+        local after_full = rage_ref.value
+        local fl = printed("dbg hizli sarj:", fb)
+        W.lag, W.next_attack = 0, 0
+        tick(6)
+        local weapon_ready_v = rage_ref.value
+        W.next_attack = 1e9
+        tick(6)
+        local again = rage_ref.value
+        fc_ref.value = false
+        tick(4)
+        check(off_untouched == true and during == false and after_full == true and weapon_ready_v == true and again == false
+            and rage_ref.value == true,
+            "V1.0.85: hizli sarj: surgu + bos DT'de aimbot kapali, DT dolunca / silah hazirken / secenek kapaliyken acik ("
+            .. tostring(off_untouched) .. tostring(during) .. tostring(after_full) .. tostring(weapon_ready_v) .. tostring(again)
+            .. tostring(rage_ref.value) .. ")")
+        check(fl ~= nil and fl:find("DT doldu", 1, true) ~= nil, "V1.0.85: hizli sarj bitince satir yazilir (" .. tostring(fl) .. ")")
+        W.lag, W.next_attack = 12, 0
+        tick(4)
     end
 
     W.z, W.vz, W.floor_z, W.jump = nil, nil, nil, nil
@@ -2569,7 +2631,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.84 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.85 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2739,10 +2801,10 @@ do
     local l17 = life(function() tick(3); for _ = 1, 4 do hurt(1) end end)
     afk_ref.value = false
     tick(2)
-    check(l17:find("yer peek_static", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
+    check(l17:find("yer fast_charge", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
     saved_xp = db.nykle_win_gs_xp
-    check(saved_xp.c.peek_static == nil or (saved_xp.c.peek_static.a.l + saved_xp.c.peek_static.b.l == 0
-        and saved_xp.c.peek_static.a.n + saved_xp.c.peek_static.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
+    check(saved_xp.c.fast_charge == nil or (saved_xp.c.fast_charge.a.l + saved_xp.c.fast_charge.b.l == 0
+        and saved_xp.c.fast_charge.a.n + saved_xp.c.fast_charge.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
 
     -- AFK cani sayilmadigi icin siradaki can ayni kolda baslar; 5 sn'den kisa olumsuz can (cift dogus) da oyle.
     local from18 = #prints + 1
@@ -2756,8 +2818,8 @@ do
         if prints[i]:find("deney: can", 1, true) then second = prints[i]; break end
     end
     n = n + 2
-    check(l17:match("yer peek_static (%u)") == first:match("yer peek_static (%u)")
-        and first:match("yer peek_static (%u)") == second:match("yer peek_static (%u)") and first ~= second,
+    check(l17:match("yer fast_charge (%u)") == first:match("yer fast_charge (%u)")
+        and first:match("yer fast_charge (%u)") == second:match("yer fast_charge (%u)") and first ~= second,
         "V1.0.81: sayilmayan candan sonra kol tekrarlanir (" .. first .. " / " .. second .. ")")
     fire("player_death", { userid = 1, attacker = 2, weapon = "ssg08" })
 

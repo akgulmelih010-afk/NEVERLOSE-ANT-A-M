@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.84"
+local VERSION = "1.0.85"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -466,6 +466,8 @@ do
     end
 
     refs.aa_enabled = find({ { "AA", "Anti-aimbot angles", "Enabled" } })
+    -- V1.0.85 hizli sarj (bkz. resolver.fast_charge): aimbot'un ana salteri.
+    refs.rage_enabled = find({ { "RAGE", "Aimbot", "Enabled" } }, true)
     refs.pitch, refs.pitch_value = find({ { "AA", "Anti-aimbot angles", "Pitch" } })
     refs.yaw_base = find({ { "AA", "Anti-aimbot angles", "Yaw base" } })
     refs.yaw, refs.yaw_offset = find({ { "AA", "Anti-aimbot angles", "Yaw" } })
@@ -1490,6 +1492,13 @@ end)
 -- yerdeyken scout'un Minimum hit chance'i en az bu deger (senin degerin daha yuksekse dokunulmaz). 0 = kapali; once
 -- deney olarak olculur (aday "hc70"), kazanirsa kalici olur.
 menu.scout_hc       = grp.protect_raw:slider("Scout hit chance floor on ground (0 = off)", 0, 100, 0, "%")
+-- V1.0.85 (butun GameSense loglari, mermi yedigin anlar: kendi atisindan 0.3-0.6 sn sonra DT'nin dolu oldugu an %7,
+-- 0.6-1.0 sn'de %40, 1-2 sn'de %67; teleporttan sonra %7 / %29 / %55. Sarj 14 tick'te (0.22 sn) dolabilirken
+-- GameSense vurulabilir hedef varken sarji erteliyor; DT bosken defensive de yok. Paylastigin paketteki iki lua
+-- (gay-yaw, king) bunu havada aimbot'u kisa sure kapatarak asiyor.) Scout / AWP'de surgu cekilirken zaten ates
+-- edemezsin: o sirada (silahin hazir olmasina 0.2 sn'den fazla varken) ve DT dolu degilken aimbot kapatilir, DT
+-- dolunca ya da silah hazirlanirken geri acilir. Varsayilan kapali; once deney olarak olculur (aday "fast_charge").
+menu.fast_charge    = grp.protect_raw:switch("Fast recharge: aimbot off while the bolt cycles and DT is empty (scout / AWP)", false)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
 -- giden 178 atis %57, gercek kayda giden %75 tuttu (correction iskasi %25'e karsi %9); scout'ta her iska
@@ -5215,6 +5224,39 @@ resolver.air_hitchance = function(lp, class)
         end
         override("hit_chance", wanted, scope)
     end
+
+    -- V1.0.85: hizli sarj (bkz. menu.fast_charge). Her tick yazilir; kosul bitince senin ayarin geri gelir (kapaninca /
+    -- unload'da da: ezme sistemi). Guvenlik: sadece surgulu silah elindeyken ve atese 0.2 sn'den fazla varken; silah
+    -- hazirlanirken aimbot her durumda acik.
+    resolver.fc = { on = false, from = nil, n = 0, full = 0, ticks = 0 }
+    resolver.fast_charge = function(lp, class)
+        local F = resolver.fc
+        local want = on(menu.fast_charge) and refs.rage_enabled ~= nil and lp ~= nil
+            and (class == "CWeaponSSG08" or class == "CWeaponAWP") and not afk.on and not fd_on()
+            and dt_on() and charge.value < 0.99 and not weapon_ready(lp, 0.2) and #enemy_list() > 0
+            and user_value("rage_enabled") ~= false
+        if want then
+            if not F.on then
+                F.on, F.from = true, tickcount()
+            end
+            override("rage_enabled", false)
+            return
+        end
+        if F.on then
+            local took = tickcount() - (F.from or tickcount())
+            local filled = dt_on() and charge.value >= 0.99
+            F.on, F.from = false, nil
+            if took >= 0 and took < 256 then
+                F.n, F.ticks = F.n + 1, F.ticks + took
+                F.full = F.full + (filled and 1 or 0)
+            end
+            if on(menu.debug_log) then
+                print(("[%s] dbg hizli sarj: %d tick aimbot kapali, %s (toplam %d kez, %d doldu, ort %.0f tick)"):format(
+                    SCRIPT, took, filled and "DT doldu" or "DT dolmadan bitti", F.n, F.full, F.ticks / max(1, F.n)))
+            end
+        end
+        override("rage_enabled", nil)
+    end
 end
 
 local function update_flip(s, exploit, choked)
@@ -6438,7 +6480,10 @@ teleport.plan = function(lp, cmd, move_state)
     local L = exposure.land
     local now = tickcount()
     local ladder = prop(lp, "m_MoveType") == K.MOVETYPE_LADDER
+    -- V1.0.85: teleport bu harita icin kapatildiysa (son isinlanmalarin cogunda hemen vuruldun) sarj da saklanmaz:
+    -- yoksa ucusta ne teleport ne defensive kaliyordu (V1.0.84 logu: boyle bir ucusta AWP ile oldun).
     L.policy = on(menu.air_lc) and on(menu.air_teleport) and not afk.on and not fd_on() and not ladder
+        and not teleport.off
     L.air_move = move_state == "Air" or move_state == "Air crouch"
     if seen_by_enemy() then
         L.seen_at = now
@@ -7465,6 +7510,7 @@ local function tick_prepare(cmd)
     resolver.air_hitchance(lp, class)
     resolver.ping_spike()
     resolver.quick_stop(class)
+    resolver.fast_charge(lp, class)
     resolver.wait_apply(class, present)
     plist_release_missing(present)
     update_ai_peek(lp, cmd, class)
@@ -8178,6 +8224,9 @@ local function exploit_status()
         .. (current.air_keep and " (hava, bayrak)" or "")
         .. (own.aa.slowed and " yavas" or "") .. (own.aa.stopped and " dur" or "") .. (own.aa.inverted and " fs ters" or "")
         .. (own.aa.nojump and " zipla yok" or "")
+    if resolver.fc ~= nil and resolver.fc.on then
+        parts[#parts + 1] = "hizli sarj"
+    end
     if recharge.held then
         parts[#parts + 1] = "sarj bekle"
     elseif recharge.no_hold ~= nil and charge.value < 1 then
@@ -11390,6 +11439,10 @@ K.xp.init = function()
             states = { Standing = { delay = 4 }, Moving = { delay = 4 }, ["Slow walk"] = { delay = 4 },
                 Crouching = { delay = 6 }, ["Crouch move"] = { delay = 5 }, Peek = { delay = 4 } },
             name = "yavas jitter: taraf 4-6 pakette bir degisir (simdi her pakette)" },
+        -- V1.0.85: atistan / teleporttan sonra DT 0.6-2 sn bos kaliyor (bkz. menu.fast_charge); aday surgu cekilirken
+        -- aimbot'u kapatip sarji hemen baslatir.
+        { id = "fast_charge", lane = "yer", kind = "harm", min = 40, gate = true, set = { fast_charge = true },
+            name = "hizli sarj: surgu cekilirken DT bossa aimbot kapali (sarj hemen dolsun)" },
         { id = "peek_static", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { body_yaw = "Static", body_fs = "On" } },
             name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
