@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.16"
+H.VER = "V1.0.17"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -6876,6 +6876,17 @@ function C.stat_full()
         -- GS duzeni: buyuk yazi dusukte kirmizi, yuksekte yesil; bilgi satiri kucuk yazi tipinde ve altinda.
         local tint_ok = a1 ~= nil and b1 ~= nil and a1.col ~= nil and b1.col ~= nil and a1.col.g > a1.col.r and b1.col.r > b1.col.g
             and a2 ~= nil and a2.y > a1.y and (a2.fs or 0) < (a1.fs or 0)
+        -- V1.0.17: isim yuzdenin bittigi yerden sonra baslar (mock olcumu 7 px / harf dondurse de: gercek genislik
+        -- 21 px yazida "80%" icin ~56 px) ve UTF-8 isim karakter ortasindan kesilmez.
+        local nm = H.text_at(A, "Alpha")
+        local gap_ok = nm ~= nil and a1 ~= nil and nm.x - a1.x >= 50
+        local U8 = H.boot({ name = "stat-6-utf8", pre = function(T, W) W.p[2].name = "ПИВАСИК ДЖЕФФРИ ДАМЕР" end })
+        U8.tick(20)
+        local cut = nil
+        for _, x in ipairs(U8.texts(U8.W.tick, U8.W.tick)) do if x.s:find("ПИВАСИК", 1, true) then cut = x.s end end
+        local utf_ok = cut == "ПИВАСИК ДЖЕФФРИ."
+        H.check("T-STAT-6", gap_ok and utf_ok, "isim yuzdeden en az 50 px sonra (" .. tostring(nm and a1 and (nm.x - a1.x)) .. "); UTF-8 isim"
+            .. " 16 karakterde, karakter sinirinda kesilir (" .. tostring(cut) .. ")")
         H.check("T-STAT-6", tint_ok, "resolver paneli GS duzeni: %80 yesil, %29 kirmizi, bilgi satiri altta ve kucuk ("
             .. tostring(tint_ok) .. ")")
         H.check("T-STAT-6", s(a1) == "80%" and s(a2) == "72%" and s(b1) == "29%" and s(b2) == "26%"

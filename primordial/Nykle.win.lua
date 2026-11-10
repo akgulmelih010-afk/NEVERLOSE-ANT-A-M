@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.16  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.17  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,9 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.17 (primordial edition): resolver panelinde dusman adi yuzdenin ustune biniyordu (yazi genisligi olcumu
+        guvenilmez: artik harf genisliklerinden hesaplanir) ve Kiril / Turkce isim bayt ortasindan kesilip "?"
+        cikiyordu (UTF-8 karakter sinirinda kesilir).
       V1.0.16 (primordial edition): resolver paneli GS duzeninde (kutu yok; buyuk renkli cozum yuzdesi + beyaz dusman
         adi, altinda "COZUM   HIT %N   isabet/atis   L<seviye>"; hedef yokken soluk "--").
       V1.0.15 (primordial edition): resolver + peek paketi. Resolver: iska penceresi durum ailesi basina (Yer / Egik /
@@ -130,7 +133,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.16", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.17", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -9816,6 +9819,41 @@ do
         return c
     end
 
+    -- UTF-8 ismi karakter sinirinda keser (bayt ortasindan kesilen Kiril / Turkce harf "?" cikiyordu).
+    D.short_name = function(name, limit)
+        local out, n, i, len = {}, 0, 1, #name
+        while i <= len do
+            local b = name:byte(i)
+            local size = (b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1
+            if n >= limit - 1 and i + size - 1 < len then
+                out[#out + 1] = "."
+                break
+            end
+            out[#out + 1] = name:sub(i, i + size - 1)
+            n, i = n + 1, i + size
+        end
+        return concat(out)
+    end
+
+    -- Buyuk yazinin genisligi: olcum (render.get_text_size) guvenilmez cikti (isim yuzdenin ustune bindi), bu yuzden
+    -- Verdana Bold harf genislikleriyle hesaplanir ve olcumle buyugu alinir (rakam 0.71 em, % 1.27 em, - 0.48 em).
+    D.main_width = function(F, main)
+        local w = F.widths[main]
+        if w == nil then
+            local em = 0
+            for ch in main:gmatch(".") do
+                em = em + ((ch == "%" and 1.27) or (ch == "-" and 0.48) or 0.71)
+            end
+            w = em * F.bp
+            local ok, size = pcall(render.get_text_size, F.big, main)
+            if ok and size ~= nil and U.finite(size.x) and size.x > w then
+                w = size.x
+            end
+            F.widths[main] = w
+        end
+        return w
+    end
+
     D.res_data = function(target)
         local idx = U.index(target)
         local p, key = N.mem.entry(target)
@@ -9825,7 +9863,7 @@ do
         local tr = idx ~= nil and N.track.p[idx] or nil
         local skey = key or (idx ~= nil and ("i" .. idx)) or nil
         local cozum, hit = N.stats.estimate(target, idx, skey, p)
-        return { name = #name > 16 and (name:sub(1, 15) .. ".") or name, cozum = cozum, hit = hit,
+        return { name = D.short_name(name, 16), cozum = cozum, hit = hit,
             level = t ~= nil and t.level or 0, hits = tr ~= nil and (tr.our_hits or 0) or 0,
             shots = tr ~= nil and (tr.our_shots or 0) or 0 }
     end
@@ -9851,12 +9889,7 @@ do
         else
             main, name, col, info = "--", "", color_t(160, 160, 165, 200), "COZUM   hedef yok"
         end
-        local w = F.widths[main]
-        if w == nil then
-            local ok, size = pcall(render.get_text_size, F.big, main)
-            w = (ok and size ~= nil) and size.x or (#main * F.bp * 0.6)
-            F.widths[main] = w
-        end
+        local w = D.main_width(F, main)
         D.text(F.big, main, x, y, col, false)
         if name ~= "" then
             D.text(F.big, name, x + w + floor(8 * F.size / 100), y, color_t(255, 255, 255, 255), false)
