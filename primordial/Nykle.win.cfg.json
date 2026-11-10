@@ -1111,6 +1111,9 @@
      "Air: break LC (uncharge + full fake lag when seen)": {
       "is active": true
      },
+     "Air: no DT recharge in the air (no mid-air teleport)": {
+      "is active": true
+     },
      "Also while crouched (peek / crouch move)": {
       "is active": false
      },
@@ -1127,7 +1130,7 @@
       "is active": true
      },
      "Defensive: repeat while seen (ticks, 0 = once)": {
-      "value": 16.0
+      "value": 12.0
      },
      "Force defensive when seen / near (Smart)": {
       "is active": true
@@ -1329,6 +1332,9 @@
       "is active": true
      },
      "Wait for real record (enemy defensive)": {
+      "is active": true
+     },
+     "Wait for real record even while the enemy sees you": {
       "is active": true
      },
      "Wall hunt: min damage": {

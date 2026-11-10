@@ -38,7 +38,7 @@ def parse(path, from_line=1):
          'kills': [], 'deaths': [], 'duels': [], 'sikmadi': Counter(), 'tp': Counter(), 'tp_no': Counter(),
          'def_shift': Counter(), 'def_refill': [], 'def_unspent': 0, 'waits': Counter(), 'peek': Counter(),
          'levels': 0, 'last': {}, 'wall': Counter(), 'wall_head': Counter(), 'first_t': None, 'last_t': None,
-         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter()}
+         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter()}
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
              'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
@@ -125,7 +125,8 @@ def parse(path, from_line=1):
                 r['def_unspent'] += 1
             elif b.startswith('def: shift'):
                 mm = re.search(r'\((\w+)\)', b)
-                r['def_shift'][mm.group(1) if mm else '?'] += 1
+                mn = re.search(r'\+(\d+) yazilmadi', b)
+                r['def_shift'][mm.group(1) if mm else '?'] += 1 + (int(mn.group(1)) if mn else 0)
             elif b.startswith('def: sarj'):
                 mm = re.search(r'sarj (\d+) tick', b)
                 if mm:
@@ -151,6 +152,12 @@ def parse(path, from_line=1):
                     r['vis_def'] += int(mm.group(2))
             elif b.startswith('dbg harita') or b.startswith('===== harita'):
                 r['maps'][b[:60]] += 1
+            if b.startswith('atis:') and ('| isabet' in b or '| iska' in b):
+                hit = 1 if '| isabet' in b else 0
+                if 'def (sahte kayit)' not in b:
+                    r['fake'][('r', hit)] += 1
+                else:
+                    r['fake'][('w' if 'bekleme: ' in b else 'n', hit)] += 1
             for key in ('faz karsilastirma', 'resolver karsilastirma', 'harita ozeti', 'dbg teshis', 'olum nedenleri',
                         'ai peek karsilastirma'):
                 if b.startswith(key):
@@ -313,6 +320,10 @@ def report(r, prev=None):
         dict(r['def_shift']) or '-', h['shift_dk'], ('%.1f' % (sum(rf) / len(rf))) if rf else '?', len(rf), r['def_unspent']))
     print('  kayit beklemeleri: %s | resolver seviye satiri %d (dakikada %.1f) | ai peek: %s' % (
         dict(r['waits']) or '-', r['levels'], r['levels'] / max(1.0, h['dk']), dict(r['peek']) or '-'))
+    if r['fake']:
+        f = r['fake']
+        print('  sahte (defensive) kayda atis: beklenen %d isabet / %d | beklemeden %d isabet / %d | gercek kayit %d / %d' % (
+            f[('w', 1)], f[('w', 1)] + f[('w', 0)], f[('n', 1)], f[('n', 1)] + f[('n', 0)], f[('r', 1)], f[('r', 1)] + f[('r', 0)]))
     if r['esc']:
         print('  duvar kacisi: %s' % dict(r['esc']))
     if r['vis'] > 0:

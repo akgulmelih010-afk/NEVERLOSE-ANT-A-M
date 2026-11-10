@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.18"
+H.VER = "V1.0.19"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -391,13 +391,14 @@ H.EL = {
     { "smart_force", "exploits", "Force defensive when seen / near (Smart)", "cb", true },
     { "def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", "cb", true },
     { "def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", "cb", true },
-    { "def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", "sl", 16, 0, 64 },
+    { "def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", "sl", 12, 0, 64 },
     { "ideal_tick", "exploits", "Ideal tick: teleport back after an autopeek sniper shot", "cb", true },
     { "anti_peek", "exploits", "Defensive vs enemy peeks", "cb", true },
     { "switch_def", "exploits", "Defensive while switching weapons", "cb", true },
     { "clean_shot", "exploits", "Clean shot (no lag while shooting)", "cb", true },
     { "air_teleport", "exploits", "Teleport in air when seen", "cb", true },
     { "air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", "cb", true },
+    { "air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", "cb", true },
     { "air_lag", "exploits", "Air lag (defensive every tick)", "cb", true },
     { "air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", "sl", 0, 0, 100 },
     { "auto_peek", "peek", "Auto peek state (moving into view)", "cb", true },
@@ -418,6 +419,7 @@ H.EL = {
     { "counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", "cb", true },
     { "jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", "cb", true },
     { "wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", "cb", true },
+    { "wait_seen", "rage", "Wait for real record even while the enemy sees you", "cb", true },
     { "wall_dist", "rage", "Wall hunt: min distance", "sl", 900, 300, 2500 },
     { "wall_dmg", "rage", "Wall hunt: min damage", "sl", 50, 30, 99 },
     { "ext_body", "rage", "Body vs extended (repeated head misses)", "cb", true },
@@ -1026,6 +1028,9 @@ function H.make(opts)
         res.valid = true
         res.damage = d
         if d > 0 then res.hit_player = T.ent(t) end
+        -- V1.0.19 pen_count: arada duvar (W.wall) varsa 1, yoksa 0. W.no_pen / nofeature modu: alan yok (duz iz yedegi).
+        res.pen_count = (d > 0 and (W.wall[s] or W.wall[t])) and 1 or 0
+        if W.no_pen or T.mode == "nofeature" then res.pen_count = nil end
         return res
     end
     TR.line = function(a, b, skip, mask)
@@ -2051,6 +2056,9 @@ function H.make(opts)
         -- V1.0.10: eski "olay basina bir" senaryolari def_repeat 0 ile kosar; varsayilani (16) sinayan testler
         -- opts.def_repeat = true verir.
         if not opts.def_repeat and T.el("def_repeat") ~= nil then T.set("def_repeat", 0) end
+        -- V1.0.19: eski sarj kilidi senaryolari "Air: no DT recharge in the air" kapali kosar; varsayilani sinayan
+        -- T-EX-23 opts.air_norecharge = true verir.
+        if not opts.air_norecharge and T.el("air_norecharge") ~= nil then T.set("air_norecharge", false) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
     end
@@ -3768,6 +3776,20 @@ function C.rage()
         local open = H.any_md(inst("rage-wh-acik", 1200, false).hsr(2, 0))
         local off = H.any_md(inst("rage-wh-kapali", 1200, true, function(T) T.set("wall_hunt", false) end).hsr(2, 0))
         local key = H.any_md(inst("rage-wh-tus", 1200, true, function(T, W) W.keys.md_ovr = true end).hsr(2, 0))
+        -- V1.0.19 (log 7): duz iz her cizgiye "kapali" dese de mermi delmeden geciyorsa (pen 0, govde 92 = tam hasar)
+        -- hedef aciktadir: duvar avi yok, WB yok.
+        local Bl = inst("rage-wh-duz-iz-bozuk", 1111, false, function(T, W)
+            W.body_dmg[2] = 92; W.sees[2] = 60
+            W.block_line = function(a, b) if math.abs(a.x - b.x) > 200 then return 0.5 end end
+        end)
+        local bl_md = H.any_md(Bl.hsr(2, 0))
+        local bl_wb = false
+        for _, x in ipairs(Bl.texts(Bl.W.tick - 3, Bl.W.tick, function(x) return x.x < 300 end)) do
+            if x.s:find("^WB") then bl_wb = true end
+        end
+        H.check("T-RAGE-WH", not bl_md and not bl_wb and Bl.count("duvar avi:") == 0, "duz iz hep kapali ama pen 0 (acik hedef, govde"
+            .. " 92): set_min_dmg " .. tostring(bl_md) .. ", WB " .. tostring(bl_wb) .. ", 'duvar avi' " .. Bl.count("duvar avi:")
+            .. " (hepsi yok)")
         H.check("T-RAGE-WH", a and A.count("duvar avi: Alpha 1200 u, duvardan govde 60 (can 100), Min. damage gecici 59") >= 1
             and not near and not open and not off and not key, "1200 u, duvar arkasi, govde 60: set_min_dmg(59) (" .. tostring(a)
             .. ") + log (" .. A.count("duvar avi:") .. "); 500 u: " .. tostring(near) .. ", duvarsiz: " .. tostring(open)
@@ -3798,9 +3820,10 @@ function C.rage()
             .. " (>= 3); ayar kapali: ignore " .. b_ign .. " (>= 3), prioritize " .. b_prio .. " (0)")
     end)
     H.run("T-RAGE-1", function()
-        local function inst(name, shift, seen)
+        local function inst(name, shift, seen, old)
             local T = H.boot({ name = name })
             local W = T.W
+            if old then T.set("wait_seen", false) end
             W.head_dmg[2] = 50
             if seen then W.sees[2] = 60 end
             T.tick(30)
@@ -3820,9 +3843,17 @@ function C.rage()
         local bf = B.ignored(2, b0 + 17, b0 + 40)
         H.check("T-RAGE-1", bh >= 3 and bf == 0, "kayit 30 tick sahte kalsa da bekleme en fazla 14 tick (" .. bh .. " / sonra "
             .. bf .. ")")
+        -- V1.0.19: "Wait for real record even while the enemy sees you" (varsayilan acik): goruyorken de beklenir
+        -- (en fazla 14 tick); kapaliyken eski davranis (bekleme yok).
         local Cn, c0 = inst("rage-1-goruyor", 6, true)
         local ch = Cn.ignored(2, c0, c0 + 40)
-        H.check("T-RAGE-1", ch == 0, "hedef bizi goruyorsa (duello) bekleme yok (" .. ch .. ")")
+        local Co, o0 = inst("rage-1-goruyor-eski", 6, true, true)
+        local oh = Co.ignored(2, o0, o0 + 40)
+        local Cl, l0 = inst("rage-1-goruyor-uzun", 30, true)
+        local lh, lf = Cl.ignored(2, l0 + 1, l0 + 14), Cl.ignored(2, l0 + 17, l0 + 40)
+        H.check("T-RAGE-1", ch >= 3 and oh == 0 and lh >= 3 and lf == 0, "hedef bizi goruyorken sahte kayit: beklenir (" .. ch
+            .. ", >= 3); 'Wait even when seen' kapali: bekleme yok (" .. oh .. "); 30 tick sahte: en fazla 14 tick (" .. lh
+            .. " / sonra " .. lf .. ")")
     end)
     H.run("T-RAGE-2", function()
         local function inst(name, back_at)
@@ -4518,6 +4549,7 @@ function C.dlog()
     H.run("T-DLOG-3", function()
         local T = H.boot({ name = "dlog-3" })
         local W = T.W
+        W.sees[2] = 60
         T.tick(4)
         local m = T.mark()
         W.wall[2] = true
@@ -4530,8 +4562,9 @@ function C.dlog()
         T.event("weapon_fire", { userid = 102, weapon = "weapon_ssg08" })
         T.hurt_me(2, 2, 30)
         local open = T.printed("dbg vurulma-detay:", m2)
-        H.check("T-DLOG-3", H.in_order(wall, { "dbg vurulma-detay: Alpha head -30 ssg08 | iz duvardan | @" })
-            and H.in_order(open, { "dbg vurulma-detay: Alpha chest -30 ssg08 | iz acik | @", "| son iki atisi arasi 0.15s (DT) ",
+        H.check("T-DLOG-3", H.in_order(wall, { "dbg vurulma-detay: Alpha head -30 ssg08 | iz duvardan"
+            .. (T.mode == "nofeature" and "? | @" or " (pen 1) | @") })
+            and H.in_order(open, { "dbg vurulma-detay: Alpha chest -30 ssg08 | iz acik" .. (T.mode == "nofeature" and "? | @" or " | @"), "| son iki atisi arasi 0.15s (DT) ",
             "| sen onu vuramiyordun | ben @" }), "vurulma-detay: duvar -> 'iz duvardan', acik -> 'iz acik', 0.15 sn arayla iki atis"
             .. " -> 'son iki atisi arasi 0.15s (DT)': " .. tostring(wall) .. " / " .. tostring(open))
     end)
@@ -5267,6 +5300,7 @@ function C.review()
             local W = T.W
             W.sees[2] = 60
             W.wall[2] = true
+            W.no_pen = true
             if setup then setup(T, W) end
             T.tick(400)
             return T, T.has_text(T.W.tick - 2, T.W.tick, "WB 60", left)
@@ -5284,7 +5318,7 @@ function C.review()
         local b_line = Bd.count("tanesi maskeyle acik -> maske guvenilmez, varsayilan iz kullaniliyor")
         local b_calls = Bd.masked or 0
         local Er, e_wb = inst("util-mask-hata", function(T, W) W.mask_err = true end)
-        H.check("T-UTIL-MASK", a_line == 1 and a_wb and a_gone and a_det:find("iz acik", 1, true) ~= nil, "maske tutarli: G33 satiri "
+        H.check("T-UTIL-MASK", a_line == 1 and a_wb and a_gone and a_det:find("iz acik?", 1, true) ~= nil, "maske tutarli: G33 satiri "
             .. a_line .. " (1), WB surer (" .. tostring(a_wb) .. "); sonra maske cizgiyi acik deyince WB yok (" .. tostring(a_gone)
             .. "), vurulma-detay 'iz acik' (" .. tostring(a_det:find("iz acik", 1, true) ~= nil) .. ")")
         H.check("T-UTIL-MASK", b_line == 1 and b_calls == 30 and b_wb and Er.count("teshis: G33 mermi maskeli iz alinamadi") == 1 and e_wb,
@@ -5322,19 +5356,60 @@ function C.review()
             .. " (0), uyari " .. D.count("ideal tick: atistan sonra sarj yok") .. " (1)")
     end)
 
+    H.run("T-EX-23", function()
+        -- V1.0.19 "Air: no DT recharge in the air" (varsayilan acik): havadayken sarj kilitli, yere basinca acik;
+        -- olunce acik; AFK'da ve ayar kapaliyken kilit yok.
+        local function inst(name, setup)
+            local T = H.boot({ name = name, air_norecharge = true, setup = setup })
+            local W = T.W
+            T.tick(20)
+            local ground0 = W.rc_blocked
+            T.jump(300)
+            T.tick(8)
+            local air = W.rc_blocked
+            T.tick(80)
+            return T, ground0, air, W.rc_blocked
+        end
+        local A, g0, air, g1 = inst("ex-23")
+        A.jump(300)
+        A.tick(6)
+        local air2 = A.W.rc_blocked
+        A.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
+        A.W.p[1].alive = false
+        A.tick(2)
+        local dead = A.W.rc_blocked
+        local _, _, off_air = inst("ex-23-kapali", function(T) T.set("air_norecharge", false) end)
+        H.check("T-EX-23", not g0 and air and not g1 and air2 and not dead and not off_air, "yerde kilit " .. tostring(g0)
+            .. " (false), havada " .. tostring(air) .. " (true), inince " .. tostring(g1) .. " (false), olunce " .. tostring(dead)
+            .. " (false); ayar kapali: havada " .. tostring(off_air) .. " (false)")
+    end)
     H.run("T-EX-21", function()
-        -- V1.0.10: varsayilan def_repeat 16: gorulme surerken 16 tick'te bir zorlama; sadece yakin -> 0; 0 -> tek.
+        -- V1.0.19: varsayilan def_repeat 12: gorulme surerken 12 tick'te bir zorlama; uyanik dusman sadece yakinken
+        -- (gormuyor) de ayni tekrar; dusman uzakta (NEAR disi) ve gormuyorken 0. Sik tekrar satiri 2 sn'de bir.
         local A = H.boot({ name = "ex-21-tekrar", def_repeat = true })
         A.W.sees[2] = 60
         A.tick(300)
         local a, at = H.shift_all(A)
         local gaps = #at >= 2
-        for i = 2, #at do if at[i] - at[i - 1] < 16 then gaps = false end end
+        for i = 2, #at do if at[i] - at[i - 1] < 12 then gaps = false end end
         local B = H.boot({ name = "ex-21-yakin", def_repeat = true })
         B.tick(300)
         local b = H.shift_all(B)
-        H.check("T-EX-21", a >= 17 and a <= 20 and gaps and b == 0, "300 tick goruluyor, varsayilan tekrar 16: " .. a
-            .. " zorlama (17-20), aralar >= 16 tick (" .. tostring(gaps) .. "); sadece yakin: " .. b .. " (0)")
+        local Fr = H.boot({ name = "ex-21-uzak", def_repeat = true, pre = function(T, W)
+            for i = 2, #W.p do if W.p[i] ~= nil then W.p[i].origin.x = 4000 + i * 100 end end
+        end })
+        Fr.tick(300)
+        local far = H.shift_all(Fr)
+        local lines, hidden = A.count("def: shift ("), 0
+        for _, l in ipairs(A.prints) do
+            local n = l:match("%+(%d+) yazilmadi")
+            if n then hidden = hidden + tonumber(n) end
+        end
+        H.check("T-EX-21", a >= 23 and a <= 27 and gaps and b >= 20 and far == 0, "300 tick goruluyor, varsayilan tekrar 12: " .. a
+            .. " zorlama (23-27), aralar >= 12 tick (" .. tostring(gaps) .. "); sadece yakin: " .. b .. " (>= 20); uzakta: " .. far
+            .. " (0)")
+        H.check("T-EX-21", lines >= 2 and lines <= 6 and hidden >= a - lines - 12 and hidden <= a, "sik tekrar: 'def: shift' satiri "
+            .. lines .. " (2-6, 2 sn'de bir), '+N yazilmadi' toplami " .. hidden .. " (zorlama " .. a .. ")")
     end)
 
     H.run("T-EX-20", function()

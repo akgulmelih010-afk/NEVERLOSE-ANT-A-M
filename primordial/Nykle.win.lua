@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.18  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.19  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,19 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.19 (primordial edition): log 7 (V1.0.17, 22 dk). Duvar / acik karari artik mermi izinin pen_count'u ile
+        (0 = acik, > 0 = duvardan): duz iz acik goruste de "kapali" donuyordu (56 isabetin 56'si "iz duvardan",
+        11 olumde penetrated 0). Etkilenenler: duvar avi (1111 u'da tam hasarli ACIK hedefe tetiklenip Min. damage'i
+        dusuruyordu; artik sadece gercek duvar arkasina), WB gostergesi / duvar hatti, duvar kacisi, vurulma-detay
+        ("iz duvardan (pen N)" / "iz acik"; pen yoksa "?" ile). Oyuncu karsilastirmasi index ile (U.same). Teshis
+        G34: 50 hasarli dusman izinden kaci duvardan. Defensive (istek: "cok nadir calisiyor"; kendi defensive'imiz
+        canli tick'lerin %9.7'si): tekrar artik uyanik dusman 1800 u icindeyken / birazdan gorecekken de surer,
+        aralik 16 -> 12 tick, olay kipinde 1 sn'lik "re-arm cooldown" yok (shift sarj harcamiyor). Sik tekrar eden
+        "def: shift" satiri 2 sn'de bir yazilir ("+N yazilmadi"). Iska (istek: "cok missliyorum"): sahte (defensive)
+        kayda goruluyorken beklemeden atilan atislar %36 tutuyordu, beklenenler %65 -> "Wait for real record even
+        while the enemy sees you" (acik): gorulurken / duelloda da gercek kayit beklenir (en fazla 14 tick). Hava
+        (istek: "havada isinlanmayayim, LC kirilinca bir kere yere"): "Air: no DT recharge in the air" (acik): DT
+        havada dolmaz (dolum havada isinlanma gibi gorunuyordu), yere basinca dolar; inis teleportu tek kalir.
       V1.0.18 (primordial edition): log 6 (DUVARCI, scar20, CT spawn'dan 1340-1383 u; 2 olum, 0 atis). Duvar kacisi
         ("Wall escape", acik): yurume tusu yokken bir dusmanin duvar hatti aciksa ve onu vuramiyorsan hatta dik en
         yakin guvenli noktaya (24 / 44 / 64 u; ona hic mermi gecmeyen, baska dusmanin gormedigi, dusmesiz) yururuz;
@@ -142,7 +155,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.18", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.19", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -588,8 +601,28 @@ do
         return "sen " .. name
     end
 
+    -- V1.0.19: iki oyuncu-nesnesi ayni oyuncu mu (userdata esitligi garanti degil: index ile de bakilir).
+    U.same = function(a, b)
+        if a == nil or b == nil then
+            return false
+        end
+        if a == b then
+            return true
+        end
+        local ia, ib = U.index(a), U.index(b)
+        return ia ~= nil and ia == ib
+    end
+
     -- Hasar izi: trace.bullet(from, to, skip, target).damage; gecersizse 0.
     U.tdmg = function(from, to, skip, target)
+        local d = U.tbul(from, to, skip, target)
+        return d
+    end
+
+    -- V1.0.19 hasar + delinen duvar sayisi (pen_count: 0 = acik gorus, > 0 = duvardan; alan yoksa nil).
+    -- Log 7: duz iz (trace.line) acik goruste de "kapali" donuyor (56 isabetin 56'si "iz duvardan", 11'inin olum
+    -- etiketinde penetrated 0; "duvar avi ... govde 92" = tam hasar, duvar yok). Duvar / acik karari artik buradan.
+    U.tbul = function(from, to, skip, target)
         if from == nil or to == nil then
             return 0
         end
@@ -603,13 +636,13 @@ do
         if not ok or r == nil then
             return 0
         end
-        local okv, valid, dmg = pcall(function()
-            return r.valid, r.damage
+        local okv, valid, dmg, pen = pcall(function()
+            return r.valid, r.damage, r.pen_count
         end)
         if not okv or valid == false or not U.finite(dmg) then
             return 0
         end
-        return max(0, dmg)
+        return max(0, dmg), U.finite(pen) and pen or nil
     end
 
     -- Duz iz: fraction (0..1), entity (ya da nil) ve iz gercekten alindi mi (hata / eksik deger = 1, nil, false).
@@ -1702,13 +1735,14 @@ do
         B.cb("smart_force", "exploits", "Force defensive when seen / near (Smart)", true, true)
         B.cb("def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", true, true)
         B.cb("def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", true, true)
-        B.sl("def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", 0, 64, 16, false, "t")
+        B.sl("def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", 0, 64, 12, false, "t")
         B.cb("ideal_tick", "exploits", "Ideal tick: teleport back after an autopeek sniper shot", true, true)
         B.cb("anti_peek", "exploits", "Defensive vs enemy peeks", true, true)
         B.cb("switch_def", "exploits", "Defensive while switching weapons", true, true)
         B.cb("clean_shot", "exploits", "Clean shot (no lag while shooting)", true, true)
         B.cb("air_teleport", "exploits", "Teleport in air when seen", true, true)
         B.cb("air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", true, false)
+        B.cb("air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", true, false)
         B.cb("air_lag", "exploits", "Air lag (defensive every tick)", true, true)
         B.sl("air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", 0, 100, 0, true, "%")
         -- Peek
@@ -1731,6 +1765,7 @@ do
         B.cb("counter_window", "rage", "Counter window: no waits + priority vs an enemy who just fired", true, true)
         B.cb("jit_timing", "rage", "Jitter timing: hold head on the enemy's bad jitter side", true, true)
         B.cb("wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", true, true)
+        B.cb("wait_seen", "rage", "Wait for real record even while the enemy sees you", true, true)
         B.sl("wall_dist", "rage", "Wall hunt: min distance", 300, 2500, 900, true, "u")
         B.sl("wall_dmg", "rage", "Wall hunt: min damage", 30, 99, 50, true, "")
         B.cb("ext_body", "rage", "Body vs extended (repeated head misses)", true, false)
@@ -3358,7 +3393,7 @@ do
             return false
         end
         local f, hit, okl = U.shotline(from, vec3_t(hx, hy, hz), enemy)
-        local open = okl == true and (f >= 0.97 or (hit ~= nil and hit == lp))
+        local open = okl == true and (f >= 0.97 or U.same(hit, lp))
         N.diag.g31(open)
         return open
     end
@@ -3459,6 +3494,7 @@ do
     end
 
     -- Dusman beni "goruyor" (mermi izi > 0) ama gozunden kafama duz cizgi kapaliysa duvardan vurabiliyor demektir.
+    E.pen = { n = 0, wall = 0, said = false }
     E.wall_lane = function(enemy, idx, lp, head, now_seen, tick)
         if not now_seen or head == nil then
             E.wb[idx] = nil
@@ -3469,23 +3505,42 @@ do
             E.wb[idx] = nil
             return
         end
-        local f, hit, okl = U.shotline(eye, head, enemy)
-        if okl ~= true or f >= 0.97 or (hit ~= nil and hit == lp) then
-            E.wb[idx] = nil
-            return
-        end
-        local d = U.tdmg(eye, head, enemy, lp)
+        local dh, ph = U.tbul(eye, head, enemy, lp)
         local pel = U.hitbox(lp, "PELVIS")
+        local dp, pp = 0, nil
         if pel ~= nil then
-            local dp = U.tdmg(eye, pel, enemy, lp)
-            -- Govde hatti: pelvise duz cizgi aciksa bu duvar hatti degil (acik gorus), sayilmaz.
-            if dp > d then
-                local fp, hp2, okp = U.shotline(eye, pel, enemy)
-                if okp ~= true or fp >= 0.97 or (hp2 ~= nil and hp2 == lp) then
-                    dp = 0
+            dp, pp = U.tbul(eye, pel, enemy, lp)
+        end
+        local d = 0
+        if (dh > 0 and ph ~= nil) or (dp > 0 and pp ~= nil) then
+            -- V1.0.19: pen_count ile. Hasar veren izlerden biri delmeden geciyorsa (pen 0) bu acik gorus, hat degil.
+            local open = (dh > 0 and ph == 0) or (dp > 0 and pp == 0)
+            local P = E.pen
+            P.n = P.n + 1
+            if not open then
+                P.wall = P.wall + 1
+                d = max(dh, dp)
+            end
+            if P.n == 50 and not P.said then
+                P.said = true
+                N.log.line(fmt("teshis: G34 pen_count: hasar veren 50 dusman izinden %d tanesi duvardan (pen > 0)", P.wall))
+            end
+        elseif dh > 0 or dp > 0 then
+            -- pen_count yok: eski yol (duz iz kafaya kapali; govde hatti icin pelvise de kapali).
+            if not E.pen.said then
+                E.pen.said = true
+                N.log.line("teshis: G34 pen_count yok, duvar hatti duz izle olculuyor")
+            end
+            local f, hit, okl = U.shotline(eye, head, enemy)
+            if okl == true and f < 0.97 and not U.same(hit, lp) then
+                d = dh
+                if dp > d and pel ~= nil then
+                    local fp, hp2, okp = U.shotline(eye, pel, enemy)
+                    if okp == true and fp < 0.97 and not U.same(hp2, lp) then
+                        d = dp
+                    end
                 end
             end
-            d = max(d, dp)
         end
         if d <= 0 then
             E.wb[idx] = nil
@@ -4999,7 +5054,8 @@ do
                 or (tick <= X.smart_hold and tick >= X.smart_hold - 8)) then
                 want, why = true, "smart"
                 -- X4: defensive bittikten sonra gorulurken 1 sn yeniden zorlama yok (DT dolsun).
-                if N.on("def_cooldown") and E.seen and now >= X.def_end and now - X.def_end < 1
+                -- V1.0.19: olay kipinde (def_edge) shift sarji harcamiyor ("def: shift sarj harcamadi"), bekleme yok.
+                if N.on("def_cooldown") and not N.on("def_edge") and E.seen and now >= X.def_end and now - X.def_end < 1
                     and not st.airborne and N.peek.mode == nil and not switching and not knife and not N.afk.on then
                     want = false
                 end
@@ -5040,14 +5096,19 @@ do
             -- gorulme surerken "def_repeat" tick'te bir yeniden (varsayilan 16 = defensive dongusu basina bir);
             -- 0 = olay basina bir kez.
             local rep_t = floor(N.v("def_repeat") or 0)
+            -- V1.0.19 (istek: "def cok nadir calisiyor"; log 7: kendi defensive'imiz canli tick'lerin %9.7'si,
+            -- rakiplerinki duello suresinin %40-70'i; yenen mermilerin yarisi "gormedi" iken geldi, yani "goruluyor"
+            -- kapisi defensive'i kaciriyor): tekrar artik uyanik bir dusman NEAR (1800 u) icindeyken ya da birazdan
+            -- gorecekken de surer.
+            local active = seen or E.near or E.soon
             if why == "smart" then
                 fresh = seen and not P.smart
-                if rep_t > 0 and seen then
+                if rep_t > 0 and active then
                     fresh, gap = true, rep_t
                 end
             elseif why == "peek" then
                 fresh = first or (fast and not P.fast) or (tick >= X.scan_start and tick - X.scan_start <= 1)
-                if rep_t > 0 and seen then
+                if rep_t > 0 and active then
                     fresh, gap = true, min(gap, rep_t)
                 end
             elseif why == "switch" then
@@ -5092,7 +5153,7 @@ do
                 -- Tarama dizisinin basi (olay) ya da gorulurken def_repeat tick'te bir.
                 local rep_t = floor(N.v("def_repeat") or 0)
                 local E = N.exposure
-                local again = rep_t > 0 and (E.now or E.seen) and X.gap_ok(tick, rep_t)
+                local again = rep_t > 0 and (E.now or E.seen or E.near or E.soon) and X.gap_ok(tick, rep_t)
                 if not again and (X.scan_start ~= tick or not X.gap_ok(tick, X.GAP.peek)) then
                     return
                 end
@@ -5501,6 +5562,15 @@ do
         local st, E, A = N.st, N.exposure, X.air
         local lp = st.lp
         X.land_update(cmd, lp)
+        -- V1.0.19 (istek: "havada isinlanmayayim, LC kirilinca bir kere yere isinlanayim"): inis teleportundan sonra
+        -- DT bhop'ta havada yeniden doluyordu (log 7: art arda 4 ziplamanin dordunde teleport); sarj dolumu havada
+        -- donup isinlanma olarak gorunur. Havadayken sarj dolumu kilitlenir, yerde acilir: zincirin ilk ziplamasinda
+        -- tek inis teleportu, DT yere basinca dolar. AFK'da karismaz.
+        if st.airborne and not st.ladder and N.on("air_norecharge") and not N.afk.on then
+            N.rc.block("airrc")
+        else
+            N.rc.allow("airrc")
+        end
         if not st.airborne or st.ladder then
             if A.was_air then
                 A.was_air = false
@@ -5781,6 +5851,7 @@ do
     -- Zorlanan shift'in sarj izi (A1): at / why / c0 = zorlama tick'i, sebebi, o anki sarj; dropped = 3 tick icinde
     -- sarj dustu; undr = bu haritada yazilan "harcamadi" satiri (en fazla 3).
     CH.sw = { on = false, at = -1000, why = "?", c0 = 0, dropped = false, undr = 0 }
+    CH.sl = { why = nil, tick = -1000, last = -1000, n = 0 }
 
     -- Round sayaclari (dbg sen ozeti). def_end_at: son sayilan defensive bitisi (X.def_end).
     CH.round_new = function()
@@ -5913,7 +5984,17 @@ do
     CH.shifted = function(why, tick, streak, c, m)
         local w = CH.sw
         if N.on("debug_log") and not streak then
-            N.log.line(fmt("def: shift (%s) | sarj %d/%d", tostring(why), U.R(c), U.R(m)))
+            -- V1.0.19: ayni sebebin 30 tick'ten sik tekrari (gorulurken 12 tick'te bir) satir yazmaz, sayilir; seri
+            -- surerken 2 sn'de bir satir ("+N yazilmadi" = aradaki yazilmayan zorlamalar).
+            local L = CH.sl
+            if tostring(why) == L.why and tick >= L.last and tick - L.last < 30 and tick - L.tick <= 128 then
+                L.n = L.n + 1
+            else
+                N.log.line(fmt("def: shift (%s) | sarj %d/%d%s", tostring(why), U.R(c), U.R(m),
+                    L.n > 0 and fmt(" | +%d yazilmadi", L.n) or ""))
+                L.why, L.tick, L.n = tostring(why), tick, 0
+            end
+            L.last = tick
         end
         if not w.on then
             w.on, w.at, w.why, w.c0, w.dropped = true, tick, tostring(why), c, false
@@ -6443,12 +6524,16 @@ do
         end
         local lp = N.st.lp
         local eye = U.eye(lp)
-        local head = U.tdmg(eye, U.hitbox(target, "HEAD"), lp, target)
-        local body = max(U.tdmg(eye, U.hitbox(target, "PELVIS"), lp, target),
-            U.tdmg(eye, U.hitbox(target, "CHEST"), lp, target))
+        local head, p1 = U.tbul(eye, U.hitbox(target, "HEAD"), lp, target)
+        local pelvis, p2 = U.tbul(eye, U.hitbox(target, "PELVIS"), lp, target)
+        local chest, p3 = U.tbul(eye, U.hitbox(target, "CHEST"), lp, target)
+        local body = max(pelvis, chest)
         if idx ~= nil then
             local hittable = head > 0 or body > 0
-            RG.dmg_cache[idx] = { tick = tick, head = head, body = body, hittable = hittable }
+            -- V1.0.19: pen = hasar veren izlerde pen_count var mi; open = bunlardan biri delmeden geciyor (acik gorus).
+            local pen = (head > 0 and p1 ~= nil) or (pelvis > 0 and p2 ~= nil) or (chest > 0 and p3 ~= nil)
+            local open = (head > 0 and p1 == 0) or (pelvis > 0 and p2 == 0) or (chest > 0 and p3 == 0)
+            RG.dmg_cache[idx] = { tick = tick, head = head, body = body, hittable = hittable, pen = pen, open = open }
             if hittable then
                 RG.fresh[idx] = tick
             end
@@ -6529,17 +6614,22 @@ do
                             end
                         elseif w.ticks >= limit then
                             RG.end_wait(idx, w, "sinir doldu, kayit hala sahte", ent)
-                        elseif sees then
+                        elseif not N.on("wait_seen") and sees then
                             RG.end_wait(idx, w, "serbest birakildi (seni goruyor)", ent)
-                        elseif duel then
+                        elseif not N.on("wait_seen") and duel then
                             RG.end_wait(idx, w, "serbest birakildi (duello)", ent)
                         end
                     elseif fake then
-                        if sees then
+                        -- V1.0.19 (istek: "cok missliyorum"; 6 logda sahte kayda atislar): gorulurken beklemeden
+                        -- atilan 14 atisin 5'i isabet (%36; 7 jitter / correction iskasi), beklenen 26 atisin 17'si
+                        -- (%65; olurken atilanlar haric 17/19). "Wait even when seen" acikken goruluyorken / duelloda
+                        -- da gercek kayit beklenir (sinir ayni: 14 tick).
+                        local ws = N.on("wait_seen")
+                        if sees and not ws then
                             w.nowait = "seni goruyor"
-                        elseif duel then
+                        elseif duel and not ws then
                             w.nowait = "duello"
-                        elseif E.seen then
+                        elseif E.seen and not ws then
                             w.nowait = "biri seni goruyor"
                         elseif tick < w.free_until and tick >= w.free_until - 32 then
                             w.nowait = "cooldown"
@@ -6649,7 +6739,7 @@ do
         end
         local eye, their_eye = U.eye(st.lp), U.eye(target)
         local frac, hit = U.tline(eye, their_eye, st.lp)
-        if frac >= 0.97 or hit == target then
+        if frac >= 0.97 or U.same(hit, target) then
             return m, U.dist(mine, theirs)
         end
         return nil
@@ -7002,11 +7092,20 @@ do
         RG.air_hc(ctx, wname, w)
     end
 
-    -- Hedef duvar arkasinda mi: gozumden kafasina ve pelvisine duz cizgi kapali (2 tick onbellek).
+    -- Hedef duvar arkasinda mi (2 tick onbellek). V1.0.19: kafa / pelvis / gogus mermi izlerinin pen_count'u ile
+    -- (hasar veren her iz deliyorsa duvar arkasi; biri delmeden geciyorsa acik). pen_count yoksa eski yol: gozumden
+    -- kafasina ve pelvisine duz cizgi kapali. Log 7: duz iz acik hedefe de "kapali" dedi, duvar avi 1111 u'da tam
+    -- hasarli (govde 92) acik hedefe tetiklendi.
     RG.walled = function(target, idx)
         local t = RG.get(idx)
         local tick = U.tick()
         if t.wall_tick ~= nil and tick >= t.wall_tick and tick - t.wall_tick <= 2 then
+            return t.wall_val
+        end
+        RG.dmg(target)
+        local c = RG.dmg_cache[idx]
+        if c ~= nil and c.tick == tick and c.pen then
+            t.wall_tick, t.wall_val = tick, not c.open
             return t.wall_val
         end
         local eye = U.eye(N.st.lp)
@@ -7017,7 +7116,7 @@ do
                 local p = U.hitbox(target, name)
                 if p ~= nil then
                     local f, hit, okl = U.shotline(eye, p, N.st.lp)
-                    if okl ~= true or f >= 0.97 or (hit ~= nil and hit == target) then
+                    if okl ~= true or f >= 0.97 or U.same(hit, target) then
                         walled = false
                         break
                     end
@@ -8011,8 +8110,14 @@ do
                     end
                 end
                 if dh > 0 then
-                    local f, hit, okl = U.shotline(eye, spot, ent)
-                    local open = (okl == true and f >= 0.97) or (hit ~= nil and hit == lp)
+                    local dd, pen = U.tbul(eye, spot, ent, lp)
+                    local open
+                    if dd > 0 and pen ~= nil then
+                        open = pen == 0
+                    else
+                        local f, hit, okl = U.shotline(eye, spot, ent)
+                        open = (okl == true and f >= 0.97) or U.same(hit, lp)
+                    end
                     how = (open and "iz: su an goruyor" or "iz: duvardan goruyor") .. (spot ~= head and " (govde)" or "")
                 else
                     how = "iz: kapali"
@@ -9011,9 +9116,15 @@ do
         local eye = U.eye(attacker)
         local spot = U.hitbox(lp, hitgroup == 1 and "HEAD" or (hitgroup == 3 and "PELVIS" or "CHEST"))
         if eye ~= nil and spot ~= nil then
-            local frac, hit, ok = U.shotline(eye, spot, attacker)
-            if ok then
-                wall = (frac < 0.97 and hit ~= lp) and " | iz duvardan" or " | iz acik"
+            -- V1.0.19: once mermi izi (pen_count); iz 0 ise ya da alan yoksa duz iz ("?" ile isaretli, guvenilmez).
+            local d, pen = U.tbul(eye, spot, attacker, lp)
+            if d > 0 and pen ~= nil then
+                wall = pen > 0 and fmt(" | iz duvardan (pen %d)", U.R(pen)) or " | iz acik"
+            else
+                local frac, hit, ok = U.shotline(eye, spot, attacker)
+                if ok then
+                    wall = (frac < 0.97 and not U.same(hit, lp)) and " | iz duvardan?" or " | iz acik?"
+                end
             end
         end
         local gap = ""
