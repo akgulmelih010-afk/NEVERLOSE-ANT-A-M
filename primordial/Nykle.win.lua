@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.25  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.26  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,14 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.26 (primordial edition): atis analizi (5 log, 182 scout atisi, %64 isabet; istek: "reso kotu"). Iki sebep:
+        rakip defensive'deyken atis %40 (gercek kayitta %72) ve kendi defensive'imiz acikken atis %58 (kapaliyken
+        %80); ikisi de temizken 82 atisin %80'i. Safe point (seviye 1) fark yaratmiyor (%71 / %72). Duzeltme: sahte
+        kayitta ates yok (emniyet 128 tick; 3 tick'lik dogrulama, 4 tick'lik kisa sinirlar ve gercek kayit sonrasi
+        32 tick'lik ara kalkti) ve "Clean fire" (acik): kendi defensive'imiz surerken ates bekletilir (en fazla 16
+        tick), o sirada yeni defensive zorlanmaz. AA sabitlendi ("AA: fixed phase", acik; istek: "AA'yi adam gibi
+        oturt"): faz testi bitti, hep asym. AI peek (57 peek'in 25'i atissiz): hedefin kaydi sahteyken peek baslamaz;
+        govde testi kolunda 50+ govde atisi icin de cikar.
       V1.0.25 (primordial edition): log 12 (V1.0.24, 16 yasam; K3 / D16). Scout govde testi ("Scout body test", acik;
         kullanici onayi): her iki yasamdan birinde scout, oldurmeyen ama 50+ hasarlik govde atisini da sikar (Min.
         damage 50), digerinde Min. damage 100; "govde testi: ..." satiri iki kolu karsilastirir (yasam basina ~1.1
@@ -192,7 +200,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.25", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.26", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -268,6 +276,7 @@ do
     K.PHASE_NAME = { [0] = "normal", "asym", "rnd-asym", "asym+duvar", "atis-sonrasi" }
     -- Hafiza dosyasindaki faz kayitlarinin seti (eski setin sayilari / dusman tabanlari yeni sete tasinmaz).
     K.PHASE_SET = 2
+    K.FIXED_PHASE = 1
     K.BRUTE_GROUPS = { "still", "move", "peek", "air" }
     K.GROUP_OF = { Moving = "move", ["Slow walk"] = "move", ["Crouch move"] = "move", Peek = "peek",
         Air = "air", ["Air crouch"] = "air" }
@@ -1761,6 +1770,7 @@ do
         B.sl("brute_reset", "protect", "Anti-brute reset after", 1, 15, 6, true, "s")
         B.cb("brute_random", "protect", "Random anti-brute order", true, true)
         B.cb("phase_test", "protect", "Phase test (one phase per round, fair comparison)", true, true)
+        B.cb("phase_fixed", "protect", "AA: fixed phase (asym), no rotation", true, false)
         B.cb("knife_md", "protect", "Lower Min. damage vs close knife/zeus", true, true)
         B.cb("crouch_cap", "protect", "Desync keeper: slow crouch-walk when seen", true, false)
         B.sl("crouch_speed", "protect", "Crouch speed", 20, 78, 38, false, "u/s")
@@ -1811,6 +1821,7 @@ do
         B.cb("wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", true, true)
         B.cb("wait_seen", "rage", "Wait for real record even while the enemy sees you", true, true)
         B.cb("body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", true, false)
+        B.cb("clean_fire", "rage", "Clean fire: hold fire while own defensive is active", true, false)
         B.sl("wall_dist", "rage", "Wall hunt: min distance", 300, 2500, 900, true, "u")
         B.sl("wall_dmg", "rage", "Wall hunt: min damage", 30, 99, 50, true, "")
         B.cb("ext_body", "rage", "Body vs extended (repeated head misses)", true, false)
@@ -4556,7 +4567,7 @@ do
     B.reset_phases()
 
     B.test_on = function()
-        return N.on("anti_brute") and N.on("phase_test")
+        return N.on("anti_brute") and N.on("phase_test") and not N.on("phase_fixed")
     end
 
     -- Mermi basina kafa orani (az veride ortalamaya cekilir: 2/6 on bilgi).
@@ -4791,6 +4802,13 @@ do
 
     -- AA hedefinin (ya da hedef yoksa grup varsayilaninin) fazi.
     B.stage_for = function(target, ms)
+        -- V1.0.26 (istek: "AA'yi adam gibi oturt"): faz testi bitti (5 faz, 656 mermi: kafa %36-45, puanlar 0.20-0.26;
+        -- fark yok denecek kadar kucuk, en iyi puan asym 149 mermi). "AA: fixed phase" (acik): hep asym, round / yasam
+        -- basina faz degismez, vurulunca da degismez. Koruyan sey defensive (gorulen surenin %36-41'i, yenen
+        -- mermilerin %12-23'u), faz degil.
+        if N.on("phase_fixed") then
+            return K.FIXED_PHASE
+        end
         local g = B.group_for(ms)
         -- V1.0.9: faz testi acikken round boyunca tek faz (hedeften bagimsiz).
         if B.test_on() then
@@ -5075,6 +5093,11 @@ do
         -- yaw'i o zaman calisir); kapaliyken eski davranis.
         if not N.ref.dt_ready() or X.clean or N.st.fd or X.air.latched
             or (X.land.flight and not N.on("air_def")) then
+            return false
+        end
+        -- V1.0.26 temiz ates: ragebot bir hedefe sikmak uzereyken (RG.hitscan bekletti) yeni defensive yok; atis sonrasi
+        -- ("shot") ve bicak haric.
+        if why ~= "shot" and why ~= "knife" and X.hold_shift ~= nil and tick <= X.hold_shift and tick >= X.hold_shift - 8 then
             return false
         end
         -- Sarj cagridan ONCE okunur (cagri sarji ayni tick'te harcayabilir; log ve sarj izi icin).
@@ -6729,7 +6752,9 @@ do
     RG.end_wait = function(idx, w, reason, ent)
         local tick = U.tick()
         w.active = false
-        w.free_until = tick + 32
+        -- V1.0.26: 32 tick'lik "yeni bekleme yok" arasi sadece emniyet siniriyla biten beklemeden sonra; gercek kayit
+        -- gelip biten beklemeden sonra rakip yeniden defensive'e girerse hemen yeniden beklenir.
+        w.free_until = (w.kind ~= "real" or reason:find("sinir doldu", 1, true) ~= nil) and tick + 32 or tick - 1
         w.done_text = fmt("%d tick", w.ticks)
         w.done_at = U.now()
         if w.kind == "real" then
@@ -6775,25 +6800,15 @@ do
                 if N.on("wait_real") then
                     -- V1.0.20 (log 8): rakip defensive'i ort. 12.5 tick suruyor; 14 tick'lik sinir 79 kez "kayit hala
                     -- sahte" bitti ve sahte kayda atislar 15/31 tuttu (gercek kayda 20/31). Sinir 22 tick.
-                    local limit = RG.WAIT_LIMIT
-                    if st.move_state == "Peek" and not E.seen and U.flag(ent, "ON_GROUND") == false then
-                        limit = 4
-                    end
-                    -- V1.0.24 jump scout: havadayken atis penceresi kisa (tepe noktasi ~0.2 sn), bekleme en fazla 4 tick.
-                    if st.airborne and not st.ladder and U.is_bolt(st.weapon) then
-                        limit = 4
-                    end
+                    -- V1.0.26 (5 log, 182 scout atisi): rakip defensive'deyken atilan 49 atisin %40'i tuttu (random AA'da
+                    -- %21), gercek kayitta 133 atisin %72'si; sahte isaretli ama defensive'i bitmis kayitta 12 atisin
+                    -- %83'u. Kural artik kati: kayit sahteyken ates yok (tek emniyet: 128 tick kesintisiz sahte), ilk
+                    -- gercek kayitta hemen serbest (3 tick'lik dogrulama ve 4 tick'lik kisa sinirlar kalkti).
                     if w.active then
                         w.ticks = w.ticks + 1
                         if not fake then
-                            w.real_at = w.real_at or tick
-                            if tick - w.real_at >= 3 then
-                                RG.end_wait(idx, w, "gercek kayit geldi", ent)
-                            elseif w.ticks >= limit then
-                                -- 3 tick'lik dogrulama da siniri asamaz (log 2: 16-17 tick'lik beklemeler).
-                                RG.end_wait(idx, w, "sinir doldu (gercek kayit dogrulanirken)", ent)
-                            end
-                        elseif w.ticks >= (limit == 4 and 4 or RG.WAIT_FAKE) then
+                            RG.end_wait(idx, w, "gercek kayit geldi", ent)
+                        elseif w.ticks >= RG.WAIT_FAKE then
                             -- V1.0.22 (log 8-10: sahte kayda atis 20/44, gercege 63/88): kayit sahte kaldikca 64 tick'e
                             -- kadar beklenir; 22 tick'ten sonra gelen ilk gercek kayitta hemen serbest (ustteki dal).
                             RG.end_wait(idx, w, "sinir doldu, kayit hala sahte", ent)
@@ -7139,6 +7154,23 @@ do
             info.held = RG.hold[idx]
             return
         end
+        -- V1.0.26 temiz ates ("Clean fire", acik): gercek kayda atislarda kendi defensive'imiz acikken 46 atisin %58'i,
+        -- kapaliyken 75 atisin %80'i tuttu (tickbase kaymisken atilan mermi sunucuda baska ana sarilir). Kendi
+        -- defensive'imiz surerken ates bekletilir (en fazla 16 tick ust uste) ve 8 tick yeni defensive zorlanmaz ki
+        -- tickbase otursun; atistan sonra "Shot defensive" yeniden acar.
+        if N.on("clean_fire") and N.ex.own_def_active() then
+            local t = RG.get(idx)
+            if t.cf_last == nil or tick - t.cf_last > 2 or tick < t.cf_last then
+                t.cf_run = 0
+            end
+            t.cf_last, t.cf_run = tick, (t.cf_run or 0) + 1
+            if t.cf_run <= 16 then
+                N.ex.hold_shift = tick + 8
+                RG.all_off(ctx)
+                info.held = "kendi defensive"
+                return
+            end
+        end
         local w = st.wgroup
         local wname = st.weapon
         local sniper = U.is_sniper(wname)
@@ -7321,7 +7353,7 @@ do
     end
     RG.WALL_BOXES = { "HEAD", "PELVIS" }
     RG.WAIT_LIMIT = 22
-    RG.WAIT_FAKE = 64
+    RG.WAIT_FAKE = 128
 
     -- V1.0.25 govde testi ("Scout body test", acik): her dogusta kol degisir (kol 1: govde 50+ serbest, kol 2: Min.
     -- damage 100). Yasam bitince (AFK degilse) o yasamin oldurme / omur / scout atis / isabet sayilari kola yazilir;
@@ -7719,6 +7751,11 @@ do
         local eye_h = eye.z - org.z
         local hp = U.hp(threat)
         local need = N.ref.md_need(hp, st.wgroup) or hp
+        -- V1.0.26: govde testi kolu acikken AI peek de 50+ govde atisi icin cikar.
+        local body_need = hp
+        if N.rage.bt_active() and st.weapon == "ssg08" then
+            need, body_need = min(need, N.rage.BT_MIN), min(hp, N.rage.BT_MIN)
+        end
         local base = U.yaw_to(anchor, theirs)
         local angles = { 90 }
         if theirs.z > anchor.z + 64 then
@@ -7730,7 +7767,7 @@ do
                     local p = U.offset(anchor, base + ang * side, s, 0)
                     if PK.walkable(anchor, p) then
                         local pe = vec3_t(p.x, p.y, p.z + eye_h)
-                        local d = PK.point_damage(pe, threat, need, hp)
+                        local d = PK.point_damage(pe, threat, need, body_need)
                         -- V1.0.15: noktayi baska bir dusman da goruyorsa (gozunden duz cizgi acik) o nokta atlanir.
                         if d > 0 and not PK.others_see(pe, threat) then
                             return { p = p, side = side, s = s, dmg = d, back = ang ~= 90 }
@@ -8242,6 +8279,15 @@ do
             end
             local tidx = U.index(threat)
             if tidx ~= nil and PK.locked[tidx] then
+                if AF.on then
+                    AF.strafe(cmd)
+                end
+                return
+            end
+            -- V1.0.26 (6 log: 57 AI peek'in 25'i atissiz; 6'si "kayit bekleniyor"): hedefin kaydi sahteyken / hedef
+            -- bekletiliyorken peek baslamaz (noktaya gidip ates edemeden acikta durmak yerine anchor'da bekle).
+            if tidx ~= nil and (N.rage.hold[tidx] ~= nil or N.track.def(tidx)) then
+                N.log.every("aipeek_fake", 5, "ai peek: peek yok, rakibin kaydi sahte (defensive), gercek kayit bekleniyor")
                 if AF.on then
                     AF.strafe(cmd)
                 end

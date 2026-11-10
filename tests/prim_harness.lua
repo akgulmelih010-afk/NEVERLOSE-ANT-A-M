@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.25"
+H.VER = "V1.0.26"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -383,6 +383,7 @@ H.EL = {
     { "brute_reset", "protect", "Anti-brute reset after", "sl", 6, 1, 15 },
     { "brute_random", "protect", "Random anti-brute order", "cb", true },
     { "phase_test", "protect", "Phase test (one phase per round, fair comparison)", "cb", true },
+    { "phase_fixed", "protect", "AA: fixed phase (asym), no rotation", "cb", true },
     { "knife_md", "protect", "Lower Min. damage vs close knife/zeus", "cb", true },
     { "crouch_cap", "protect", "Desync keeper: slow crouch-walk when seen", "cb", true },
     { "crouch_speed", "protect", "Crouch speed", "sl", 38, 20, 78 },
@@ -428,6 +429,7 @@ H.EL = {
     { "wall_hunt", "rage", "Wall hunt: non-lethal wallbang vs far enemies (snipers)", "cb", true },
     { "wait_seen", "rage", "Wait for real record even while the enemy sees you", "cb", true },
     { "body_test", "rage", "Scout body test (every other life: body shots of 50+ damage)", "cb", true },
+    { "clean_fire", "rage", "Clean fire: hold fire while own defensive is active", "cb", true },
     { "wall_dist", "rage", "Wall hunt: min distance", "sl", 900, 300, 2500 },
     { "wall_dmg", "rage", "Wall hunt: min damage", "sl", 50, 30, 99 },
     { "ext_body", "rage", "Body vs extended (repeated head misses)", "cb", true },
@@ -2087,6 +2089,10 @@ function H.make(opts)
         if not opts.shot_def and T.el("shot_def") ~= nil then T.set("shot_def", false) end
         -- V1.0.25: eski Min. damage senaryolari "Scout body test" kapali kosar; T-RAGE-BT opts.body_test = true verir.
         if not opts.body_test and T.el("body_test") ~= nil then T.set("body_test", false) end
+        -- V1.0.26: eski tarama senaryolari "Clean fire" kapali kosar; T-RAGE-CF opts.clean_fire = true verir.
+        if not opts.clean_fire and T.el("clean_fire") ~= nil then T.set("clean_fire", false) end
+        -- V1.0.26: faz / anti-brute senaryolari "AA: fixed phase" kapali kosar; T-BR-FIX opts.phase_fixed = true verir.
+        if not opts.phase_fixed and T.el("phase_fixed") ~= nil then T.set("phase_fixed", false) end
         if not opts.safe_fd and T.el("safe_fd") ~= nil then T.set("safe_fd", false) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
@@ -3216,6 +3222,27 @@ function C.brute()
             .. a3 .. "); rnd-asym: 1-4 arasi, en az 3 farkli sure (" .. tostring(b_ok) .. ", " .. nk .. "); normal: hep 1 ("
             .. tostring(n_ok) .. ") [" .. table.concat(ra, ",", 1, math.min(#ra, 12)) .. " | " .. table.concat(rb, ",", 1, math.min(#rb, 12)) .. "]")
     end)
+    H.run("T-BR-FIX", function()
+        -- V1.0.26 "AA: fixed phase" (varsayilan acik): faz hep 1 (asym): vuruldun satirlari "faz 1", round'lar arasinda
+        -- degismez, "faz testi: bu round" satiri yazilmaz.
+        local T = H.boot({ name = "br-fix", phase_fixed = true })
+        local W = T.W
+        W.sees[2] = 60
+        local phases = {}
+        for i = 1, 6 do
+            T.event("round_start", {})
+            T.tick(70)
+            local m = T.mark()
+            T.hurt_me(2, 1, 10)
+            T.tick(2)
+            local l = T.printed("vuruldun:", m) or ""
+            phases[#phases + 1] = l:match("| faz (%d+) |") or "?"
+        end
+        local all1 = true
+        for _, p in ipairs(phases) do if p ~= "1" then all1 = false end end
+        H.check("T-BR-FIX", all1 and T.count("faz testi: bu round") == 0, "6 round: fazlar " .. table.concat(phases, ",")
+            .. " (hepsi 1), 'faz testi: bu round' " .. T.count("faz testi: bu round") .. " (0)")
+    end)
     H.run("T-BR-9", function()
         -- atis-sonrasi: gecikme 8 paket (taraf uzun tutulur); mermi yanimdan gecince 2 tick icinde taraf cevrilir.
         local function flips(target, name)
@@ -3849,6 +3876,49 @@ function C.rage()
             .. "); atis oncesi bekletme "
             .. a_before .. " (>= 1); ates edince: ignore_target " .. a_ign .. " (0), prioritize_target " .. a_prio
             .. " (>= 3); ayar kapali: ignore " .. b_ign .. " (>= 3), prioritize " .. b_prio .. " (0)")
+    end)
+    H.run("T-RAGE-CF", function()
+        -- V1.0.26 temiz ates: kendi defensive'imiz acikken (sim zamani geri) taranan hedefte 6 grup kapali (ates yok),
+        -- defensive bitince serbest; en fazla 16 tick ust uste; ayar kapaliyken dokunulmaz.
+        local function inst(name, on, shift)
+            local T = H.boot({ name = name, rec_off = true, clean_fire = on })
+            local W = T.W
+            W.head_dmg[2] = 300
+            W.scan[2] = true
+            T.tick(30)
+            local t0 = W.tick
+            W.p[1].sim_shift = shift
+            T.tick(40)
+            local held, free = 0, 0
+            for _, r in ipairs(T.hsr(2, t0 + 1, t0 + 40)) do
+                if H.all_off(r) then held = held + 1 else free = free + 1 end
+            end
+            return held, free
+        end
+        local a_held, a_free = inst("rage-cf", true, 8)
+        local b_held = inst("rage-cf-kapali", false, 8)
+        local c_held = inst("rage-cf-uzun", true, 60)
+        H.check("T-RAGE-CF", a_held >= 3 and a_held <= 12 and a_free >= 20 and b_held == 0 and c_held <= 16 and c_held >= 10,
+            "kendi defensive 8 tick: ates " .. a_held .. " tick bekletildi (3-12), sonra serbest " .. a_free .. "; ayar kapali: "
+            .. b_held .. " (0); 60 tick defensive: en fazla 16 tick (" .. c_held .. ")")
+        -- Sahte kayit kapisi: ilk gercek kayitta hemen serbest ve rakip yeniden defensive'e girince hemen yeniden beklenir.
+        local T = H.boot({ name = "rage-cf-kapi", rec_off = true })
+        local W = T.W
+        W.head_dmg[2] = 50
+        T.tick(30)
+        local t0 = W.tick
+        W.p[2].sim_shift = 6
+        T.tick(1)
+        W.p[2].sim_shift = 0
+        T.tick(14)
+        local t1 = W.tick
+        W.p[2].sim_shift = 6
+        T.tick(1)
+        W.p[2].sim_shift = 0
+        T.tick(14)
+        local first, second = T.ignored(2, t0 + 1, t0 + 12), T.ignored(2, t1 + 1, t1 + 12)
+        H.check("T-RAGE-CF", first >= 3 and first <= 8 and second >= 3, "6 tick defensive: " .. first .. " tick bekleme (3-8, gercek"
+            .. " kayitta hemen serbest); 15 tick sonra yeniden defensive: yine bekleme (" .. second .. " >= 3)")
     end)
     H.run("T-RAGE-BT", function()
         -- V1.0.25 scout govde testi: test kolu acik yasamda scout, govde 80 (can 100) -> set_min_dmg(50); sonraki

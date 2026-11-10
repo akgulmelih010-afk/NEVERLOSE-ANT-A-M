@@ -38,7 +38,7 @@ def parse(path, from_line=1):
          'kills': [], 'deaths': [], 'duels': [], 'sikmadi': Counter(), 'tp': Counter(), 'tp_no': Counter(),
          'def_shift': Counter(), 'def_refill': [], 'def_unspent': 0, 'waits': Counter(), 'peek': Counter(),
          'levels': 0, 'last': {}, 'wall': Counter(), 'wall_head': Counter(), 'first_t': None, 'last_t': None,
-         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter(), 'air': 0, 'air_def': 0}
+         'maps': Counter(), 'events': [], 'vis': 0, 'vis_def': 0, 'esc': Counter(), 'fake': Counter(), 'afk': Counter(), 'air': 0, 'air_def': 0, 'cond': Counter()}
     known = ('dbg ', 'resolver:', 'teleport', 'ai peek', 'def:', 'aa:', 'atis ozeti', 'round', 'harita', 'faz',
              'log ', 'teshis', 'afk', 'otomatik afk', 'script', 'UYARI', 'hafiza', 'anti-brute', 'brute', 'dusman ozeti',
              'detayli log', 'inis tahmini', 'duvar avi', 'ideal tick', 'safe', 'air lc', 'backstab', 'sarj', 'DT ',
@@ -161,6 +161,10 @@ def parse(path, from_line=1):
                 r['maps'][b[:60]] += 1
             if b.startswith('atis:') and ('| isabet' in b or '| iska' in b):
                 hit = 1 if '| isabet' in b else 0
+                # V1.0.26: atis kosulu (kendi defensive'imiz acik mi, rakibin kaydi sahte mi).
+                if 'sen ssg08' in b and 'ping (' not in b:
+                    own = re.search(r'sen ssg08[^|]*\bDEF\b', b) is not None
+                    r['cond'][('kendi DEF' if own else 'kendi temiz', 'rakip sahte' if 'def (sahte kayit)' in b else 'rakip gercek', hit)] += 1
                 if 'def (sahte kayit)' not in b:
                     r['fake'][('r', hit)] += 1
                 else:
@@ -334,6 +338,15 @@ def report(r, prev=None):
         f = r['fake']
         print('  sahte (defensive) kayda atis: beklenen %d isabet / %d | beklemeden %d isabet / %d | gercek kayit %d / %d' % (
             f[('w', 1)], f[('w', 1)] + f[('w', 0)], f[('n', 1)], f[('n', 1)] + f[('n', 0)], f[('r', 1)], f[('r', 1)] + f[('r', 0)]))
+    if r['cond']:
+        c = r['cond']
+        parts = []
+        for own in ('kendi temiz', 'kendi DEF'):
+            for en in ('rakip gercek', 'rakip sahte'):
+                h, m = c[(own, en, 1)], c[(own, en, 0)]
+                if h + m:
+                    parts.append('%s + %s %d/%d (%s)' % (own, en, h, h + m, pct(h, h + m)))
+        print('  scout atis kosulu: ' + ' | '.join(parts))
     if r['esc']:
         print('  duvar kacisi: %s' % dict(r['esc']))
     if r['vis'] > 0:

@@ -1263,6 +1263,9 @@
      "order": 7
     },
     "Nykle.win | Protection": {
+     "AA: fixed phase (asym), no rotation": {
+      "is active": true
+     },
      "Anti-brute reset after": {
       "value": 6.0
      },
@@ -1326,6 +1329,9 @@
       "is active": true
      },
      "Body vs head hiders (head share <= 35 pct over 12+ shots)": {
+      "is active": true
+     },
+     "Clean fire: hold fire while own defensive is active": {
       "is active": true
      },
      "Counter window: no waits + priority vs an enemy who just fired": {
