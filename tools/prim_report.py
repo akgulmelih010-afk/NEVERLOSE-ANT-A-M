@@ -159,6 +159,7 @@ def parse(path, from_line=1):
                 else:
                     r['fake'][('w' if 'bekleme: ' in b else 'n', hit)] += 1
             for key in ('faz karsilastirma', 'resolver karsilastirma', 'harita ozeti', 'dbg teshis', 'olum nedenleri',
+                        'teleport testi',
                         'ai peek karsilastirma'):
                 if b.startswith(key):
                     r['last'][key] = b

@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.19"
+H.VER = "V1.0.20"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -399,6 +399,8 @@ H.EL = {
     { "air_teleport", "exploits", "Teleport in air when seen", "cb", true },
     { "air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", "cb", true },
     { "air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", "cb", true },
+    { "air_def", "exploits", "Air: defensive in the air", "cb", true },
+    { "tp_test", "exploits", "Landing teleport test (every other life without it)", "cb", true },
     { "air_lag", "exploits", "Air lag (defensive every tick)", "cb", true },
     { "air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", "sl", 0, 0, 100 },
     { "auto_peek", "peek", "Auto peek state (moving into view)", "cb", true },
@@ -2059,6 +2061,10 @@ function H.make(opts)
         -- V1.0.19: eski sarj kilidi senaryolari "Air: no DT recharge in the air" kapali kosar; varsayilani sinayan
         -- T-EX-23 opts.air_norecharge = true verir.
         if not opts.air_norecharge and T.el("air_norecharge") ~= nil then T.set("air_norecharge", false) end
+        -- V1.0.20: eski ucus senaryolari "Air: defensive in the air" ve "Landing teleport test" kapali kosar;
+        -- varsayilanlari T-EX-24 (opts.air_def / opts.tp_test = true) sinar.
+        if not opts.air_def and T.el("air_def") ~= nil then T.set("air_def", false) end
+        if not opts.tp_test and T.el("tp_test") ~= nil then T.set("tp_test", false) end
         if opts.setup then opts.setup(T, W) end
         T.tick(opts.warm or 2)
     end
@@ -3839,9 +3845,9 @@ function C.rage()
         H.check("T-RAGE-1", held >= 3 and groups and free == 0, "sahte kayit + kimse gormuyor: ignore_target(2) " .. held
             .. " tick + 6 grup kapali (" .. tostring(groups) .. "); gercek kayittan 3 tick sonra serbest (" .. free .. ")")
         local B, b0 = inst("rage-1-uzun", 30)
-        local bh = B.ignored(2, b0 + 1, b0 + 14)
-        local bf = B.ignored(2, b0 + 17, b0 + 40)
-        H.check("T-RAGE-1", bh >= 3 and bf == 0, "kayit 30 tick sahte kalsa da bekleme en fazla 14 tick (" .. bh .. " / sonra "
+        local bh = B.ignored(2, b0 + 1, b0 + 22)
+        local bf = B.ignored(2, b0 + 25, b0 + 48)
+        H.check("T-RAGE-1", bh >= 3 and bf == 0, "kayit 30 tick sahte kalsa da bekleme en fazla 22 tick (" .. bh .. " / sonra "
             .. bf .. ")")
         -- V1.0.19: "Wait for real record even while the enemy sees you" (varsayilan acik): goruyorken de beklenir
         -- (en fazla 14 tick); kapaliyken eski davranis (bekleme yok).
@@ -3850,9 +3856,9 @@ function C.rage()
         local Co, o0 = inst("rage-1-goruyor-eski", 6, true, true)
         local oh = Co.ignored(2, o0, o0 + 40)
         local Cl, l0 = inst("rage-1-goruyor-uzun", 30, true)
-        local lh, lf = Cl.ignored(2, l0 + 1, l0 + 14), Cl.ignored(2, l0 + 17, l0 + 40)
+        local lh, lf = Cl.ignored(2, l0 + 1, l0 + 22), Cl.ignored(2, l0 + 25, l0 + 48)
         H.check("T-RAGE-1", ch >= 3 and oh == 0 and lh >= 3 and lf == 0, "hedef bizi goruyorken sahte kayit: beklenir (" .. ch
-            .. ", >= 3); 'Wait even when seen' kapali: bekleme yok (" .. oh .. "); 30 tick sahte: en fazla 14 tick (" .. lh
+            .. ", >= 3); 'Wait even when seen' kapali: bekleme yok (" .. oh .. "); 30 tick sahte: en fazla 22 tick (" .. lh
             .. " / sonra " .. lf .. ")")
     end)
     H.run("T-RAGE-2", function()
@@ -5383,6 +5389,53 @@ function C.review()
             .. " (false), havada " .. tostring(air) .. " (true), inince " .. tostring(g1) .. " (false), olunce " .. tostring(dead)
             .. " (false); ayar kapali: havada " .. tostring(off_air) .. " (false)")
     end)
+    H.run("T-EX-24", function()
+        -- V1.0.20 "Air: defensive in the air" (varsayilan acik): goruluyorken DT'li ucusta da defensive zorlanir;
+        -- kapaliyken ucusta yok.
+        local function air_shifts(name, on)
+            local T = H.boot({ name = name, air_def = on, def_repeat = true })
+            local W = T.W
+            W.sees[2] = 60
+            W.p[1].vel = V.v3(100, 0, 0)
+            T.tick(30)
+            local t0 = W.tick
+            T.jump(300)
+            for _ = 1, 200 do
+                T.tick(1)
+                if W.p[1].ground then break end
+            end
+            return T.shifts(t0 + 2, W.tick - 1), W.tick - t0
+        end
+        local on, len = air_shifts("ex-24-hava", true)
+        local off = air_shifts("ex-24-hava-kapali", false)
+        H.check("T-EX-24", on >= 2 and off == 0, "goruluyor + ucus (" .. len .. " tick): havada " .. on
+            .. " zorlama (>= 2); 'Air: defensive in the air' kapali: " .. off .. " (0)")
+        -- V1.0.20 "Landing teleport test" (varsayilan acik): her dogusta kol degisir (ilk yasam acik, sonraki
+        -- kapali, ...); 11. dogusta "teleport testi:" satiri iki kolu yazar; harita bekcisi karismaz.
+        local T = H.boot({ name = "ex-24-test", tp_test = true })
+        local W = T.W
+        T.tick(40)
+        local function life()
+            W.p[1].vel = V.v3(250, 0, 0)
+            local tp = H.seen_jump(T, 300)
+            T.tick(8)
+            T.event("player_death", { userid = 101, attacker = 102, weapon = "ssg08" })
+            W.p[1].alive = false
+            T.tick(2)
+            W.p[1].alive = true; W.p[1].ground = true; W.p[1].air_phys = false; W.p[1].origin = V.v3(0, 0, 0)
+            W.p[1].vel = V.v3(0, 0, 0)
+            T.event("player_spawn", { userid = 101 })
+            T.tick(12)
+            return tp ~= nil
+        end
+        local seq = {}
+        for i = 1, 12 do seq[i] = life() and "A" or "-" end
+        local pat = table.concat(seq)
+        local line = T.printed("teleport testi:") or ""
+        H.check("T-EX-24", pat == "A-A-A-A-A-A-" and line:find("acik 6 yasam", 1, true) ~= nil
+            and line:find("| kapali 5 yasam", 1, true) ~= nil and T.count("bu harita boyunca havada teleport kapali") == 0,
+            "12 yasamda inis teleportu " .. pat .. " (A-A-A-A-A-A-); satir: " .. line:sub(1, 200))
+    end)
     H.run("T-EX-21", function()
         -- V1.0.19: varsayilan def_repeat 12: gorulme surerken 12 tick'te bir zorlama; uyanik dusman sadece yakinken
         -- (gormuyor) de ayni tekrar; dusman uzakta (NEAR disi) ve gormuyorken 0. Sik tekrar satiri 2 sn'de bir.
@@ -5700,21 +5753,21 @@ function C.review()
         local def = T.ignored(2, t1 + 1, t1 + 12)
         H.check("T-RAGE-28", lc == 0 and seen_lc and def >= 3, "LC (200 u atlama, sim ileri; kayitta LC " .. tostring(seen_lc)
             .. "): bekleme yok (" .. lc .. "); sim zamani geri gidince bekleme var (" .. def .. ")")
-        -- Dogrulama (gercek kayittan sonraki 3 tick) siniri asamaz: 13 tick sahte + dogrulama -> 14'te biter.
+        -- V1.0.20: sinir 22 tick (T-RAGE-1 sinar); burada: tek uzun defensive + dogrulama 22 tick'i asmaz.
         local L = H.boot({ name = "rage-28-sinir" })
         local Wl = L.W
         Wl.head_dmg[2] = 50
         L.tick(30)
         local lm = L.mark()
         local l0 = Wl.tick
-        Wl.p[2].sim_shift = 14
+        Wl.p[2].sim_shift = 40
         L.tick(1)
         Wl.p[2].sim_shift = 0
-        L.tick(40)
+        L.tick(48)
         local line = H.bare(L.printed("gercek kayit beklendi", lm))
-        local span = L.ignored(2, l0 + 1, l0 + 40)
-        H.check("T-RAGE-28", line == "resolver: Alpha sahte kayitta (defensive): 14 tick gercek kayit beklendi, sinir doldu"
-            .. " (gercek kayit dogrulanirken)" and span <= 15, "13 tick sahte kayit + dogrulama: " .. tostring(line)
+        local span = L.ignored(2, l0 + 1, l0 + 48)
+        local waited = tonumber(tostring(line):match("%(defensive%): (%d+) tick gercek kayit beklendi")) or 99
+        H.check("T-RAGE-28", waited >= 15 and waited <= 22 and span <= 23, "uzun sahte kayit (15-22 tick): " .. tostring(line)
             .. " (ignore_target " .. span .. " tick)")
         -- 15 sn'lik satir siniri: yazilmayan beklemeler sonraki satira "(N kez)" olarak eklenir.
         local function episode(T, W)

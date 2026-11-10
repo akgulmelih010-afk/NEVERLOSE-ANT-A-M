@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.19  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.20  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,14 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.20 (primordial edition): log 8 (V1.0.19, 19 dk, DM; K28 / D58). Faz testi doldu: normal %45 kafa, kendi
+        fazlarimiz %30-32; faz puani artik kafa - 0.8 x iska (ilk mermi kafa = %0, govde = %21, iska = %38 kazanma),
+        belirgin kotu faz kontrolde de oynanmaz. Defensive havada da ("Air: defensive in the air", acik): ucusta hic
+        zorlanmiyordu (havada 13 olum / 0 oldurme). Sahte kayit bekleme siniri 14 -> 22 tick (79 kez "kayit hala
+        sahte" bitti; sahte kayda 15/31, gercege 20/31 isabet). Inis teleportu testi ("Landing teleport test",
+        acik): her dogusta teleport acik / kapali degisir, "teleport testi: ..." satiri iki kolu karsilastirir
+        (teleportlu ucusta vurulma %9, sarjsizda %10: fark gorunmuyor). Havada sarj kilidi yer bayragiyla (bhop'ta
+        3 sn bekcisine takiliyordu).
       V1.0.19 (primordial edition): log 7 (V1.0.17, 22 dk). Duvar / acik karari artik mermi izinin pen_count'u ile
         (0 = acik, > 0 = duvardan): duz iz acik goruste de "kapali" donuyordu (56 isabetin 56'si "iz duvardan",
         11 olumde penetrated 0). Etkilenenler: duvar avi (1111 u'da tam hasarli ACIK hedefe tetiklenip Min. damage'i
@@ -155,7 +163,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.19", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.20", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1743,6 +1751,8 @@ do
         B.cb("air_teleport", "exploits", "Teleport in air when seen", true, true)
         B.cb("air_lc", "exploits", "Air: break LC (uncharge + full fake lag when seen)", true, false)
         B.cb("air_norecharge", "exploits", "Air: no DT recharge in the air (no mid-air teleport)", true, false)
+        B.cb("air_def", "exploits", "Air: defensive in the air", true, false)
+        B.cb("tp_test", "exploits", "Landing teleport test (every other life without it)", true, false)
         B.cb("air_lag", "exploits", "Air lag (defensive every tick)", true, true)
         B.sl("air_hc", "exploits", "In-air hit chance (snipers, 0 = off)", 0, 100, 0, true, "%")
         -- Peek
@@ -4483,8 +4493,11 @@ do
     end
 
     -- Mermi basina kafa orani (az veride ortalamaya cekilir: 2/6 on bilgi).
+    -- V1.0.20 (log 8, 349 duello): rakibin ilk mermisi kafaysa duello %0 (38/38 olum), govdeyse %21, iskaysa %38
+    -- kazaniliyor. Faz puani bu yuzden sadece kafa orani degil: kafa orani - 0.8 x iska orani (kucuk olan iyi;
+    -- 0.8 = iska ile govde arasindaki kazanma farkinin kafa ile govde arasindaki farka orani). Az veride 2/6 onsel.
     B.test_rate = function(t)
-        return (t.h + 2) / (t.n + 6)
+        return (t.h + 2) / (t.n + 6) - 0.8 * (t.n - t.hit + 1) / (t.n + 6)
     end
 
     B.test_count = function(phase, head, hit)
@@ -4561,14 +4574,18 @@ do
                     best, best_rate = phase, r
                 end
             end
-            if random() < B.BEST_SHARE then
+            -- Kontrol payi en iyiden puani 0.10'dan fazla kotu olmayan fazlara gider (log 8: normal %45 kafa, kendi
+            -- fazlarimiz %30-32: normal artik kontrolde de oynanmaz).
+            local others = {}
+            for phase = 0, n do
+                if phase ~= best and B.test_rate(B.test[phase]) <= best_rate + 0.10 then
+                    others[#others + 1] = phase
+                end
+            end
+            if #others == 0 or random() < B.BEST_SHARE then
                 pick, mode = best, "en iyi"
             else
-                pick = random(0, n - 1)
-                if pick >= best then
-                    pick = pick + 1
-                end
-                mode = "kontrol"
+                pick, mode = others[random(1, #others)], "kontrol"
             end
         end
         B.round_phase = pick
@@ -4920,8 +4937,48 @@ do
     end
 
     -- Havada / inis teleportu bu harita (son 3'un 2'si vuruldu) ya da bu oturum (sarj harcanmadi) kapali.
+    -- V1.0.20 inis teleportu testi (log 8: teleportlu 117 ucusun 11'inde +-1 sn icinde vuruldun = %9, sarjsiz 296
+    -- ucusun 30'unda = %10: fark yok, ama teleport DT'yi bosaltiyor ve olunen ucuslar loga dusmuyordu). Her dogusta
+    -- kol degisir: kol 1 teleport acik, kol 2 kapali. Kol basina yasam / oldurme / omur / yenen mermi / havada olum
+    -- sayilir, 10 yasamda bir "teleport testi: ..." satiri. Test acikken "son 3'un 2'si" harita bekcisi karismaz.
+    X.tpt = { arm = 2, lives = 0, s = { { lives = 0, kills = 0, ticks = 0, hits = 0, air = 0 },
+        { lives = 0, kills = 0, ticks = 0, hits = 0, air = 0 } } }
+    X.tpt_on = function()
+        return N.on("tp_test") and N.on("air_teleport") and N.on("air_lc")
+    end
+    X.tpt_text = function()
+        local parts = {}
+        for arm = 1, 2 do
+            local a = X.tpt.s[arm]
+            parts[#parts + 1] = fmt("%s %d yasam, oldurme %d (yasam basina %.2f), omur ort %.1f sn, yenen mermi %d,"
+                .. " havada olum %d", arm == 1 and "acik" or "kapali", a.lives, a.kills,
+                a.lives > 0 and a.kills / a.lives or 0, a.lives > 0 and a.ticks * U.ipt() / a.lives or 0, a.hits, a.air)
+        end
+        return concat(parts, " | ")
+    end
+    X.tpt_spawn = function()
+        local T = X.tpt
+        if not X.tpt_on() then
+            return
+        end
+        T.arm = T.arm == 1 and 2 or 1
+        T.s[T.arm].lives = T.s[T.arm].lives + 1
+        T.lives = T.lives + 1
+        if T.lives % 10 == 1 and T.lives > 1 and N.on("hit_log") then
+            N.log.line("teleport testi: " .. X.tpt_text())
+        end
+    end
+    -- what: "kills" / "hits" / "ticks" / "air" (havada olum).
+    X.tpt_add = function(what)
+        local T = X.tpt
+        if X.tpt_on() and T.lives > 0 then
+            local a = T.s[T.arm]
+            a[what] = a[what] + 1
+        end
+    end
+
     X.tp_off = function()
-        return X.tp.map_off or X.tp.session_off
+        return X.tp.map_off or X.tp.session_off or (X.tpt_on() and X.tpt.lives > 0 and X.tpt.arm == 2)
     end
 
     -- Tek tetik: tick basina en fazla bir force_anti_exploit_shift (sadece DT dolu iken).
@@ -4937,8 +4994,12 @@ do
             X.dt_warning()
             return false
         end
-        -- DT'li ucusta (inis teleportu) defensive zorlanmaz: sarj teleporta kalir (GS V1.0.80 current.air_dt).
-        if not N.ref.dt_ready() or X.clean or N.st.fd or X.air.latched or X.land.flight then
+        -- V1.0.20: DT'li ucusta (inis teleportu) defensive eskiden hic zorlanmazdi ("sarj teleporta kalsin"); shift
+        -- sarji harcamiyor (log 3-8: "def: shift sarj harcamadi") ve log 8'de havada 13 olum / 0 oldurme, havada yenen
+        -- 19 merminin 14'u kafa. "Air: defensive in the air" acikken ucusta da zorlanir (Air satirinin gizli pitch /
+        -- yaw'i o zaman calisir); kapaliyken eski davranis.
+        if not N.ref.dt_ready() or X.clean or N.st.fd or X.air.latched
+            or (X.land.flight and not N.on("air_def")) then
             return false
         end
         -- Sarj cagridan ONCE okunur (cagri sarji ayni tick'te harcayabilir; log ve sarj izi icin).
@@ -5076,8 +5137,8 @@ do
         end
         -- X14 (GS: air_lag sadece Smart penceresini genisletir): havada, gorulmuyorken her tick; gorulurken havayi
         -- Air LC yonetir; DT'li ucusta (inis teleportu) ve merdivende yok.
-        local air = mode == 3 and N.on("air_lag") and st.airborne and not st.ladder and not X.land.flight
-            and not (E.now or E.soon)
+        local air = mode == 3 and N.on("air_lag") and st.airborne and not st.ladder
+            and (not X.land.flight or N.on("air_def")) and not (E.now or E.soon)
         if air then
             want, why = true, "air"
         end
@@ -5566,7 +5627,9 @@ do
         -- DT bhop'ta havada yeniden doluyordu (log 7: art arda 4 ziplamanin dordunde teleport); sarj dolumu havada
         -- donup isinlanma olarak gorunur. Havadayken sarj dolumu kilitlenir, yerde acilir: zincirin ilk ziplamasinda
         -- tek inis teleportu, DT yere basinca dolar. AFK'da karismaz.
-        if st.airborne and not st.ladder and N.on("air_norecharge") and not N.afk.on then
+        -- V1.0.20: yer bayragi ile (st.airborne bhop'ta yere degince de surdugu icin kilit 3 sn'yi gecip bekciye
+        -- takiliyordu: log 8'de 12+ "sarj kilidi 3 sn'yi gecti (airrc)").
+        if U.flag(lp, "ON_GROUND") == false and not st.ladder and N.on("air_norecharge") and not N.afk.on then
             N.rc.block("airrc")
         else
             N.rc.allow("airrc")
@@ -5663,7 +5726,7 @@ do
                 end
             end
         end
-        if not T.map_off and hits >= 2 and done >= 2 then
+        if not T.map_off and hits >= 2 and done >= 2 and not X.tpt_on() then
             T.map_off = true
             N.log.line("teleport: son 3 isinlanmanin 2'sinde hemen vuruldun, bu harita boyunca havada teleport kapali")
         end
@@ -5935,6 +5998,7 @@ do
         CH.held_was, CH.c, CH.m = held, c, m
         CH.shift_watch(tick, c, m)
         r.ticks = r.ticks + 1
+        X.tpt_add("ticks")
         if dt then
             r.dt = r.dt + 1
             r.top = max(r.top, c)
@@ -6598,7 +6662,9 @@ do
                 local sees = E.sees(idx)
                 local duel = sees or (t ~= nil and now >= t.we_shot and now - t.we_shot <= 1.5)
                 if N.on("wait_real") then
-                    local limit = 14
+                    -- V1.0.20 (log 8): rakip defensive'i ort. 12.5 tick suruyor; 14 tick'lik sinir 79 kez "kayit hala
+                    -- sahte" bitti ve sahte kayda atislar 15/31 tuttu (gercek kayda 20/31). Sinir 22 tick.
+                    local limit = RG.WAIT_LIMIT
                     if st.move_state == "Peek" and not E.seen and U.flag(ent, "ON_GROUND") == false then
                         limit = 4
                     end
@@ -7127,6 +7193,7 @@ do
         return walled
     end
     RG.WALL_BOXES = { "HEAD", "PELVIS" }
+    RG.WAIT_LIMIT = 22
 
     -- R12: havadayken sniper hit chance (0 = kapali; senin degerin daha yuksekse dokunulmaz).
     RG.air_hc = function(ctx, wname, w)
@@ -8385,6 +8452,7 @@ do
         local name = U.name(attacker)
         N.peek.hurt(hitgroup, dmg, name)
         N.peek.esc_hurt(U.index(attacker))
+        N.ex.tpt_add("hits")
         if st.fd and (weapon == "ssg08" or weapon == "awp") then
             st.fd_hint_until = U.now() + 2
             N.log.every("fd_sniper", 5, fmt("fake duck: %s %s ile vurdu -> fake duck'i birak", name, weapon))
@@ -8424,6 +8492,7 @@ do
         if attacker == lp and victim ~= nil and victim ~= lp then
             if U.is_enemy(victim) then
                 ST.kd("kills")
+                N.ex.tpt_add("kills")
             end
             if N.on("hit_log") then
                 N.log.line(fmt("oldurdun: %s | %s | %s%s", U.name(victim), st.label, U.wlabel(st.weapon),
@@ -8445,6 +8514,9 @@ do
         elseif victim == lp then
             if attacker ~= nil and attacker ~= lp and U.is_enemy(attacker) then
                 ST.kd("deaths")
+                if N.st.airborne then
+                    N.ex.tpt_add("air")
+                end
             end
             if N.on("hit_log") then
                 N.log.line(fmt("oldun: %s | %s | %s", attacker ~= nil and U.name(attacker) or "?", st.label,
@@ -10474,6 +10546,7 @@ do
             st.dead = false
             st.spawn_at = U.now()
             N.afk.spawn()
+            N.ex.tpt_spawn()
         end
         st.alive = true
         st.on = st.enabled

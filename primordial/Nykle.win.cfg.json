@@ -1111,6 +1111,9 @@
      "Air: break LC (uncharge + full fake lag when seen)": {
       "is active": true
      },
+     "Air: defensive in the air": {
+      "is active": true
+     },
      "Air: no DT recharge in the air (no mid-air teleport)": {
       "is active": true
      },
@@ -1143,6 +1146,9 @@
      },
      "In-air hit chance (snipers, 0 = off)": {
       "value": 0.0
+     },
+     "Landing teleport test (every other life without it)": {
+      "is active": true
      },
      "Re-arm cooldown (let DT refill after defensive)": {
       "is active": true
