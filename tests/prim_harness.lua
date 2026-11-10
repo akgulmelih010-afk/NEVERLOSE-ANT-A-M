@@ -31,7 +31,7 @@ if SRC == nil then SRC = MODE; MODE = "full" end
 if MODE == nil or MODE == "" then MODE = "full" end
 local H = { out = {}, fails = 0, passes = 0, mode = MODE, live = {} }
 -- Script surumu (yukleme satiri ve log dosyasi isareti): her surumde burada degisir.
-H.VER = "V1.0.11"
+H.VER = "V1.0.12"
 H.G = { hata = {}, md_bad = {}, native_bad = {}, sp_false = {}, enum_bad = {}, offlist = {}, unknown_global = {},
     global_write = {}, forbidden = {}, fmt_bad = {}, raw_err = {}, rc_left = {}, nonascii = {}, insts = 0 }
 
@@ -392,6 +392,7 @@ H.EL = {
     { "def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", "cb", true },
     { "def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", "cb", true },
     { "def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", "sl", 16, 0, 64 },
+    { "ideal_tick", "exploits", "Ideal tick: teleport back after an autopeek sniper shot", "cb", true },
     { "anti_peek", "exploits", "Defensive vs enemy peeks", "cb", true },
     { "switch_def", "exploits", "Defensive while switching weapons", "cb", true },
     { "clean_shot", "exploits", "Clean shot (no lag while shooting)", "cb", true },
@@ -4988,6 +4989,37 @@ function C.review()
         B.tick(400)
         H.check("T-TRK-1", B.count("aa: desync olcumu ham:") >= 1 or B.count("aa: desync isareti") == 0,
             "desync olcumu bittiginde ham sayi satiri yazilir (" .. B.count("aa: desync olcumu ham:") .. ")")
+    end)
+
+    H.run("T-EX-22", function()
+        -- V1.0.12 vur-kac: autopeek basili + scout atisi -> 1-12 tick icinde tek force_uncharge + log; autopeek yokken,
+        -- ayar kapaliyken yok; sarj 0 ise uyari (bir kez), uncharge yok.
+        local function inst(name, setup)
+            local T = H.boot({ name = name, rec_off = true })
+            local W = T.W
+            W.charge = 14
+            if setup then setup(T, W) end
+            T.tick(10)
+            if W.auto_recharge == false then W.charge = 0 end
+            local u0 = #T.unch
+            local t0 = W.tick
+            T.shoot(2)
+            T.tick(16)
+            return T, #T.unch - u0, (T.unch[#T.unch] or t0) - t0
+        end
+        local A, a, at = inst("ex-22-peek", function(T, W) W.keys.autopeek = true; W.autopeek_pos = H.V.v3(0, 0, 0) end)
+        local _, b = inst("ex-22-tussuz")
+        local _, c = inst("ex-22-kapali", function(T, W)
+            W.keys.autopeek = true; W.autopeek_pos = H.V.v3(0, 0, 0); T.set("ideal_tick", false)
+        end)
+        local D, d = inst("ex-22-sarjsiz", function(T, W)
+            W.keys.autopeek = true; W.autopeek_pos = H.V.v3(0, 0, 0); W.auto_recharge = false; W.charge = 0
+        end)
+        H.check("T-EX-22", a == 1 and at >= 1 and at <= 12 and A.count("ideal tick: atistan") == 1 and b == 0 and c == 0,
+            "autopeek + scout atisi: " .. a .. " uncharge (1), atistan " .. at .. " tick sonra (1-12), log "
+            .. A.count("ideal tick: atistan") .. "; autopeek yok: " .. b .. " (0); ayar kapali: " .. c .. " (0)")
+        H.check("T-EX-22", d == 0 and D.count("ideal tick: atistan sonra sarj yok") == 1, "sarj 0: uncharge " .. d
+            .. " (0), uyari " .. D.count("ideal tick: atistan sonra sarj yok") .. " (1)")
     end)
 
     H.run("T-EX-21", function()

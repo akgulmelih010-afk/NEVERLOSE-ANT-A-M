@@ -1135,6 +1135,9 @@
      "Hidden spin speed": {
       "value": 10.0
      },
+     "Ideal tick: teleport back after an autopeek sniper shot": {
+      "is active": true
+     },
      "In-air hit chance (snipers, 0 = off)": {
       "value": 0.0
      },
@@ -2380,8 +2383,8 @@
       },
       "Dont Use Charge": {
        "Dont Use charge key": {
-        "key": 0,
-        "mode": 4
+        "key": 111,
+        "mode": 1
        }
       },
       "Enable": {

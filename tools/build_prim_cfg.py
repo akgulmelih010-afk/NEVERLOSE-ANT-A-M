@@ -162,7 +162,8 @@ def apply_general(e):
     e.cb(dt + ["Anti-Prediction On Peek"], True)
     e.cb(dt + ["Anti-Prediction In Air"], False)
     e.cb(dt + ["Shift On Knife"], True)
-    e.bind(dt + ["Dont Use Charge", "Dont Use charge key"], 0, 4)
+    # V1.0.12 vur-kac: peek tusu (MOUSE5, basili tut) basiliyken atis DT sarjini harcamaz; sarj geri isinlanmaya kalir.
+    e.bind(dt + ["Dont Use Charge", "Dont Use charge key"], 111, 1)
     e.cb(g + ["Exploits", "Force Prediction"], False)
     e.bind(g + ["Exploits", "Instant Recharge", "Key"], 0, 4)
     e.sl(g + ["Exploits", "Uncharge Delay"], 11)

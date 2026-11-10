@@ -1,5 +1,5 @@
 --[[
-    Nykle.win lua V1.0.11  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
+    Nykle.win lua V1.0.12  |  primordial edition  |  primordial (CS:GO) icin HvH anti-aim, exploit ve resolver lua'si
 
     GameSense surumunun (Nykle.win.gamesense.lua V1.0.79) loglarla kanitlanan ozelliklerinin ve Neverlose
     surumunun (Nykle.win.lua V1.1.x) kurallarinin primordial API'sine tasinmis hali.
@@ -27,6 +27,11 @@
       - DT / HS / fake duck / autopeek tuslarini script degistiremez: config'te DT her zaman acik gelir.
 
     Surum gecmisi:
+      V1.0.12 (primordial edition): vur-kac ("Ideal tick: teleport back after an autopeek sniper shot", acik). Autopeek
+        tusu basiliyken scout / AWP atisindan sonra, kendi defensive'imiz bitince tek force_uncharge: DT sarjiyla
+        autopeek noktasina geri isinlanma (paketteki en temiz lua'nin, metasett'in Lagpeek deseni). cfg'de "Dont Use
+        Charge" autopeek tusuna (MOUSE5) baglandi: peek sirasindaki atis sarji harcamaz, sarj kacisa kalir. Log:
+        "ideal tick: atistan N tick sonra geri isinlanildi"; sarj yoksa haritada bir kez uyari.
       V1.0.11 (primordial edition): duvar hatti. Dusmanin mermi izi bana hasar veriyor ama gozunden kafama duz cizgi
         kapaliysa (duvardan vurabiliyor) sol listede "WB <hasar>" (sari; canina yetiyorsa kirmizi) ve vuruldun /
         iska satirinda "duvar hatti <hasar> hasar <sure>s". Log 4: yenen 9 merminin 9'u duvardan.
@@ -108,7 +113,7 @@
 ]]
 
 local N = {
-    SCRIPT = "Nykle.win", VERSION = "1.0.11", EDITION = "primordial",
+    SCRIPT = "Nykle.win", VERSION = "1.0.12", EDITION = "primordial",
     util = {}, log = {}, fs = {}, ref = {}, ui = {}, ov = {}, rc = {}, mem = {}, track = {}, exposure = {},
     state = {}, aa = {}, brute = {}, ex = {}, rage = {}, peek = {}, afk = {}, shots = {}, stats = {}, misc = {},
     draw = {}, cb = {}, tick = {}, K = {}, dlog = {}, profile = {}, charge = {}, diag = { trn = 0 },
@@ -1622,6 +1627,7 @@ do
         B.cb("def_cooldown", "exploits", "Re-arm cooldown (let DT refill after defensive)", true, true)
         B.cb("def_edge", "exploits", "Defensive: one shift per event (no repeat while seen)", true, true)
         B.sl("def_repeat", "exploits", "Defensive: repeat while seen (ticks, 0 = once)", 0, 64, 16, false, "t")
+        B.cb("ideal_tick", "exploits", "Ideal tick: teleport back after an autopeek sniper shot", true, true)
         B.cb("anti_peek", "exploits", "Defensive vs enemy peeks", true, true)
         B.cb("switch_def", "exploits", "Defensive while switching weapons", true, true)
         B.cb("clean_shot", "exploits", "Clean shot (no lag while shooting)", true, true)
@@ -5107,6 +5113,53 @@ do
         return true
     end
 
+    -- V1.0.12 vur-kac (ideal tick; metasett Lagpeek deseni, paketteki en iyi script'li cfg'nin kullandigi): autopeek
+    -- tusu basiliyken sniper atisi -> kendi defensive'imiz bitince tek force_uncharge (DT sarjiyla autopeek noktasina
+    -- geri isinlanma). Sarjin atista harcanmamasi icin cfg'de "Dont Use Charge" autopeek tusuna bagli olmali; sarj 0
+    -- ise haritada bir kez uyari. Bekleme en fazla 12 tick; havada / fake duck'ta yok.
+    X.ideal = { pending = nil, n = 0, warned = false }
+
+    X.ideal_shot = function()
+        local st = N.st
+        if not N.on("ideal_tick") or not st.alive or st.airborne or st.fd or not N.ref.on("autopeek")
+            or not U.is_bolt(st.weapon) or X.paused("TP") then
+            return
+        end
+        X.ideal.pending = U.tick()
+    end
+
+    X.ideal_update = function()
+        local I = X.ideal
+        if I.pending == nil then
+            return
+        end
+        local tick = U.tick()
+        local age = tick - I.pending
+        if age < 0 or age > 12 or not N.st.alive then
+            I.pending = nil
+            return
+        end
+        if age < 1 or (X.own_def_active() and age < 12) then
+            return
+        end
+        I.pending = nil
+        local c, m = N.ref.charge()
+        if c <= 0 then
+            if not I.warned then
+                I.warned = true
+                N.log.line("ideal tick: atistan sonra sarj yok (cfg: Doubletap > Dont Use Charge autopeek tusuna bagli"
+                    .. " olmali; yoksa atis sarji harciyor)")
+            end
+            return
+        end
+        U.call(exploits.force_uncharge)
+        I.n = I.n + 1
+        if N.on("hit_log") then
+            N.log.line(fmt("ideal tick: atistan %d tick sonra geri isinlanildi (sarj %d/%d, %d. kez)", U.R(age), U.R(c),
+                U.R(m), I.n))
+        end
+    end
+
     -- Sarj 0 olana kadar (en fazla 4 cagri, tick basina bir) force_uncharge; bitince tek satir ve G26 dogrulamasi
     -- (N.charge). Inis teleportu X.land_update'ten X.air_update'in bekleyen blogundan once atilir: atis tick'inde
     -- ikinci cagri yapilmaz (G26 "N cagrida" ve "harcanmadi" penceresi tick sayar).
@@ -7453,6 +7506,7 @@ do
 
     S.on_shoot = function(shot)
         local st, X, T, RG = N.st, N.ex, N.track, N.rage
+        X.ideal_shot()
         local ent = field(shot, "player")
         local id = field(shot, "id")
         local idx = U.index(ent)
@@ -9721,6 +9775,7 @@ do
         N.aa.cover_update()
         N.state.detect(cmd, nil)
         N.ex.clean_update()
+        N.ex.ideal_update()
         N.peek.update(cmd)
         N.aa.crouch_keeper(cmd)
         N.misc.jump_scout()
