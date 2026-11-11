@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.89"
+local VERSION = "1.0.90"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -245,10 +245,10 @@ local K = {
 }
 
 -- Deney motoru (V1.0.81): can basina A / B. Bir aday bir ya da birkac menu salterinin baska degeridir; B canlarinda
--- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). Bes kulvar ayni anda
--- calisir (yerde AA acilari, yerde exploit / defensive, hava, atis, atis 2); kol sirasi kulvara gore 1 / 2 / 16 / 4 /
--- 8 canda bir degisir, boylece birbirlerine karismazlar. Geri kalani asagida (bkz. "Deney motoru").
-K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, s = {}, cur = {}, lifec = nil, bad = {} }
+-- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). V1.0.90: on kulvar ayni
+-- anda calisir (her biri ayri bir alt sistem); kollar ikiser canlik bloklarda, kulvarlar birbirine dik dizilerle
+-- doner (bkz. xp.arm_of), boylece birbirlerinin olcusune karismazlar. Geri kalani asagida (bkz. "Deney motoru").
+K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, count = 0, s = {}, cur = {}, lifec = nil, bad = {} }
 
 -- Bir olay fonksiyonu hata verirse script sessizce durmasin ve konsol dolmasin: hata bir kez
 -- yazilir, sonraki olaylarda yine calisir.
@@ -1249,6 +1249,10 @@ menu.home_info2  = grp.info:label(DIM_HEX .. "(manual yaw, freestanding, static 
 menu.forget      = grp.data:button("Forget learned enemies", function()
     if forget_enemies ~= nil then
         forget_enemies()
+        -- V1.0.90: duello danismaninin rakip basina kill / olum sayimi da (bkz. K.adv.hist).
+        if K.adv ~= nil then
+            K.adv.hist = {}
+        end
         print(("[%s] ogrenilen dusmanlar silindi (hafiza dahil)"):format(SCRIPT))
     end
 end)
@@ -1512,6 +1516,12 @@ menu.fast_charge    = grp.protect_raw:switch("Fast recharge: aimbot off while th
 -- V1.0.89 SONUC: deney reddetti (25 / 25 can, mermi basina zarar 0.44 -> 0.53, kill dustu; egilen kolda neredeyse
 -- hic sikamadin). Tablodaki fark kendi egildigin anlarin secilmis olmasindan geliyormus. Secenek kapali kaliyor (acma).
 menu.seen_duck      = grp.protect_raw:switch("Duck when seen and slow (crouched + slow: 22% of hits to the head, standing 46%)", false)
+-- V1.0.90 (istek: "ai peekin peekleyip olmesi, sikmamasi". Denetim, 315 AI peek: duellolarin %73'u kazaniliyor (genel
+-- %46), isabetli peek'te olum %6, iskalida %34, atissizda %17. Rakibin defensive payi %0 iken kazanma %84, %51+ iken
+-- %49 ve peek basina olum %40. Son alti logda atissiz peek %22 -> %38, cogu yola cikar cikmaz "aci kapandi".) Acikken
+-- AI peek, rakibin kaydi sahteyken (defensive'in icinde) yola cikmaz; ilk gercek kayitta aci hala oradaysa cikar.
+-- Deney motorunun adayi (peek_real); varsayilan kapali, motor acip kapatir.
+menu.peek_real      = grp.protect_raw:switch("AI peek: start only on a real record (not while the enemy is in defensive)", false)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
 -- giden 178 atis %57, gercek kayda giden %75 tuttu (correction iskasi %25'e karsi %9); scout'ta her iska
@@ -1597,6 +1607,8 @@ menu.no_exploit2 = grp.bexploit_raw:label(DIM_HEX .. "(Global shares AA only, fa
 
 -- Visuals (tercih; onerilen ayarlara girmez).
 menu.indicators  = grp.indicators:switch("Crosshair indicators", true)
+-- V1.0.90: duello danismani (bkz. K.adv): nisangahin ustunde SALDIR / DENK / SAVUN, kazanma tahmini ve sebebi.
+menu.advisor     = grp.indicators:switch("Duel advisor (SALDIR / SAVUN + win chance)", true)
 menu.accent      = grp.indicators:color("Indicator color", { r = 150, g = 190, b = 255, a = 255 })
 menu.arrows      = grp.indicators:switch("Manual arrows", true)
 menu.arrow_color = grp.indicators:color("Arrow color", { r = 150, g = 190, b = 255, a = 255 })
@@ -7340,6 +7352,15 @@ do
         if ai_peek.blocked ~= nil and enemy == ai_peek.blocked then
             return
         end
+        -- V1.0.90 (peek_real; bkz. menu.peek_real): rakibin kaydi sahteyken (defensive'in icinde) yola cikilmaz. Sahte
+        -- kayitta hitbox'lar gercek yerinde degil: oradan gorulen aci gercek kayitta olmayabilir ("aci kapandi") ve
+        -- aimbot zaten gercek kaydi bekler. Tarama da atlanir; her tick yeniden bakilir, ilk gercek kayitta taranir.
+        local rec = enemy_watch.list[enemy]
+        local fake = rec ~= nil and finite(rec.sim) and finite(rec.max_sim) and rec.sim < rec.max_sim
+        if fake and on(menu.peek_real) then
+            ai_peek.why = ("%s defensive'de (sahte kayit), gercek kayit bekleniyor"):format(player_name(enemy))
+            return
+        end
         ai_peek.scan_tick = tick
         local result, watcher = scan(lp, mine, enemy)
         if type(result) ~= "table" then
@@ -7370,9 +7391,14 @@ do
         aim_stats.ai_peeks = aim_stats.ai_peeks + 1
         ai_peek.until_time = now + 0.25 + result.step / 120
         move_to(cmd, mine, result.spot)
+        -- V1.0.90: deney motorunun "peek" olcusu (peek basina puan) ve baslangictaki kayit durumu (log).
+        if K.xp.peek_start ~= nil then
+            K.xp.peek_start()
+        end
         if on(menu.shot_log) then
-            print(("[%s] ai peek: %s %d birim -> %s (hasar %d)"):format(SCRIPT, result.side .. (result.back and "-geri" or ""), result.step,
-                player_name(enemy), floor(result.damage + 0.5)))
+            print(("[%s] ai peek: %s %d birim -> %s (hasar %d) | kayit %s"):format(SCRIPT,
+                result.side .. (result.back and "-geri" or ""), result.step, player_name(enemy),
+                floor(result.damage + 0.5), fake and "sahte" or "gercek"))
         end
     end
 end
@@ -10455,10 +10481,12 @@ D.close = function(enemy, result)
     else
         first = "?"
     end
-    print(("[%s] dbg duello: %s %s | %.2fs | ilk goren: %s | def %d kez %dt (%%%d) | hiz max %d%s | o: %d ates %d isabet -%d | sen: %d ates %d isabet | %s"):format(
+    -- V1.0.90: sona duello danismaninin bu karsilasmadaki ilk ve son onerisi eklenir (" | oneri SAVUN %38, son DENK
+    -- %47"; bkz. K.adv).
+    print(("[%s] dbg duello: %s %s | %.2fs | ilk goren: %s | def %d kez %dt (%%%d) | hiz max %d%s | o: %d ates %d isabet -%d | sen: %d ates %d isabet | %s%s"):format(
         SCRIPT, E.name, E.where, max(1, E.last - E.start) * ti, first, E.def_n, E.def_ticks,
         round(100 * E.def_ticks / max(1, E.ticks)), round(E.top), E.air and ", havada" or "", E.his_shots, E.his_hits,
-        round(E.his_dmg), E.our_shots, E.our_hits, result))
+        round(E.his_dmg), E.our_shots, E.our_hits, result, K.adv ~= nil and K.adv.note ~= nil and K.adv.note(enemy) or ""))
 end
 
 D.close_all = function(result)
@@ -10922,6 +10950,276 @@ end
 end
 
 -------------------------------------------------------------------------------
+-- Duello danismani (V1.0.90)
+-------------------------------------------------------------------------------
+-- Istek: "ne zaman savunma ne zaman saldiri yaptigimi anlamasi lazim hilenin; karsimdaki kisiyi oldurebileceksem saldir
+-- desin, olduremeyeceksem savunmaya gecmelisin onerisinde bulunmali; bunu da guzel bir hud'da planlarsan guzel olur".
+-- Veri: 5196 GameSense duellosu (3039'u kill ya da olumle bitti). Kazanma orani: sadece sen onu gorduysen %74, ikiniz
+-- de gorduyseniz %51 (kimin once gordugu fark etmiyor), sadece o seni gorduyse 0 kill / 432 olum; rakip duruyorsa %61,
+-- hareketliyse %45; rakip 40+ birim yukaridaysa %40, ayni seviyede %49; rakibin defensive payi %0 iken %58, %51+ iken
+-- %30; rakibin cani eksikse artar, daha once seni oldurduyse duser. Bunlardan lojistik regresyon (K.adv.W). Dosya
+-- bazinda 5 kat capraz dogrulama: tahmin %35 alti -> gercek %26, %35-45 -> %44, %45-55 -> %49, %55-65 -> %59, %65
+-- ustu -> %72. Sonradan gelen loglarda (egitimde olmayan 342 duello): SAVUN dedigi yerde gercek %35, DENK %49,
+-- SALDIR %56.
+-- Gosterge: SALDIR (tahmin >= %55), DENK, SAVUN (< %45) + tahmin + en agir iki sebep. Silah hazir degilse (surgu,
+-- sarjor, silah degisimi, elde bicak / bomba) her zaman SAVUN. Sadece gosterir; hicbir ayari degistirmez. Her
+-- "dbg duello" satirina o karsilasmadaki ilk oneri yazilir ("oneri"): sonraki loglarda tutup tutmadigi olculur.
+K.adv = { enc = {}, hist = {}, out = nil, can = nil, EVERY = 4, SIGHT = 12, CAN = 8, GAP = 64, MIN_DAMAGE = 10,
+    HIGH = 0.55, LOW = 0.45,
+    W = { bias = 0.10, his = -0.28, mine = 0.18, none = -0.13, near = -0.13, far = 0.13, high = -0.23, still = 0.60,
+        fast = 0.09, hurt = 0.51, weak = 0.26, taser = -0.17, knife = 0.53, other = 0.34, def_some = -0.25,
+        def_most = -0.87, hist = 0.36 },
+    TEXT = { his = "SENI GORUYOR, SEN VURAMIYORSUN", mine = "SEN GORUYORSUN, O GORMUYOR", near = "COK YAKIN",
+        far = "UZAK", high = "RAKIP YUKARDA", still = "RAKIP DURUYOR", hurt = "RAKIBIN CANI EKSIK",
+        weak = "RAKIBIN CANI 50 ALTI", taser = "ZEUS'LU", knife = "BICAKLI", other = "SNIPER'I YOK",
+        def_some = "RAKIP DEFENSIVE KULLANIYOR", def_most = "RAKIP DEFENSIVE'DE",
+        unready = "SILAH HAZIR DEGIL", lethal = "OLDURECEK ATIS VAR" },
+    SNIPER = { CWeaponSSG08 = true, CWeaponAWP = true, CWeaponSCAR20 = true, CWeaponG3SG1 = true } }
+K.adv.init = function()
+    local A = K.adv
+    local W, TEXT = A.W, A.TEXT
+
+    -- f: { state = "none" | "his" | "mine" | "both", dist, h, speed, hp, class, share (0-1 ya da nil), def_hint, k, d,
+    --      ready, lethal }. Donus: { label, p, reasons = { yazi, ... } }.
+    A.eval = function(f)
+        local parts = {}
+        local function add(key, w, text)
+            parts[#parts + 1] = { w = w, text = text or TEXT[key] }
+            return w
+        end
+        local z = W.bias
+        if f.state == "his" then
+            z = z + add("his", W.his)
+        elseif f.state == "mine" then
+            z = z + add("mine", W.mine)
+        elseif f.state ~= "both" then
+            z = z + W.none
+        end
+        if f.dist < 300 then
+            z = z + add("near", W.near)
+        elseif f.dist >= 700 then
+            z = z + add("far", W.far)
+        end
+        if f.h >= 40 then
+            z = z + add("high", W.high)
+        end
+        if f.speed < 5 then
+            z = z + add("still", W.still)
+        elseif f.speed >= 100 then
+            z = z + W.fast
+        end
+        if f.hp < 50 then
+            z = z + add("weak", W.hurt + W.weak)
+        elseif f.hp < 100 then
+            z = z + add("hurt", W.hurt)
+        end
+        local class = f.class
+        if class == "CWeaponTaser" then
+            z = z + add("taser", W.taser)
+        elseif class == "CKnife" or class == "CKnifeGG" then
+            z = z + add("knife", W.knife)
+        elseif class ~= nil and not A.SNIPER[class] then
+            z = z + add("other", W.other)
+        end
+        if f.share ~= nil and f.share > 0.5 then
+            z = z + add("def_most", W.def_most)
+        elseif (f.share ~= nil and f.share > 0) or (f.share == nil and f.def_hint) then
+            z = z + add("def_some", W.def_some)
+        end
+        local k, d = f.k or 0, f.d or 0
+        if k ~= d then
+            local w = W.hist * hypothesis.own.ln((k + 1) / (d + 1))
+            z = z + add(nil, w, k > d and ("ONA KARSI %d-%d ONDESIN"):format(k, d)
+                or ("SENI %d KEZ OLDURDU (%d-%d)"):format(d, k, d))
+        end
+        -- 1 / (1 + e^-z); math.exp'e dayanmadan (bkz. hypothesis.own.ln notu).
+        local p = 1 / (1 + 2.718281828459045 ^ (-z))
+        local label = p >= A.HIGH and "SALDIR" or (p < A.LOW and "SAVUN" or "DENK")
+        local reasons = {}
+        if not f.ready then
+            label = "SAVUN"
+            reasons[1] = TEXT.unready
+        elseif f.lethal and label ~= "SAVUN" then
+            reasons[1] = TEXT.lethal
+        end
+        -- Sebepler: onerinin yonundeki en agir katkilar (DENK'te buyuklugune gore).
+        table.sort(parts, function(a, b)
+            if label == "SALDIR" then
+                return a.w > b.w
+            elseif label == "SAVUN" then
+                return a.w < b.w
+            end
+            return abs(a.w) > abs(b.w)
+        end)
+        for _, part in ipairs(parts) do
+            if #reasons >= 2 then
+                break
+            end
+            if (label == "SALDIR" and part.w > 0) or (label == "SAVUN" and part.w < 0) or label == "DENK" then
+                reasons[#reasons + 1] = part.text
+            end
+        end
+        return { label = label, p = p, reasons = reasons, unready = not f.ready }
+    end
+
+    A.key = function(ent)
+        return player_id(ent) or player_name(ent)
+    end
+
+    A.reset = function()
+        A.enc, A.out, A.can = {}, nil, nil
+    end
+
+    -- Su an gozunden rakibe mermi geciyor mu (4 tick'te bir; kafa, gogus, mide). Donus: vurulabilir, oldurucu.
+    local function reach(lp, enemy, now, hp)
+        local c = A.can
+        if c == nil or c.enemy ~= enemy then
+            c = { enemy = enemy, tick = -1000, at = -1000, lethal = false }
+            A.can = c
+        end
+        if now < c.tick or now - c.tick >= A.EVERY then
+            c.tick = now
+            local eye, class = eye_of(lp), current.weapon
+            local best = 0
+            if eye ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class) then
+                for _, hitbox in ipairs({ 0, 5, 3 }) do
+                    local point = hitbox_of(enemy, hitbox)
+                    local damage = point ~= nil and bullet_damage(lp, eye, point, enemy) or nil
+                    if damage ~= nil and damage > best then
+                        best = damage
+                    end
+                    if best >= hp then
+                        break
+                    end
+                end
+            end
+            if best >= A.MIN_DAMAGE then
+                c.at = now
+            end
+            c.lethal = best >= hp
+        end
+        local can = now >= c.at and now - c.at <= A.CAN
+        return can, can and c.lethal
+    end
+
+    A.update = function(lp)
+        local now = tickcount()
+        for enemy, e in pairs(A.enc) do
+            if now < e.last or now - e.last > A.GAP then
+                A.enc[enemy] = nil
+            end
+        end
+        local enemy = aa_threat()
+        local mine = origin_of(lp)
+        local theirs = enemy ~= nil and not dormant(enemy) and alive(enemy) and origin_of(enemy) or nil
+        if mine == nil or theirs == nil then
+            A.out = nil
+            return
+        end
+        local hp = prop(enemy, "m_iHealth")
+        hp = (finite(hp) and hp > 0) and hp or 100
+        local s = exposure.sight[enemy]
+        local sees = s ~= nil and now >= s.last and now - s.last <= A.SIGHT
+        local can, lethal = reach(lp, enemy, now, hp)
+        local e = A.enc[enemy]
+        if e == nil and (sees or can) then
+            e = { last = now, ticks = 0, def = 0, top = 0 }
+            A.enc[enemy] = e
+        end
+        local rec = enemy_watch.list[enemy]
+        local in_def = rec ~= nil and finite(rec.sim) and finite(rec.max_sim) and rec.sim < rec.max_sim
+        local speed, state, share = speed2d(enemy), "none", nil
+        if e ~= nil then
+            if sees or can then
+                e.last = now
+                -- Canli durum: ikiniz de -> both, sadece o -> his, sadece sen -> mine. Arada ikisi de yoksa (siperin
+                -- arkasina gecti) son durum kalir.
+                e.state = (sees and can) and "both" or (sees and "his" or "mine")
+            end
+            e.ticks = e.ticks + 1
+            e.def = e.def + (in_def and 1 or 0)
+            e.top = max(e.top, speed)
+            state, speed = e.state or "none", e.top
+            if e.ticks >= 8 then
+                share = e.def / e.ticks
+            end
+        end
+        local class = current.weapon
+        local armed = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+        local profile = enemy_watch.profile(enemy)
+        local h = A.hist[A.key(enemy)]
+        local dx, dy, dz = theirs.x - mine.x, theirs.y - mine.y, theirs.z - mine.z
+        local out = A.eval({ state = state, dist = sqrt(dx * dx + dy * dy + dz * dz), h = dz, speed = speed, hp = hp,
+            class = weapon_class(enemy), share = share, def_hint = in_def or (profile ~= nil and profile.defensive),
+            k = h ~= nil and h.k or 0, d = h ~= nil and h.d or 0, ready = armed and weapon_ready(lp, 0.2),
+            lethal = lethal })
+        out.enemy, out.contact = enemy, state ~= "none"
+        A.out = out
+        -- Karsilasmadaki ilk oneri (ilk temas tick'inde verilen) ve en son oneri: duello satirina yazilir.
+        if e ~= nil then
+            if e.first == nil then
+                e.first = { label = out.label, p = out.p }
+            end
+            e.final = { label = out.label, p = out.p }
+        end
+    end
+
+    -- "dbg duello" satirinin eki.
+    A.note = function(enemy)
+        local e = A.enc[enemy]
+        if e == nil or e.first == nil then
+            return ""
+        end
+        local final = e.final or e.first
+        return (" | oneri %s %%%d, son %s %%%d"):format(e.first.label, floor(e.first.p * 100 + 0.5), final.label,
+            floor(final.p * 100 + 0.5))
+    end
+
+    listen("setup_command", protect("danisman", function()
+        local lp = local_player()
+        if not on(menu.enabled) or lp == nil or not alive(lp) then
+            -- stale: gosterge yeniden dogunca eski oneriyi bir an gostermesin (cizim tarafinda sifirlanir).
+            A.out, A.stale = nil, true
+            return
+        end
+        A.update(lp)
+    end))
+
+    -- Bu oturumda rakibe karsi kill / olum (isim degisse de Steam ID ile).
+    listen("player_death", protect("danisman death", function(e)
+        local lp = local_player()
+        if lp == nil then
+            return
+        end
+        local victim, attacker = userid_index(e.userid), userid_index(e.attacker)
+        local other, field
+        if victim == lp and attacker ~= nil and attacker ~= lp and is_enemy(attacker) then
+            other, field = attacker, "d"
+        elseif attacker == lp and victim ~= nil and victim ~= lp and is_enemy(victim) then
+            other, field = victim, "k"
+        end
+        if other == nil then
+            return
+        end
+        local key = A.key(other)
+        if key == nil then
+            return
+        end
+        local h = A.hist[key]
+        if h == nil then
+            h = { k = 0, d = 0 }
+            A.hist[key] = h
+        end
+        h[field] = h[field] + 1
+    end))
+
+    listen("level_init", protect("danisman level_init", function()
+        A.reset()
+    end))
+end
+K.adv.init()
+
+-------------------------------------------------------------------------------
 -- Indikatorler (GameSense renderer)
 -------------------------------------------------------------------------------
 
@@ -11135,6 +11433,66 @@ local function draw_stats(sw, sh)
     text(x, y, COLOR.WHITE, FONT, ("SNIPER   HS%s %d/%d   DT%s %d/%d"):format(
         sniper.choice == "hs" and "*" or "", floor(hs.hits + 0.5), floor(hs.shots + 0.5),
         sniper.choice == "dt" and "*" or "", floor(dt.hits + 0.5), floor(dt.shots + 0.5)))
+end
+
+-- V1.0.90: duello danismani (bkz. K.adv). Nisangahin ustunde: oneri + kazanma tahmini, altinda tahmin cubugu (ortadaki
+-- cizgi %50) ve en agir iki sebep. Tehdit yokken solar; temas yokken (on tahmin) soluk, temasta tam parlak.
+-- Durbundeyken dikey cizginin sagina kayar.
+anim.adv = { alpha = 0, p = 0.5, scope = 0, out = nil,
+    GREEN = { r = 120, g = 225, b = 130 }, YELLOW = { r = 255, g = 205, b = 90 }, RED = { r = 255, g = 100, b = 100 } }
+anim.advisor = function(lp, cx, cy)
+    local a = anim.adv
+    if K.adv.stale then
+        K.adv.stale, a.alpha, a.out = false, 0, nil
+    end
+    local out = K.adv.out
+    local k = min(1, frametime() * 10)
+    a.alpha = a.alpha + ((out == nil and 0 or (out.contact and 1 or 0.55)) - a.alpha) * k
+    if out ~= nil then
+        -- Hedef degisince cubuk eski hedefin degerinden kaymaz.
+        if a.out == nil or a.out.enemy ~= out.enemy then
+            a.p = out.p
+        end
+        a.out = out
+        a.p = a.p + (out.p - a.p) * k
+    end
+    out = a.out
+    if out == nil or a.alpha < 0.04 then
+        return
+    end
+    local scoped = prop(lp, "m_bIsScoped")
+    a.scope = a.scope + (((scoped == 1 or scoped == true) and 1 or 0) - a.scope) * min(1, frametime() * 12)
+    local tint = out.label == "SALDIR" and a.GREEN or (out.label == "SAVUN" and a.RED or a.YELLOW)
+    local alpha = floor(255 * a.alpha)
+    local col = { r = tint.r, g = tint.g, b = tint.b, a = alpha }
+    local shadow = { r = 0, g = 0, b = 0, a = floor(170 * a.alpha) }
+    local dim = { r = 255, g = 255, b = 255, a = floor(190 * a.alpha) }
+    local width = 84
+    local x = cx + round(a.scope * 96)
+    local y = cy - 120
+    local lines = #out.reasons
+    -- Arka plan: ortadan iki yana solan koyu serit (yazi her zeminde okunsun).
+    local bw, bh = width + 70, 24 + lines * 9
+    if type(renderer.gradient) == "function" then
+        local half = floor(bw / 2)
+        renderer.gradient(x - half, y - 8, half, bh, 0, 0, 0, 0, 0, 0, 0, floor(120 * a.alpha), true)
+        renderer.gradient(x, y - 8, half, bh, 0, 0, 0, floor(120 * a.alpha), 0, 0, 0, 0, true)
+    end
+    local main = out.unready and out.label or ("%s  %d%%"):format(out.label, floor(a.p * 100 + 0.5))
+    text(x + 1, y + 1, shadow, "cb", main)
+    text(x, y, col, "cb", main)
+    local by = y + 10
+    rect(x - width / 2 - 1, by - 1, width + 2, 4, shadow)
+    local fill = round(width * max(0, min(1, a.p)))
+    if fill > 0 then
+        rect(x - width / 2, by, fill, 2, col)
+    end
+    rect(x, by - 1, 1, 4, dim)
+    local ry = by + 9
+    for i = 1, lines do
+        text(x, ry, dim, "c" .. FONT, out.reasons[i])
+        ry = ry + 9
+    end
 end
 
 local function draw_arrows(cx, cy)
@@ -11424,6 +11782,9 @@ listen("paint", protect("paint", function()
     if on(menu.indicators) then
         safe_draw("indicators", draw_indicators, lp, cx, cy)
     end
+    if on(menu.advisor) then
+        safe_draw("advisor", anim.advisor, lp, cx, cy)
+    end
     if on(menu.arrows) then
         safe_draw("arrows", draw_arrows, cx, cy)
     end
@@ -11447,19 +11808,19 @@ end))
 -- Neden: 48 GameSense logunda surumden surume degisen sonuclarin cogu rakip degisimiydi (erken ve gec surumlerde ortak
 -- rakip yok); "bu ayar daha iyi" kararlarini loglari elle karsilastirarak vermek guvenilir degil. Burada her aday
 -- ayni oturumda, ayni rakiplere karsi, can basina sirayla olculur.
--- Kulvarlar (ayni anda birer aday): yer ve yer2 = yerde yenen mermi basina zarar (kafa 1, govde hasar / 100, iska 0; dusuk
--- iyi; yer AA acilarini, yer2 exploit / defensive'i dener); hava = can basina havada ve inisten sonraki 0.75 sn'de
--- yenen zarar (dusuk iyi); atis ve atis2 = scout atisi basina kill / can basina kill (yuksek iyi).
+-- V1.0.90 (istek: "tek bir surumde bir cok sonuca bakalim, bir suru ozelligi test edelim, yine de kararli ve dogru
+-- olmali"): kulvar sayisi 5 -> 10. Her kulvar ayri bir alt sistemdir (ayni salteri iki kulvar ezemez); kulvarlarin
+-- adaylari ayni anda, bir kulvarin icindeki adaylar sirayla olculur.
+-- Olculer: "harm" = yerde yenen mermi basina zarar (kafa 1, govde hasar / 100, iska 0; dusuk iyi); "airharm" = can
+-- basina havada ve inisten sonraki 0.75 sn'de yenen zarar (dusuk iyi); "kps" = scout atisi basina kill; "kpl" = can
+-- basina kill; "peek" = AI peek basina puan (peek'ten sonraki 3 sn'de kill +1, olum -1; yuksek iyi).
 -- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
 -- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 ise ret (iki kolda 20+ can, 10 canda bir bakilir);
 -- gate adayda kabul aninda z <= -1 de ret sebebi. AFK canlari sayilmaz.
 -- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
 K.xp.init = function()
     local xp = K.xp
-    xp.LANES = { "yer", "yer2", "hava", "atis", "atis2" }
-    -- Kol degisim periyotlari ikinin farkli kuvvetleri: 32 canda her kol birlesimi bir kez gorulur, kulvarlar
-    -- birbirinin olcusunu kaydirmaz. yer ve yer2 ayni mermileri, atis ve atis2 ayni atislari olcer.
-    xp.PERIOD = { yer = 1, yer2 = 2, atis = 4, atis2 = 8, hava = 16 }
+    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "atis3", "peek" }
     -- Karara baglananlar (kullanicinin kendi verisi; listeden cikarildi, yeniden denenmez):
     --   slow_jit (yavas jitter, 4-6 pakette bir): RED. 35 / 34 can, zarar 0.51 -> 0.68, z -2.4.
     --   def_full (defensive hep acik + temiz atis kapali): RED. 30 / 30 can, zarar 0.54 -> 0.62, z -1.1 (oturum
@@ -11477,42 +11838,65 @@ K.xp.init = function()
     --     oturumda egilen kolda 9 canda 2 atis, 1 kill). Loglardaki "egik + yavasken kafa %22" senin kendi sectigin
     --     anlardan geliyordu; lua zorla egince ayni sonuc cikmadi.
     --   baim_off (Smart body aim kapali): RED. 34 atis 25 kill -> 31 atis 18 kill, z -1.3.
+    --   own_off (kendi resolver kapali): V1.0.90 denetiminde cikarildi. Kendi resolver "Body yaw hypotheses"e bagli
+    --     ve o V1.0.77'den beri kapali: son alti logdaki 330 atisin hepsi "res gs". Aday iki kolda ayni seyi
+    --     olcuyordu (bos deney). Ayni sebeple "side_gs" ve (butun durumlar Smart oldugu icin) "anti_peek" de aday
+    --     olamaz: varsayilan ayarda hicbir sey degistirmiyorlar.
+    -- when = "dt": adayin olcusu sadece sniper exploit'i DT olan canlarin mermileriyle dolar (Hide shots canlarinda
+    -- zorlanan defensive / sarj bekletme yok; iki kol aynidir, sayilirsa fark sulanir). after: adi gecen aday kabul
+    -- edildiyse bu aday atlanir.
     xp.LIST = {
         -- Yer, AA acilari.
         -- V1.0.89: peek_narrow 43 / 42 canda farksiz (zarar 0.57 / 0.54); ornek siniri 3 kat yerine 2 kat (80 mermi).
         { id = "peek_narrow", lane = "yer", kind = "harm", min = 40, cap = 2,
             states = { Peek = { yaw_left = -8, yaw_right = 12 } },
             name = "Peek'te dar yaw jitter (-8 / +12; simdi -20 / +45)" },
-        -- V1.0.89: seen_duck (lua'nin zorla egmesi) reddedildi: zarar artti, kill dustu. "Desync keeper" da ayni seyi
-        -- yapiyor (egikken goruluyorsan hizi 38'e indirir) ve V1.0.58'de ayni tur gozlemle (yavasken desync genis)
-        -- varsayilan acildi; hic A / B olculmedi.
-        { id = "cap_off", lane = "yer", kind = "harm", min = 40, gate = true, set = { crouch_cap = false },
-            name = "Desync keeper kapali (egikken goruluyorsan hiz 38'e indirilmez)" },
         { id = "peek_static", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { body_yaw = "Static", body_fs = "On" } },
             name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
-        -- Yer, exploit / defensive.
+        -- Exploit secimi.
         -- V1.0.89: sniper_hs'in olcusu zarardan can basina kill'e cevrildi. Zarar farksiz (95 / 113 mermi, 0.53 /
         -- 0.52) ve ornek sinirinda "fark yok" diye reddedilecekti; oysa ayni rastgele kollarda (son uc log, 80 / 73
         -- can) scout isabetin DT'de %62, Hide shots'ta %78 (85 / 84 atis), kafa %48 -> %66, can basina kill 0.55 ->
         -- 0.84, K/D 0.72 -> 1.07. Aday atisi da savunmayi da degistiriyor; dogru olcu can basina kill. Eski sayimin
         -- can / kill kismi aynen gecerli. Isabet farki bagimsiz ikinci bir kanit oldugu icin sinir 80 can ve sinirda
         -- z >= 0 yeter (fair); z <= -1 yine ret.
-        { id = "sniper_hs", lane = "yer2", kind = "kpl", min = 40, cap = 2, fair = true,
+        { id = "sniper_hs", lane = "exploit", kind = "kpl", min = 40, cap = 2, fair = true,
             set = { sniper_exploit = "Hide shots" },
             name = "scout / AWP'de Hide shots (atis gizlenir; simdi DT)" },
         -- Safe recharge: dururken goruluyorsan atistan sonra sarji 0.5 sn'ye kadar erteler (DT kisa sure kapali).
         -- Yedigin mermilerin %23'u atisindan sonraki 0.6 sn'de ve o sirada DT bos; erteleme bunu uzatiyor olabilir.
-        { id = "recharge_free", lane = "yer2", kind = "harm", min = 40, set = { safe_recharge = false },
+        { id = "recharge_free", lane = "exploit", kind = "harm", min = 40, when = "dt", after = "sniper_hs",
+            set = { safe_recharge = false },
             name = "Safe recharge kapali (atistan sonra sarj ertelenmez)" },
-        { id = "def_always", lane = "yer2", kind = "harm", min = 40,
+        -- Defensive zorlamasi (hepsi DT'ye bagli).
+        -- V1.0.90 (istek: "exp'lerin calistigindan emin olmak"): zorlanan defensive hic A / B olculmedi (V1.0.42'deki
+        -- elle test gecersizdi: zorlanan kolda 19 mermide 1 kez zorlanmisti). Gozlem: vuruldugun anda DEF acikken
+        -- rakibin isabeti %68, kafa %29; DEF yokken %78 / %41 (397 mermi) ve mermilerin %64'u DEF yokken geliyor.
+        -- Bu aday zorlamayi kapatir: zarar artarsa (beklenen) ozellik dogrulanmis olur, artmazsa zorlama bos yuk.
+        { id = "force_off", lane = "def", kind = "harm", min = 40, when = "dt", after = "sniper_hs",
+            set = { smart_force = false },
+            name = "zorlanan defensive kapali (gorulunce / yakinda dusman varken zorlanmaz)" },
+        { id = "def_always", lane = "def", kind = "harm", min = 40, when = "dt", after = "sniper_hs",
             states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
                 ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
                 ["Crouch move"] = { def_mode = "Always on" }, Peek = { def_mode = "Always on" },
                 Freestanding = { def_mode = "Always on" } },
             name = "yerde defensive her zaman zorlanir (simdi: gorulunce / 1800 birimde dusman varken, bitince 1 sn ara)" },
-        { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
+        { id = "clean_off", lane = "def", kind = "harm", min = 40, gate = true, when = "dt", after = "sniper_hs",
+            set = { clean_shot = false },
             name = "temiz atis kapali (ates edebilirken de defensive surer)" },
+        -- Hareket.
+        -- V1.0.89: seen_duck (lua'nin zorla egmesi) reddedildi: zarar artti, kill dustu. "Desync keeper" da ayni seyi
+        -- yapiyor (egikken goruluyorsan hizi 38'e indirir) ve V1.0.58'de ayni tur gozlemle (yavasken desync genis)
+        -- varsayilan acildi; hic A / B olculmedi.
+        { id = "cap_off", lane = "hareket", kind = "harm", min = 40, gate = true, set = { crouch_cap = false },
+            name = "Desync keeper kapali (egikken goruluyorsan hiz 38'e indirilmez)" },
+        -- Koruma. Ikisi de hic A / B olculmedi.
+        { id = "fs_auto_off", lane = "koruma", kind = "harm", min = 40, set = { fs_auto = false },
+            name = "dururken otomatik freestanding kapali (Standing / Crouching jitter'i kalir)" },
+        { id = "brute_fixed", lane = "koruma", kind = "harm", min = 40, set = { brute_random = false },
+            name = "anti-brute fazlari sirayla (simdi rastgele sira)" },
         -- Hava. Kalici ayar air_def2 (havada DT acik + surekli defensive, isinlanma yok). Olcu: can basina havada ve
         -- inisten sonraki 0.75 sn'de yenen zarar. Salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
         { id = "air_def2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
@@ -11532,12 +11916,75 @@ K.xp.init = function()
             name = "scout hit chance tabani 80" },
         { id = "hc90", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 90 },
             name = "scout hit chance tabani 90" },
-        -- Atis 2.
-        { id = "own_off", lane = "atis2", kind = "kps", min = 30, set = { own_res = false },
-            name = "kendi resolver kapali (sadece GameSense)" },
+        -- Atis 2: hedef / nokta secimi.
         { id = "fakebody_off", lane = "atis2", kind = "kps", min = 30, set = { fake_body = false },
             name = "sahte kayitta govde zorlamasi yok" },
+        { id = "lowhp_off", lane = "atis2", kind = "kps", min = 30, set = { low_hp_safe = false },
+            name = "30 can alti dusmana Force safe point yok" },
+        -- Atis 3: fren zamanlamasi. V1.0.66'da gozlemle acildi (oldurucu hasarin gorulmesinden atisa medyan 0.09 sn);
+        -- hic A / B olculmedi.
+        { id = "qs_late", lane = "atis3", kind = "kps", min = 30, gate = true, set = { qs_early = false },
+            name = "quick stop Early eklenmez (senin quick stop secimlerin)" },
+        -- AI peek. V1.0.90 denetimi (315 peek, 259'unun duellosu): AI peek duellolarinin %73'u kazaniliyor (genel %46);
+        -- isabetli peek'te olum %6, iskali peek'te %34, atissiz peek'te %17. Rakibin defensive payi %0 iken kazanma
+        -- %84 / peek basina olum %11, %51+ iken %49 / %40. Son alti logda atissiz peek %22 -> %38 (12 / 32), cogu
+        -- "aci kapandi" (yola cikar cikmaz): sahte kayitta gorulen aci gercek kayitta yok. Aday: peek sadece gercek
+        -- kayitta baslar (aimbot'un zaten yaptigi bekleme; wait_off A / B'de reddedilmisti).
+        { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
+            name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
     }
+
+    -- Kol secimi (V1.0.90). Sayilan canlar (AFK / cift dogus haric) ikiser canlik bloklara bolunur; her kulvar her
+    -- blokta bir A bir B cani gorur (kollar hep dengeli, fark en fazla 1 can). Blok icindeki sira (A-B ya da B-A):
+    --   kulvarin Walsh dizisi (16 blokluk dongu) x bloga ozel ortak rastgele bit.
+    -- Walsh dizileri birbirine dik oldugu icin her 32 canlik dongude HER kulvar cifti dort kol birlesimini (AA, AB,
+    -- BA, BB) tam sekizer can gorur: bir kulvarin etkisi otekinin iki koluna esit dagilir, olcusune yanlilik
+    -- katmaz. Dongunun 16 blogu her dongude karisik sirayla gelir (iki kulvar art arda 16 can ayni gitmesin) ve
+    -- ortak rastgele bit tek bir kulvarin sirasini duzensiz yapar (oyundaki 2 / 4 / 8 canlik bir duzenle ust uste
+    -- binmez); ikisi de dikligi bozmaz. Olcum (10 kulvar, 45 cift): 32'nin katlarinda ikili uyum tam %50; 40 canlik
+    -- kayan pencerede ortalama sapma 0.045 (bagimsiz rastgele kollarda ~0.09), 80 canda 0.023. Sayilmayan can ayni
+    -- kolu tekrarlar.
+    -- (Ilk denenen "ad + blok" karmasi kulvarlari birbirine bagliyordu: bazi ciftler %99 ayni, bazilari %2 ayni
+    -- donuyordu; yayinlanmadan degistirildi.)
+    local function mul32(a, b)
+        -- 32 bit carpma (mod 2^32), 16'lik parcalarla: double'da tasma olmaz.
+        local ah, al = bit.rshift(a, 16), bit.band(a, 0xFFFF)
+        local bh, bl = bit.rshift(b, 16), bit.band(b, 0xFFFF)
+        return bit.tobit(bit.band(ah * bl + al * bh, 0xFFFF) * 65536 + al * bl)
+    end
+    -- murmur3 son karistiricisi: tam sayi -> 32 bit karma.
+    xp.mix = function(v)
+        local h = mul32(v + 1, 0x9E3779B1)
+        h = mul32(bit.bxor(h, bit.rshift(h, 16)), 0x85EBCA6B)
+        h = mul32(bit.bxor(h, bit.rshift(h, 13)), 0xC2B2AE35)
+        return bit.bxor(h, bit.rshift(h, 16))
+    end
+    -- Blogun dongu icindeki sutunu (0-15): her 16 blokluk dongu icin ayri bir karisik sira (Fisher-Yates).
+    xp.perm = { c = -1, p = {} }
+    xp.column = function(block)
+        local cycle = floor(block / 16)
+        local perm = xp.perm
+        if perm.c ~= cycle then
+            perm.c = cycle
+            for i = 0, 15 do
+                perm.p[i] = i
+            end
+            for i = 15, 1, -1 do
+                local j = bit.band(xp.mix(cycle * 16 + i), 0x7FFFFFFF) % (i + 1)
+                perm.p[i], perm.p[j] = perm.p[j], perm.p[i]
+            end
+        end
+        return perm.p[block % 16]
+    end
+    -- index: kulvarin xp.LANES'teki sirasi (1-15); g: o ana kadar sayilan can sayisi.
+    xp.arm_of = function(index, g)
+        local block = floor(g / 2)
+        local x, parity = bit.band(index, xp.column(block)), bit.band(xp.mix(block + 7919), 1)
+        while x > 0 do
+            parity, x = parity + x % 2, floor(x / 2)
+        end
+        return ((g % 2 == 0) == (parity % 2 == 1)) and "b" or "a"
+    end
 
     local function new_arm()
         return { l = 0, k = 0, n = 0, x = 0, q = 0 }
@@ -11643,7 +12090,9 @@ K.xp.init = function()
         local ma, mb = a.x / a.n, b.x / b.n
         local va = max(a.q / a.n - ma * ma, 0.0004) * a.n / (a.n - 1)
         local vb = max(b.q / b.n - mb * mb, 0.0004) * b.n / (b.n - 1)
-        return (ma - mb) / sqrt(va / a.n + vb / b.n)
+        -- Zarar olculerinde dusuk iyi; peek puaninda yuksek iyi.
+        local z = (ma - mb) / sqrt(va / a.n + vb / b.n)
+        return c.kind == "peek" and -z or z
     end
 
     xp.text = function(c)
@@ -11655,6 +12104,8 @@ K.xp.init = function()
                 return ("%d can hava zarari %.2f/can"):format(r.l, r.n > 0 and r.x / r.n or 0)
             elseif c.kind == "kps" then
                 return ("%d can %d atis %d kill"):format(r.l, r.n, r.x)
+            elseif c.kind == "peek" then
+                return ("%d can %d peek puan %+.2f"):format(r.l, r.n, r.n > 0 and r.x / r.n or 0)
             end
             return ("%d can %d kill"):format(r.l, r.k)
         end
@@ -11710,7 +12161,7 @@ K.xp.init = function()
                     b = { l = st.b.l, k = st.b.k, n = st.b.n, x = st.b.x, q = st.b.q } }
             end
         end
-        pcall(database.write, xp.key, { v = 1, life = xp.life, c = c })
+        pcall(database.write, xp.key, { v = 1, life = xp.life, n = xp.count, c = c })
     end
 
     xp.load = function()
@@ -11720,6 +12171,9 @@ K.xp.init = function()
         end
         if finite(d.life) and d.life >= 0 then
             xp.life = floor(d.life)
+        end
+        if finite(d.n) and d.n >= 0 then
+            xp.count = floor(d.n)
         end
         if type(d.c) ~= "table" then
             return
@@ -11746,7 +12200,7 @@ K.xp.init = function()
     end
 
     xp.reset = function()
-        xp.s, xp.cur, xp.lifec, xp.life = {}, {}, nil, 0
+        xp.s, xp.cur, xp.lifec, xp.life, xp.pk, xp.count = {}, {}, nil, 0, nil, 0
         xp.apply()
         xp.save()
         print(("[%s] deney sonuclari silindi: butun adaylar bastan olculecek"):format(SCRIPT))
@@ -11777,6 +12231,7 @@ K.xp.init = function()
         if L.afk or (not died and realtime() - L.at < 5) then
             return
         end
+        xp.count = xp.count + 1
         for _, lane in ipairs(xp.LANES) do
             local cur = xp.cur[lane]
             if cur ~= nil then
@@ -11803,19 +12258,18 @@ K.xp.init = function()
         end
         xp.life = xp.life + 1
         local parts = {}
-        for _, lane in ipairs(xp.LANES) do
+        for index, lane in ipairs(xp.LANES) do
             local c = xp.pick(lane)
             if c ~= nil then
-                -- Kol, adayin SAYILAN can sayisindan: sayilmayan can (AFK, cift dogus) ayni kolu tekrarlar; boylece
+                -- Kol, SAYILAN can sayisindan (xp.count): sayilmayan can (AFK, cift dogus) ayni kolu tekrarlar; boylece
                 -- her olumde iki kez dogus olayi gelen sunucuda gercek canlarin hepsi ayni kola dusmez.
-                local st = xp.stat(c.id)
-                local b_arm = floor((st.a.l + st.b.l) / xp.PERIOD[lane]) % 2 == 1
+                local b_arm = xp.arm_of(index, xp.count) == "b"
                 xp.cur[lane] = { c = c, arm = b_arm and "b" or "a" }
                 parts[#parts + 1] = ("%s %s %s"):format(lane, c.id, b_arm and "B" or "A")
             end
         end
         xp.lifec = { afk = false, kills = 0, air = 0, at = realtime() }
-        xp.air_at = nil
+        xp.air_at, xp.pk = nil, nil
         xp.apply()
         if #parts > 0 and on(menu.hit_log) then
             print(("[%s] deney: can %d | %s"):format(SCRIPT, xp.life, table.concat(parts, " | ")))
@@ -11848,14 +12302,54 @@ K.xp.init = function()
             L.air = L.air + harm
             return
         end
-        -- Yerdeki mermi iki yer kulvarinin adayina da yazilir (kollari birbirinden bagimsiz doner).
+        -- Yerdeki mermi butun "harm" kulvarlarinin adayina yazilir (kollari birbirinden bagimsiz doner). when = "dt"
+        -- adaylari sadece sniper exploit'i DT olan canlarin mermisini sayar (Hide shots canlarinda iki kollari ayni).
+        -- Canin ayarina bakilir, o anki DT durumuna degil: atistan sonra DT'nin kapali kaldigi anlar adayin (ornegin
+        -- recharge_free) tam da degistirdigi yerdir, onlari atmak olcuyu yanli yapardi.
+        local dt = menu.sniper_exploit == nil or menu.sniper_exploit:get() ~= "Hide shots"
         for _, lane in ipairs(xp.LANES) do
             local cur = xp.cur[lane]
-            if cur ~= nil and cur.c.kind == "harm" then
+            if cur ~= nil and cur.c.kind == "harm" and (cur.c.when ~= "dt" or dt) then
                 local r = xp.stat(cur.c.id)[cur.arm]
                 r.n, r.x, r.q = r.n + 1, r.x + harm, r.q + harm * harm
             end
         end
+    end
+
+    -- AI peek basladi ("peek" olcusu): o an 0 puanla sayilir; sonraki 3 sn'de kill +1, olum -1 (ikisi de olursa 0).
+    -- AFK'nin peek'leri sayilmaz.
+    xp.peek_start = function()
+        xp.pk = nil
+        if xp.lifec == nil or xp.idle() then
+            return
+        end
+        local cur = xp.cur.peek
+        if cur == nil or cur.c.kind ~= "peek" then
+            return
+        end
+        local r = xp.stat(cur.c.id)[cur.arm]
+        r.n = r.n + 1
+        xp.pk = { at = realtime(), r = r, score = 0 }
+    end
+
+    -- delta: +1 kill, -1 olum. Puan -1..+1 arasinda kalir; toplam ve kareler toplami farkla guncellenir.
+    xp.peek_score = function(delta)
+        local pk = xp.pk
+        if pk == nil or realtime() - pk.at > 3 or realtime() < pk.at then
+            return
+        end
+        if (delta > 0 and pk.kill) or (delta < 0 and pk.death) then
+            return
+        end
+        if delta > 0 then
+            pk.kill = true
+        else
+            pk.death = true
+        end
+        local old = pk.score
+        pk.score = old + delta
+        pk.r.x = pk.r.x + delta
+        pk.r.q = pk.r.q + pk.score * pk.score - old * old
     end
 
     listen("setup_command", protect("deney tick", function()
@@ -11897,9 +12391,12 @@ K.xp.init = function()
             if xp.lifec ~= nil and xp.idle() then
                 xp.lifec.afk = true
             end
+            xp.peek_score(-1)
+            xp.pk = nil
             xp.close(true)
         elseif attacker == lp and victim ~= nil and is_enemy(victim) and xp.lifec ~= nil and not xp.idle() then
             xp.lifec.kills = xp.lifec.kills + 1
+            xp.peek_score(1)
             local shot = xp.shot
             if shot ~= nil and e.weapon == "ssg08" and realtime() - shot.at <= 0.5 and not shot.done then
                 shot.done = true
@@ -11932,7 +12429,7 @@ K.xp.init = function()
 
     listen("level_init", protect("deney level_init", function()
         -- Harita degisimi: acik can sayilmadan atilir.
-        xp.lifec, xp.shot, xp.dead_until = nil, nil, nil
+        xp.lifec, xp.shot, xp.dead_until, xp.pk = nil, nil, nil, nil
     end))
 
     listen("shutdown", protect("deney shutdown", function()

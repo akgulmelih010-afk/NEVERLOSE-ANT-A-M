@@ -720,6 +720,32 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.90** (istek: "tek bir sürümde bir çok sonuca bakalım, bir sürü özelliği test edelim, yine de kararlı ve doğru olmalı"; "ai peekin peekleyip ölmesi, sıkmaması"; "yukarıda durup bekleyenlere peekleyip öldürmek imkansız"; "ne zaman savunma ne zaman saldırı yaptığımı anlaması lazım, öldürebileceksem saldır desin, öldüremeyeceksem savun; güzel bir hud"; "hatalı / çalışmayan özellik var mı, exp'lerin çalıştığından emin ol". Kod değişmeden önce bütün GameSense logları sayıldı: 5196 düello, 315 AI peek.)
+
+| Ne | Ayrıntı |
+|---|---|
+| **Deney motoru: 5 → 10 kulvar** | Aynı anda 10 aday ölçülür (her kulvar ayrı bir alt sistem, aynı şalteri iki kulvar ezemez). Kol sırası yeni: sayılan canlar ikişer canlık bloklara bölünür, her kulvar her blokta bir A bir B canı görür; blok içi sıra kulvarın Walsh dizisinden gelir. Sonuç: her 32 canda **her kulvar çifti** dört kol birleşimini tam sekizer can görür, yani bir kulvarın etkisi ötekinin ölçüsüne karışmaz (testte 45 çiftin hepsi tam 16 / 32). İlk yazdığım karma (hash) bazı kulvarları %99 aynı döndürüyordu; yayınlanmadan yakalandı ve değiştirildi. |
+| **Yeni adaylar** | `force_off` (zorlanan defensive kapalı: özelliğin işe yaradığının ilk gerçek ölçümü), `fs_auto_off` (dururken otomatik freestanding), `brute_fixed` (anti-brute sıralı), `lowhp_off` (30 can altına Force safe point), `qs_late` (quick stop Early), `peek_real` (AI peek). Bunlar hiç A / B ölçülmemiş, varsayılan açık özellikler: zarar artarsa özellik doğrulanır, artmazsa boş yük olduğu anlaşılır. DT'ye bağlı adaylar sadece DT'li canların mermisini sayar; Hide shots kalıcı olursa atlanır. |
+| **Denetimde çıkanlar** | (1) `own_off` deneyi **boşa dönüyordu**: kendi resolver V1.0.77'de kapatılan "Body yaw hypotheses"e bağlı, son altı logdaki 330 atışın hepsi `res gs`. Aday listeden çıktı. (2) `side_gs` ve "Defensive vs enemy peeks" varsayılan ayarda hiçbir şey değiştirmiyor (ilki aynı sebepten, ikincisi bütün durumlar Smart olduğu için). (3) Exploit'ler çalışıyor: zorlanan defensive tick'lerinin %52–58'i tickbase'de görülüyor, yaşadığın tick'lerin %14–36'sında zorlanıyor; vurulduğun anda DEF açıkken rakibin isabeti %68 / kafa %29, kapalıyken %78 / %41. (4) Son altı logda hata satırı yok. |
+| **AI peek** | 315 peek: düelloların **%73'ü kazanılıyor** (genel %46). İsabetli peek'te ölüm %6, ıskalı peek'te %34, atışsız peek'te %17. Rakibin defensive payı %0 iken kazanma %84 / peek başına ölüm %11, %51+ iken %49 / %40. 18 birimlik adımda atışsız %13, 32+ birimde %29–39. Son altı logda atışsız peek %22 → %38 (12 / 32), çoğu yola çıkar çıkmaz "açı kapandı": sahte kayıtta (rakip defensive'in içinde) görülen açı gerçek kayıtta yok. Aday `peek_real`: peek sadece gerçek kayıtta başlar. Ölçüsü peek başına puan (3 sn içinde kill +1, ölüm −1). Başlangıç satırına `| kayit gercek / sahte` yazılır. |
+| **Düello danışmanı (yeni gösterge)** | Nişangahın üstünde `SALDIR` / `DENK` / `SAVUN`, kazanma tahmini, çubuk ve en ağır iki sebep ("RAKIP DEFENSIVE'DE", "RAKIP YUKARDA", "SENI 3 KEZ OLDURDU (0-3)" ...). Silah hazır değilken (sürgü / şarjör / bıçak) her zaman `SAVUN`. Sadece gösterir, ayar değiştirmez. Visuals > "Duel advisor". |
+
+Göstergenin dayandığı veri (3039 kill ya da ölümle biten düello):
+
+| Durum | Kazanma |
+|---|---|
+| Sadece sen onu gördün | %74 |
+| İkiniz de gördünüz (kimin önce gördüğü fark etmiyor) | %51 |
+| Sadece o seni gördü | 0 kill / 432 ölüm |
+| Rakip duruyor / hareketli | %61 / %45 |
+| Rakip 40+ birim yukarıda / aynı seviyede | %40 / %49 |
+| Rakibin defensive payı %0 / %1–50 / %51+ | %58 / %44 / %30 |
+| **Hareketli + defensive'li rakip seni önce gördü** | **%31** (2074 düello, 728 ölüm: bütün ölümlerin %44'ü) |
+
+Bunlardan lojistik regresyon çıkarıldı. Dosya bazında 5 kat çapraz doğrulama: tahmin %35 altı → gerçek %26, %35–45 → %44, %45–55 → %49, %55–65 → %59, %65 üstü → %72. Eğitimde olmayan son altı logda (342 düello) `SAVUN` dediği yerde gerçek kazanma %35, `DENK` %49, `SALDIR` %56. Her `dbg duello` satırına o karşılaşmadaki ilk ve son öneri yazılır (`| oneri SAVUN %42, son SAVUN %28`): göstergenin tutup tutmadığı sonraki loglarda ölçülecek.
+
+Ölçülemeyenler: AI peek'in round sunucusundaki sonucu (peek'lerin çoğu DM'den), göstergenin canlı isabeti (ilk kez bu sürümde loglanıyor). `peek_real` yavaş karara bağlanır (oturum başına 5–15 AI peek).
+
 **V1.0.89** (V1.0.88 logu, 31 dk, önce DM sonra de_mirage round sunucusu (ping 137): **38 kill / 41 ölüm = 0.93**. Ölümlerin 31'i kafadan, 26'sı duvar / defensive peek çizgisinden. Scout atışlarının %73'ü isabet, %61'i kafa. Hata satırı yok.)
 
 | Deney | Durum |
