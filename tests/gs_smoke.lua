@@ -141,8 +141,12 @@ function ui.new_hotkey(tab, box, label) return newref("hotkey", label, false) en
 function ui.new_button(tab, box, label, fn) return newref("button", label, fn) end
 function ui.new_label(tab, box, label) return newref("label", label, label) end
 function ui.new_color_picker(tab, box, label, r, g, b, a) return newref("color", label, { r, g, b, a }) end
+-- V1.0.94: okuma sayaci (olay cagrisi ici onbellek testi).
+local ui_gets = { total = 0, by = {} }
 function ui.get(ref)
     if type(ref) ~= "table" then error("gecersiz ref") end
+    ui_gets.total = ui_gets.total + 1
+    ui_gets.by[ref] = (ui_gets.by[ref] or 0) + 1
     if ref.kind == "hotkey" then return ref.value == true, ref.mode or 1, ref.key or 0 end
     if ref.kind == "color" then return unpack(ref.value) end
     return ref.value
@@ -254,7 +258,11 @@ function client.create_interface() return nil end
 
 local entity = {}
 function entity.get_local_player() return 1 end
-function entity.get_players(enemies_only) return { 2, 3 } end
+function entity.get_players(enemies_only)
+    -- V1.0.94: W.slow_players verildiyse her cagri saati o kadar ilerletir (setup_command ic bolum olcumu testi).
+    if W.slow_players ~= nil then W.clock_ms = (W.clock_ms or 0) + W.slow_players end
+    return { 2, 3 }
+end
 function entity.get_all() return {} end
 function entity.is_alive(ent) return (ent == 1 and not W.dead) or ent == 2 or ent == 3 end -- V1.0.80: W.dead
 function entity.is_dormant() return false end
@@ -452,7 +460,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.93 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.93")
+check(printed("V1.0.94 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.94")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -2653,7 +2661,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.93 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.94 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -3354,6 +3362,47 @@ do
     check(hitch ~= nil and hitch:find("| lua 0 ms |", 1, true) ~= nil and hitch:find("2 dusman", 1, true) ~= nil
         and printed("dbg takilma:", hitch_i + 1) == nil,
         "V1.0.91: 100 ms'den uzun karede takilma satiri, 5 sn'de bir (" .. tostring(hitch) .. ")")
+
+    -- V1.0.94: setup_command'in ic bolumleri round ozetine yazilir (dusman listesi okunurken saat ilerler).
+    fire("round_start")
+    W.slow_players = 1
+    tick(1100)
+    W.slow_players = nil
+    from = #prints + 1
+    fire("round_start")
+    local inner = printed("dbg yuk:", from)
+    check(inner ~= nil and inner:find("| setup_command ici: ", 1, true) ~= nil
+        and (tonumber(inner:match("setup_command ici: .-dusman kaydi (%d+)")) or 0) > 0
+        and (tonumber(inner:match("en agir: setup_command (%d+)")) or 0) > 0,
+        "V1.0.94: round ozetinde setup_command'in ic bolumleri (" .. tostring(inner and inner:sub(-150)) .. ")")
+
+    -- V1.0.94: olay cagrisi ici onbellek. Ayni menu salteri ve ayni zaman bir olay cagrisinda bir kez okunur; tick
+    -- basina toplam menu okumasi sinirli kalir (onceden ~250).
+    local en_ref, res_ref = find_ref("Enable Nykle.win"), find_ref("Adaptive resolver")
+    W.sees[2], W.speed = true, 150
+    tick(8)
+    ui_gets.total, ui_gets.by = 0, {}
+    local paints = 0
+    for i = 1, 64 do
+        if (W.tick + 1) % 16 == 0 then paints = paints + 1 end
+        tick(1)
+    end
+    local per_tick = ui_gets.total / 64
+    local en_n, res_n = ui_gets.by[en_ref] or 0, ui_gets.by[res_ref] or 0
+    W.sees[2], W.speed = false, 0
+    check(per_tick < 190 and res_n <= 64 * 3 and en_n <= 64 * 12,
+        ("V1.0.94: menu okumalari olay cagrisi basina bir kez (tick basina %.0f okuma; Adaptive resolver %.1f, Enable %.1f / tick)"):format(
+            per_tick, res_n / 64, en_n / 64))
+    -- Menude degisen deger bir sonraki olay cagrisinda gorulur (onbellek cagri bitince gecersiz).
+    local dbg_ref = find_ref("Detailed log (for analysis)")
+    dbg_ref.value = false
+    from = #prints + 1
+    fire("round_start")
+    local quiet = printed("dbg =====", from) == nil
+    dbg_ref.value = true
+    from = #prints + 1
+    fire("round_start")
+    check(quiet and printed("dbg =====", from) ~= nil, "V1.0.94: menude degisen deger bir sonraki olayda okunur (detayli log kapat / ac)")
 
     -- Log dosyasi: canliyken round isleri dosyayi hemen yazmaz; olunce yazilir.
     tick(64)

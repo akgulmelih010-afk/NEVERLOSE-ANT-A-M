@@ -720,6 +720,35 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.94** (V1.0.93 logu, 21 dk, de_mirage round sunucusu (ping 102–108): **20 kill / 30 ölüm = 0.67**. Hata satırı yok. İlk gerçek yük ölçümü bu logda.)
+
+**Yük ölçümü ne gösterdi.** 41 round özeti, 6 takılma satırı:
+
+| Ölçü | Değer |
+|---|---|
+| Ortalama FPS | 62–86 (kare 11.7–16.2 ms) |
+| 200 ms'den uzun kare | **0** (en uzun 116 ms; round başına 50 ms üstü 1–5 kare, üç roundda 12–25) |
+| Lua'nın payı | Canlıyken toplam sürenin **%4.5–10.5**'i, ölüyken %1.5–1.9 |
+| En ağır parça | `setup_command` (ana tick işi): saniyede ~71 ms = tick başına ~1.1 ms; sonra `paint` (kare başına ~0.18 ms) |
+| 100 ms üstü karelerde lua | 14–20 ms (birinde 63 ms: log dosyası yazımı 60 ms) |
+| Bellek | 2.6–6.2 MB |
+
+Yani bu oturumda donma yok ve 100 ms'lik takılmaların büyük kısmı lua'dan gelmiyor; ama lua canlıyken sürenin onda birine yakınını yiyor. Sahte API'de sayınca tick başına 761 API çağrısı (5 rakip) / 1831 (25 rakip) çıktı ve yarıdan fazlası aynı değerin aynı olay çağrısı içinde yeniden okunmasıydı (`tickcount` 80–240, `realtime` 68–148, tek bir menü şalteri 26–126 kez, Steam ID 23–103 kez).
+
+| Ne | Ayrıntı |
+|---|---|
+| **Olay çağrısı içi önbellek** | Zaman, yerel oyuncu, netvar'lar, canlı / dormant, silah sınıfı, konum vektörleri, menü öğeleri, GameSense ayarları ve oyuncu listesi alanları aynı olay çağrısı içinde bir kez okunur. Çağrı bitince önbellek geçersizdir (menü geri çağrıları ve düğmeler hep taze okur); bizim yazdığımız değer yazıldığı an tazelenir. Steam ID slot başına 1–2 sn tutulur. **Tick başına API çağrısı: 5 rakipte 761 → 405, 12 rakipte 1135 → 517, 25 rakipte 1831 → 725.** Davranış değişmez (392 test aynı sonuç). |
+| **`dbg yuk` satırına iç döküm** | `setup_command ici: hazirlik / dusman kaydi / gorus / hareket / resolver / ai peek / aa` (ms): bir sonraki adımda neyin kısılacağı buradan görülecek. |
+| **Can özeti düzeltmesi** | `deney can sonu` satırında kare süresi round özeti sayaçları sıfırlanınca 0.0 çıkıyordu; ayrı toplamdan hesaplanır. |
+
+Bu oturumdan diğer bulgular:
+
+- **Hide shots'ta LC kırma işe yarıyor** (`hs_def_off`, sürüyor): açıkken mermi başına zarar 0.34, kapalıyken 0.64 (18 / 18 can, z −3.0); birkaç can içinde reddedilecek.
+- `peek_static`: zarar aynı (0.57 / 0.60) ama can başına kill z −2.0; bekçi reddedecek. `cap_off2`: 18 / 18 canda 9 kill / 6 kill, yani V1.0.90 oturumundaki +1.9 tesadüfmüş (sayımı sıfırlamak doğruydu).
+- **Bu sunucuda seni duvardan gövdeden vuruyorlar:** sana gelen 61 isabetin 40'ı duvardan (%66), 34'ünde vuranı vuramıyordun (%56), 42'si gövde (%69), 13'ü kafa. 30 ölümün 17'si gövdeden.
+- Roll açıktı (21 can): açık kolda 17 mermi %88 isabet / %18 kafa, kapalı kolda 18 mermi %94 / %6. Henüz bir şey söylenemez.
+- AI peek 8 kez: 3 "açı kapandı", üçü de gerçek kayıtta başlamıştı; yani açının kapanması sahte kayıttan değil rakibin hareketinden. `peek_real` bunu çözmeyecek.
+
 **V1.0.93** (istek: "rollü aktifleştirirsem en iyi roll ayarında açılıp direkt luaya entegre oluyor mu; home'a bir tuş ekleyip rollü aktif et yazar mısın, oradan açınca roll açılsın")
 
 | Ne | Ayrıntı |

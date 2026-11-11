@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.93"
+local VERSION = "1.0.94"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -257,7 +257,35 @@ K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, count = 0, s = {}, cur = 
 -- kisa cagrilarin cogu 0 okunur; toplam yine yansizdir (1 ms sinirini gecen cagri orani = ortalama sure). Round
 -- sonunda "dbg yuk" satiri, 100 ms'den uzun karede "dbg takilma" satiri yazilir: donmanin lua'dan mi (hangi
 -- parcasindan) yoksa oyundan / sunucudan mi geldigi logdan okunur.
-K.perf = { t = {}, order = {}, frame = 0, frame_top = 0, frame_name = nil, stamp = nil }
+K.perf = { t = {}, order = {}, frame = 0, frame_top = 0, frame_name = nil, stamp = nil, s = {},
+    SECTIONS = { "hazirlik", "dusman kaydi", "gorus", "hareket", "resolver", "ai peek", "aa" } }
+-- V1.0.94: setup_command'in ic bolumleri (ana tick isi; V1.0.93 logunda lua suresinin %60-70'i). Kullanim:
+-- local t = K.perf.sec(nil, nil) ... t = K.perf.sec("bolum", t). Zaman damgasi yoksa hicbir sey yapmaz.
+K.perf.sec = function(name, t0)
+    local stamp = K.perf.stamp
+    if stamp == nil then
+        return nil
+    end
+    local now = stamp()
+    if name ~= nil and t0 ~= nil and now > t0 then
+        K.perf.s[name] = (K.perf.s[name] or 0) + (now - t0)
+    end
+    return now
+end
+-- V1.0.94 (V1.0.93 logu, ilk gercek yuk olcumu: canliyken lua toplam surenin %7-10'u, setup_command tick basina ~1.1
+-- ms; sahte API'de tick basina 760 API cagrisi (5 rakip) / 1800 (25 rakip), yarisindan cogu ayni degerin ayni olay
+-- cagrisi icinde yeniden okunmasi: tickcount 80-240, realtime 68-148, menu salterleri (Adaptive resolver tek basina
+-- 26-126), m_fFlags / m_flDuckAmount / m_vecVelocity, Steam ID 23-103): olay cagrisi ici onbellek.
+-- Kural: deger sadece AYNI olay cagrisinin icinde (protect ile sarili tek bir cagri; live = o cagrinin numarasi)
+-- yeniden kullanilir; o surede oyun durumu ve menu degismez. Cagri bitince live nil olur: menu geri cagrilari,
+-- dugmeler, yukleme ve gecikmeli cagrilar her zaman taze okur. Kendi yazdigimiz menu ogesi yazildigi an tazelenir
+-- (Element:set). Steam ID oyuncu slotu basina ~2000 cagri (1-2 sn) tutulur.
+-- Konum vektorleri (origin, goz, hitbox, hiz) de ayni cagri icinde ayni tabloyu dondurur: kod bu tablolari hicbir
+-- yerde degistirmez (denetlendi), saklayanlar o anin kopyasini tutmus olur. GameSense'in kendi ayarlari (get) bizim
+-- yazdigimiz her degerde (w sayaci) yeniden okunur; oyuncu listesi alani yazildigi an tazelenir.
+K.c = { live = nil, gen = 0, w = 0, pg = {}, pa = {}, pb = {}, pc = {}, alive = {}, alive_g = {}, dorm = {}, dorm_g = {},
+    wc = {}, wc_g = {}, pid = {}, pid_g = {}, og = {}, ov = {}, eg = {}, ev = {}, vg = {}, vv = {}, hg = {}, hv = {},
+    ng = {}, nw = {}, nv = {}, plg = {}, plv = {} }
 do
     local ok, now = pcall(function() return client.timestamp() end)
     if ok and type(now) == "number" then
@@ -279,9 +307,15 @@ do
             perf.order[#perf.order + 1] = name
         end
         return function(...)
+            -- Olay cagrisi ici onbellek (bkz. K.c): bu cagrinin numarasi; ic ice cagrida distaki geri gelir.
+            local C = K.c
+            local outer = C.live
+            C.gen = C.gen + 1
+            C.live = C.gen
             local stamp = perf.stamp
             local t0 = stamp ~= nil and stamp() or nil
             local ok, err = pcall(fn, ...)
+            C.live = outer
             if t0 ~= nil then
                 local dt = stamp() - t0
                 if dt > 0 then
@@ -319,19 +353,47 @@ local function listen(name, fn)
 end
 
 -- GameSense'te globals fonksiyondur (Neverlose'da alan).
+-- V1.0.94: ayni olay cagrisi icinde bir kez okunur (bkz. K.c).
 local function tickcount()
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.tick_g == live then
+        return C.tick
+    end
     local v = try(globals.tickcount)
-    return finite(v) and v or 0
+    v = finite(v) and v or 0
+    if live ~= nil then
+        C.tick_g, C.tick = live, v
+    end
+    return v
 end
 
 local function realtime()
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.rt_g == live then
+        return C.rt
+    end
     local v = try(globals.realtime)
-    return finite(v) and v or 0
+    v = finite(v) and v or 0
+    if live ~= nil then
+        C.rt_g, C.rt = live, v
+    end
+    return v
 end
 
 local function curtime()
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.ct_g == live then
+        return C.ct
+    end
     local v = try(globals.curtime)
-    return finite(v) and v or 0
+    v = finite(v) and v or 0
+    if live ~= nil then
+        C.ct_g, C.ct = live, v
+    end
+    return v
 end
 
 local function frametime()
@@ -340,39 +402,101 @@ local function frametime()
 end
 
 local function tick_interval()
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.ti_g == live then
+        return C.ti
+    end
     local v = try(globals.tickinterval)
-    return finite(v) and v > 0 and v or 1 / 64
+    v = finite(v) and v > 0 and v or 1 / 64
+    if live ~= nil then
+        C.ti_g, C.ti = live, v
+    end
+    return v
 end
 
 local function vector(x, y, z)
     return { x = x or 0, y = y or 0, z = z or 0 }
 end
 
+-- V1.0.94: dizi indeksi verilmeyen prop'lar ayni olay cagrisi icinde bir kez okunur (bkz. K.c). Uc donus degeri de
+-- saklanir (vektorler, acilar).
 local function prop(ent, name, index)
     if ent == nil then
         return nil
     end
-    local ok, a, b, c = pcall(entity.get_prop, ent, name, index)
-    if ok then
-        return a, b, c
+    local C = K.c
+    local live = C.live
+    if live == nil or index ~= nil or name == nil then
+        local ok, a, b, c = pcall(entity.get_prop, ent, name, index)
+        if ok then
+            return a, b, c
+        end
+        return nil
     end
-    return nil
+    local g = C.pg[ent]
+    if g == nil then
+        g = {}
+        C.pg[ent], C.pa[ent], C.pb[ent], C.pc[ent] = g, {}, {}, {}
+    end
+    if g[name] == live then
+        return C.pa[ent][name], C.pb[ent][name], C.pc[ent][name]
+    end
+    local ok, a, b, c = pcall(entity.get_prop, ent, name)
+    if not ok then
+        a, b, c = nil, nil, nil
+    end
+    g[name] = live
+    C.pa[ent][name], C.pb[ent][name], C.pc[ent][name] = a, b, c
+    return a, b, c
 end
 
 local function local_player()
-    local me = try(entity.get_local_player)
-    if finite(me) and me > 0 then
-        return me
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.me_g == live then
+        return C.me
     end
-    return nil
+    local me = try(entity.get_local_player)
+    if not (finite(me) and me > 0) then
+        me = nil
+    end
+    if live ~= nil then
+        C.me_g, C.me = live, me
+    end
+    return me
 end
 
 local function alive(ent)
-    return ent ~= nil and try(entity.is_alive, ent) == true
+    if ent == nil then
+        return false
+    end
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.alive_g[ent] == live then
+        return C.alive[ent]
+    end
+    local v = try(entity.is_alive, ent) == true
+    if live ~= nil then
+        C.alive_g[ent], C.alive[ent] = live, v
+    end
+    return v
 end
 
 local function dormant(ent)
-    return ent ~= nil and try(entity.is_dormant, ent) == true
+    if ent == nil then
+        return false
+    end
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.dorm_g[ent] == live then
+        return C.dorm[ent]
+    end
+    local v = try(entity.is_dormant, ent) == true
+    if live ~= nil then
+        C.dorm_g[ent], C.dorm[ent] = live, v
+    end
+    return v
 end
 
 local function is_enemy(ent)
@@ -391,31 +515,68 @@ local function origin_of(ent)
     if ent == nil then
         return nil
     end
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.og[ent] == live then
+        return C.ov[ent]
+    end
+    local out = nil
     local x, y, z = try(entity.get_origin, ent)
     if finite(x) and finite(y) and finite(z) then
-        return vector(x, y, z)
+        out = vector(x, y, z)
+    else
+        x, y, z = prop(ent, "m_vecOrigin")
+        if finite(x) and finite(y) and finite(z) then
+            out = vector(x, y, z)
+        end
     end
-    x, y, z = prop(ent, "m_vecOrigin")
-    if finite(x) and finite(y) and finite(z) then
-        return vector(x, y, z)
+    if live ~= nil then
+        C.og[ent], C.ov[ent] = live, out
     end
-    return nil
+    return out
 end
 
 local function hitbox_of(ent, hitbox)
     if ent == nil then
         return nil
     end
+    local C = K.c
+    local live = C.live
+    local g = nil
+    if live ~= nil and hitbox ~= nil then
+        g = C.hg[ent]
+        if g == nil then
+            g = {}
+            C.hg[ent], C.hv[ent] = g, {}
+        end
+        if g[hitbox] == live then
+            return C.hv[ent][hitbox]
+        end
+    end
+    local out = nil
     local x, y, z = try(entity.hitbox_position, ent, hitbox)
     if finite(x) and finite(y) and finite(z) and (x ~= 0 or y ~= 0 or z ~= 0) then
-        return vector(x, y, z)
+        out = vector(x, y, z)
     end
-    return nil
+    if g ~= nil then
+        g[hitbox] = live
+        C.hv[ent][hitbox] = out
+    end
+    return out
 end
 
 local function velocity_of(ent)
+    local C = K.c
+    local live = C.live
+    if live ~= nil and ent ~= nil and C.vg[ent] == live then
+        return C.vv[ent]
+    end
     local x, y, z = prop(ent, "m_vecVelocity")
-    return vector(finite(x) and x or 0, finite(y) and y or 0, finite(z) and z or 0)
+    local out = vector(finite(x) and x or 0, finite(y) and y or 0, finite(z) and z or 0)
+    if live ~= nil and ent ~= nil then
+        C.vg[ent], C.vv[ent] = live, out
+    end
+    return out
 end
 
 local function speed2d(ent)
@@ -433,21 +594,32 @@ local function eye_of(ent)
     if ent == nil then
         return nil
     end
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.eg[ent] == live then
+        return C.ev[ent]
+    end
+    local out = nil
     if ent == local_player() then
         local x, y, z = try(client.eye_position)
         if finite(x) and finite(y) and finite(z) then
-            return vector(x, y, z)
+            out = vector(x, y, z)
         end
     end
-    local base = origin_of(ent)
-    if base == nil then
-        return nil
+    if out == nil then
+        local base = origin_of(ent)
+        if base ~= nil then
+            local offset = prop(ent, "m_vecViewOffset[2]")
+            if not finite(offset) or offset <= 0 then
+                offset = 64
+            end
+            out = vector(base.x, base.y, base.z + offset)
+        end
     end
-    local offset = prop(ent, "m_vecViewOffset[2]")
-    if not finite(offset) or offset <= 0 then
-        offset = 64
+    if live ~= nil then
+        C.eg[ent], C.ev[ent] = live, out
     end
-    return vector(base.x, base.y, base.z + offset)
+    return out
 end
 
 local function weapon_of(ent)
@@ -573,20 +745,32 @@ end
 
 -- get: ayarin su anki hali (hotkey'de aktif mi). GameSense'te ui.set gercek degeri degistirdigi icin
 -- ezdigimiz deger de buradan okunur (Neverlose'daki "effective" ile ayni).
+-- V1.0.94: ayni olay cagrisi icinde, biz bir GameSense ayari yazmadigimiz surece bir kez okunur (bkz. K.c; w sayaci
+-- her yazmada artar).
 local function get(name)
     local ref = refs[name]
     if ref == nil then
         return false
     end
+    local C = K.c
+    local live = C.live
+    if live ~= nil and C.ng[name] == live and C.nw[name] == C.w then
+        return C.nv[name]
+    end
+    local out = false
     if HOTKEYS[name] then
         local ok, active = pcall(ui.get, ref)
-        return ok and active == true
+        out = ok and active == true
+    else
+        local ok, value = pcall(ui.get, ref)
+        if ok and value ~= nil then
+            out = value
+        end
     end
-    local ok, value = pcall(ui.get, ref)
-    if ok and value ~= nil then
-        return value
+    if live ~= nil then
+        C.ng[name], C.nw[name], C.nv[name] = live, C.w, out
     end
-    return false
+    return out
 end
 
 -- Ezme sistemi. overridden[anahtar] = { name, scope, original, last }. Anahtar ayar adi; silah grubuna
@@ -637,6 +821,7 @@ do
 
     local function write_ref(name, value)
         local ref = refs[name]
+        K.c.w = K.c.w + 1
         if HOTKEYS[name] then
             local mode = MODE_NAMES[value.mode] or "On hotkey"
             if value.key ~= nil then
@@ -659,11 +844,14 @@ do
         if not ok_cur or current == scope then
             return pcall(fn)
         end
+        K.c.w = K.c.w + 1
         if not pcall(ui.set, refs.weapon_type, scope) then
             return false
         end
         local ok, err = pcall(fn)
+        K.c.w = K.c.w + 1
         pcall(ui.set, refs.weapon_type, current)
+        K.c.w = K.c.w + 1
         return ok, err
     end
 
@@ -850,8 +1038,26 @@ do
         if type(plist) ~= "table" or bad[field] then
             return nil
         end
+        -- V1.0.94: ayni olay cagrisi icinde bir kez okunur; plist_set o oyuncunun alanlarini tazeler.
+        local C = K.c
+        local live = C.live
+        local g = nil
+        if live ~= nil and ent ~= nil then
+            g = C.plg[ent]
+            if g == nil then
+                g = {}
+                C.plg[ent], C.plv[ent] = g, {}
+            end
+            if g[field] == live then
+                return C.plv[ent][field]
+            end
+        end
         local ok, value = pcall(plist.get, ent, field)
         if ok then
+            if g ~= nil then
+                g[field] = live
+                C.plv[ent][field] = value
+            end
             return value
         end
         bad[field] = true
@@ -862,6 +1068,13 @@ do
     local function plist_set(ent, field, value)
         if type(plist) ~= "table" or bad[field] then
             return false
+        end
+        -- V1.0.94: yazilan oyuncunun butun alanlari tazelenir (bir alan digerini de degistirebilir).
+        local g = ent ~= nil and K.c.plg[ent] or nil
+        if g ~= nil then
+            for key in pairs(g) do
+                g[key] = nil
+            end
         end
         local ok = pcall(plist.set, ent, field, value)
         return ok and plist_get(ent, field) == value
@@ -1016,18 +1229,28 @@ function Element:get()
     return self:raw()
 end
 
+-- V1.0.94: ayni olay cagrisi icinde bir kez okunur (bkz. K.c); :set o an tazeler.
 function Element:raw()
+    local live = K.c.live
+    if live ~= nil and self.live == live then
+        return self.cached
+    end
     local ok, a, b, c, d = pcall(ui.get, self.ref)
-    if not ok then
-        return nil
+    local value = nil
+    if ok then
+        value = a
+        if self.kind == "color" then
+            value = { r = a or 255, g = b or 255, b = c or 255, a = d or 255 }
+        end
     end
-    if self.kind == "color" then
-        return { r = a or 255, g = b or 255, b = c or 255, a = d or 255 }
+    if live ~= nil then
+        self.live, self.cached = live, value
     end
-    return a
+    return value
 end
 
 function Element:set(value)
+    self.live = nil
     if self.kind == "color" then
         return pcall(ui.set, self.ref, value.r, value.g, value.b, value.a)
     end
@@ -2283,20 +2506,28 @@ local MELEE = { CKnife = true, CKnifeGG = true, CWeaponTaser = true }
 
 -- Silahin sinif adi. R8, Desert Eagle ile ayni sinifi (CDEagle) kullandigi icin item index'ine (64)
 -- bakilip "Revolver" olarak ayrilir.
+-- V1.0.94: ayni olay cagrisi icinde oyuncu basina bir kez okunur (bkz. K.c).
 local function weapon_class(ent)
+    local C = K.c
+    local live = C.live
+    if live ~= nil and ent ~= nil and C.wc_g[ent] == live then
+        return C.wc[ent]
+    end
+    local class = nil
     local weapon = weapon_of(ent)
-    if weapon == nil then
-        return nil
-    end
-    local class = try(entity.get_classname, weapon)
-    if type(class) ~= "string" then
-        return nil
-    end
-    if class == "CDEagle" then
-        local index = prop(weapon, "m_iItemDefinitionIndex")
-        if finite(index) and bit.band(index, 0xFFFF) == 64 then
-            return "Revolver"
+    if weapon ~= nil then
+        class = try(entity.get_classname, weapon)
+        if type(class) ~= "string" then
+            class = nil
+        elseif class == "CDEagle" then
+            local index = prop(weapon, "m_iItemDefinitionIndex")
+            if finite(index) and bit.band(index, 0xFFFF) == 64 then
+                class = "Revolver"
+            end
         end
+    end
+    if live ~= nil and ent ~= nil then
+        C.wc_g[ent], C.wc[ent] = live, class
     end
     return class
 end
@@ -2960,22 +3191,45 @@ end
 
 -- Kalici oyuncu kimligi: Steam ID (entity.get_steam64). Bot ya da okunamayan Steam ID'de isim, o da
 -- yoksa slot.
+-- V1.0.94: slot basina ~2000 olay cagrisi (1-2 sn) saklanir (25 rakipte tick basina 103 kez okunuyordu); oyuncu
+-- baglaninca / ayrilinca ve harita degisince silinir (asagida "kimlik onbellegi").
 player_id = function(ent)
     if ent == nil then
         return nil
     end
+    local C = K.c
+    local live = C.live
+    local g = C.pid_g[ent]
+    if live ~= nil and g ~= nil and live >= g and live - g < 2000 then
+        return C.pid[ent]
+    end
+    local id = nil
     local steam = try(entity.get_steam64, ent)
     if steam ~= nil then
         local text = type(steam) == "number" and ("%.0f"):format(steam) or tostring(steam)
         if #text > 4 and text ~= "0" and not text:find("BOT", 1, true) then
-            return "s:" .. text
+            id = "s:" .. text
         end
     end
-    local name = player_name(ent)
-    if name ~= "?" then
-        return "n:" .. name
+    if id == nil then
+        local name = player_name(ent)
+        id = name ~= "?" and ("n:" .. name) or ("i:" .. tostring(ent))
     end
-    return "i:" .. tostring(ent)
+    if live ~= nil then
+        C.pid_g[ent], C.pid[ent] = live, id
+    end
+    return id
+end
+for _, event in ipairs({ "player_connect_full", "player_disconnect", "level_init" }) do
+    listen(event, protect("kimlik onbellegi", function()
+        local C = K.c
+        C.pid_g = {}
+        if event == "level_init" then
+            -- Harita degisince varlik numaralari yeniden dagitilir: varlik basina tutulan tablolar buyumesin.
+            C.pg, C.pa, C.pb, C.pc = {}, {}, {}, {}
+            C.hg, C.hv, C.plg, C.plv = {}, {}, {}, {}
+        end
+    end))
 end
 
 local function memory_entry(map, id, ent, make)
@@ -7480,6 +7734,7 @@ do
             if element ~= nil then
                 local ok, active, mode, key = pcall(ui.get, element.ref)
                 if ok and finite(mode) and mode ~= 1 then
+                    element.live = nil
                     pcall(ui.set, element.ref, "On hotkey", key)
                 end
                 local down = ok and active == true
@@ -7572,6 +7827,7 @@ local function tick_prepare(cmd)
     end
     local choked = finite(cmd.chokedcommands) and cmd.chokedcommands or 0
     exposure.facing = nil
+    local t_sec = K.perf.sec(nil, nil)
     -- V1.0.80: dolu DT kapaninca tickbase sicradi mi (GameSense kapatirken discharge ediyor mu): 4 tick izlenir.
     local was_full = charge.dt_was and charge.value >= 0.99
     local off0 = charge.offset
@@ -7596,13 +7852,17 @@ local function tick_prepare(cmd)
     end
     update_tickbase(lp, choked)
     update_fd_guard(lp)
+    t_sec = K.perf.sec("hazirlik", t_sec)
     enemy_watch.update()
+    t_sec = K.perf.sec("dusman kaydi", t_sec)
     update_exposure(lp, cmd)
+    t_sec = K.perf.sec("gorus", t_sec)
     update_manual()
     local move_state = detect_movement(lp, cmd)
     teleport.plan(lp, cmd, move_state)
     local class = weapon_class(lp)
     current.weapon = class
+    t_sec = K.perf.sec("hareket", t_sec)
 
     process_pending_misses()
     current.phase_group = brute.group_for(move_state)
@@ -7616,7 +7876,9 @@ local function tick_prepare(cmd)
     resolver.fast_charge(lp, class)
     resolver.wait_apply(class, present)
     plist_release_missing(present)
+    t_sec = K.perf.sec("resolver", t_sec)
     update_ai_peek(lp, cmd, class)
+    K.perf.sec("ai peek", t_sec)
     -- V1.0.80 (inceleme): yerde ziplama engeli bu tick ziplamayi iptal edecekse (own.aa.move, sonra) "Air" durumu
     -- DT'li ucus sayilmaz (apply_exploit current.air_dt).
     exposure.land.jump_blocked = own.aa.blocks_jump(cmd, lp, class)
@@ -8087,7 +8349,9 @@ listen("setup_command", protect("setup_command", function(cmd)
     if lp == nil or tick_special(cmd, lp, move_state, class) then
         return
     end
+    local t_sec = K.perf.sec(nil, nil)
     tick_aa(cmd, lp, choked, move_state, class, aim_target)
+    K.perf.sec("aa", t_sec)
 end))
 
 -- V1.0.28: kalici sol el (cl_righthand 0). Her karede kontrol edilir: acikken deger 0 degilse 0 yazilir (ilk
@@ -11025,6 +11289,8 @@ end
 K.perf.init = function()
     local P = K.perf
     P.frames, P.sum, P.max, P.over50, P.over200, P.lua, P.since, P.last_hitch = 0, 0, 0, 0, 0, 0, realtime(), -1000
+    -- V1.0.94: can ozeti icin hic sifirlanmayan toplamlar (round ozeti sayaclari sifirlayinca "kare ort 0.0" yaziyordu).
+    P.tf, P.ts, P.t50 = 0, 0, 0
 
     -- Son karenin suresi (sn): absoluteframetime (oyun hizindan bagimsiz), yoksa frametime.
     local function frame_seconds()
@@ -11044,11 +11310,13 @@ K.perf.init = function()
             return
         end
         P.frames, P.sum, P.lua = P.frames + 1, P.sum + ms, P.lua + lua
+        P.tf, P.ts = P.tf + 1, P.ts + ms
         if ms > P.max then
             P.max = ms
         end
         if ms >= 50 then
             P.over50 = P.over50 + 1
+            P.t50 = P.t50 + 1
         end
         if ms >= 200 then
             P.over200 = P.over200 + 1
@@ -11098,11 +11366,22 @@ K.perf.init = function()
             end
             local ok_m, kb = pcall(collectgarbage, "count")
             local avg = P.sum / P.frames
-            print(("[%s] dbg yuk: %d kare, ort %.1f ms (%d fps), en uzun %d ms, 50 ms ustu %d, 200 ms ustu %d | lua %d ms / %d sn (%%%.1f) | en agir: %s | 8 ms ustu cagri %d%s%s"):format(
+            -- V1.0.94: setup_command'in ic bolumleri (ms).
+            local inner = {}
+            for _, name in ipairs(P.SECTIONS) do
+                if (P.s[name] or 0) > 0 then
+                    inner[#inner + 1] = ("%s %d"):format(name, round(P.s[name]))
+                end
+            end
+            print(("[%s] dbg yuk: %d kare, ort %.1f ms (%d fps), en uzun %d ms, 50 ms ustu %d, 200 ms ustu %d | lua %d ms / %d sn (%%%.1f) | en agir: %s | 8 ms ustu cagri %d%s%s%s"):format(
                 SCRIPT, P.frames, avg, round(1000 / max(0.001, avg)), round(P.max), P.over50, P.over200, round(P.lua),
                 round(seconds), P.lua / (seconds * 10), #tops > 0 and table.concat(tops, ", ") or "olculemedi",
                 slow, slow_name ~= nil and (" (en uzun: %s %d ms)"):format(slow_name, round(slow_max)) or "",
-                (ok_m and finite(kb)) and (" | bellek %.1f MB"):format(kb / 1024) or ""))
+                (ok_m and finite(kb)) and (" | bellek %.1f MB"):format(kb / 1024) or "",
+                #inner > 0 and (" | setup_command ici: " .. table.concat(inner, ", ")) or ""))
+        end
+        for _, name in ipairs(P.SECTIONS) do
+            P.s[name] = 0
         end
         for _, name in ipairs(P.order) do
             local rec = P.t[name]
@@ -12521,11 +12800,8 @@ K.xp.init = function()
         -- V1.0.91: can ozeti (sure, kill, kare suresi). Kare suresi kollara gore karsilastirilir: bir deney kolu FPS'i
         -- dusuruyorsa (ornegin yuksek hit chance tabaninda aimbot'un daha cok tarama yapmasi) buradan gorulur.
         local P = K.perf
-        if on(menu.hit_log) and P.frames ~= nil and L.frames ~= nil then
-            -- Sayaclar round ozetinde sifirlanmis olabilir (o zaman can ortasindan sonrasi sayilir).
-            local frames = P.frames >= L.frames and P.frames - L.frames or P.frames
-            local sum = P.frames >= L.frames and P.sum - L.sum or P.sum
-            local over = P.frames >= L.frames and P.over50 - L.over50 or P.over50
+        if on(menu.hit_log) and P.tf ~= nil and L.frames ~= nil then
+            local frames, sum, over = P.tf - L.frames, P.ts - L.sum, P.t50 - L.over50
             print(("[%s] deney can sonu: can %d | %d sn | kill %d | %s | kare ort %.1f ms, 50 ms ustu %d"):format(SCRIPT,
                 xp.life, floor(realtime() - L.at + 0.5), L.kills, died and "oldun" or "hayatta",
                 frames > 0 and sum / frames or 0, over))
@@ -12567,8 +12843,8 @@ K.xp.init = function()
                 parts[#parts + 1] = ("%s %s %s"):format(lane, c.id, b_arm and "B" or "A")
             end
         end
-        xp.lifec = { afk = false, kills = 0, air = 0, at = realtime(), frames = K.perf.frames, sum = K.perf.sum,
-            over50 = K.perf.over50 }
+        xp.lifec = { afk = false, kills = 0, air = 0, at = realtime(), frames = K.perf.tf, sum = K.perf.ts,
+            over50 = K.perf.t50 }
         xp.air_at, xp.pk = nil, nil
         xp.apply()
         if #parts > 0 and on(menu.hit_log) then
