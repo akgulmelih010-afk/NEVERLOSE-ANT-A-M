@@ -720,6 +720,30 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.92** (istek: "sağ tarafta kalsın bundan sonra, orta biraz alt kısma al resolver ölçümünü, saldır saldırma şeyini de azıcık büyüt". V1.0.90 logu, 36 dk, iki DM haritası (aurorahvh, 25+ rakip): **81 kill / 91 ölüm = 0.89**. Ölümlerin 58'i scout kafa (19'u duvardan), 21'i scar20. Scout atışlarının %71'i isabet, %51'i kafa. Hata satırı yok. Bu log V1.0.90'dan olduğu için yük ölçümü satırları yok; donmanın kaynağı V1.0.91+ logunda okunacak.)
+
+| Ne | Ayrıntı |
+|---|---|
+| **Gösterge sağda ve daha büyük** | Düello danışmanı artık hep nişangahın sağ üstünde, sola dayalı bir blok (dürbünde de yer değiştirmez). Varsayılan boyut Medium: büyük yazı, normal font sebepler, daha geniş çubuk. Visuals > "Advisor size": Small (V1.0.90'daki küçük yazı) / Medium / Large. |
+| **Resolver paneli orta altta** | Varsayılan yer ekranın ortası, nişangah göstergelerinin altı (binde 500 / 620, yatayda ortalı). Eski varsayılan (560 / 380) kayıtlıysa bir kez taşınır; elle sürüklediğin yer korunur. |
+| **Gösterge logu düzeltildi** | "son" öneri her kill'de SAVUN çıkıyordu (atıştan sonra sürgü çekilirken gösterge "silah hazır değil" diye SAVUN'a zorlanır). Artık loga modelin kendi etiketi yazılır ve "son", silah hazırken verilen en son öneridir. |
+| **Deney listesi** | Karara bağlanan beş aday çıkarıldı (aşağıda). `cap_off` yerine `cap_off2`: zarar ölçüsünde fark yok (0.64 / 0.66) ama can başına kill 35 / 35 canda z +1.9 (0.56 → 0.80 kill / can, isabet %65 → %76); on adaydan birinin tesadüfen böyle görünmesi olağan olduğu için eski sayım kullanılmaz, can başına kill ile sıfırdan ölçülür. Yeni `hs_def_off`: Hide shots'ta yerdeki LC kırma (Defensive) kapalı; özelliğin işe yaradığının ilk ölçümü (gözlem: DEF açıkken rakibin isabeti %70 / kafa %32, kapalıyken %80 / %43). Boş kalan `atis3` kulvarı kalktı (9 kulvar). |
+
+V1.0.90 oturumunda motorun verdiği kararlar (36 dakikada 6 karar; önceki sürümlerde oturum başına 1–2):
+
+| Aday | Karar |
+|---|---|
+| `sniper_hs` (scout'ta Hide shots) | **Kabul, kalıcı**: 80 / 80 can, 54 kill → 69 kill. |
+| `air_fl2` (havada DT kapalı, tam fake lag) | Ret: hava zararı 0.21 → 0.30. |
+| `peek_narrow` (Peek'te dar jitter) | Ret, fark yok: 0.58 / 0.52. |
+| `hc80` (hit chance tabanı 80) | Ret, fark yok: atış başına kill %57 / %59. Taban 70'te kalır. |
+| `qs_late` (quick stop Early yok) | Ret: atış başına kill %60 → %48. **Early işe yarıyor.** |
+| `fakebody_off` (sahte kayıtta gövde yok) | Ret: %63 → %54. **Özellik işe yarıyor.** |
+
+Göstergenin ilk canlı ölçümü (240 düello, ilk temas anındaki öneri): `SAVUN` dediği 103 düelloda kazanma %42 ve düello başına ölüm %38; `SALDIR` / `DENK` dediği 137 düelloda kazanma %57–62, ölüm %22–26. Eski loglardaki doğrulamayla aynı yönde.
+
+Bu oturumda dikkat çekenler: rakip 100+ birim yukarıdayken kazanma %26 ve o düelloların sadece %15'inde ateş edebildin; scar20'ye karşı %34; "sıkmadı" kayıtlarının 43'te 19'u havadayken (36 dakikada 780 zıplama) ve 15 ölüm havada. AI peek 36 dakikada 1 kez kullanıldı: `peek_real` adayı DM'de dolmaz, round sunucusunda dolar.
+
 **V1.0.91** (kullanıcı: "oyun donuyo fight esnasında"; ekran görüntüsü: fps 17, kare süresi oynaklığı 16 ms, paket kaybı %36, sunucu karesi 9.6 ms. Gösterge de dürbündeyken resolver panelinin üstüne binmiş.)
 
 Önce ölçüldü (sahte API, 2 / 6 / 12 rakip, V1.0.89 ile V1.0.90 aynı sahnede): V1.0.90'ın eklediği yük küçük (tick başına +0.7 mermi izi, +7 `get_prop`, +5 KB çöp, Lua süresi tick başına ~0.3–0.5 ms'de aynı). 17 FPS'i açıklayan bir fark çıkmadı; ekrandaki %36 paket kaybı ve 9.6 ms'lik sunucu karesi tek başına da donma yapar. Yine de bulunan iki gerçek yük giderildi ve donmanın kaynağı bir sonraki logda okunacak şekilde ölçüm eklendi.

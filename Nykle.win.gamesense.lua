@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.91"
+local VERSION = "1.0.92"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1649,6 +1649,9 @@ menu.no_exploit2 = grp.bexploit_raw:label(DIM_HEX .. "(Global shares AA only, fa
 menu.indicators  = grp.indicators:switch("Crosshair indicators", true)
 -- V1.0.90: duello danismani (bkz. K.adv): nisangahin ustunde SALDIR / DENK / SAVUN, kazanma tahmini ve sebebi.
 menu.advisor     = grp.indicators:switch("Duel advisor (SALDIR / SAVUN + win chance)", true)
+-- V1.0.92 (istek: "sag tarafta kalsin bundan sonra ... saldir saldirma seyini de azicik buyut"): gosterge hep
+-- nisangahin sag ustunde; varsayilan boyut Medium (buyuk yazi; Small = V1.0.90'daki kucuk yazi).
+menu.advisor_size = grp.indicators:combo("  » Advisor size", { "Medium", "Small", "Large" }, function() return on(menu.advisor) end)
 menu.accent      = grp.indicators:color("Indicator color", { r = 150, g = 190, b = 255, a = 255 })
 menu.arrows      = grp.indicators:switch("Manual arrows", true)
 menu.arrow_color = grp.indicators:color("Arrow color", { r = 150, g = 190, b = 255, a = 255 })
@@ -1658,9 +1661,12 @@ menu.stats_panel = grp.indicators:switch("Stats panel", false)
 menu.left_ind    = grp.indicators:switch("Left indicators (GameSense list: DT / HS / FD / DEF / MD ...)", true)
 menu.res_panel   = grp.panel:switch("Resolver panel", true)
 -- V1.0.39 (istek): varsayilan buyuk ve ekranin ortasinin biraz sag ustunde (binde 560 / 380).
+-- V1.0.92 (istek: "orta biraz alt kisma al resolver olcumunu"): varsayilan ekranin ortasinda, nisangah gostergelerinin
+-- altinda (binde 500 / 620). X tam 500 iken panel yatayda ortalanir (genisligi isme gore degisir); suruklenince
+-- eskisi gibi sol kenarindan konumlanir.
 menu.panel_size  = grp.panel:slider("  » Panel size", 70, 200, 160, "%", function() return on(menu.res_panel) end)
-menu.panel_x     = grp.panel:slider("  » Panel position X", 0, 1000, 560, nil, function() return on(menu.res_panel) end)
-menu.panel_y     = grp.panel:slider("  » Panel position Y", 0, 1000, 380, nil, function() return on(menu.res_panel) end)
+menu.panel_x     = grp.panel:slider("  » Panel position X", 0, 1000, 500, nil, function() return on(menu.res_panel) end)
+menu.panel_y     = grp.panel:slider("  » Panel position Y", 0, 1000, 620, nil, function() return on(menu.res_panel) end)
 
 -- Misc: clan tag (NYKLE Yaw'daki animasyonlu "Nykle.win") ve trash talk (NYKLE Yaw'daki cumlelerin
 -- Ingilizcesi). Tercih: onerilen ayarlara girmez (kapatirsan kapali kalir); ikisi de varsayilan acik.
@@ -11135,7 +11141,7 @@ K.adv.init = function()
     -- (agirlik, yazi), sonuc tablosu ve sebep dizisi yeniden kullanilir, siralama yerine en agir iki katki dogrudan
     -- secilir; degerlendirme 4 tick'te bir (iz taramasiyla ayni tick), aradaki tick'lerde sadece sayaclar ilerler.
     local pw, pt, pn = {}, {}, 0
-    local out = { label = "DENK", p = 0.5, reasons = {}, rn = 0, unready = false, enemy = nil, contact = false }
+    local out = { label = "DENK", model = "DENK", p = 0.5, reasons = {}, rn = 0, unready = false, enemy = nil, contact = false }
     local f = {}
     local hist_text = { k = -1, d = -1, text = nil }
 
@@ -11215,6 +11221,8 @@ K.adv.init = function()
         -- 1 / (1 + e^-z); math.exp'e dayanmadan (bkz. hypothesis.own.ln notu).
         local p = 1 / (1 + 2.718281828459045 ^ (-z))
         local label = p >= A.HIGH and "SALDIR" or (p < A.LOW and "SAVUN" or "DENK")
+        -- model: tahminin kendi etiketi (loga bu yazilir; "silah hazir degil" zorlamasi gostergede kalir).
+        out.model = label
         local reasons, rn = out.reasons, 0
         if not f.ready then
             label, rn = "SAVUN", 1
@@ -11375,11 +11383,16 @@ K.adv.init = function()
         out.enemy, out.contact = enemy, state ~= "none"
         A.out = out
         -- Karsilasmadaki ilk oneri (ilk temas tick'inde verilen) ve en son oneri: duello satirina yazilir.
+        -- V1.0.92 (V1.0.90 logu): "son" her kill'de SAVUN cikiyordu, cunku atistan sonra surgu cekilirken gosterge
+        -- "silah hazir degil" diye SAVUN'a zorlanir (son SALDIR 1 kill / 11 olum, son SAVUN 75 / 50 gibi ters bir tablo).
+        -- Loga modelin kendi etiketi yazilir ve "son", silah hazirken verilen en son oneridir.
         if e ~= nil then
             if e.first_label == nil then
-                e.first_label, e.first_p = out.label, out.p
+                e.first_label, e.first_p = out.model, out.p
             end
-            e.final_label, e.final_p = out.label, out.p
+            if not out.unready then
+                e.final_label, e.final_p = out.model, out.p
+            end
         end
     end
 
@@ -11655,10 +11668,9 @@ local function draw_stats(sw, sh)
         sniper.choice == "dt" and "*" or "", floor(dt.hits + 0.5), floor(dt.shots + 0.5)))
 end
 
--- V1.0.90: duello danismani (bkz. K.adv). Nisangahin ustunde: oneri + kazanma tahmini, altinda tahmin cubugu (ortadaki
--- cizgi %50) ve en agir iki sebep. Tehdit yokken solar; temas yokken (on tahmin) soluk, temasta tam parlak.
--- Durbundeyken dikey cizginin sagina kayar.
-anim.adv = { alpha = 0, p = 0.5, scope = 0, out = nil, enemy = nil, main = "", main_key = nil, small = "c" .. FONT,
+-- V1.0.90: duello danismani (bkz. K.adv). Nisangahin sag ustunde: oneri + kazanma tahmini, altinda tahmin cubugu
+-- (ortadaki cizgi %50) ve en agir iki sebep. Tehdit yokken solar; temas yokken (on tahmin) soluk, temasta tam parlak.
+anim.adv = { alpha = 0, p = 0.5, out = nil, enemy = nil, main = "", main_key = nil,
     col = { r = 0, g = 0, b = 0, a = 0 }, shadow = { r = 0, g = 0, b = 0, a = 0 }, dim = { r = 255, g = 255, b = 255, a = 0 },
     GREEN = { r = 120, g = 225, b = 130 }, YELLOW = { r = 255, g = 205, b = 90 }, RED = { r = 255, g = 100, b = 100 } }
 anim.advisor = function(lp, cx, cy)
@@ -11681,25 +11693,25 @@ anim.advisor = function(lp, cx, cy)
     if out == nil or a.alpha < 0.04 then
         return
     end
-    local scoped = prop(lp, "m_bIsScoped")
-    a.scope = a.scope + (((scoped == 1 or scoped == true) and 1 or 0) - a.scope) * min(1, frametime() * 12)
     local tint = out.label == "SALDIR" and a.GREEN or (out.label == "SAVUN" and a.RED or a.YELLOW)
     -- V1.0.91: renk tablolari ve ana yazi yeniden kullanilir (kare basina bellek ayrilmaz).
     local col, shadow, dim = a.col, a.shadow, a.dim
     col.r, col.g, col.b, col.a = tint.r, tint.g, tint.b, floor(255 * a.alpha)
     shadow.a, dim.a = floor(170 * a.alpha), floor(190 * a.alpha)
-    local width = 84
-    -- V1.0.91: durbundeyken SOLA kayar (saga kayinca varsayilan yerindeki resolver panelinin ustune biniyordu).
-    local x = cx - round(a.scope * 96)
-    local y = cy - 120
+    -- V1.0.92 (istek: "sag tarafta kalsin bundan sonra", "azicik buyut"): blok hep nisangahin sag ustunde, sola dayali
+    -- (durbun cizgisine ve nisangaha binmez). Boyut: Small = kalin kucuk yazi + piksel font sebepler (V1.0.90),
+    -- Medium = buyuk yazi + normal font sebepler, Large = buyuk yazi + kalin sebepler.
+    local size = menu.advisor_size ~= nil and menu.advisor_size:get() or "Medium"
+    local big = size ~= "Small"
+    local main_font = big and "+" or "b"
+    local reason_font = size == "Large" and "b" or (big and "" or FONT)
+    local main_h, line_h, width, bar_h = big and 27 or 13, big and 13 or 9, big and 120 or 84, big and 3 or 2
+    local x = cx + 46
+    local y = cy - (big and 136 or 112)
     local lines = out.rn or #out.reasons
-    -- Arka plan: ortadan iki yana solan koyu serit (yazi her zeminde okunsun).
-    local bw, bh = width + 70, 24 + lines * 9
+    -- Arka plan: soldan saga solan koyu serit (yazi her zeminde okunsun).
     if type(renderer.gradient) == "function" then
-        local half = floor(bw / 2)
-        local dark = floor(120 * a.alpha)
-        renderer.gradient(x - half, y - 8, half, bh, 0, 0, 0, 0, 0, 0, 0, dark, true)
-        renderer.gradient(x, y - 8, half, bh, 0, 0, 0, dark, 0, 0, 0, 0, true)
+        renderer.gradient(x - 8, y - 4, width + 130, main_h + 14 + lines * line_h, 0, 0, 0, floor(130 * a.alpha), 0, 0, 0, 0, true)
     end
     local pct = out.unready and -1 or floor(a.p * 100 + 0.5)
     local key = pct * 4 + (out.label == "SALDIR" and 1 or (out.label == "SAVUN" and 2 or 3))
@@ -11707,19 +11719,22 @@ anim.advisor = function(lp, cx, cy)
         a.main_key = key
         a.main = out.unready and out.label or ("%s  %d%%"):format(out.label, pct)
     end
-    text(x + 1, y + 1, shadow, "cb", a.main)
-    text(x, y, col, "cb", a.main)
-    local by = y + 10
-    rect(x - width / 2 - 1, by - 1, width + 2, 4, shadow)
+    text(x + 1, y + 1, shadow, main_font, a.main)
+    text(x, y, col, main_font, a.main)
+    local by = y + main_h + 2
+    rect(x - 1, by - 1, width + 2, bar_h + 2, shadow)
     local fill = round(width * max(0, min(1, a.p)))
     if fill > 0 then
-        rect(x - width / 2, by, fill, 2, col)
+        rect(x, by, fill, bar_h, col)
     end
-    rect(x, by - 1, 1, 4, dim)
-    local ry = by + 9
+    rect(x + floor(width / 2), by - 1, 1, bar_h + 2, dim)
+    local ry = by + bar_h + 4
     for i = 1, lines do
-        text(x, ry, dim, a.small, out.reasons[i])
-        ry = ry + 9
+        if big then
+            text(x + 1, ry + 1, shadow, reason_font, out.reasons[i])
+        end
+        text(x, ry, dim, reason_font, out.reasons[i])
+        ry = ry + line_h
     end
 end
 
@@ -11888,18 +11903,23 @@ do
     res_panel.draw = function(sw, sh)
         -- V1.0.39: config'te eski varsayilan (12 / 330 / %100) kayitliysa bir kez yeni varsayilana tasinir; elle
         -- surukledigin bir yer korunur.
+        -- V1.0.92: onceki varsayilan (560 / 380, ortanin sag ustu) da yeni varsayilana (500 / 620) tasinir.
         if not res_panel.migrated then
             res_panel.migrated = true
-            if menu.panel_x:get() == 12 and menu.panel_y:get() == 330 and menu.panel_size:get() == 100 then
-                menu.panel_x:set(560)
-                menu.panel_y:set(380)
+            local px, py = menu.panel_x:get(), menu.panel_y:get()
+            if px == 12 and py == 330 and menu.panel_size:get() == 100 then
+                menu.panel_x:set(500)
+                menu.panel_y:set(620)
                 menu.panel_size:set(160)
+            elseif px == 560 and py == 380 then
+                menu.panel_x:set(500)
+                menu.panel_y:set(620)
             end
         end
         if res_panel.drag == nil then
             res_panel.size = menu.panel_size:get() or 160
-            res_panel.x = floor((menu.panel_x:get() or 560) / 1000 * sw)
-            res_panel.y = floor((menu.panel_y:get() or 380) / 1000 * sh)
+            res_panel.x = floor((menu.panel_x:get() or 500) / 1000 * sw)
+            res_panel.y = floor((menu.panel_y:get() or 620) / 1000 * sh)
         end
         local big, small = res_panel.fonts(res_panel.size)
         -- V1.0.59 (FPS): hedef, cozum orani, kayit ve isim tick basina bir kez okunur (her karede degil); gosterilen
@@ -11953,6 +11973,16 @@ do
         local w = max(big_w + gap + (name ~= "" and measure(big, name) or 0), (measure(small, info)))
         local h = big_h + 14
         res_panel.w, res_panel.h = w + 4, h + 3
+        -- V1.0.92: X tam ortadaysa (binde 500, varsayilan) panel yatayda ortalanir; Y varsayilandaysa (binde 620)
+        -- nisangah gostergelerinin (ortadan 110 piksel asagiya kadar) altinda kalir (dusuk cozunurlukte de).
+        if res_panel.drag == nil then
+            if menu.panel_x:get() == 500 then
+                res_panel.x = floor((sw - w) / 2)
+            end
+            if menu.panel_y:get() == 620 then
+                res_panel.y = max(res_panel.y, floor(sh / 2) + 125)
+            end
+        end
         local open = res_panel.input(sw, sh)
         local x, y = res_panel.x, res_panel.y
 
@@ -12048,7 +12078,8 @@ end))
 -- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
 K.xp.init = function()
     local xp = K.xp
-    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "atis3", "peek" }
+    -- V1.0.92: "atis3" kulvari kalkti (tek adayi qs_late karara baglandi); dokuz kulvar.
+    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek" }
     -- Karara baglananlar (kullanicinin kendi verisi; listeden cikarildi, yeniden denenmez):
     --   slow_jit (yavas jitter, 4-6 pakette bir): RED. 35 / 34 can, zarar 0.51 -> 0.68, z -2.4.
     --   def_full (defensive hep acik + temiz atis kapali): RED. 30 / 30 can, zarar 0.54 -> 0.62, z -1.1 (oturum
@@ -12066,6 +12097,17 @@ K.xp.init = function()
     --     oturumda egilen kolda 9 canda 2 atis, 1 kill). Loglardaki "egik + yavasken kafa %22" senin kendi sectigin
     --     anlardan geliyordu; lua zorla egince ayni sonuc cikmadi.
     --   baim_off (Smart body aim kapali): RED. 34 atis 25 kill -> 31 atis 18 kill, z -1.3.
+    --   air_fl2 (havada DT kapali, tam fake lag): RED. 50 / 48 can, hava zarari 0.21 -> 0.30, z -1.0.
+    --   peek_narrow (Peek'te dar yaw jitter): RED, fark yok. 80 / 82 mermi, zarar 0.58 / 0.52.
+    --   hc80 (scout hit chance tabani 80): RED, fark yok. 90 atis 51 kill / 108 atis 64 kill (%57 / %59). hc70 kalici.
+    --   qs_late (quick stop Early yok): RED. 30 atis 18 kill -> 42 atis 20 kill (%60 -> %48): Early ise yariyor.
+    --   fakebody_off (sahte kayitta govde zorlamasi yok): RED. 70 atis 44 kill -> 63 atis 34 kill (%63 -> %54):
+    --     ozellik ise yariyor.
+    --   sniper_hs (scout / AWP'de Hide shots): KABUL. 80 / 80 can, 54 kill -> 69 kill. Listede kalir.
+    --   cap_off (Desync keeper kapali, zarar olcusuyle): cikarildi, yerine cap_off2. Zarar farksiz (40 / 38 mermi,
+    --     0.64 / 0.66) ama can basina kill 35 / 35 canda z +1.9 (son logda 0.56 -> 0.80 kill / can, isabet %65 ->
+    --     %76): aday savunmayi degil, sikabilmeni degistiriyor. On adaydan birinin tesadufen +1.9 gostermesi
+    --     olagan oldugu icin eski sayim kullanilmaz: cap_off2 can basina kill ile sifirdan olculur.
     --   own_off (kendi resolver kapali): V1.0.90 denetiminde cikarildi. Kendi resolver "Body yaw hypotheses"e bagli
     --     ve o V1.0.77'den beri kapali: son alti logdaki 330 atisin hepsi "res gs". Aday iki kolda ayni seyi
     --     olcuyordu (bos deney). Ayni sebeple "side_gs" ve (butun durumlar Smart oldugu icin) "anti_peek" de aday
@@ -12075,20 +12117,10 @@ K.xp.init = function()
     -- edildiyse bu aday atlanir.
     xp.LIST = {
         -- Yer, AA acilari.
-        -- V1.0.89: peek_narrow 43 / 42 canda farksiz (zarar 0.57 / 0.54); ornek siniri 3 kat yerine 2 kat (80 mermi).
-        { id = "peek_narrow", lane = "yer", kind = "harm", min = 40, cap = 2,
-            states = { Peek = { yaw_left = -8, yaw_right = 12 } },
-            name = "Peek'te dar yaw jitter (-8 / +12; simdi -20 / +45)" },
         { id = "peek_static", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { body_yaw = "Static", body_fs = "On" } },
             name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
-        -- Exploit secimi.
-        -- V1.0.89: sniper_hs'in olcusu zarardan can basina kill'e cevrildi. Zarar farksiz (95 / 113 mermi, 0.53 /
-        -- 0.52) ve ornek sinirinda "fark yok" diye reddedilecekti; oysa ayni rastgele kollarda (son uc log, 80 / 73
-        -- can) scout isabetin DT'de %62, Hide shots'ta %78 (85 / 84 atis), kafa %48 -> %66, can basina kill 0.55 ->
-        -- 0.84, K/D 0.72 -> 1.07. Aday atisi da savunmayi da degistiriyor; dogru olcu can basina kill. Eski sayimin
-        -- can / kill kismi aynen gecerli. Isabet farki bagimsiz ikinci bir kanit oldugu icin sinir 80 can ve sinirda
-        -- z >= 0 yeter (fair); z <= -1 yine ret.
+        -- Exploit secimi. sniper_hs KABUL (V1.0.90 oturumu): kalici ayar buradan uygulanir.
         { id = "sniper_hs", lane = "exploit", kind = "kpl", min = 40, cap = 2, fair = true,
             set = { sniper_exploit = "Hide shots" },
             name = "scout / AWP'de Hide shots (atis gizlenir; simdi DT)" },
@@ -12097,11 +12129,8 @@ K.xp.init = function()
         { id = "recharge_free", lane = "exploit", kind = "harm", min = 40, when = "dt", after = "sniper_hs",
             set = { safe_recharge = false },
             name = "Safe recharge kapali (atistan sonra sarj ertelenmez)" },
-        -- Defensive zorlamasi (hepsi DT'ye bagli).
-        -- V1.0.90 (istek: "exp'lerin calistigindan emin olmak"): zorlanan defensive hic A / B olculmedi (V1.0.42'deki
-        -- elle test gecersizdi: zorlanan kolda 19 mermide 1 kez zorlanmisti). Gozlem: vuruldugun anda DEF acikken
-        -- rakibin isabeti %68, kafa %29; DEF yokken %78 / %41 (397 mermi) ve mermilerin %64'u DEF yokken geliyor.
-        -- Bu aday zorlamayi kapatir: zarar artarsa (beklenen) ozellik dogrulanmis olur, artmazsa zorlama bos yuk.
+        -- Defensive zorlamasi. DT'ye bagli olanlar (force_off, def_always, clean_off) Hide shots kalici oldugu icin
+        -- atlanir (after = "sniper_hs"); deney sifirlanirsa yeniden siraya girerler.
         { id = "force_off", lane = "def", kind = "harm", min = 40, when = "dt", after = "sniper_hs",
             set = { smart_force = false },
             name = "zorlanan defensive kapali (gorulunce / yakinda dusman varken zorlanmaz)" },
@@ -12114,11 +12143,18 @@ K.xp.init = function()
         { id = "clean_off", lane = "def", kind = "harm", min = 40, gate = true, when = "dt", after = "sniper_hs",
             set = { clean_shot = false },
             name = "temiz atis kapali (ates edebilirken de defensive surer)" },
-        -- Hareket.
-        -- V1.0.89: seen_duck (lua'nin zorla egmesi) reddedildi: zarar artti, kill dustu. "Desync keeper" da ayni seyi
-        -- yapiyor (egikken goruluyorsan hizi 38'e indirir) ve V1.0.58'de ayni tur gozlemle (yavasken desync genis)
-        -- varsayilan acildi; hic A / B olculmedi.
-        { id = "cap_off", lane = "hareket", kind = "harm", min = 40, gate = true, set = { crouch_cap = false },
+        -- V1.0.92 (istek: "exp'lerin calistigindan emin olmak"): Hide shots'ta savunma exploit'i LC kirmadir (gorulunce /
+        -- yururken / peek'te 32 tick; DT'deki zorlanan defensive'in karsiligi). Hic A / B olculmedi. Gozlem (V1.0.90
+        -- oturumu, 169 mermi, neredeyse hepsi Hide shots'ta): vuruldugun anda DEF acikken rakibin isabeti %70, kafa
+        -- %32; DEF yokken %80 / %43. Bu aday yerdeki durumlarda Defensive'i kapatir: zarar artarsa ozellik dogrulanir.
+        { id = "hs_def_off", lane = "def", kind = "harm", min = 40,
+            states = { Standing = { def_mode = "Off" }, Moving = { def_mode = "Off" },
+                ["Slow walk"] = { def_mode = "Off" }, Crouching = { def_mode = "Off" },
+                ["Crouch move"] = { def_mode = "Off" }, Peek = { def_mode = "Off" },
+                Freestanding = { def_mode = "Off" } },
+            name = "Hide shots'ta yerde LC kirma (Defensive) kapali" },
+        -- Hareket. cap_off2: bkz. yukarida cap_off notu (can basina kill ile, sifirdan).
+        { id = "cap_off2", lane = "hareket", kind = "kpl", min = 40, cap = 2, set = { crouch_cap = false },
             name = "Desync keeper kapali (egikken goruluyorsan hiz 38'e indirilmez)" },
         -- Koruma. Ikisi de hic A / B olculmedi.
         { id = "fs_auto_off", lane = "koruma", kind = "harm", min = 40, set = { fs_auto = false },
@@ -12130,34 +12166,25 @@ K.xp.init = function()
         { id = "air_def2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = false },
             name = "havada DT acik + surekli defensive, isinlanma yok" },
-        { id = "air_fl2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
-            set = { air_lc = true, air_teleport = false },
-            name = "havada DT kapali, tam fake lag (V1.0.79)" },
         { id = "air_first2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = true },
             name = "havada ilk goruste isinlanma (V1.0.77)" },
         -- Atis. Iskadan sonraki 2 sn'de olme oranin %54, oldurucu atistan sonra %15: iskayi azaltan her sey can
-        -- kurtarir. hc70 kalici; hc80 one geciyor (59 atis 35 kill / 74 atis 48 kill, can basina kill z +1.8).
+        -- kurtarir. hc70 kalici; hc80 farksiz cikti.
         { id = "hc70", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 70 },
             name = "scout hit chance tabani 70 (senin ayarin 55; hc 70 alti atislar %55-59, 70-79 %71 isabet)" },
-        { id = "hc80", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 80 },
-            name = "scout hit chance tabani 80" },
         { id = "hc90", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 90 },
             name = "scout hit chance tabani 90" },
         -- Atis 2: hedef / nokta secimi.
-        { id = "fakebody_off", lane = "atis2", kind = "kps", min = 30, set = { fake_body = false },
-            name = "sahte kayitta govde zorlamasi yok" },
         { id = "lowhp_off", lane = "atis2", kind = "kps", min = 30, set = { low_hp_safe = false },
             name = "30 can alti dusmana Force safe point yok" },
-        -- Atis 3: fren zamanlamasi. V1.0.66'da gozlemle acildi (oldurucu hasarin gorulmesinden atisa medyan 0.09 sn);
-        -- hic A / B olculmedi.
-        { id = "qs_late", lane = "atis3", kind = "kps", min = 30, gate = true, set = { qs_early = false },
-            name = "quick stop Early eklenmez (senin quick stop secimlerin)" },
         -- AI peek. V1.0.90 denetimi (315 peek, 259'unun duellosu): AI peek duellolarinin %73'u kazaniliyor (genel %46);
         -- isabetli peek'te olum %6, iskali peek'te %34, atissiz peek'te %17. Rakibin defensive payi %0 iken kazanma
         -- %84 / peek basina olum %11, %51+ iken %49 / %40. Son alti logda atissiz peek %22 -> %38 (12 / 32), cogu
         -- "aci kapandi" (yola cikar cikmaz): sahte kayitta gorulen aci gercek kayitta yok. Aday: peek sadece gercek
         -- kayitta baslar (aimbot'un zaten yaptigi bekleme; wait_off A / B'de reddedilmisti).
+        -- V1.0.92 notu: DM'de AI peek neredeyse hic kullanilmiyor (V1.0.90 oturumu: 36 dakikada 1 peek); bu aday
+        -- round sunucusunda dolar.
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
     }
