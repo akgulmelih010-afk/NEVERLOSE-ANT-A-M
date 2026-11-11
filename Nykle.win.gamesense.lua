@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.87"
+local VERSION = "1.0.88"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -8562,8 +8562,12 @@ listen("player_hurt", protect("player_hurt", function(e)
 
     local info = attacker_info(attacker)
     if not melee then
-        -- V1.0.81: deney motoru (kafa 1, govde 0.5; AFK mermisi sayilmaz).
-        K.xp.bullet(e.hitgroup == 1 and 1 or 0.5, current.state)
+        -- V1.0.81: deney motoru (AFK mermisi sayilmaz). V1.0.88: govde isabeti sabit 0.5 degil gercek can kaybi
+        -- (hasar / 100): bacaga 18 ile mideye 92 ayni sayiliyordu ve egilme gibi "isabet daha az aciyor" farklarini
+        -- kucuk gosteriyordu (V1.0.87 logu: kaba olcu 0.46 / 0.44, gercek hasar 37 / 32). Kafa hep 1 (oldurucu; canin
+        -- azken dusuk yazilan hasar yaniltmasin).
+        local dmg_x = tonumber(e.dmg_health)
+        K.xp.bullet(e.hitgroup == 1 and 1 or max(0.05, min(1, (dmg_x ~= nil and dmg_x or 50) / 100)), current.state)
         local entry = stat_for(current.state)
         entry.hits = entry.hits + 1
         if e.hitgroup == 1 then
@@ -11442,7 +11446,7 @@ end))
 -- Neden: 48 GameSense logunda surumden surume degisen sonuclarin cogu rakip degisimiydi (erken ve gec surumlerde ortak
 -- rakip yok); "bu ayar daha iyi" kararlarini loglari elle karsilastirarak vermek guvenilir degil. Burada her aday
 -- ayni oturumda, ayni rakiplere karsi, can basina sirayla olculur.
--- Kulvarlar (ayni anda birer aday): yer ve yer2 = yerde yenen mermi basina zarar (kafa 1, govde 0.5, iska 0; dusuk
+-- Kulvarlar (ayni anda birer aday): yer ve yer2 = yerde yenen mermi basina zarar (kafa 1, govde hasar / 100, iska 0; dusuk
 -- iyi; yer AA acilarini, yer2 exploit / defensive'i dener); hava = can basina havada ve inisten sonraki 0.75 sn'de
 -- yenen zarar (dusuk iyi); atis ve atis2 = scout atisi basina kill / can basina kill (yuksek iyi).
 -- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
@@ -11465,6 +11469,9 @@ K.xp.init = function()
     --     isabet; faz 7 %30, faz 4 %31).
     --   hc70 (scout hit chance tabani 70): KABUL. 88 / 86 can, 97 atis 42 kill -> 93 atis 48 kill (%43 -> %52).
     --     Listede kalir (kalici ayar buradan uygulanir).
+    --   air_def2 (havada DT acik + surekli defensive, isinlanma yok): KABUL. Ilk oturumda havada 17 mermi / 12 olum,
+    --     kabulden sonraki oturumda havada hic mermi yok. Listede kalir.
+    --   wait_off (gercek kayit beklenmez): RED. 40 / 40 can, 39 kill -> 30 kill, z -1.1. Listeden cikarildi.
     xp.LIST = {
         -- Yer, AA acilari. V1.0.86 (V1.0.45+ loglari, kafaya nisan aldigimiz 532 scout atisi): rakibin yaw jitter'i
         -- 25 derecenin altindayken kafa isabetimiz %21 (28 atis); 25-49'da %46, 50+'da %49, x-way'de %47, statikte
@@ -11510,11 +11517,7 @@ K.xp.init = function()
             name = "scout hit chance tabani 70 (senin ayarin 55; hc 70 alti atislar %55-59, 70-79 %71 isabet)" },
         { id = "hc80", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 80 },
             name = "scout hit chance tabani 80" },
-        -- Atis 2. V1.0.86 (kafaya nisan alinan atislar, V1.0.45+): sahte (defensive) kayda isabet %59 (104 atis),
-        -- gercek kayda %53 (428): beklemenin isabet kazanci yok, ama rakibin defensive'i duellonun cogunda acikken
-        -- duellolarin %29'unu kazaniyorsun ve kayiplarin %76'sinda hic sikamiyorsun.
-        { id = "wait_off", lane = "atis2", kind = "kpl", min = 40, set = { wait_real = false },
-            name = "gercek kayit beklenmez (sahte kayda da sikilir)" },
+        -- Atis 2.
         { id = "baim_off", lane = "atis2", kind = "kps", min = 30, set = { smart_baim = false },
             name = "Smart body aim kapali (hitbox secimi GameSense'te; Min. damage kurali ayni)" },
         { id = "own_off", lane = "atis2", kind = "kps", min = 30, set = { own_res = false },
@@ -11812,7 +11815,7 @@ K.xp.init = function()
         return afk.on or (afk.idle_since ~= nil and realtime() - afk.idle_since >= 3)
     end
 
-    -- Yenen mermi (zarar: kafa 1, govde 0.5, iska 0). Havadaki mermi hava kulvarina (can basina toplam) gider.
+    -- Yenen mermi (zarar: kafa 1, govde hasar / 100, iska 0). Havadaki mermi hava kulvarina (can basina toplam) gider.
     xp.bullet = function(harm, state)
         local L = xp.lifec
         if L == nil then

@@ -720,6 +720,20 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.88** (V1.0.87 logu, 11 dk, DM sunucusu `dm_twentysixer_mirage_aurorahvh`: **29 kill / 22 ölüm = 1.32**, dönüşten beri ilk 1'in üstü; önceki iki DM oturumu 0.42 ve 0.69. Bir önceki oturumda 8 / 16 yaptığın lunchbox1ng'e karşı 16 / 11. Scout atışlarının %75'i isabet, %59'u kafa, spread ıskası yok (hit chance tabanı kalıcı); yediğin isabetlerin %35'i kafa (önceki oturumlar %54–69); havada hiç mermi yemedin (önceki oturum 17 mermi, 12 ölüm). Hata satırı yok.)
+
+| Deney | Durum |
+|---|---|
+| `air_def2` (havada sürekli defensive, ışınlanma yok) | **Kabul edildi, kalıcı.** İniş teleportu ve yerde tutma artık kullanılmıyor (seçenek duruyor, deney daha iyisini buldu). Sırada `air_fl2`. |
+| `wait_off` (gerçek kayıt beklenmez) | **Reddedildi**: 40 / 40 can, 39 kill → 30 kill. Beklemek daha iyi; "Wait for real record" açık kalıyor. |
+| `seen_duck` (görülünce ve yavaşken eğil) | Sürüyor (12 / 14 can). Eğilen kolda ölüm başına mermi 3.2 → 4.1, mermi başına gerçek hasar 37 → 32, isabette kafa %45 → %29; ama senin isabetin %81 → %68 (22'şer atış) ve kill 16 → 13. Karar için erken. |
+| `sniper_hs` | Sürüyor: zarar 0.53 → 0.48 (59 / 64 mermi), can başına kill hafif eksi; bu oturumda DT kolu 18 / 10, Hide shots kolu 11 / 12. |
+| `hc80` | Sürüyor, fark yok (30 atış 18 kill / 42 atış 24 kill). |
+
+Değişiklik: deney motorunda mermi başına **zarar artık gerçek can kaybı** (kafa 1, gövde hasar / 100, ıska 0). Önceden gövde isabeti sabit 0.5 sayılıyordu: bacağa 18 ile mideye 92 aynıydı ve "isabet daha az acıtıyor" türü farkları küçük gösteriyordu (eğilme adayında kaba ölçü 0.46 / 0.44, gerçek hasar 37 / 32).
+
+Dönüşten beri beş GameSense logunda seni vuran 241 isabet: %39'unda sen onu vuramıyordun; bunların 81'inde rakibin ağ konumundan sana giden çizgi duvardan geçiyordu ve 69'unda rakip kendi defensive'inin içindeydi. Yani bu isabetlerin çoğu duvar arkası atışı değil **defensive peek**: rakip senin ekranında hâlâ siperdeyken gerçekte çıkmış oluyor. Lua bunu V1.0.24'ten beri öngörüp (rakibin hızı × kaydının gecikmesi) defensive'i ve artık eğilmeyi önceden başlatıyor; ilk mermiyi tamamen engellemenin yolu yok, hedef o mermiyi kafadan uzak tutmak.
+
 **V1.0.87** (V1.0.86 logu, 13 dk, DM sunucusu `dm_hvh_fysnow_bc_aurorahvh`, ping 103: **38 kill / 55 ölüm = 0.69** (önceki DM oturumu 0.42). Ölümlerin 44'ü kafadan (%80), 21'i duvar arkasından; yediğin 66 isabetin 46'sı kafa. Senin 77 scout atışının %57'si isabet, 23'ü resolver ıskası (correction), 4'ü spread. Hata satırı yok.)
 
 | Deney | Durum |
