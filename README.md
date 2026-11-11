@@ -720,6 +720,30 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.86** (V1.0.85 logu, 22 dk, DM sunucusu `dm_twentysixer_office_aurorahvh`: **16 kill / 38 ölüm = 0.42**. Ölümlerin 27'si kafadan (%71), 19'u duvar arkasından; seni vuran 60 isabetin 33'ünde sen onu hiç vuramıyordun, 40'ı rakip seni gördükten sonraki 0.1 sn içinde ya da hiç görmeden. Hata satırı yok.)
+
+Deney kararları ve ara durum:
+
+| Aday | Sonuç |
+|---|---|
+| `def_full` (defensive hep açık, atış için de kesilmez) | **Reddedildi**: 30 / 30 can, zarar 0.54 → 0.62 (oturum içinde z −2.4'e kadar indi). Loglardaki ilişki ("DEF açıkken rakip daha çok ıskalıyor") doğru, ama defensive'i hep zorlamak mermi başına zararı artırdı. V1.0.83'teki tahminim yanlış çıktı; şimdiki "Smart + temiz atış" ayarı kaldı. |
+| `fast_charge` (sürgü çekilirken aimbot kapalı) | **Çıkarıldı**: işe yaramıyor. 21 ölçümde aimbot kapalıyken de şarj ortalama 44 tick'te (0.69 sn) doldu, yani hızlanma yok; deney kolunda zarar da 0.48 → 0.69. Seçenek kapalı kalıyor. |
+| `hc70` (scout hit chance tabanı 70) | Sürüyor, olumlu: şimdiki ayar 68 atış 30 kill (%44), taban 70 ile 64 atış 34 kill (%53), z +1.0; atış sayısı düşmedi. |
+| `air_def2` | Sürüyor, fark yok (can başına hava zararı 0.25 / 0.23). |
+
+Bütün GameSense loglarından yeni ölçümler ve onlara göre yeni adaylar:
+
+| Ölçüm | Sonuç | Ne yapıldı |
+|---|---|---|
+| Scout atışından sonraki 2 sn'de ölme oranın | Öldürdüysen %15, **ıskaladıysan %54** (bu oturumda %72), öldürmeyen gövde isabetinden sonra %47 | Iskayı azaltan adaylar öne alındı; `hc70`'ten sonra `hc80` eklendi |
+| Gövdeye 70+ hasar varken (kafa yokken) ateş etmediğin 207 an | 2 sn içinde ölüm **%39**, o rakibi sonra öldürme %34. Gövdeye sıkıp öldüremediğin atışlardan sonra ölüm %47, sonra öldürme %33 | **Min. damage 100 kuralı veriyle de doğru**: gövdeye sıkmak beklemekten iyi değil. Dokunulmadı. |
+| Kafaya nişan aldığın atışlar (V1.0.45+): rakibin kaydı sahteyken (defensive) / gerçekken | İsabet **%59** (104) / %53 (428) | Gerçek kaydı beklemenin isabet kazancı yok. `wait_off` yeni **atis2** kulvarının başına alındı. |
+| Aynı atışlar, rakibin yaw jitter genişliğine göre | 25°'nin altında kafa isabetin **%21** (28 atış); 25–49'da %46, 50+'da %49, x-way %47, statik %47 | Dar jitter GameSense'in resolver'ını en çok şaşırtan düzen. Yeni aday `peek_narrow`: Peek'te yaw −8 / +12 (şimdi −20 / +45; testte en büyük |yaw| 45 → 12). |
+| Kendi atışından sonraki 0.6 sn'de yediğin mermiler | Mermilerin %23'ü; o isabetlerin %66–75'i kafa (son iki log) | Yeni aday `sniper_hs`: scout'ta Hide shots (atış anı gizlenir; DT'nin defensive'i gider). Hangisinin daha az zarar verdiği ölçülecek. |
+| Anti-brute fazları | Faz 0 (taban) %40 kafa (121 isabet), faz 7 %30, faz 4 %31 | `brute_off` adayı (hep faz 0) denenmeden çıkarıldı. |
+
+Deney motoru **beş kulvar**: `yer` (`peek_narrow`, `peek_static`), `yer2` (`sniper_hs`, `def_always`, `clean_off`), `hava` (`air_def2`, `air_fl2`, `air_first2`), `atis` (`hc70`, `hc80`), `atis2` (`wait_off`, `baim_off`, `own_off`, `fakebody_off`). Kollar 1 / 2 / 16 / 4 / 8 canda bir değişir; her scout atışı iki atış kulvarına da yazılır.
+
 **V1.0.85** (V1.0.84 logu, 13 dk, üç ayrı sunucu: de_mirage 3 kill / 5 ölüm, rastgele silahlı `infinity_hvh_crackhouse_v4` (ping 150) 1 / 6, ikinci de_mirage 1 / 1; toplam 5 / 12, 6 scout atışı. Sunucu ve silah karışık olduğu için önceki oturumla karşılaştırılamaz. Hata satırı yok.)
 
 | Ne | Sonuç / değişiklik |

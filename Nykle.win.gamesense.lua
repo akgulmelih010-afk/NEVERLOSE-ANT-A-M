@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.85"
+local VERSION = "1.0.86"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -245,9 +245,9 @@ local K = {
 }
 
 -- Deney motoru (V1.0.81): can basina A / B. Bir aday bir ya da birkac menu salterinin baska degeridir; B canlarinda
--- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). Dort kulvar ayni anda
--- calisir (yerde AA acilari, yerde defensive, havada AA, atis); kol sirasi kulvara gore 1 / 2 / 8 / 4 canda bir
--- degisir, boylece birbirlerine karismazlar. Geri kalani asagida (bkz. "Deney motoru").
+-- Element:get o salter icin "over"daki degeri dondurur (menudeki deger ve config degismez). Bes kulvar ayni anda
+-- calisir (yerde AA acilari, yerde exploit / defensive, hava, atis, atis 2); kol sirasi kulvara gore 1 / 2 / 16 / 4 /
+-- 8 canda bir degisir, boylece birbirlerine karismazlar. Geri kalani asagida (bkz. "Deney motoru").
 K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, s = {}, cur = {}, lifec = nil, bad = {} }
 
 -- Bir olay fonksiyonu hata verirse script sessizce durmasin ve konsol dolmasin: hata bir kez
@@ -1497,7 +1497,10 @@ menu.scout_hc       = grp.protect_raw:slider("Scout hit chance floor on ground (
 -- GameSense vurulabilir hedef varken sarji erteliyor; DT bosken defensive de yok. Paylastigin paketteki iki lua
 -- (gay-yaw, king) bunu havada aimbot'u kisa sure kapatarak asiyor.) Scout / AWP'de surgu cekilirken zaten ates
 -- edemezsin: o sirada (silahin hazir olmasina 0.2 sn'den fazla varken) ve DT dolu degilken aimbot kapatilir, DT
--- dolunca ya da silah hazirlanirken geri acilir. Varsayilan kapali; once deney olarak olculur (aday "fast_charge").
+-- dolunca ya da silah hazirlanirken geri acilir. Varsayilan kapali.
+-- V1.0.86 SONUC: ise yaramiyor. Oyunda 21 olcum: aimbot kapaliyken de sarj ortalama 44 tick'te (0.69 sn) doldu, yani
+-- GameSense'in atis sonrasi gecikmesi aimbot'a bagli degil; deney kolunda zarar da artti (0.48 -> 0.69). Aday listeden
+-- cikarildi, secenek kapali kaliyor (acma).
 menu.fast_charge    = grp.protect_raw:switch("Fast recharge: aimbot off while the bolt cycles and DT is empty (scout / AWP)", false)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -11419,69 +11422,52 @@ end))
 -- rakip yok); "bu ayar daha iyi" kararlarini loglari elle karsilastirarak vermek guvenilir degil. Burada her aday
 -- ayni oturumda, ayni rakiplere karsi, can basina sirayla olculur.
 -- Kulvarlar (ayni anda birer aday): yer ve yer2 = yerde yenen mermi basina zarar (kafa 1, govde 0.5, iska 0; dusuk
--- iyi; yer AA acilarini, yer2 defensive'i dener); hava = can basina havada ve inisten sonraki 0.75 sn'de yenen zarar
--- (dusuk iyi); atis = scout atisi basina kill / can basina kill (yuksek iyi).
+-- iyi; yer AA acilarini, yer2 exploit / defensive'i dener); hava = can basina havada ve inisten sonraki 0.75 sn'de
+-- yenen zarar (dusuk iyi); atis ve atis2 = scout atisi basina kill / can basina kill (yuksek iyi).
 -- Karar: iki kolda da en az "min" ornek varken z >= 2 -> aday kalici; z <= -1 -> ret; "cap" kat ornekte z >= 1
 -- (fair adayda >= 0) -> kalici, degilse ret. Can basina kill z <= -2 ise ret (iki kolda 20+ can, 10 canda bir bakilir);
 -- gate adayda kabul aninda z <= -1 de ret sebebi. AFK canlari sayilmaz.
 -- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
 K.xp.init = function()
     local xp = K.xp
-    xp.LANES = { "yer", "yer2", "hava", "atis" }
-    -- Kol degisim periyotlari ikinin farkli kuvvetleri: 16 canda her kol birlesimi bir kez gorulur, kulvarlar
-    -- birbirinin olcusunu kaydirmaz. yer ve yer2 ayni mermileri olcer (biri AA acilari, digeri defensive).
-    xp.PERIOD = { yer = 1, yer2 = 2, atis = 4, hava = 8 }
+    xp.LANES = { "yer", "yer2", "hava", "atis", "atis2" }
+    -- Kol degisim periyotlari ikinin farkli kuvvetleri: 32 canda her kol birlesimi bir kez gorulur, kulvarlar
+    -- birbirinin olcusunu kaydirmaz. yer ve yer2 ayni mermileri, atis ve atis2 ayni atislari olcer.
+    xp.PERIOD = { yer = 1, yer2 = 2, atis = 4, atis2 = 8, hava = 16 }
+    -- Karara baglananlar (kullanicinin kendi verisi; listeden cikarildi, yeniden denenmez):
+    --   slow_jit (yavas jitter, 4-6 pakette bir): RED. 35 / 34 can, zarar 0.51 -> 0.68, z -2.4.
+    --   def_full (defensive hep acik + temiz atis kapali): RED. 30 / 30 can, zarar 0.54 -> 0.62, z -1.1 (oturum
+    --     icinde -2.4'e kadar indi).
+    --   fast_charge (surgu cekilirken aimbot kapali): cikarildi. Aimbot kapaliyken de sarj ortalama 44 tick'te doldu
+    --     (21 olcum; hizlanma yok), zarar 0.48 -> 0.69 (15 / 15 can, z -1.7).
+    --   brute_off (anti-brute kapali = hep faz 0): denenmeden cikarildi. Faz 0 en cok kafa yiyen faz (%40, 121
+    --     isabet; faz 7 %30, faz 4 %31).
     xp.LIST = {
-        -- Yer, AA acilari. V1.0.82 (paylastigin paket: LuaSense'in hazir ayarinda taraf degisimi her pakette degil,
-        -- kosarken 4, egik yururken 6, egikken 8 komutta bir; metaset / king / hysteria da gecikmeli jitter kullaniyor.
-        -- Bizde gecikme 1: her pakette cevrilen jitter resolver'in en kolay cozdugu duzen).
-        { id = "slow_jit", lane = "yer", kind = "harm", min = 40,
-            states = { Standing = { delay = 4 }, Moving = { delay = 4 }, ["Slow walk"] = { delay = 4 },
-                Crouching = { delay = 6 }, ["Crouch move"] = { delay = 5 }, Peek = { delay = 4 } },
-            name = "yavas jitter: taraf 4-6 pakette bir degisir (simdi her pakette)" },
-        -- V1.0.85: atistan / teleporttan sonra DT 0.6-2 sn bos kaliyor (bkz. menu.fast_charge); aday surgu cekilirken
-        -- aimbot'u kapatip sarji hemen baslatir.
-        { id = "fast_charge", lane = "yer", kind = "harm", min = 40, gate = true, set = { fast_charge = true },
-            name = "hizli sarj: surgu cekilirken DT bossa aimbot kapali (sarj hemen dolsun)" },
+        -- Yer, AA acilari. V1.0.86 (V1.0.45+ loglari, kafaya nisan aldigimiz 532 scout atisi): rakibin yaw jitter'i
+        -- 25 derecenin altindayken kafa isabetimiz %21 (28 atis); 25-49'da %46, 50+'da %49, x-way'de %47, statikte
+        -- %47. Dar jitter GameSense'in resolver'ini en cok sasirtan duzen; bizim Peek acimiz genis (-20 / +45).
+        { id = "peek_narrow", lane = "yer", kind = "harm", min = 40,
+            states = { Peek = { yaw_left = -8, yaw_right = 12 } },
+            name = "Peek'te dar yaw jitter (-8 / +12; simdi -20 / +45)" },
         { id = "peek_static", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { body_yaw = "Static", body_fs = "On" } },
             name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
-        { id = "brute_off", lane = "yer", kind = "harm", min = 40, set = { anti_brute = false },
-            name = "anti-brute kapali (fazlar arasinda fark yok: %26-39)" },
-        -- Yer, defensive. V1.0.45+ loglari: yenen mermilerin %68'i Peek durumunda; Peek'te DEF acikken rakip iskasi
-        -- %35, kapaliyken %23; atis yokken yenen 509 merminin sadece %33'unde DEF acikti. Paketteki AA lualarinin
-        -- dordu (LuaSense, king, metaset, gay-yaw) defensive'i gorulmeyi beklemeden her komutta zorluyor.
-        -- V1.0.83 (ilk V1.0.82 logu + butun loglar): seni vuran 1782 scout mermisinin %45'i rakip kendi defensive'inin
-        -- ICINDEYKEN atildi (kafa %55), %16'si bittikten sonraki 8 tick'te; rakibin defensive'i duellonun yarisindan
-        -- fazlasinda acikken duellolarin %29'unu kazaniyorsun (hic acik degilken %58; 4618 duello) ve o kayiplarin
-        -- %76'sinda hic sikamadin. Bizde "temiz atis" ates edebildigin an kendi defensive'ini kesiyor: scout olumlerinin
-        -- %27'si o pencere acikken; oysa kendi defensive'in acikken attigin mermi isabet kaybetmiyor (%68 / %67, 2158
-        -- atis). Aday: rakipler gibi oyna, defensive hep zorlansin ve atis icin kesilmesin.
-        { id = "def_full", lane = "yer2", kind = "harm", min = 40, fair = true, gate = true,
-            set = { clean_shot = false },
-            states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
-                ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
-                ["Crouch move"] = { def_mode = "Always on" }, Peek = { def_mode = "Always on" },
-                Freestanding = { def_mode = "Always on" } },
-            name = "defensive hep acik, atis icin de kesilmez (simdi: gorulunce acilir, ates edebilince kesilir)" },
-        { id = "def_always", lane = "yer2", kind = "harm", min = 40, after = "def_full",
+        -- Yer, exploit / defensive. V1.0.86: yedigin mermilerin %23'u kendi atisindan sonraki 0.6 sn'de ve o
+        -- isabetlerin %66-75'i kafa (son iki log); DT'de atis ani gizlenmez. Hide shots atisi gizler ama DT'nin
+        -- defensive'i gider: hangisi daha az zarar, olculecek.
+        { id = "sniper_hs", lane = "yer2", kind = "harm", min = 40, gate = true,
+            set = { sniper_exploit = "Hide shots" },
+            name = "scout / AWP'de Hide shots (atis gizlenir; simdi DT)" },
+        { id = "def_always", lane = "yer2", kind = "harm", min = 40,
             states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
                 ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
                 ["Crouch move"] = { def_mode = "Always on" }, Peek = { def_mode = "Always on" },
                 Freestanding = { def_mode = "Always on" } },
             name = "yerde defensive her zaman zorlanir (simdi: gorulunce / 1800 birimde dusman varken, bitince 1 sn ara)" },
-        { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, after = "def_full", set = { clean_shot = false },
+        { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
             name = "temiz atis kapali (ates edebilirken de defensive surer)" },
-        -- V1.0.83: en az ornek 50 -> 25 can. Ilk logda inis teleportu gorulen 20 ucusun 2'sinde atildi (11'inde temiz
-        -- atis engelledi, 4'unde hiz yetmedi) ve o kolda ucus boyunca defensive yok; 26 canda havada 0.15 zarar / can,
-        -- air_def kolunda 27 canda 0.
-        -- Hava (V1.0.78-80 oyunda hic denenmedi; havada rakip iskasi DEF kapaliyken %6, acikken %20). Uc secenek de
-        -- simdiki inis teleportuna karsi olculur; salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
-        -- Pakette: LuaSense / gay-yaw / hysteria havada defensive'i zorluyor (air_def), hysteria'nin teleportunda
-        -- "inis" secenegi var (simdiki ayarimiz).
-        -- V1.0.84: simdiki ayar (inis teleportu) degisti: hizli ucusta temiz atis engellemiyor, inisten sonra yerde
-        -- tutuluyorsun. Olcu de genisledi: inisten sonraki 0.75 sn'de yenen mermi de hava zararina yazilir (inis
-        -- davranisinin sonucu). Eski sayimlar yeni ayari anlatmadigi icin adaylar yeni adla bastan baslar.
+        -- Hava. Simdiki ayar: inis teleportu + yerde tutma (V1.0.84). Olcu: can basina havada ve inisten sonraki
+        -- 0.75 sn'de yenen zarar. Salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
         { id = "air_def2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = false },
             name = "havada DT acik + surekli defensive, isinlanma yok" },
@@ -11491,18 +11477,23 @@ K.xp.init = function()
         { id = "air_first2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = true },
             name = "havada ilk goruste isinlanma (V1.0.77)" },
-        -- Atis (V1.0.34'ten beri her atis "BA Prefer"; oncesinde "BA Off" ve isabet %73-74, sonrasinda %51-65, ama
-        -- rakipler de degisti: olculmeden bilinmez).
+        -- Atis. Iskadan sonraki 2 sn'de olme oranin %54 (son logda %72), oldurucu atistan sonra %15: iskayi azaltan
+        -- her sey can kurtarir.
         { id = "hc70", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 70 },
             name = "scout hit chance tabani 70 (senin ayarin 55; hc 70 alti atislar %55-59, 70-79 %71 isabet)" },
-        { id = "baim_off", lane = "atis", kind = "kps", min = 30, set = { smart_baim = false },
-            name = "Smart body aim kapali (hitbox secimi GameSense'te; Min. damage kurali ayni)" },
-        { id = "own_off", lane = "atis", kind = "kps", min = 30, set = { own_res = false },
-            name = "kendi resolver kapali (sadece GameSense)" },
-        { id = "fakebody_off", lane = "atis", kind = "kps", min = 30, set = { fake_body = false },
-            name = "sahte kayitta govde zorlamasi yok" },
-        { id = "wait_off", lane = "atis", kind = "kpl", min = 40, set = { wait_real = false },
+        { id = "hc80", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 80 },
+            name = "scout hit chance tabani 80" },
+        -- Atis 2. V1.0.86 (kafaya nisan alinan atislar, V1.0.45+): sahte (defensive) kayda isabet %59 (104 atis),
+        -- gercek kayda %53 (428): beklemenin isabet kazanci yok, ama rakibin defensive'i duellonun cogunda acikken
+        -- duellolarin %29'unu kazaniyorsun ve kayiplarin %76'sinda hic sikamiyorsun.
+        { id = "wait_off", lane = "atis2", kind = "kpl", min = 40, set = { wait_real = false },
             name = "gercek kayit beklenmez (sahte kayda da sikilir)" },
+        { id = "baim_off", lane = "atis2", kind = "kps", min = 30, set = { smart_baim = false },
+            name = "Smart body aim kapali (hitbox secimi GameSense'te; Min. damage kurali ayni)" },
+        { id = "own_off", lane = "atis2", kind = "kps", min = 30, set = { own_res = false },
+            name = "kendi resolver kapali (sadece GameSense)" },
+        { id = "fakebody_off", lane = "atis2", kind = "kps", min = 30, set = { fake_body = false },
+            name = "sahte kayitta govde zorlamasi yok" },
     }
 
     local function new_arm()
@@ -11869,7 +11860,9 @@ K.xp.init = function()
             local shot = xp.shot
             if shot ~= nil and e.weapon == "ssg08" and realtime() - shot.at <= 0.5 and not shot.done then
                 shot.done = true
-                shot.arm.x = shot.arm.x + 1
+                for _, r in ipairs(shot.arms) do
+                    r.x = r.x + 1
+                end
             end
         end
     end))
@@ -11879,11 +11872,18 @@ K.xp.init = function()
         if xp.lifec == nil or xp.idle() or current.weapon ~= "CWeaponSSG08" then
             return
         end
-        local cur = xp.cur.atis
-        if cur ~= nil and cur.c.kind == "kps" then
-            local r = xp.stat(cur.c.id)[cur.arm]
-            r.n = r.n + 1
-            xp.shot = { at = realtime(), arm = r, done = false }
+        -- Atis iki atis kulvarinin "kps" adayina da yazilir.
+        local arms = {}
+        for _, lane in ipairs(xp.LANES) do
+            local cur = xp.cur[lane]
+            if cur ~= nil and cur.c.kind == "kps" then
+                local r = xp.stat(cur.c.id)[cur.arm]
+                r.n = r.n + 1
+                arms[#arms + 1] = r
+            end
+        end
+        if #arms > 0 then
+            xp.shot = { at = realtime(), arms = arms, done = false }
         end
     end))
 

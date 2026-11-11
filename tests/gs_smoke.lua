@@ -430,7 +430,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.85 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.85")
+check(printed("V1.0.86 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.86")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -455,7 +455,7 @@ check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or 
 do
     local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
     check(xp_ref ~= nil and xp_ref.value == true, "V1.0.81: deney motoru varsayilan acik")
-    check(printed("deney motoru: yer: slow_jit, yer2: def_full, hava: air_def2, atis: hc70 | kalici: yok (0 can olculdu)") ~= nil,
+    check(printed("deney motoru: yer: peek_narrow, yer2: sniper_hs, hava: air_def2, atis: hc70, atis2: wait_off | kalici: yok (0 can olculdu)") ~= nil,
         "V1.0.81: yukleme satiri ilk adaylari yazar")
     if xp_ref ~= nil then xp_ref.value = false end
 end
@@ -2631,7 +2631,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.85 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.86 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2714,86 +2714,65 @@ do
         end
     end
 
-    -- Davranis olcumu: 40 tick'te zorlanan defensive sayisi ve govde tarafi degisimi (kimse gormuyor, DT dolu).
-    local body_val = find_ref("Body yaw value")
+    -- Davranis olcumu (dusman goruyor, kosuyoruz = Peek): 40 tick'te en buyuk |yaw offset| ve o an DT / Hide shots.
     local yaw_off = find_ref("Yaw offset")
+    local hs_ref = find_ref("On shot anti-aim")
     local function probe()
-        local forced, flips, last = 0, 0, nil
-        -- (1) Dusmanlar uzakta (Smart'in "yakin" siniri 1800 birim), kosuyoruz: zorlanan defensive.
-        local o2, o3 = ORIGIN[2], ORIGIN[3]
-        ORIGIN[2], ORIGIN[3] = { 2500, 0, 0 }, { 0, 2500, 0 }
-        W.speed = 240
+        local big = 0
+        W.sees[2], W.speed = true, 240
         tick(12)
         for _ = 1, 40 do
             tick(1)
-            if last_cmd.force_defensive == true then forced = forced + 1 end
+            local v = yaw_off ~= nil and math.abs(yaw_off.value or 0) or 0
+            if v > big then big = v end
         end
-        -- (2) Dusmanlar yakinda (bosta donme yok), kosuyoruz: govde tarafi / yaw kac kez degisti.
-        ORIGIN[2], ORIGIN[3] = o2, o3
+        local dt_v, hs_v = dt_ref.value, hs_ref ~= nil and hs_ref.value or nil
+        W.sees[2], W.speed = false, 0
         tick(12)
-        for _ = 1, 40 do
-            tick(1)
-            local side = (body_val ~= nil and body_val.value or 0) * 1000 + (yaw_off ~= nil and yaw_off.value or 0)
-            if last ~= nil and side ~= last then flips = flips + 1 end
-            last = side
-        end
-        -- (3) Dusman goruyor ve bizim kafaya oldurucu mermimiz var (temiz atis penceresi): zorlanan defensive.
-        local clean_forced = 0
-        W.speed = 0
-        W.sees[2], W.head_dmg[2] = true, 150
-        tick(12)
-        for _ = 1, 40 do
-            tick(1)
-            if last_cmd.force_defensive == true then clean_forced = clean_forced + 1 end
-        end
-        W.sees[2], W.head_dmg[2] = false, 0
-        tick(12)
-        return forced, flips, clean_forced
+        return big, dt_v, hs_v
     end
     local pr = {}
-    -- Kol sirasi: yer her can, yer2 2 canda bir, atis 4 canda bir, hava 8 canda bir.
+    -- Kol sirasi: yer her can, yer2 2 canda bir, atis 4, atis2 8, hava 16 canda bir.
     local l1 = life(function() pr[1] = { probe() }; for _ = 1, 5 do hurt(1) end end)
-    check(l1:find("yer slow_jit A | yer2 def_full A | hava air_def2 A | atis hc70 A", 1, true) ~= nil, "V1.0.82: can 1 hepsi A (" .. l1 .. ")")
+    check(l1:find("yer peek_narrow A | yer2 sniper_hs A | hava air_def2 A | atis hc70 A | atis2 wait_off A", 1, true) ~= nil,
+        "V1.0.86: can 1 hepsi A (" .. l1 .. ")")
     local l2 = life(function()
         check(cd_ref ~= nil and cd_ref.value == 1, "V1.0.81: B kolunda menudeki ayar degismez (ezme sadece okurken)")
         pr[2] = { probe() }
         for _ = 1, 5 do hurt(3) end
     end)
-    check(l2:find("yer slow_jit B | yer2 def_full A | hava air_def2 A | atis hc70 A", 1, true) ~= nil, "V1.0.82: can 2 yer B (" .. l2 .. ")")
+    check(l2:find("yer peek_narrow B | yer2 sniper_hs A | hava air_def2 A | atis hc70 A | atis2 wait_off A", 1, true) ~= nil,
+        "V1.0.86: can 2 yer B (" .. l2 .. ")")
     local l3 = life(function() pr[3] = { probe() }; for _ = 1, 5 do hurt(1) end end)
-    check(pr[1] ~= nil and pr[2] ~= nil and pr[3] ~= nil and pr[2][2] * 2 <= pr[1][2] and pr[1][2] >= 15,
-        "V1.0.82: slow_jit B kolunda govde tarafi en az iki kat seyrek degisir (A " .. tostring(pr[1] and pr[1][2])
-        .. ", B " .. tostring(pr[2] and pr[2][2]) .. " / 40 tick)")
-    check(pr[3] ~= nil and pr[3][1] >= 38 and pr[1][1] <= 20,
-        "V1.0.82: def_full B kolunda kimse gormezken de defensive zorlanir (A " .. tostring(pr[1] and pr[1][1])
-        .. ", B " .. tostring(pr[3] and pr[3][1]) .. " / 40 tick)")
-    check(pr[3] ~= nil and pr[3][3] >= 30 and pr[1][3] <= 8,
-        "V1.0.83: def_full B kolunda ates edebilirken de defensive zorlanir, A kolunda temiz atis keser (A "
-        .. tostring(pr[1] and pr[1][3]) .. ", B " .. tostring(pr[3] and pr[3][3]) .. " / 40 tick)")
-    check(find_ref("Clean shot (no lag while shooting)").value == true, "V1.0.83: temiz atis salteri menude acik kalir")
-    check(l3:find("yer slow_jit A | yer2 def_full B", 1, true) ~= nil and l3:find("atis hc70 A", 1, true) ~= nil, "V1.0.82: can 3 yer2 B (" .. l3 .. ")")
+    check(pr[1] ~= nil and pr[2] ~= nil and pr[1][1] >= 30 and pr[2][1] <= 28 and pr[2][1] >= 8,
+        "V1.0.86: peek_narrow B kolunda Peek yaw'i dar (en buyuk |yaw| A " .. tostring(pr[1] and pr[1][1]) .. ", B "
+        .. tostring(pr[2] and pr[2][1]) .. ")")
+    check(pr[1] ~= nil and pr[3] ~= nil and pr[1][2] == true and pr[1][3] ~= true and pr[3][2] == false and pr[3][3] == true,
+        "V1.0.86: sniper_hs B kolunda scout'ta DT kapali, Hide shots acik (A DT " .. tostring(pr[1] and pr[1][2]) .. " HS "
+        .. tostring(pr[1] and pr[1][3]) .. ", B DT " .. tostring(pr[3] and pr[3][2]) .. " HS " .. tostring(pr[3] and pr[3][3]) .. ")")
+    check(l3:find("yer peek_narrow A | yer2 sniper_hs B", 1, true) ~= nil and l3:find("atis hc70 A", 1, true) ~= nil, "V1.0.86: can 3 yer2 B (" .. l3 .. ")")
     life(function() for _ = 1, 5 do hurt(3) end end)
     local l5 = life(function() for _ = 1, 5 do hurt(1) end end)
-    check(l5:find("yer2 def_full A", 1, true) ~= nil and l5:find("atis hc70 B", 1, true) ~= nil and l5:find("hava air_def2 A", 1, true) ~= nil,
-        "V1.0.82: can 5 atis B (" .. l5 .. ")")
+    check(l5:find("yer2 sniper_hs A", 1, true) ~= nil and l5:find("atis hc70 B | atis2 wait_off A", 1, true) ~= nil and l5:find("hava air_def2 A", 1, true) ~= nil,
+        "V1.0.86: can 5 atis B (" .. l5 .. ")")
     for i = 6, 8 do
         life(function() for _ = 1, 5 do hurt(i % 2 == 1 and 1 or 3) end end)
     end
     local l9 = life(function() for _ = 1, 5 do hurt(1) end end)
-    check(l9:find("hava air_def2 B", 1, true) ~= nil and l9:find("atis hc70 A", 1, true) ~= nil, "V1.0.82: can 9 hava B (" .. l9 .. ")")
+    check(l9:find("hava air_def2 A", 1, true) ~= nil and l9:find("atis hc70 A | atis2 wait_off B", 1, true) ~= nil, "V1.0.86: can 9 atis2 B (" .. l9 .. ")")
     -- Yer: A canlarinda hep kafa (zarar 1), B canlarinda hep govde (0.5): 40 + 40 mermide aday kabul edilir.
     for i = 10, 16 do
         life(function() for _ = 1, 5 do hurt(i % 2 == 1 and 1 or 3) end end)
     end
-    local verdict = printed("deney SONUCU: slow_jit", start)
+    local verdict = printed("deney SONUCU: peek_narrow", start)
     check(verdict ~= nil and verdict:find("KABUL, kalici", 1, true) ~= nil and verdict:find("40 mermi zarar 1.00", 1, true) ~= nil
         and verdict:find("40 mermi zarar 0.50", 1, true) ~= nil, "V1.0.81: yer adayi 40 + 40 mermide kabul (" .. tostring(verdict) .. ")")
     local saved_xp = db.nykle_win_gs_xp
-    check(type(saved_xp) == "table" and saved_xp.v == 1 and saved_xp.life == 16 and saved_xp.c.slow_jit.st == "B"
-        and saved_xp.c.slow_jit.a.n == 40 and saved_xp.c.slow_jit.b.l == 8, "V1.0.81: sonuc database'e yazildi")
+    check(type(saved_xp) == "table" and saved_xp.v == 1 and saved_xp.life == 16 and saved_xp.c.peek_narrow.st == "B"
+        and saved_xp.c.peek_narrow.a.n == 40 and saved_xp.c.peek_narrow.b.l == 8, "V1.0.81: sonuc database'e yazildi")
     -- Ayni mermiler ikinci yer kulvarina da yazildi; orada kollar karisik (fark yok), karar cikmaz.
-    check(saved_xp.c.def_full.a.n == 40 and saved_xp.c.def_full.b.n == 40 and saved_xp.c.def_full.st == nil
-        and printed("deney SONUCU: def_full", start) == nil, "V1.0.82: yer2 ayni mermileri sayar, fark yokken karar vermez")
+    check(saved_xp.c.sniper_hs.a.n == 40 and saved_xp.c.sniper_hs.b.n == 40 and saved_xp.c.sniper_hs.st == nil
+        and printed("deney SONUCU: sniper_hs", start) == nil, "V1.0.82: yer2 ayni mermileri sayar, fark yokken karar vermez")
     check(printed("ayar onerilen degerine donduruldu", start) == nil, "V1.0.81: ezilen salter 'onerilen ayar' duzeltmesini tetiklemez")
 
     -- AFK cani sayilmaz; siradaki yer adayi peek_delay2.
@@ -2801,10 +2780,10 @@ do
     local l17 = life(function() tick(3); for _ = 1, 4 do hurt(1) end end)
     afk_ref.value = false
     tick(2)
-    check(l17:find("yer fast_charge", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
+    check(l17:find("yer peek_static", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
     saved_xp = db.nykle_win_gs_xp
-    check(saved_xp.c.fast_charge == nil or (saved_xp.c.fast_charge.a.l + saved_xp.c.fast_charge.b.l == 0
-        and saved_xp.c.fast_charge.a.n + saved_xp.c.fast_charge.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
+    check(saved_xp.c.peek_static == nil or (saved_xp.c.peek_static.a.l + saved_xp.c.peek_static.b.l == 0
+        and saved_xp.c.peek_static.a.n + saved_xp.c.peek_static.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
 
     -- AFK cani sayilmadigi icin siradaki can ayni kolda baslar; 5 sn'den kisa olumsuz can (cift dogus) da oyle.
     local from18 = #prints + 1
@@ -2818,8 +2797,8 @@ do
         if prints[i]:find("deney: can", 1, true) then second = prints[i]; break end
     end
     n = n + 2
-    check(l17:match("yer fast_charge (%u)") == first:match("yer fast_charge (%u)")
-        and first:match("yer fast_charge (%u)") == second:match("yer fast_charge (%u)") and first ~= second,
+    check(l17:match("yer peek_static (%u)") == first:match("yer peek_static (%u)")
+        and first:match("yer peek_static (%u)") == second:match("yer peek_static (%u)") and first ~= second,
         "V1.0.81: sayilmayan candan sonra kol tekrarlanir (" .. first .. " / " .. second .. ")")
     fire("player_death", { userid = 1, attacker = 2, weapon = "ssg08" })
 
@@ -2843,7 +2822,7 @@ do
     -- Hava: B canlarinda havada kafa yenir; 50 + 50 canda aday reddedilir, sirada air_fl.
     for _ = 1, 140 do
         if printed("deney SONUCU: air_def2", start) ~= nil then break end
-        local b_arm = arm_b("air_def2", 8)
+        local b_arm = arm_b("air_def2", 16)
         life(function()
             if b_arm then
                 W.flags, W.z = 0, 60
@@ -2859,9 +2838,9 @@ do
 
     -- air_fl (havada teleport kapali sayilir): B canda goruluyorken havada DT kapanir, A canda (inis teleportu) acik kalir.
     local seen_b, seen_a = nil, nil
-    for _ = 1, 20 do
+    for _ = 1, 40 do
         if seen_a ~= nil and seen_b ~= nil then break end
-        local b_arm = arm_b("air_fl2", 8)
+        local b_arm = arm_b("air_fl2", 16)
         local line = life(function()
             W.sees[2], W.lag, W.speed = true, 12, 240
             tick(24)
