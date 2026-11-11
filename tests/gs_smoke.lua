@@ -452,7 +452,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.92 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.92")
+check(printed("V1.0.93 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.93")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -477,8 +477,8 @@ check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or 
 do
     local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
     check(xp_ref ~= nil and xp_ref.value == true, "V1.0.81: deney motoru varsayilan acik")
-    check(printed("deney motoru: yer: peek_static, exploit: sniper_hs, def: force_off, hareket: cap_off2, koruma: fs_auto_off, hava: air_def2, atis: hc70, atis2: lowhp_off, peek: peek_real | kalici: yok (0 can olculdu)") ~= nil,
-        "V1.0.81: yukleme satiri ilk adaylari yazar (V1.0.92: 9 kulvar)")
+    check(printed("deney motoru: yer: peek_static, exploit: sniper_hs, def: force_off, hareket: cap_off2, koruma: fs_auto_off, hava: air_def2, atis: hc70, atis2: lowhp_off, peek: peek_real, roll: bekliyor | kalici: yok (0 can olculdu)") ~= nil,
+        "V1.0.81: yukleme satiri ilk adaylari yazar (V1.0.93: 9 kulvar + roll bekliyor)")
     if xp_ref ~= nil then xp_ref.value = false end
 end
 
@@ -1433,8 +1433,8 @@ end
 -------------------------------------------------------------------------------
 do
     local roll_ref = find_ref("Roll")
-    local roll_menu = find_ref("Extended desync (roll)")
-    check(roll_menu ~= nil and roll_menu.value == false, "V1.0.47: Extended desync (roll) secenegi var, varsayilan kapali (sunucuda roll yasak)")
+    local roll_menu = find_ref("Roll'u aktif et (extended desync)")
+    check(roll_menu ~= nil and roll_menu.value == false, "V1.0.47: roll secenegi var, varsayilan kapali (sunucuda roll yasak); V1.0.93: Home'da \"Roll'u aktif et\"")
     W.flags, W.speed, W.sees[2] = 1, 0, false
     tick(4)
     check(roll_ref ~= nil and roll_ref.value == 0, "V1.0.47: roll kapaliyken Roll'a dokunulmaz (" .. tostring(roll_ref and roll_ref.value) .. ")")
@@ -1774,7 +1774,7 @@ do
         "V1.0.54: ilk atista vurulabilir / ates-hakki gecikmesi (" .. tostring(det) .. ")")
     W.head_dmg[2] = 0
     tick(10)
-    for _, label in ipairs({ "Extended desync (roll)", "Head unless body kills (snipers)", "Desync keeper: slow crouch-walk when seen" }) do
+    for _, label in ipairs({ "Roll'u aktif et (extended desync)", "Head unless body kills (snipers)", "Desync keeper: slow crouch-walk when seen" }) do
         local r = find_ref(label)
         check(r ~= nil and r.callback ~= nil, "V1.0.54: '" .. label .. "' degisince alt secenekler guncellenir")
     end
@@ -1846,7 +1846,7 @@ end
 -- V1.0.57: roll acilinca en iyi ayar (45), onerilen ayarlar acikken kapanmaz, kafa yiyince taraf ters
 -------------------------------------------------------------------------------
 do
-    local rm, rv, rr = find_ref("Extended desync (roll)"), find_ref("  » Roll"), find_ref("Roll")
+    local rm, rv, rr = find_ref("Roll'u aktif et (extended desync)"), find_ref("  » Roll"), find_ref("Roll")
     W.flags, W.speed, W.sees[2] = 1, 0, false
     rec_ref.value = true
     rv.value = 20
@@ -2653,7 +2653,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.92 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.93 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -3038,6 +3038,54 @@ do
         check(held == true and late == true, "V1.0.90: B kolunda (peek_real) sahte kayitta peek baslamaz, gercek kayitta baslar ("
             .. tostring(held) .. ", " .. tostring(late) .. ")")
         tick(40)
+    end
+
+    -- V1.0.93: roll kulvari sadece Home'dan roll acikken calisir; B kolunda roll kapanir (motor roll'u hic acmaz);
+    -- karar ayari degistirmez, oneri satiri yazar.
+    do
+        fresh()
+        local roll_menu, roll_gs = find_ref("Roll'u aktif et (extended desync)"), find_ref("Roll")
+        W.speed, W.flags, W.z, W.sees[2] = 0, 1, 0, false
+        local off_line = life()
+        check(roll_menu ~= nil and roll_menu.value == false and off_line ~= "" and off_line:find("roll_off", 1, true) == nil,
+            "V1.0.93: roll kapaliyken roll kulvari olculmez (" .. off_line .. ")")
+        local off_gs = roll_gs.value
+        -- Roll acik: A canlarinda (roll acik) govde, B canlarinda (roll kapali) kafa yenir -> "simdiki ayar kalsin".
+        roll_menu.value = true
+        local seen_a, seen_b = nil, nil
+        for _ = 1, 60 do
+            if printed("deney SONUCU: roll_off", start) ~= nil then break end
+            life(function(arms)
+                tick(8)
+                if arms.roll_off == "B" then seen_b = roll_gs.value elseif arms.roll_off == "A" then seen_a = roll_gs.value end
+                for _ = 1, 5 do hurt(arms.roll_off == "B" and 1 or 3) end
+            end)
+        end
+        local rv = printed("deney SONUCU: roll_off", start)
+        check(off_gs == 0 and (seen_a == 45 or seen_a == -45) and seen_b == 0,
+            "V1.0.93: roll acikken A kolunda Roll 45, B kolunda 0; kapaliyken hic yazilmaz (kapali " .. tostring(off_gs)
+            .. ", A " .. tostring(seen_a) .. ", B " .. tostring(seen_b) .. ")")
+        check(rv ~= nil and rv:find("ONERI: simdiki ayar kalsin", 1, true) ~= nil and rv:find("KABUL", 1, true) == nil
+            and rv:find("RED", 1, true) == nil, "V1.0.93: roll ise yariyorsa karar oneri satiridir (" .. tostring(rv) .. ")")
+        -- Tersi: roll kapaliyken daha az zarar -> "aday daha iyi" onerisi; ayar yine senin salterinde kalir (roll
+        -- kalici kapatilmaz), yukleme ozetinde "kalici" listesine girmez.
+        fresh()
+        for _ = 1, 60 do
+            if printed("deney SONUCU: roll_off", start) ~= nil then break end
+            life(function(arms)
+                tick(4)
+                for _ = 1, 5 do hurt(arms.roll_off == "B" and 3 or 1) end
+            end)
+        end
+        rv = printed("deney SONUCU: roll_off", start)
+        local still = nil
+        local after = life(function() tick(8); still = roll_gs.value end)
+        check(rv ~= nil and rv:find("ONERI: aday daha iyi, ayari sen degistir", 1, true) ~= nil and (still == 45 or still == -45)
+            and after:find("roll_off", 1, true) == nil and roll_menu.value == true,
+            "V1.0.93: oneri kalici ayar yapmaz, roll senin salterinle acik kalir (Roll " .. tostring(still) .. "; " .. tostring(rv and rv:sub(1, 140)) .. ")")
+        roll_menu.value = false
+        tick(8)
+        check(roll_gs.value == 0, "V1.0.93: Home'dan kapatinca Roll geri 0 (" .. tostring(roll_gs.value) .. ")")
     end
 
     -- Atis (temiz baslangic): A canlarinda 6 iska, B canlarinda 6 kill; 30 + 30 atista aday kabul edilir.

@@ -720,6 +720,15 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.93** (istek: "rollü aktifleştirirsem en iyi roll ayarında açılıp direkt luaya entegre oluyor mu; home'a bir tuş ekleyip rollü aktif et yazar mısın, oradan açınca roll açılsın")
+
+| Ne | Ayrıntı |
+|---|---|
+| **Home > "Roll'u aktif et (extended desync)"** | Roll şalteri Home sekmesine taşındı (eskiden Anti-Aim > Protection'da "Extended desync (roll)" adıyla duruyordu). Açınca en iyi ayarla gelir ve AA'ya bağlıdır: Roll 45 (en büyük yatma), sadece yerde ve yavaşken (duran / eğik / slow walk, hız < 100), tarafı desync tarafında, roll'lüyken kafa yiyince taraf ters çevrilir; koşarken, havada ve merdivende 0. Altındaki "» Roll" ile değer değiştirilebilir. **Varsayılan kapalı**, lua kendiliğinden hiç açmaz ve "önerilen ayarlar" da kapatmaz. Roll yasak sunucuda açma. |
+| **Roll ölçümü** | Roll'u açarsan deney motoru işe yarayıp yaramadığını ölçer: canların yarısında roll kapatılır (motor roll'u hiçbir zaman açmaz, sadece kapatır), yerde yenen mermi başına zarar karşılaştırılır. Karar ayarı değiştirmez; loga `ONERI: simdiki ayar kalsin` ya da `ONERI: aday daha iyi, ayari sen degistir` yazılır. Roll kapalıyken bu kulvar bekler. |
+
+Eski etiket config'te "Extended desync (roll)" olarak kayıtlıydı; yeni etiketle birlikte kayıtlı değer okunmaz, şalter kapalı başlar.
+
 **V1.0.92** (istek: "sağ tarafta kalsın bundan sonra, orta biraz alt kısma al resolver ölçümünü, saldır saldırma şeyini de azıcık büyüt". V1.0.90 logu, 36 dk, iki DM haritası (aurorahvh, 25+ rakip): **81 kill / 91 ölüm = 0.89**. Ölümlerin 58'i scout kafa (19'u duvardan), 21'i scar20. Scout atışlarının %71'i isabet, %51'i kafa. Hata satırı yok. Bu log V1.0.90'dan olduğu için yük ölçümü satırları yok; donmanın kaynağı V1.0.91+ logunda okunacak.)
 
 | Ne | Ayrıntı |

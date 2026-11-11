@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.92"
+local VERSION = "1.0.93"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1286,6 +1286,16 @@ end
 menu.recommended = grp.info:switch("Always use recommended settings", true)
 menu.home_info   = grp.info:label(DIM_HEX .. "Ayarlara dokunmana gerek yok. Bind'ler: Anti-Aim sekmesi")
 menu.home_info2  = grp.info:label(DIM_HEX .. "(manual yaw, freestanding, static inverter).")
+-- V1.0.93 (istek: "rollu aktiflestirirsem en iyi roll ayarinda acilip direkt luaya entegre oluyor mu; home'a bir tus
+-- ekleyip rollu aktif et yazar misin, oradan acinca roll acilsin"): roll salteri Home'a tasindi (eskiden Anti-Aim >
+-- Protection'da "Extended desync (roll)"). Acinca en iyi ayarla gelir ve AA'ya baglidir: Roll 45 (en buyuk yatma),
+-- sadece yerde ve yavasken (duran / egik / slow walk, hiz < 100), tarafi desync tarafinda, roll'luyken kafa yiyince
+-- taraf ters cevrilir; kosarken, havada, merdivende 0. Varsayilan KAPALI ve lua kendiliginden hic acmaz (kullanici:
+-- "sunucuda roll yasak"); izlenmeyen grupta oldugu icin "onerilen ayarlar" da kapatmaz. Gecmisi asagida (V1.0.47 notu).
+menu.roll        = grp.info:switch("Roll'u aktif et (extended desync)", false)
+menu.roll_value  = grp.info:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
+menu.roll_info   = grp.info:label(DIM_HEX .. "Roll: acinca en iyi ayar (45, yerde ve yavasken).")
+menu.roll_warn   = grp.info:label(DIM_HEX .. "Roll yasak sunucuda acma (ban / untrusted).")
 menu.forget      = grp.data:button("Forget learned enemies", function()
     if forget_enemies ~= nil then
         forget_enemies()
@@ -1374,8 +1384,7 @@ menu.brute_random   = grp.protect:switch("  » Random anti-brute order", true, f
 -- Varsayilan KAPALI: kullanici "sunucuda roll yasak, extended degil" dedi; roll'a izin veren sunucuda elle ac.
 -- V1.0.57: izlenmeyen grupta ("Always use recommended settings" acikken acilan roll 1 sn icinde geri kapatiliyordu).
 -- Acilinca en iyi ayarla gelir: Roll 45 (en buyuk), tarafi desync tarafinda, kafa yiyince taraf ters cevrilir.
-menu.roll           = grp.protect_raw:switch("Extended desync (roll)", false)
-menu.roll_value     = grp.protect_raw:slider("  » Roll", 10, 45, 45, "°", function() return on(menu.roll) end)
+-- V1.0.93: salter ve deger Home sekmesinde (menu.roll, menu.roll_value; bkz. yukarida).
 -- V1.0.53 (internet arastirmasi + Valve animstate formulu): desync hiz ve egilmeyle kuculur (tam hizda egik yurume
 -- ~29°, logda <=30° desync'te kafa %27, ustunde %17). Hepsi varsayilan KAPALI: logda "maxdsy" ile olculecek.
 -- V1.0.57: izlenmeyen grupta (onerilen ayarlar acikken acilabilsinler).
@@ -12078,8 +12087,9 @@ end))
 -- Ana govdede 200 yerel degisken siniri dolu oldugu icin motor kendi fonksiyonunda kurulur.
 K.xp.init = function()
     local xp = K.xp
-    -- V1.0.92: "atis3" kulvari kalkti (tek adayi qs_late karara baglandi); dokuz kulvar.
-    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek" }
+    -- V1.0.92: "atis3" kulvari kalkti (tek adayi qs_late karara baglandi). V1.0.93: "roll" kulvari (sadece Home'dan
+    -- roll actiysan calisir).
+    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek", "roll" }
     -- Karara baglananlar (kullanicinin kendi verisi; listeden cikarildi, yeniden denenmez):
     --   slow_jit (yavas jitter, 4-6 pakette bir): RED. 35 / 34 can, zarar 0.51 -> 0.68, z -2.4.
     --   def_full (defensive hep acik + temiz atis kapali): RED. 30 / 30 can, zarar 0.54 -> 0.62, z -1.1 (oturum
@@ -12187,6 +12197,14 @@ K.xp.init = function()
         -- round sunucusunda dolar.
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
+        -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u
+        -- hicbir zaman ACMAZ, B kolunda sadece KAPATIR). advise: karar kalici ayar yapmaz, yalnizca oneri satiri
+        -- yazar (salter senin; sonuc "roll ise yariyor" ya da "kapat daha iyi" diye loga duser). Roll'un bu sunucuda
+        -- kafa yemeni azaltip azaltmadigi boylece ayni oturumda, ayni rakiplere karsi olculur.
+        { id = "roll_off", lane = "roll", kind = "harm", min = 40, advise = true,
+            needs = function() return menu.roll ~= nil and menu.roll:raw() == true end,
+            set = { roll = false },
+            name = "roll kapali (roll'u actiysan: ise yarayip yaramadiginin olcumu)" },
     }
 
     -- Kol secimi (V1.0.90). Sayilan canlar (AFK / cift dogus haric) ikiser canlik bloklara bolunur; her kulvar her
@@ -12279,7 +12297,7 @@ K.xp.init = function()
         for _, c in ipairs(xp.LIST) do
             -- after: adi gecen aday kabul edildiyse bu aday (onun alt kumesi) atlanir.
             if c.lane == lane and not xp.bad[c.id] and xp.stat(c.id).st == nil
-                and not (c.after ~= nil and xp.stat(c.after).st == "B") then
+                and not (c.after ~= nil and xp.stat(c.after).st == "B") and (c.needs == nil or c.needs()) then
                 return c
             end
         end
@@ -12296,7 +12314,8 @@ K.xp.init = function()
         end
         if on(menu.enabled) then
             for _, c in ipairs(xp.LIST) do
-                if xp.stat(c.id).st == "B" and not xp.bad[c.id] then
+                -- advise adaylari kalici uygulanmaz (karar sadece oneridir).
+                if xp.stat(c.id).st == "B" and not xp.bad[c.id] and not c.advise then
                     put(c)
                 end
             end
@@ -12401,8 +12420,12 @@ K.xp.init = function()
         if verdict ~= nil then
             local text = xp.text(c)
             st.st = verdict
-            print(("[%s] deney SONUCU: %s (%s) -> %s (%s) | %s"):format(SCRIPT, c.id, c.name,
-                verdict == "B" and "KABUL, kalici" or "RED, eski ayar kalir", why, text))
+            local outcome = verdict == "B" and "KABUL, kalici" or "RED, eski ayar kalir"
+            if c.advise then
+                -- Ayar degismez; salter kullanicinin.
+                outcome = verdict == "B" and "ONERI: aday daha iyi, ayari sen degistir" or "ONERI: simdiki ayar kalsin"
+            end
+            print(("[%s] deney SONUCU: %s (%s) -> %s (%s) | %s"):format(SCRIPT, c.id, c.name, outcome, why, text))
         end
     end
 
@@ -12466,10 +12489,19 @@ K.xp.init = function()
         local parts, kept = {}, {}
         for _, lane in ipairs(xp.LANES) do
             local c = xp.pick(lane)
-            parts[#parts + 1] = ("%s: %s"):format(lane, c ~= nil and c.id or "bitti")
+            local state = c ~= nil and c.id or "bitti"
+            if c == nil then
+                -- Kosulu (needs) saglanmadigi icin bekleyen aday varsa "bekliyor".
+                for _, w in ipairs(xp.LIST) do
+                    if w.lane == lane and w.needs ~= nil and xp.stat(w.id).st == nil and not xp.bad[w.id] then
+                        state = "bekliyor"
+                    end
+                end
+            end
+            parts[#parts + 1] = ("%s: %s"):format(lane, state)
         end
         for _, c in ipairs(xp.LIST) do
-            if xp.stat(c.id).st == "B" then
+            if xp.stat(c.id).st == "B" and not c.advise then
                 kept[#kept + 1] = c.id
             end
         end
