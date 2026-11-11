@@ -720,6 +720,33 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.89** (V1.0.88 logu, 31 dk, önce DM sonra de_mirage round sunucusu (ping 137): **38 kill / 41 ölüm = 0.93**. Ölümlerin 31'i kafadan, 26'sı duvar / defensive peek çizgisinden. Scout atışlarının %73'ü isabet, %61'i kafa. Hata satırı yok.)
+
+| Deney | Durum |
+|---|---|
+| `seen_duck` (görülünce ve yavaşken eğil) | **Reddedildi**: 25 / 25 can, mermi başına zarar 0.44 → 0.53, can başına kill z −1.7; son oturumda eğilen kolda 9 canda sadece 2 atış ve 1 kill. Loglardaki "eğik + yavaşken kafa %22" senin kendi seçtiğin anlardan geliyormuş; lua zorla eğince aynı sonuç çıkmadı. Seçenek kapalı kalıyor. |
+| `baim_off` (Smart body aim kapalı) | **Reddedildi**: 34 atış 25 kill → 31 atış 18 kill. |
+| `hc80` (scout hit chance tabanı 80) | Sürüyor, önde: 59 atış 35 kill (%59) → 74 atış 48 kill (%65), can başına kill z +1.8. Son iki logda isabet %71 → %80, kafa %54 → %69. |
+| `peek_narrow` | Fark yok (0.57 / 0.54); örnek sınırı 80 mermiye indirildi. |
+| `air_fl2` | Fark yok (0.22 / 0.25). |
+| `sniper_hs` (scout'ta Hide shots) | Aşağıda. |
+
+**Hide shots bulgusu.** Aday şimdiye kadar "yediğin mermi başına zarar" ile ölçülüyordu ve orada fark yok (95 / 113 mermi, 0.53 / 0.52); örnek sınırında "fark yok" diye reddedilecekti. Aynı rastgele kollarda (son üç log, 80 / 73 can) senin tarafın ise belirgin farklı:
+
+| | DT (şimdiki) | Hide shots |
+|---|---|---|
+| Scout isabeti | %62 (85 atış) | **%78** (84 atış) |
+| Kafa isabeti | %48 | **%66** |
+| Can başına kill | 0.55 | **0.84** |
+| K/D | 0.72 (44 / 61) | **1.07** (61 / 57) |
+| Sana gelen isabette kafa | %59 | %48 |
+
+Aday hem atışı hem savunmayı değiştirdiği için doğru ölçü can başına kill. Karar ölçüsü ona çevrildi (birikmiş can / kill sayımı aynen geçerli); isabet farkı bağımsız ikinci bir kanıt olduğundan sınır 80 can ve sınırda z ≥ 0 yeterli, z ≤ −1 yine ret. Motor şu an +1.0'da; bir oturumda karara bağlanması beklenir.
+
+Yeni adaylar: `cap_off` ("Desync keeper" kapalı: eğikken görülüyorsan hız 38'e indirilmez; `seen_duck` ile aynı mekanizma, V1.0.58'de gözlemle varsayılan açılmış ve hiç A / B ölçülmemişti), `recharge_free` (Safe recharge kapalı: atıştan sonra şarj ertelenmez), `hc90` (hc80'den sonra).
+
+Şu ana kadar: kabul `hc70`, `air_def2`; ret `slow_jit`, `def_full`, `wait_off`, `seen_duck`, `baim_off`; çıkarılan `fast_charge`, `brute_off`.
+
 **V1.0.88** (V1.0.87 logu, 11 dk, DM sunucusu `dm_twentysixer_mirage_aurorahvh`: **29 kill / 22 ölüm = 1.32**, dönüşten beri ilk 1'in üstü; önceki iki DM oturumu 0.42 ve 0.69. Bir önceki oturumda 8 / 16 yaptığın lunchbox1ng'e karşı 16 / 11. Scout atışlarının %75'i isabet, %59'u kafa, spread ıskası yok (hit chance tabanı kalıcı); yediğin isabetlerin %35'i kafa (önceki oturumlar %54–69); havada hiç mermi yemedin (önceki oturum 17 mermi, 12 ölüm). Hata satırı yok.)
 
 | Deney | Durum |

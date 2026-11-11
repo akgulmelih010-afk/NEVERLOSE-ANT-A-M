@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.88"
+local VERSION = "1.0.89"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1508,8 +1508,9 @@ menu.fast_charge    = grp.protect_raw:switch("Fast recharge: aimbot off while th
 -- 0.50. Peek durumunda egik 371 mermi %33 kafa, ayakta 222 mermi %48. Kendi atisindan sonraki 1 sn'de egik %38 /
 -- 0.53, ayakta %51 / 0.64.) Acikken: yerdeyken biri seni goruyorsa (ya da birazdan gorecekse) ve yavassan (yatay hiz
 -- < 130; kosuyu kesmez) egilirsin; gorus bitince 12 tick sonra birakilir. Ziplama tusu, AI peek / Peek Assist tusu,
--- AFK, fake duck, merdiven ve silahsiz (bicak / bomba) durumlarda dokunmaz. Varsayilan kapali; once deney olarak
--- olculur (aday "seen_duck").
+-- AFK, fake duck, merdiven ve silahsiz (bicak / bomba) durumlarda dokunmaz. Varsayilan kapali.
+-- V1.0.89 SONUC: deney reddetti (25 / 25 can, mermi basina zarar 0.44 -> 0.53, kill dustu; egilen kolda neredeyse
+-- hic sikamadin). Tablodaki fark kendi egildigin anlarin secilmis olmasindan geliyormus. Secenek kapali kaliyor (acma).
 menu.seen_duck      = grp.protect_raw:switch("Duck when seen and slow (crouched + slow: 22% of hits to the head, standing 46%)", false)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
@@ -11472,26 +11473,38 @@ K.xp.init = function()
     --   air_def2 (havada DT acik + surekli defensive, isinlanma yok): KABUL. Ilk oturumda havada 17 mermi / 12 olum,
     --     kabulden sonraki oturumda havada hic mermi yok. Listede kalir.
     --   wait_off (gercek kayit beklenmez): RED. 40 / 40 can, 39 kill -> 30 kill, z -1.1. Listeden cikarildi.
+    --   seen_duck (gorulunce ve yavasken egil): RED. 25 / 25 can, zarar 0.44 -> 0.53, can basina kill z -1.7 (son
+    --     oturumda egilen kolda 9 canda 2 atis, 1 kill). Loglardaki "egik + yavasken kafa %22" senin kendi sectigin
+    --     anlardan geliyordu; lua zorla egince ayni sonuc cikmadi.
+    --   baim_off (Smart body aim kapali): RED. 34 atis 25 kill -> 31 atis 18 kill, z -1.3.
     xp.LIST = {
-        -- Yer, AA acilari. V1.0.86 (V1.0.45+ loglari, kafaya nisan aldigimiz 532 scout atisi): rakibin yaw jitter'i
-        -- 25 derecenin altindayken kafa isabetimiz %21 (28 atis); 25-49'da %46, 50+'da %49, x-way'de %47, statikte
-        -- %47. Dar jitter GameSense'in resolver'ini en cok sasirtan duzen; bizim Peek acimiz genis (-20 / +45).
-        -- V1.0.87: yerde yenen 818 mermide egik + yavasken kafa %22 / zarar 0.46, ayakta %46-54 / 0.57-0.69 (bkz.
-        -- menu.seen_duck). Bu veride en buyuk fark; peek_narrow'un onune alindi (onun sayimi durur, sonra surer).
-        { id = "seen_duck", lane = "yer", kind = "harm", min = 40, gate = true, set = { seen_duck = true },
-            name = "gorulunce ve yavasken egil (egik + yavas: kafa %22, ayakta %46)" },
-        { id = "peek_narrow", lane = "yer", kind = "harm", min = 40,
+        -- Yer, AA acilari.
+        -- V1.0.89: peek_narrow 43 / 42 canda farksiz (zarar 0.57 / 0.54); ornek siniri 3 kat yerine 2 kat (80 mermi).
+        { id = "peek_narrow", lane = "yer", kind = "harm", min = 40, cap = 2,
             states = { Peek = { yaw_left = -8, yaw_right = 12 } },
             name = "Peek'te dar yaw jitter (-8 / +12; simdi -20 / +45)" },
+        -- V1.0.89: seen_duck (lua'nin zorla egmesi) reddedildi: zarar artti, kill dustu. "Desync keeper" da ayni seyi
+        -- yapiyor (egikken goruluyorsan hizi 38'e indirir) ve V1.0.58'de ayni tur gozlemle (yavasken desync genis)
+        -- varsayilan acildi; hic A / B olculmedi.
+        { id = "cap_off", lane = "yer", kind = "harm", min = 40, gate = true, set = { crouch_cap = false },
+            name = "Desync keeper kapali (egikken goruluyorsan hiz 38'e indirilmez)" },
         { id = "peek_static", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { body_yaw = "Static", body_fs = "On" } },
             name = "Peek'te sabit govde + freestanding body (Freestanding durumu: kafa %24, Peek %33)" },
-        -- Yer, exploit / defensive. V1.0.86: yedigin mermilerin %23'u kendi atisindan sonraki 0.6 sn'de ve o
-        -- isabetlerin %66-75'i kafa (son iki log); DT'de atis ani gizlenmez. Hide shots atisi gizler ama DT'nin
-        -- defensive'i gider: hangisi daha az zarar, olculecek.
-        { id = "sniper_hs", lane = "yer2", kind = "harm", min = 40, gate = true,
+        -- Yer, exploit / defensive.
+        -- V1.0.89: sniper_hs'in olcusu zarardan can basina kill'e cevrildi. Zarar farksiz (95 / 113 mermi, 0.53 /
+        -- 0.52) ve ornek sinirinda "fark yok" diye reddedilecekti; oysa ayni rastgele kollarda (son uc log, 80 / 73
+        -- can) scout isabetin DT'de %62, Hide shots'ta %78 (85 / 84 atis), kafa %48 -> %66, can basina kill 0.55 ->
+        -- 0.84, K/D 0.72 -> 1.07. Aday atisi da savunmayi da degistiriyor; dogru olcu can basina kill. Eski sayimin
+        -- can / kill kismi aynen gecerli. Isabet farki bagimsiz ikinci bir kanit oldugu icin sinir 80 can ve sinirda
+        -- z >= 0 yeter (fair); z <= -1 yine ret.
+        { id = "sniper_hs", lane = "yer2", kind = "kpl", min = 40, cap = 2, fair = true,
             set = { sniper_exploit = "Hide shots" },
             name = "scout / AWP'de Hide shots (atis gizlenir; simdi DT)" },
+        -- Safe recharge: dururken goruluyorsan atistan sonra sarji 0.5 sn'ye kadar erteler (DT kisa sure kapali).
+        -- Yedigin mermilerin %23'u atisindan sonraki 0.6 sn'de ve o sirada DT bos; erteleme bunu uzatiyor olabilir.
+        { id = "recharge_free", lane = "yer2", kind = "harm", min = 40, set = { safe_recharge = false },
+            name = "Safe recharge kapali (atistan sonra sarj ertelenmez)" },
         { id = "def_always", lane = "yer2", kind = "harm", min = 40,
             states = { Standing = { def_mode = "Always on" }, Moving = { def_mode = "Always on" },
                 ["Slow walk"] = { def_mode = "Always on" }, Crouching = { def_mode = "Always on" },
@@ -11500,8 +11513,8 @@ K.xp.init = function()
             name = "yerde defensive her zaman zorlanir (simdi: gorulunce / 1800 birimde dusman varken, bitince 1 sn ara)" },
         { id = "clean_off", lane = "yer2", kind = "harm", min = 40, gate = true, set = { clean_shot = false },
             name = "temiz atis kapali (ates edebilirken de defensive surer)" },
-        -- Hava. Simdiki ayar: inis teleportu + yerde tutma (V1.0.84). Olcu: can basina havada ve inisten sonraki
-        -- 0.75 sn'de yenen zarar. Salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
+        -- Hava. Kalici ayar air_def2 (havada DT acik + surekli defensive, isinlanma yok). Olcu: can basina havada ve
+        -- inisten sonraki 0.75 sn'de yenen zarar. Salterlerin ikisi de yazilir (kabul edilen bir oncekini ezebilsin).
         { id = "air_def2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = false },
             name = "havada DT acik + surekli defensive, isinlanma yok" },
@@ -11511,15 +11524,15 @@ K.xp.init = function()
         { id = "air_first2", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true,
             set = { air_lc = false, air_teleport = true },
             name = "havada ilk goruste isinlanma (V1.0.77)" },
-        -- Atis. Iskadan sonraki 2 sn'de olme oranin %54 (son logda %72), oldurucu atistan sonra %15: iskayi azaltan
-        -- her sey can kurtarir.
+        -- Atis. Iskadan sonraki 2 sn'de olme oranin %54, oldurucu atistan sonra %15: iskayi azaltan her sey can
+        -- kurtarir. hc70 kalici; hc80 one geciyor (59 atis 35 kill / 74 atis 48 kill, can basina kill z +1.8).
         { id = "hc70", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 70 },
             name = "scout hit chance tabani 70 (senin ayarin 55; hc 70 alti atislar %55-59, 70-79 %71 isabet)" },
         { id = "hc80", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 80 },
             name = "scout hit chance tabani 80" },
+        { id = "hc90", lane = "atis", kind = "kps", min = 30, gate = true, set = { scout_hc = 90 },
+            name = "scout hit chance tabani 90" },
         -- Atis 2.
-        { id = "baim_off", lane = "atis2", kind = "kps", min = 30, set = { smart_baim = false },
-            name = "Smart body aim kapali (hitbox secimi GameSense'te; Min. damage kurali ayni)" },
         { id = "own_off", lane = "atis2", kind = "kps", min = 30, set = { own_res = false },
             name = "kendi resolver kapali (sadece GameSense)" },
         { id = "fakebody_off", lane = "atis2", kind = "kps", min = 30, set = { fake_body = false },
