@@ -57,6 +57,7 @@ local SPEC = {
     ["Aimbot>Ragebot>Selection>Min. Damage"] = { kind = "slider", value = 30, min = 0, max = 130 },
     ["Aimbot>Ragebot>Selection>Hitboxes"] = { kind = "selectable", value = { "Head", "Chest", "Stomach" },
                                              items = { "Head", "Chest", "Stomach", "Arms", "Legs", "Feet" } },
+    ["Aimbot>Ragebot>Selection>Hit Chance"] = { kind = "slider", value = 55, min = 0, max = 100 },
 }
 local SHORT = {
     enabled = A .. "Enabled", pitch = A .. "Pitch", yaw = A .. "Yaw", base = A .. "Yaw>Base",
@@ -69,7 +70,7 @@ local SHORT = {
     dt = RB .. "Double Tap", lag = RB .. "Double Tap>Lag Options", hs = RB .. "Hide Shots",
     hs_opt = RB .. "Hide Shots>Options", peek = RB .. "Peek Assist", safe = "Aimbot>Ragebot>Safety>Safe Points",
     body_aim = "Aimbot>Ragebot>Safety>Body Aim", min_damage = "Aimbot>Ragebot>Selection>Min. Damage",
-    hitboxes = "Aimbot>Ragebot>Selection>Hitboxes",
+    hitboxes = "Aimbot>Ragebot>Selection>Hitboxes", hit_chance = "Aimbot>Ragebot>Selection>Hit Chance",
 }
 
 local function valid(spec, v)
@@ -273,6 +274,7 @@ local render = {
     measure_text = function(font, flags, txt) return vector(#txt * 5, 8) end,
 }
 local printed = {}
+local saved_files = {}
 local expect_handler_error = false
 -- Neverlose db: the full suite starts with a saved memory (one valid player, two invalid entries).
 local SAVED_ID = "s:76561198000000099"
@@ -295,6 +297,11 @@ local env = {
         trace_line = function(from, to) return { fraction = world.line(from, to) } end,
         trace_hull = mode ~= "nohull" and function(from, to) return { fraction = world.hull(from, to) } end or nil } or nil,
     common = { is_button_down = function(key) return key == 1 and mouse_state.down end },
+    -- V1.1: Neverlose cvar objects (cvar.name:int() reads, :int(v) writes); the test tracks cl_righthand.
+    cvar = { cl_righthand = { v = 1, int = function(self, value) if value ~= nil then self.v = value end return self.v end },
+        r_aspectratio = { v = 0, float = function(self, value) if value ~= nil then self.v = value end return self.v end } },
+    -- V1.1: files.write for the log file; the test keeps what was written.
+    files = { write = function(path, data) saved_files[path] = data end },
     vector = vector, color = color, bit = bit, math = math, table = table, string = string,
     pairs = pairs, ipairs = ipairs, pcall = pcall, type = type, tostring = tostring, tonumber = tonumber,
     setmetatable = setmetatable, error = error, select = select, unpack = unpack,
@@ -316,7 +323,7 @@ check(handlers.createmove and handlers.render and handlers.bullet_impact and han
       and handlers.player_death and handlers.shutdown, "all event handlers registered")
 log("INFO menu elements: " .. element_count)
 for _, p in ipairs(printed) do log("INFO print: " .. p) end
-check(printed[#printed] ~= nil and printed[#printed]:match("^%[Nykle%.win%] V%d+%.%d+ yuklendi") ~= nil,
+check(printed[#printed] ~= nil and printed[#printed]:match("^%[Nykle%.win%] V[%d%.]+ yuklendi") ~= nil,
       "version printed on load")
 check(not full or printed[#printed]:match("yuklendi %(hafiza: 1 oyuncu%)$") ~= nil, "saved memory loaded: one valid player")
 if full then check(#printed == 1, "every ui.find path resolved") end
@@ -402,6 +409,9 @@ if not full then
     -- After the first tick: it applies the recommended settings. Enforcement off so test values stay.
     M("switch", "Always use recommended settings"):set(false)
     M("switch", "Auto when standing still"):set(false)
+    M("switch", "Smart: force near enemies"):set(false)
+    M("switch", "Wait for real record (unseen)"):set(false) -- V1.1: legacy sections; its own section tests it
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: legacy sections test the scout with hide shots
     M("switch", "High ground"):set(true)
     M("switch", "Air lag (defensive every tick)"):set(false); M("switch", "Snipers use DT in the air"):set(false)
     M("switch", "Resolver panel"):set(false)
@@ -464,9 +474,9 @@ end
     end
     if mode == "v46" then
         M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
-        check(contains(texts, "PEEK   0* 1/6   1 2/2   2 0/0   3 0/0   4 0/0   5 0/0")
-              and contains(texts, "HAREKET   0* 1/6   1 2/2   2 0/0   3 0/0   4 0/0   5 0/0")
-              and contains(texts, "HAVA   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0"),
+        check(contains(texts, "PEEK   0* 1/6   1 2/2   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
+              and contains(texts, "HAREKET   0* 1/6   1 2/2   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
+              and contains(texts, "HAVA   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0"),
               "a v4.6 save: peek starts from the movement statistics, missing groups stay empty")
     end
     if mode == "badvalues" then
@@ -500,6 +510,12 @@ end
 check(M("switch", "Auto when standing still"):get() == true, "auto freestanding when standing still is on by default")
 M("switch", "Always use recommended settings"):set(false)
 M("switch", "Auto when standing still"):set(false)
+-- V1.1: Smart also forces while an enemy is within 1800 units; the suite's enemy stands at 500, so the legacy
+-- sections turn the rule off and its own section tests it.
+check(M("switch", "Smart: force near enemies"):get() == true, "V1.1: smart near-enemy rule is on by default")
+M("switch", "Smart: force near enemies"):set(false)
+M("switch", "Wait for real record (unseen)"):set(false) -- V1.1: legacy sections; its own section tests it
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: legacy sections test the scout with hide shots
 -- High ground safe head is off by default (v4.8 logs); its own tests turn it on.
 check(M("switch", "High ground"):get() == false, "high ground safe head is off by default")
 M("switch", "High ground"):set(true)
@@ -510,6 +526,12 @@ check(M("switch", "Air lag (defensive every tick)"):get() == true and M("switch"
 M("switch", "Air lag (defensive every tick)"):set(false); M("switch", "Snipers use DT in the air"):set(false)
 check(M("switch", "Resolver panel"):get() == true, "resolver panel on by default")
 M("switch", "Resolver panel"):set(false)
+-- V1.1.9: auto AFK is on by default (8 s without input after spawn); the legacy sections stand still for longer than
+-- that after round starts, so they turn it off and its own section tests it.
+check(M("switch", "Auto AFK (no input 8 s after spawn)"):get() == true
+      and M("switch", "AFK mode (AI peek here + strafe, full exploits)"):get() == false,
+      "V1.1.9: auto AFK on, manual AFK off by default")
+M("switch", "Auto AFK (no input 8 s after spawn)"):set(false)
 
 -- Saved memory --------------------------------------------------------------------
 do
@@ -527,10 +549,13 @@ do
     check(r.states.Fakeduck ~= nil and #r.states.Fakeduck == 2, "the fake duck state is saved and loaded too")
     players[11] = nil; world.threat = nil; tick(0)
     M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
-    check(contains(texts, "YERDE   0* 1/10   1 4/4   2 0/0   3 0/0   4 0/0   5 0/0") and contains(texts, "HAVA   0* 1/10   1 4/4   2 0/0   3 0/0   4 0/0   5 0/0")
-          and #m.phase_groups.move == 6 and m.phase_groups.move[1].shots == 10,
+    -- V1.1: nine phases (0-8); the saved list only covers 0-2, the rest start empty.
+    check(contains(texts, "YERDE   0* 1/10   1 4/4   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
+          and contains(texts, "HAVA   0* 1/10   1 4/4   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
+          and #m.phase_groups.move == 9 and m.phase_groups.move[1].shots == 10,
           "v4.5 phase statistics loaded into every movement group (invalid ones dropped) and written back per group")
-    check(contains(texts, "SNIPER   HS* 0/0   DT 3/3"), "saved sniper statistics loaded, invalid ones dropped")
+    -- V1.1: the learner starts with double tap.
+    check(contains(texts, "SNIPER   HS 0/0   DT* 3/3"), "saved sniper statistics loaded, invalid ones dropped; DT first")
 end
 
 -- Defaults: standing ------------------------------------------------------------
@@ -608,12 +633,14 @@ B("Standing", "slider", "Jitter delay"):set(1)
 
 -- Hide shots recharge is left alone until the charge value is seen to follow HS ---------------
 world.threat = enemy; world.trace = function() return 30 end
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: snipers default to DT; this section is about HS
 lp.weapon_class, aa.charge = "CWeaponSSG08", 0; tick(0)
 handlers.weapon_fire({ userid = 1 }); tick(0); tick(0)
 check(ov("hs") == true and aa.allow ~= false, "hide shots: no hold while the charge value is not known to follow HS")
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 20, weapon = "ssg08" })
 check(printed[#printed]:find("| HS LC, DEF ", 1, true) ~= nil,
       "hide shots: no percent while the charge value is unknown; LC = our Break LC is on (seen)")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots")
 aa.charge = 1; reset_world()
 
 -- No state forces always-on defensive by default -------------------------------------
@@ -621,9 +648,11 @@ local ALWAYS_ON_BEFORE = { "Crouch move", "Peek", "Air", "Air crouch" }
 for _, st in ipairs({ "Moving", "Slow walk", "Crouch move", "Peek", "Air", "Air crouch" }) do
     check(B(st, "combo", "Defensive"):get() == "Smart", st .. " defaults to smart defensive")
 end
-for _, st in ipairs({ "Standing", "Crouching", "Manual", "Freestanding", "Safe head" }) do
-    check(B(st, "combo", "Defensive"):get() == "On peek", st .. " defaults to NL on-peek defensive")
+-- V1.1: standing states default to Smart too (GameSense V1.0.25: unseen defensive snipers); only Safe head keeps On peek.
+for _, st in ipairs({ "Standing", "Crouching", "Manual", "Freestanding" }) do
+    check(B(st, "combo", "Defensive"):get() == "Smart", "V1.1: " .. st .. " defaults to smart defensive")
 end
+check(B("Safe head", "combo", "Defensive"):get() == "On peek", "Safe head defaults to NL on-peek defensive")
 check(M("switch", "Safe recharge"):get() == true, "safe recharge on by default")
 do
     local changes = 0
@@ -863,6 +892,30 @@ do
     M("combo", "Manual yaw"):set("Off"); tick(0)
     check(ov("body_fs") == "Peek Fake", "back to a movement state: phase 5 again")
 end
+-- V1.1: phases 6 (desync 55 %), 7 (inverted, 70 %, +10 deg) and 8 (asymmetric side timing) come before the wrap.
+advance(8); handlers.bullet_impact(near); tick(0)
+check(ov("left") == 33 and ov("right") == 33 and ov("body_fs") == "Off", "V1.1: phase 6 lowers the desync to 55 %")
+draw()
+check(contains(texts, "BRUTE 6"), "V1.1: brute indicator shows phase 6")
+advance(8); handlers.bullet_impact(near); tick(0)
+check(ov("left") == 42 and ov("right") == 42 and (ov("offset") == -23 + 10 or ov("offset") == 51 + 10),
+      "V1.1: phase 7: desync 70 %, side inverted, head shifted 10 deg (offset " .. tostring(ov("offset")) .. ")")
+advance(8); handlers.bullet_impact(near); tick(0)
+check(ov("left") == 60 and ov("right") == 60, "V1.1: phase 8: full desync (asymmetric side timing)")
+do
+    -- Phase 8: with jitter delay 1 one side lasts 1 packet, the other 1 + 2 packets; after four flips they swap.
+    B("Standing", "combo", "Body yaw"):set("Jitter")
+    local runs, last, run = {}, nil, 0
+    for _ = 1, 40 do
+        tick(0)
+        local s = side()
+        if s == last then run = run + 1 else if last ~= nil then runs[#runs + 1] = run end; last, run = s, 1 end
+    end
+    local short, long = 0, 0
+    for _, r in ipairs(runs) do if r == 1 then short = short + 1 elseif r == 3 then long = long + 1 end end
+    check(short >= 8 and long >= 8, "V1.1: phase 8 alternates 1-packet and 3-packet sides (" .. short .. " short, " .. long .. " long)")
+    B("Standing", "combo", "Body yaw"):set("Static")
+end
 advance(8); handlers.bullet_impact(near); tick(0)
 check(side() == true and ov("left") == 60 and ov("body_fs") == "Off", "brute wraps to phase 1")
 draw()
@@ -959,7 +1012,11 @@ aa.charge = 1; lp.tb_shift = 0
 E("button", "Reset stats"):click()
 M("switch", "Stats panel"):set(false)
 reset_world()
+-- V1.1: snipers default to "Same as state" (DT); the hide shots behaviour is tested with the option set.
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state")
 lp.weapon_class = "CWeaponSSG08"; tick(0)
+check(ov("dt") == true and ov("hs") == false, "V1.1: scout uses the state's exploit (double tap) with the default setting")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); tick(0)
 check(ov("dt") == false and ov("hs") == true and ov("lag") == "On Peek" and ov("hs_opt") == "Favor Fire Rate",
       "scout uses hide shots")
 lp.m_fFlags = 0; tick(0)
@@ -1244,12 +1301,12 @@ local function iska_count()
 end
 E("button", "Reset stats"):click()
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 40, weapon = "ssg08" })
-check(printed[#printed]:match("vuruldun: head %-40 ssg08 | Standing | faz 0 | s[oa][lg] %d+ | DT dolu, DEF yok, atis yok[^|]*| sen ak47 | enemy5 %(Standing, AA hedefi yok, gormedi%)$") ~= nil,
+check(printed[#printed]:match("vuruldun: head %-40 ssg08 | Standing | faz 0 | s[oa][lg] %d+ | DT dolu, DEF yok, atis yok[^|]*| sen ak47 | enemy5 %(Standing, AA hedefi yok, gormedi %(iz: kapali%)%)$") ~= nil,
       "hit logged with weapon, AA side, exploit state and the attacker")
 local misses0 = iska_count()
 advance(12); handlers.bullet_impact(near5); advance(12)
 check(iska_count() == misses0 + 1
-      and printed[#printed]:match("iska: Standing | faz %d | s[oa][lg] %d+ | DT dolu, DEF yok, atis yok[^|]*| sen ak47 | enemy5 %(Standing, AA hedefi yok, gormedi%)$") ~= nil,
+      and printed[#printed]:match("iska: Standing | faz %d | s[oa][lg] %d+ | DT dolu, DEF yok, atis yok[^|]*| sen ak47 | enemy5 %(Standing, AA hedefi yok, gormedi %(iz: kapali%)%)$") ~= nil,
       "near miss logged with AA side, exploit state and the attacker")
 advance(12); handlers.bullet_impact(near5); tick(0)
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 25 }); advance(12)
@@ -1369,7 +1426,23 @@ check(polys >= 2, "manual arrows render")
 lp.m_bIsScoped = true; draw(); lp.m_bIsScoped = false
 M("switch", "Crosshair indicators"):set(false); M("switch", "Manual arrows"):set(false)
 draw()
+-- V1.1.9 (GameSense V1.0.76): the left list is on by default and stays when the crosshair ones are hidden.
+do
+local LEFT_IND = "Left indicators (DT / HS / FD / DEF / AFK ...)"
+check(M("switch", LEFT_IND):get() == true and M("switch", LEFT_IND).group == "Visuals/Indicators"
+      and contains(texts, "DT") and not contains(texts, "STANDING") and not contains(texts, "Nykle.win") and polys == 0,
+      "V1.1.9: left indicators on by default: DT listed without the crosshair indicators")
+check(same_color(colors["DT"], 124, 195, 13) and text_pos["DT"].x == 12 and math.abs(text_pos["DT"].y - 540) <= 52,
+      "V1.1.9: charged DT green, on the left edge, vertically centred")
+aa.charge = 0.5; draw()
+check(same_color(colors["DT"], 230, 200, 40), "V1.1.9: charging DT yellow")
+aa.charge = 0; draw()
+check(same_color(colors["DT"], 230, 70, 70), "V1.1.9: empty DT red")
+aa.charge = 1
+M("switch", LEFT_IND):set(false); draw()
 check(#texts == 0 and polys == 0, "indicators can be hidden")
+M("switch", LEFT_IND):set(true)
+end
 
 -- Menu visibility -------------------------------------------------------------------------
 M("combo", "State"):set("Global")
@@ -1408,7 +1481,7 @@ check(M("label", "Used while a safe head condition matches.").visible and B("Saf
 do
     local function group_of(kind, name) return M(kind, name).group or "?" end
     check(sidebar.name == "Nykle.win" and sidebar.icon == "crown", "sidebar: Nykle.win")
-    check(group_of("label", "Nykle.win  V1.0") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
+    check(group_of("label", "Nykle.win  V1.1.9") == "Home/Nykle.win" and group_of("switch", "Enable") == "Home/Nykle.win"
           and group_of("switch", "Always use recommended settings") == "Home/Nykle.win", "Home: header, enable, recommended")
     check(group_of("switch", "Resolver log") == "Home/Console" and group_of("switch", "Shot log") == "Home/Console"
           and group_of("switch", "Hit log") == "Home/Console" and group_of("switch", "Anti-brute log") == "Home/Console",
@@ -1439,7 +1512,7 @@ end
 M("switch", "Enable"):set(false)
 check(not M("combo", "Pitch").visible and not M("combo", "State").visible and not B("Safe head", "slider", "Yaw left").visible,
       "disable hides menu")
-check(M("label", "Nykle.win  V1.0").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
+check(M("label", "Nykle.win  V1.1.9").visible and M("switch", "Enable").visible, "the header and Enable stay visible")
 
 -- Recommended settings ---------------------------------------------------------------------------
 reset_world()
@@ -1465,7 +1538,7 @@ lines_rec = #printed
 handlers.config_state("pre_load"); handlers.config_state("post_load"); tick(0)
 check(B("Air", "combo", "Defensive"):get() == "Smart" and B("Standing", "slider", "Yaw left"):get() == -23
       and B("Air", "combo", "Exploit"):get() == "Double tap" and M("switch", "Auto peek"):get() == true
-      and M("combo", "Snipers (SSG08/AWP/R8)"):get() == "Auto (learn)" and M("switch", "Adaptive resolver"):get() == true
+      and M("combo", "Snipers (SSG08/AWP/R8)"):get() == "Same as state" and M("switch", "Adaptive resolver"):get() == true
       and M("switch", "Smart body aim"):get() == true,
       "loading a config brings back the recommended AA, exploit and builder settings")
 check(#printed == lines_rec, "the report is not repeated within 30 s")
@@ -1495,6 +1568,9 @@ check(B("Standing", "slider", "Yaw left"):get() == -23, "turning it back on appl
 M("switch", "Always use recommended settings"):set(false)
 M("switch", "Auto when standing still"):set(false); M("switch", "High ground"):set(true)
 M("switch", "Air lag (defensive every tick)"):set(false); M("switch", "Snipers use DT in the air"):set(false)
+M("switch", "Smart: force near enemies"):set(false) -- V1.1: legacy sections keep the enemy at 500 units unseen
+M("switch", "Wait for real record (unseen)"):set(false) -- V1.1: legacy sections; its own section tests it
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: legacy sections test the scout with hide shots
 M("combo", "Manual yaw"):set("Off"); M("switch", "Freestanding"):set(false); M("switch", "Stats panel"):set(false)
 reset_world()
 
@@ -1526,12 +1602,18 @@ check(last_cmd.force_defensive == true, "smart: a long exposure while moving kee
 world.trace = NO_TRACE; advance(12)
 world.trace = function(to) return to.x > 10 and 30 or 0 end; advance(2)
 check(last_cmd.force_defensive == true, "smart: re-armed after a break, just before coming into sight")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: snipers default to DT
 lp.weapon_class = "CWeaponSSG08"; advance(2)
 check(ov("hs") == true and ov("hs_opt") == "Break LC" and last_cmd.force_defensive == nil,
       "smart with hide shots breaks LC instead of forcing")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots")
 lp.weapon_class = "CAK47"; world.trace = function() return 30 end
 lp.m_vecVelocity = vector(0, 0, 0); advance(12)
-check(ov("offset") == yaw_for(-23, 51) and last_cmd.force_defensive == nil, "standing still in sight (on peek) is never forced")
+-- V1.1: Standing defaults to Smart, so holding an angle in sight is forced too.
+check(ov("offset") == yaw_for(-23, 51) and last_cmd.force_defensive == true, "V1.1: standing still in sight (Smart) is forced")
+B("Standing", "combo", "Defensive"):set("On peek"); advance(12)
+check(last_cmd.force_defensive == nil, "standing still in sight (on peek) is never forced")
+B("Standing", "combo", "Defensive"):set("Smart")
 M("switch", "Auto peek"):set(true)
 lp.m_vecVelocity = vector(250, 0, 0); advance(2)
 check(ov("offset") == yaw_for(-20, 45) and last_cmd.force_defensive == true, "peek state forces defensive by default")
@@ -1548,15 +1630,23 @@ check(ov("offset") == yaw_for(-20, 45) and last_cmd.force_defensive == true,
       "an enemy other than the threat seeing you triggers peek and smart defensive")
 draw()
 check(same_color(colors["VIS"], 150, 190, 255), "VIS shows a flanking enemy")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: snipers default to DT
 lp.weapon_class = "CWeaponSSG08"; advance(2)
 check(ov("hs") == true and ov("hs_opt") == "Break LC", "hide shots breaks LC for a flanking enemy")
 lp.m_vecVelocity = vector(0, 0, 0); advance(40)
 check(ov("offset") == yaw_for(-23, 51) and ov("hs_opt") == "Break LC",
       "standing still, hide shots still breaks LC while a flanking enemy sees you")
-lp.m_vecVelocity = vector(250, 0, 0); lp.weapon_class = "CAK47"; advance(2)
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots")
+-- V1.1: the hold only applies while standing (moving / peeking you are exposed anyway).
+lp.m_vecVelocity = vector(0, 0, 0); lp.weapon_class = "CAK47"; advance(2)
 handlers.weapon_fire({ userid = 1 }); aa.charge = 0.2; advance(2)
 check(aa.allow == false, "safe recharge holds while a flanking enemy sees you")
+lp.m_vecVelocity = vector(250, 0, 0); advance(2)
+check(aa.allow == true, "V1.1: moving releases the recharge hold (exposed anyway)")
+lp.m_vecVelocity = vector(0, 0, 0); advance(2)
+check(aa.allow == false, "V1.1: standing still again: held again within the window")
 aa.charge = 1; advance(2)
+lp.m_vecVelocity = vector(250, 0, 0); advance(2)
 world.trace = NO_TRACE; advance(16)
 check(last_cmd.force_defensive == nil and ov("offset") == yaw_for(-20, 50), "flank sight expires once hidden")
 world.trace = function(to, from) return from == enemy2 and 30 or 0 end
@@ -1613,8 +1703,10 @@ handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 20, 
 check(printed[#printed]:find("sarj bekle", 1, true) == nil, "no hold marker once charging")
 world.trace = function() return 30 end; advance(2)
 check(aa.allow == false, "safe recharge: held again when seen before the charge is full")
-advance(70)
-check(aa.allow == true, "safe recharge: gives up after 1.2 s so DT is never left empty")
+advance(14)
+check(aa.allow == false, "V1.1: still held at 0.4 s")
+advance(20)
+check(aa.allow == true, "V1.1: safe recharge: gives up after 0.5 s (was 1.2) so DT is never left empty")
 handlers.weapon_fire({ userid = 1 }); tick(0)
 check(aa.allow == false, "held after another shot")
 M("switch", "Safe recharge"):set(false); tick(0)
@@ -1631,6 +1723,7 @@ M("switch", "Enable"):set(true); tick(0)
 check(aa.allow == false, "held again after re-enable")
 aa.charge = 1; tick(0)
 check(aa.allow == true, "released once DT is full")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots") -- V1.1: snipers default to DT
 lp.weapon_class = "CWeaponSSG08"; tick(0)
 handlers.weapon_fire({ userid = 1 }); aa.charge = 0.3; tick(0)
 check(aa.allow == false, "hide shots held once its charge value is known to follow HS")
@@ -1642,6 +1735,7 @@ lp.weapon_class = "CAK47"; tick(0)
 check(aa.allow == false, "double tap held")
 handlers.shutdown()
 check(aa.allow == true, "released on shutdown")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots")
 aa.charge = 1; reset_world()
 world.threat = enemy; world.trace = function() return 30 end
 refs[SHORT.fakeduck].spec.value = true; refs[SHORT.dt].spec.value = true; aa.charge = 0; advance(200)
@@ -1656,13 +1750,18 @@ check(aa.allow == true, "fake duck recharge happens behind cover")
 world.trace = function() return 30 end; advance(2)
 check(aa.allow == false, "held again in sight before the charge is full")
 advance(80)
-check(aa.allow == true, "fake duck hold also gives up after 1.2 s")
+check(aa.allow == true, "fake duck hold also gives up after 0.5 s")
 aa.charge = 1; reset_world()
 E("button", "Reset stats"):click()
 M("switch", "Stats panel"):set(true)
 world.threat = enemy; world.trace = function() return 30 end
-handlers.weapon_fire({ userid = 1 }); aa.charge = 0.2; advance(72); draw()
-check(aa.allow == false and contains(texts, "STANDING   0 / 0 / 0 / - / -"), "a held recharge is not counted as an empty DT")
+-- V1.1: the hold lasts 0.5 s and sampling starts 1 s after your last shot, so the held recharge that sampling
+-- can see is the one after a fake duck (no shot involved).
+globals.realtime = globals.realtime + 5
+refs[SHORT.fakeduck].spec.value = true; advance(4)
+refs[SHORT.fakeduck].spec.value = false; aa.charge = 0.2; advance(20); draw()
+check(aa.allow == false and contains(texts, "STANDING   0 / 0 / 0 / - / -"),
+      "a held recharge (after a fake duck) is not counted as an empty DT (allow " .. tostring(aa.allow) .. ")")
 aa.charge = 1
 E("button", "Reset stats"):click()
 M("switch", "Stats panel"):set(false)
@@ -1736,6 +1835,19 @@ handlers.level_init(); tick(0)
 check(ov("safe") == "Force", "map change keeps resolver levels")
 forget(); tick(0)
 check(ov("safe") == nil, "forget button clears resolver levels")
+-- V1.1.8: get_xuid may return a number or a 64-bit cdata in the real game; all forms share one memory key.
+-- (a real 17-digit steam id is not exact as a double, so the numeric case uses a 16-digit value that is)
+enemy.xuid = "76561198000000005"; tick(0); ack(5, "correction")
+check(ov("safe") == "Prefer", "V1.1.8 setup: a miss against a steam id player")
+enemy.name, enemy.index, enemy.xuid = "cdata id", 10, setmetatable({}, { __tostring = function() return "76561198000000005ULL" end }); tick(0)
+check(ov("safe") == "Prefer", "V1.1.8: a 64-bit cdata-like steam id (tostring ...ULL) finds the same resolver memory")
+enemy.name, enemy.index, enemy.xuid = "enemy5", 5, "1000000000000005"; tick(0); ack(5, "correction")
+check(ov("safe") == "Prefer", "V1.1.8 setup: a miss against a second steam id player")
+enemy.name, enemy.index, enemy.xuid = "numeric id", 9, 1000000000000005; tick(0)
+check(ov("safe") == "Prefer", "V1.1.8: the same id as a number (new name and slot) finds it (no 1e+15 formatting)")
+enemy.name, enemy.index, enemy.xuid = "other id", 11, "76561198000000777"; tick(0)
+check(ov("safe") == nil, "V1.1.8: another steam id starts fresh")
+enemy.name, enemy.index, enemy.xuid = "enemy5", 5, nil; forget(); tick(0)
 -- Per-state learning
 handlers.level_init(); forget(); world.threat = enemy
 enemy.m_fFlags = 0; ack(5, "correction")
@@ -2368,13 +2480,13 @@ reset_world(); forget()
 B("Standing", "combo", "Body yaw"):set("Static")
 world.threat = enemy; world.enemies = { enemy, enemy2 }; tick(0)
 M("switch", "Stats panel"):set(true); draw()
-check(contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0") and side() == false, "no data: phase 0, the base AA")
+check(contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0") and side() == false, "no data: phase 0, the base AA")
 handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 1, dmg_health = 100, weapon = "ssg08" }); tick(0)
 check(side() == false, "one headshot does not change the default")
 local lines_aa = #printed
 handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 1, dmg_health = 100, weapon = "ssg08" }); tick(0); draw()
-check(side() == true and ov("offset") == 51 and contains(texts, "BRUTE 1") and contains(texts, "YERDE   0 2/2   1* 0/0   2 0/0   3 0/0   4 0/0   5 0/0")
-      and contains(texts, "HAREKET   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0")
+check(side() == true and ov("offset") == 51 and contains(texts, "BRUTE 1") and contains(texts, "YERDE   0 2/2   1* 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
+      and contains(texts, "HAREKET   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
       and printed[lines_aa + 1] == "[Nykle.win] AA (yerde): en az vurulan faz 1 (0/0 kafa isabeti) -> verisi olmayan dusmanlara faz 1",
       "two headshots at phase 0 while standing: enemies without their own phase start at phase 1 on the ground")
 lp.m_vecVelocity = vector(250, 0, 0); advance(2)
@@ -2389,11 +2501,11 @@ for _ = 1, 3 do
     advance(12); handlers.bullet_impact({ userid = 5, x = -500, y = 6, z = 64 }); advance(12)
 end
 draw()
-check(contains(texts, "YERDE   0 2/2   1* 0/1   2 0/1   3 0/1   4 0/0   5 0/0"), "each near miss is counted for the phase in use (anti-brute moves on)")
+check(contains(texts, "YERDE   0 2/2   1* 0/1   2 0/1   3 0/1   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0"), "each near miss is counted for the phase in use (anti-brute moves on)")
 handlers.round_start({}); tick(0)
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 30, weapon = "ssg08" })
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 50, weapon = "knife_t" }); draw()
-check(contains(texts, "YERDE   0 2/2   1* 0/1   2 0/1   3 0/1   4 0/0   5 0/0"), "body hits and knife hits are not counted")
+check(contains(texts, "YERDE   0 2/2   1* 0/1   2 0/1   3 0/1   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0"), "body hits and knife hits are not counted")
 handlers.level_init()
 check(db.ant_a_m_memory.phase_groups.still[1].hits == 2 and db.ant_a_m_memory.phase_groups.still[2].shots == 1
       and db.ant_a_m_memory.phase_groups.air[1].shots == 0, "phase statistics are saved per group")
@@ -2407,7 +2519,7 @@ for _, t in ipairs(texts) do local n = t:match("^YERDE   0%*? %d+/(%d+)") if n t
 check(zero_shots ~= nil and zero_shots > 0 and zero_shots <= 40, "counts are halved past 40 so recent games weigh more (" .. tostring(zero_shots) .. ")")
 check(contains(texts, "BRUTE 1") == false and side() == false, "many misses at phase 0 make it the least-hit phase again")
 forget(); draw()
-check(contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0") and side() == false, "forget clears the phase statistics")
+check(contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0") and side() == false, "forget clears the phase statistics")
 -- V1.0: a phase hit on about half the head bullets is left for phases not tried yet (log: "AA (peek):
 -- en az vurulan faz 1 (16/33 kafa isabeti)" while the other phases were never tried).
 do
@@ -2447,7 +2559,7 @@ M("combo", "Manual yaw"):set("Off")
 lp.m_fFlags, lp.m_flDuckAmount, lp.weapon_class = 0, 1, "CKnife"; tick(0); tick(0)
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
 lp.m_fFlags, lp.m_flDuckAmount, lp.weapon_class = 1, 0, "CAK47"; advance(4); draw()
-check(contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0") and contains(texts, "HAVA   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0"),
+check(contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0") and contains(texts, "HAVA   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0"),
       "hits and near misses in Manual and Safe head are not counted (their own AA)")
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" }); draw()
 local still_hits, still_shots = 0, 0
@@ -2462,8 +2574,8 @@ lp.m_vecVelocity = vector(250, 0, 0); advance(2)
 handlers.bullet_impact({ userid = 5, x = -500, y = 6, z = 64 })
 lp.m_vecVelocity = vector(0, 0, 0); advance(2)
 handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" }); draw()
-check(contains(texts, "PEEK   0* 1/1   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0") and contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0")
-      and contains(texts, "HAREKET   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0"),
+check(contains(texts, "PEEK   0* 1/1   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0") and contains(texts, "YERDE   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0")
+      and contains(texts, "HAREKET   0* 0/0   1 0/0   2 0/0   3 0/0   4 0/0   5 0/0   6 0/0   7 0/0   8 0/0"),
       "a headshot is counted in the group you were in when the bullet came (peek: its own group), not after stopping")
 forget(); draw()
 M("switch", "Stats panel"):set(false)
@@ -2547,7 +2659,8 @@ check(ov("min_damage") == nil, "rifles are left alone")
 lp.weapon_class = "CWeaponSCAR20"; tick(0)
 check(ov("min_damage") == nil, "autos keep body shots (two of them kill with DT)")
 refs[SHORT.min_damage].spec.value = 110; tick(0); lp.weapon_class = "CWeaponSSG08"; tick(0)
-check(ov("min_damage") == nil and ov("body_aim") == "Prefer", "your own higher minimum damage is never lowered")
+-- V1.1.3: the DT pair now asks for Force (body); the minimum damage is still yours.
+check(ov("min_damage") == nil and (ov("body_aim") == "Prefer" or ov("body_aim") == "Force"), "your own higher minimum damage is never lowered")
 refs[SHORT.min_damage].spec.value = 30; lp.weapon_class = "CAK47"; tick(0); lp.weapon_class = "CWeaponAWP"; tick(0)
 check(ov("min_damage") == 101 and ov("body_aim") == "Prefer", "AWP: the same")
 lp.weapon_class, lp.weapon_index = "CDEagle", 64; tick(0)
@@ -2586,55 +2699,68 @@ handlers.level_init(); forget()
 reset_world()
 
 -- Sniper exploit learning ------------------------------------------------------------------------
+-- V1.1: the default is "Same as state" (DT). "Auto (learn)" starts with DT, keeps it for 24 bullets, explores the
+-- other exploit once the current one takes 45 %+ head hits, and only switches back by a 0.15 margin
+-- (GameSense V1.0.24: hide shots took 45 % head vs 36 % with DT, the old 4-bullet learner flipped whole sessions).
 reset_world(); forget()
-check(M("combo", "Snipers (SSG08/AWP/R8)"):get() == "Auto (learn)", "snipers: learn hide shots vs double tap by default")
+M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); lp.weapon_class = "CWeaponSSG08"; tick(0)
+check(ov("dt") == true, "V1.1: 'Same as state' (the default) runs the state's double tap on a scout")
 M("combo", "Snipers (SSG08/AWP/R8)"):set("Auto (learn)")
 world.threat = enemy; lp.weapon_class = "CWeaponSSG08"; tick(0)
 M("switch", "Stats panel"):set(true); draw()
-check(ov("hs") == true and contains(texts, "SNIPER   HS* 0/0   DT 0/0"), "auto: scouts start with hide shots")
+check(ov("dt") == true and contains(texts, "SNIPER   HS 0/0   DT* 0/0"), "V1.1: auto: scouts start with double tap")
 local lines_sn = #printed
 local function sniper_hit() handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 300, weapon = "ssg08" }); tick(0) end
 local function near_misses(n)
     for _ = 1, n do advance(12); handlers.bullet_impact({ userid = 5, x = -500, y = 6, z = 64 }); advance(12) end
 end
 near_misses(2); sniper_hit(); draw()
-check(ov("hs") == true and contains(texts, "SNIPER   HS* 1/3   DT 0/0"), "one headshot does not switch")
-sniper_hit(); sniper_hit(); draw()
-check(ov("hs") == true and contains(texts, "SNIPER   HS* 3/5   DT 0/0"), "three of five: not clearly worse than an untried double tap (0.1 margin)")
+check(ov("dt") == true and contains(texts, "SNIPER   HS 0/0   DT* 1/3"), "one headshot does not switch")
+for _ = 1, 9 do sniper_hit() end
+near_misses(2); draw()
+check(ov("dt") == true and contains(texts, "SNIPER   HS 0/0   DT* 10/14"), "V1.1: 10 of 14 head hits: under 24 bullets the choice stays")
+near_misses(9); draw()
+check(ov("dt") == true and contains(texts, "SNIPER   HS 0/0   DT* 10/23"), "V1.1: 23 bullets: still no decision")
 local switch_line
-sniper_hit(); sniper_hit(); draw()
+sniper_hit(); draw()
 for i = lines_sn + 1, #printed do if printed[i]:find("sniper exploit:", 1, true) then switch_line = printed[i] end end
-check(ov("dt") == true and ov("hs") == false and contains(texts, "SNIPER   HS 5/7   DT* 0/0")
-      and switch_line == "[Nykle.win] sniper exploit: Hide shots 5/7, Double tap 0/0 kafa isabeti -> Double tap",
-      "five of seven with hide shots: double tap is tried")
+check(ov("hs") == true and ov("dt") == false and contains(texts, "SNIPER   HS* 0/0   DT 11/24")
+      and switch_line == "[Nykle.win] sniper exploit: Hide shots 0/0, Double tap 11/24 kafa isabeti -> Hide shots",
+      "V1.1: 11 of 24 with double tap (45 %+): the untried hide shots is explored")
 near_misses(4); draw()
-check(ov("dt") == true and contains(texts, "SNIPER   HS 5/7   DT* 0/4"), "near misses with double tap keep it")
+check(ov("hs") == true and contains(texts, "SNIPER   HS* 0/4   DT 11/24"), "near misses with hide shots keep it")
 lp.weapon_class = "CAK47"; tick(0); handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
 tick(0); draw()
-check(contains(texts, "SNIPER   HS 5/7   DT* 0/4"), "hits while not holding a sniper are not counted")
+check(contains(texts, "SNIPER   HS* 0/4   DT 11/24"), "hits while not holding a sniper are not counted")
 lp.weapon_class = "CWeaponSSG08"
 M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); tick(0)
 check(ov("hs") == true, "the hide shots setting forces it")
 M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); tick(0)
 check(ov("dt") == true, "same as state uses the state's double tap")
-M("combo", "Snipers (SSG08/AWP/R8)"):set("Auto (learn)")
-handlers.level_init()
-check(db.ant_a_m_memory.sniper.hs.hits == 5 and db.ant_a_m_memory.sniper.dt.shots == 4, "sniper statistics are saved")
-forget(); tick(0); draw()
-check(ov("hs") == true and contains(texts, "SNIPER   HS* 0/0   DT 0/0"), "forget resets the sniper choice")
-for _ = 1, 3 do sniper_hit() end
-check(ov("hs") == true, "three headshots out of three: under four bullets the choice stays")
-sniper_hit()
-check(ov("dt") == true, "double tap tried again")
-M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); tick(0)
-check(ov("hs") == true and ov("dt") == false, "the default hide shots ignores what the learning picked")
 M("combo", "Snipers (SSG08/AWP/R8)"):set("Auto (learn)"); tick(0)
-for _ = 1, 9 do sniper_hit() end
-check(ov("dt") == true, "nine headshots with double tap: not yet clearly worse than 4/4 with hide shots")
+check(ov("hs") == true, "auto again: the learned hide shots")
+handlers.level_init()
+check(db.ant_a_m_memory.sniper.dt.hits == 11 and db.ant_a_m_memory.sniper.hs.shots == 4, "sniper statistics are saved")
+for _ = 1, 12 do sniper_hit() end
+near_misses(8)
+check(ov("hs") == true, "V1.1: hide shots 12/24 (0.50) vs double tap 11/24 (0.46): not clearly worse by 0.15, stays")
+for _ = 1, 8 do sniper_hit() end
+check(ov("hs") == true, "V1.1: hide shots 20/32 (0.61): still inside the margin")
 sniper_hit()
-check(ov("hs") == true, "double tap clearly worse: back to hide shots")
+for i = lines_sn + 1, #printed do if printed[i]:find("sniper exploit:", 1, true) then switch_line = printed[i] end end
+check(ov("dt") == true and switch_line == "[Nykle.win] sniper exploit: Hide shots 21/33, Double tap 11/24 kafa isabeti -> Double tap",
+      "V1.1: hide shots clearly worse (0.15 margin): back to double tap")
+-- Double tap then takes head after head: once it is clearly worse than hide shots (0.15 margin) it goes back.
+do
+    local n = 0
+    while ov("dt") == true and n < 60 do sniper_hit(); n = n + 1 end
+    for i = lines_sn + 1, #printed do if printed[i]:find("sniper exploit:", 1, true) then switch_line = printed[i] end end
+    check(ov("hs") == true and n >= 20 and switch_line:find("-> Hide shots", 1, true) ~= nil,
+          "V1.1: double tap clearly worse after " .. n .. " more head hits: back to hide shots (" .. tostring(switch_line) .. ")")
+end
+forget(); tick(0); draw()
+check(ov("dt") == true and contains(texts, "SNIPER   HS 0/0   DT* 0/0"), "forget resets the sniper choice (double tap first)")
 M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots")
-forget(); tick(0)
 M("switch", "Stats panel"):set(false)
 handlers.level_init(); forget()
 reset_world()
@@ -2694,6 +2820,8 @@ reset_world()
 check(M("switch", "Defensive vs enemy peeks"):get() == true and M("switch", "Teleport in air when seen"):get() == true,
       "defensive vs enemy peeks and air teleport on by default")
 world.threat = enemy; world.enemies = { enemy }; lp.weapon_class = "CAK47"
+-- V1.1: Standing defaults to Smart; the peek reaction belongs to "On peek", so this section sets it.
+B("Standing", "combo", "Defensive"):set("On peek")
 -- The enemy (500 ahead) sees the head only from y >= 40.
 local from_side = function(_, from, eye) if from == enemy and eye ~= nil and eye.y >= 40 then return 30 end return 0 end
 world.trace = from_side; advance(4)
@@ -2707,12 +2835,12 @@ advance(8)
 check(last_cmd.force_defensive == nil, "then released")
 enemy.m_vecVelocity = vector(0, 250, 0); advance(2)
 check(last_cmd.force_defensive == true, "re-armed on the next peek")
--- V1.0: once it sees you, the reaction goes on only while your gun cannot fire (bolt, reload): with
--- a gun ready the shot comes first ("hard to hit moving enemies coming at me" while it forced).
+-- V1.1 (GameSense V1.0.23): once it sees you the reaction is forced with the gun ready too (42 % of the head
+-- bullets came within 0.1 s of being seen); a clean shot (target shootable) still cancels it.
 enemy.m_vecVelocity = vector(0, 0, 0); advance(40)
 check(last_cmd.force_defensive == nil, "the prediction ended: released")
 enemy.eye = vector(500, 50, 64); advance(2)
-check(last_cmd.force_defensive == nil, "the enemy appears, your gun is ready: nothing forced, your shot comes first")
+check(last_cmd.force_defensive == true, "V1.1: the enemy appears, your gun is ready: forced anyway (a clean shot would cancel)")
 enemy.eye = vector(500, 0, 64); advance(40)
 globals.curtime, lp.next_attack = 50, 51
 enemy.eye = vector(500, 50, 64); advance(2); draw()
@@ -2749,7 +2877,7 @@ check(last_cmd.force_defensive == nil, "the other enemy still: nothing")
 enemy2.m_vecVelocity = vector(250, 0, 0); advance(4)
 check(last_cmd.force_defensive == true, "another enemy peeking toward you: defensive forced")
 handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 2, dmg_health = 20, weapon = "ssg08" })
-check(printed[#printed]:find("gormedi)", 1, true) ~= nil, "a predicted peek is not logged as a sighting")
+check(printed[#printed]:find("gormedi (iz:", 1, true) ~= nil, "a predicted peek is not logged as a sighting")
 enemy2.m_vecVelocity = vector(0, 0, 0); advance(40)
 -- V1.0: another enemy that already sees your head and moves fast (peeking you): forced too.
 world.trace = function(_, from) if from == enemy2 then return 30 end return 0 end
@@ -2760,6 +2888,7 @@ enemy2.m_vecVelocity = vector(250, 0, 0); advance(8)
 check(last_cmd.force_defensive == true, "another enemy in sight moving fast (peeking you), gun not ready: defensive forced")
 globals.curtime, lp.next_attack = nil, nil
 enemy2.m_vecVelocity, enemy.m_vecVelocity = nil, nil; world.enemies = { enemy }; enemy2.eye = vector(0, 500, 64)
+B("Standing", "combo", "Defensive"):set("Smart")
 reset_world()
 -- Air teleport: once per jump (V1.0: each teleport spends the charge and leaves the air without
 -- defensive until it is back; v5.4-v5.6 did up to five).
@@ -2955,10 +3084,12 @@ end
 do
     reset_world(); handlers.level_init(); forget(); E("button", "Reset stats"):click(); handlers.round_start({})
     world.threat = enemy; tick(0)
-    handlers.player_death({ userid = 5, attacker = 1 })
+    handlers.player_death({ userid = 5, attacker = 1, headshot = true })
+    check(printed[#printed] == "[Nykle.win] oldurdun: enemy5 | Standing | sen ak47 | headshot", "V1.1.2: a kill is logged with your state and weapon (" .. tostring(printed[#printed]) .. ")")
     refs[SHORT.fakeduck].spec.value = true; advance(2)
     handlers.player_death({ userid = 7, attacker = 1 })
     handlers.player_death({ userid = 1, attacker = 5 })
+    check(printed[#printed] == "[Nykle.win] oldun: enemy5 | Fake duck | sen ak47", "V1.1.2: a death is logged with the killer and your state (" .. tostring(printed[#printed]) .. ")")
     refs[SHORT.fakeduck].spec.value = false; advance(2)
     handlers.player_death({ userid = 6, attacker = 1 })
     handlers.player_death({ userid = 1, attacker = 1 })
@@ -3835,13 +3966,13 @@ check(sight_time ~= nil and sight_time >= 0.2 and sight_time <= 0.32,
       "the threat that saw you: AA target and how long it saw you (" .. tostring(sight_time) .. ")")
 enemy2.m_fFlags = 0
 handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
-check(printed[#printed]:match("| enemy7 %(Air, AA hedefi degil, gormedi%)$") ~= nil, "another enemy our traces did not see")
+check(printed[#printed]:match("| enemy7 %(Air, AA hedefi degil, gormedi %(iz: [a-z ]+%)%)$") ~= nil, "another enemy our traces did not see")
 world.trace = function(to, from) return from == enemy2 and 30 or 0 end; advance(12)
 handlers.bullet_impact({ userid = 7, x = 0, y = -500, z = 64 }); advance(12)
 check(printed[#printed]:match("iska: .+| enemy7 %(Air, AA hedefi degil, gordu 0%.%d%ds%)$") ~= nil, "a flanker that saw you, in the miss log")
 world.trace = NO_TRACE; advance(40)
 handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
-check(printed[#printed]:match("| enemy7 %(Air, AA hedefi degil, gormedi%)$") ~= nil, "an old sight is not reported")
+check(printed[#printed]:match("| enemy7 %(Air, AA hedefi degil, gormedi %(iz: [a-z ]+%)%)$") ~= nil, "an old sight is not reported")
 enemy2.m_fFlags = nil
 handlers.level_init(); forget()
 -- The anti-brute phase follows the enemy that can see you.
@@ -3883,6 +4014,606 @@ world.threat_calls = 0; tick(0); tick(0); tick(0)
 check(world.threat_calls == 3, "the threat is read once per tick (" .. tostring(world.threat_calls) .. ")")
 M("switch", "Freestanding"):set(false)
 reset_world()
+
+-- V1.1 (ported from the GameSense edition) -------------------------------------------------------
+do
+    local v = {} -- scratch (the harness chunk is near Lua's 200-local limit)
+    -- Smart near: an unseen enemy within 1800 units forces the DT defensive while standing.
+    reset_world(); forget()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = NO_TRACE; aa.charge = 1; lp.weapon_class = "CAK47"
+    advance(70) -- earlier sightings expire (SIGHT.keep)
+    check(last_cmd.force_defensive == nil, "V1.1 setup: unseen, near rule off: nothing forced")
+    M("switch", "Smart: force near enemies"):set(true); advance(3)
+    check(last_cmd.force_defensive == true and ov("lag") == "On Peek",
+          "V1.1: smart near: an unseen enemy 500 units away forces the defensive while standing")
+    enemy.origin = vector(3000, 0, 0); advance(12)
+    check(last_cmd.force_defensive == nil, "V1.1: smart near: nothing forced with the nearest enemy 3000 units away")
+    enemy.origin = vector(1700, 0, 0); advance(3)
+    check(last_cmd.force_defensive == true, "V1.1: smart near: forced again at 1700 units")
+    enemy.dormant = true; advance(12)
+    check(last_cmd.force_defensive == nil, "V1.1: smart near: a dormant enemy does not count")
+    enemy.dormant = nil; advance(3)
+    M("switch", "Smart: force near enemies"):set(false); advance(12)
+    M("switch", "Wait for real record (unseen)"):set(false) -- V1.1: legacy sections; its own section tests it
+    check(last_cmd.force_defensive == nil, "V1.1: smart near can be turned off")
+    enemy.origin = vector(500, 0, 0)
+
+    -- Known-bad phase: a learned phase that took 12+ bullets with 55 %+ head hits is skipped (the enemy moves on).
+    reset_world(); forget()
+    world.threat = enemy; world.enemies = { enemy, enemy2 }; world.trace = NO_TRACE; tick(0)
+    handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 1, dmg_health = 100, weapon = "ssg08" }); tick(0)
+    handlers.player_hurt({ userid = 1, attacker = 7, hitgroup = 1, dmg_health = 100, weapon = "ssg08" }); advance(70)
+    world.threat = enemy2; tick(0); draw()
+    check(contains(texts, "BRUTE 1"), "V1.1 setup: enemy7 learned phase 1 (two head hits at phase 0)")
+    for i = 1, 12 do
+        if i <= 8 then
+            handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
+        else
+            handlers.bullet_impact({ userid = 5, x = -500, y = 6, z = 64 })
+        end
+        advance(70)
+    end
+    M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
+    v.yerde = nil
+    for _, t in ipairs(texts) do if t:find("^YERDE") then v.yerde = t end end
+    check(v.yerde ~= nil and v.yerde:find("1x 8/12", 1, true) ~= nil and contains(texts, "BRUTE 2"),
+          "V1.1: phase 1 took 8 head hits in 12 bullets on the ground: marked x and the learned enemy skips it to phase 2 ("
+          .. tostring(v.yerde) .. ")")
+    world.threat = enemy; world.enemies = { enemy }; forget()
+
+    -- Record-lag look-ahead: an enemy whose record is behind (defensive) is looked ahead that much further.
+    reset_world(); forget()
+    B("Standing", "combo", "Defensive"):set("On peek")
+    world.threat = enemy; world.enemies = { enemy }; enemy.eye = vector(500, 0, 64)
+    world.trace = function(_, from, eye) if from == enemy and eye ~= nil and eye.y >= 40 then return 30 end return 0 end
+    enemy.m_flSimulationTime = 70; tick(0); enemy.m_flSimulationTime = 70 + 1 / 64; tick(0)
+    enemy.m_vecVelocity = vector(0, 150, 0); advance(4)
+    check(last_cmd.force_defensive == nil, "V1.1: real record: 0.2 s ahead the enemy's eye is at y = 30, no peek yet")
+    enemy.m_flSimulationTime = 69.9; advance(4)
+    check(last_cmd.force_defensive == true,
+          "V1.1: fake record 0.12 s behind: the look-ahead stretches to 0.32 s (y = 47), the peek is predicted and forced")
+    enemy.m_flSimulationTime = 70.2; advance(30)
+    check(last_cmd.force_defensive == nil, "V1.1: record real again: back to 0.2 s, released")
+    enemy.m_vecVelocity = vector(0, 0, 0); enemy.m_flSimulationTime = nil
+    B("Standing", "combo", "Defensive"):set("Smart")
+
+    -- DT pair (snipers): body x 2 >= HP with DT charged lowers Min. Damage to body - 1 (first bullet body, second by DT).
+    -- V1.1.7: the user confirmed the scout's DT never fires a second bullet (only the deagle's does): with Headshot
+    -- priority the pair applies only to a laggy record (head will not hit).
+    reset_world(); forget()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end
+    lp.weapon_class = "CWeaponSSG08"; aa.charge = 1; enemy.m_iHealth, enemy.m_ArmorValue = 100, 0
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Same as state"); advance(3)
+    check(ov("min_damage") == 101 and ov("body_aim") == "Prefer"
+          and printed[#printed]:match("^%[Nykle%.win%] enemy5: DT cifti yerine kafa %(govde %d+ x 2 >= can 100 ama scout'ta ikinci mermi surguden sonra%)$") ~= nil,
+          "V1.1.7: Headshot priority, fresh record: no pair, head only, logged (" .. tostring(printed[#printed]) .. ")")
+    v.lines = #printed; advance(4)
+    check(#printed == v.lines, "V1.1.6: the line is not repeated")
+    draw()
+    check(contains(texts, "HEAD"), "V1.1.7: HEAD indicator (only the head kills)")
+    enemy.m_flSimulationTime = 70; tick(0); globals.curtime = 70 + 10 / 64; advance(3)
+    v.md = ov("min_damage")
+    check(v.md ~= nil and v.md >= 59 and v.md <= 99 and ov("body_aim") == "Force"
+          and printed[#printed]:match("^%[Nykle%.win%] enemy5: DT cifti olduruyor %(govde %d+ x 2 >= can 100%), Min%. Damage gecici "
+          .. tostring(v.md) .. "$") ~= nil,
+          "V1.1.8: the target's record 10 ticks behind the server (laggy): head will not hit, Min. Damage lowered to body - 1 and the body forced (" .. tostring(v.md) .. ", " .. tostring(ov("body_aim")) .. ")")
+    draw()
+    check(not contains(texts, "HEAD"), "V1.1: DT pair: no HEAD indicator (the body shot is lethal with the pair)")
+    globals.curtime = 70 + 4 / 64; advance(2)
+    check(ov("min_damage") == 101, "V1.1.6: the record 4 ticks behind: fresh, head only again")
+    globals.curtime = 70 + 10 / 64; advance(2)
+    M("switch", "Headshot priority"):set(false); advance(2)
+    check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.3: Headshot priority off, no shot yet: the DT pair forces the body")
+    M("switch", "Headshot priority"):set(true); advance(2)
+    check(ov("body_aim") == "Force", "V1.1.8: Headshot priority on again, laggy record: still forced")
+    handlers.aim_fire({ id = 900, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 900, target = 5, hitgroup = 3, damage = 80 }); advance(2)
+    check(ov("body_aim") == "Force", "V1.1.8: a shot at the laggy target: forced")
+    M("switch", "Headshot priority"):set(false); advance(2)
+    check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.3: Headshot priority off: DT pair forces the body, the pair Min. Damage stays")
+    advance(40)
+    check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.3: seen for 0.5 s without a shot: Force relaxes to Prefer, the pair Min. Damage stays")
+    handlers.aim_fire({ id = 901, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 901, target = 5, hitgroup = 3, damage = 80 }); advance(2)
+    check(ov("body_aim") == "Force", "V1.1.3: a shot at the target: Force again")
+    M("switch", "Headshot priority"):set(true); advance(2)
+    check(ov("body_aim") == "Force" and ov("min_damage") == v.md, "V1.1.8: Headshot priority back on, laggy record: forced, the pair Min. Damage stays")
+    advance(40)
+    check(ov("body_aim") == "Prefer" and ov("min_damage") == v.md, "V1.1.8: laggy pair seen for 0.5 s without a shot: relaxes to Prefer too")
+    handlers.aim_fire({ id = 902, target = 5, hitgroup = 3, damage = 80 }); handlers.aim_ack({ id = 902, target = 5, hitgroup = 3, damage = 80 }); advance(2)
+    enemy.m_iHealth = 60; advance(2)
+    check(ov("body_aim") == "Force", "V1.1.5: one body bullet kills 60 HP after a shot at the target: still forced with Headshot priority")
+    enemy.m_iHealth = 100; advance(2)
+    globals.curtime = nil; advance(2)
+    check(ov("min_damage") == 101, "V1.1.7: record age unreadable (no curtime): counts as fresh, head only")
+    globals.curtime = 70 + 10 / 64; advance(2)
+    M("switch", "Headshot priority"):set(false); globals.curtime = nil; advance(2)
+    check(ov("min_damage") == v.md and ov("body_aim") == "Force", "V1.1.3: Headshot priority off: the pair on a fresh record too, body forced")
+    M("switch", "Headshot priority"):set(true); globals.curtime = 70 + 10 / 64; advance(2)
+    check(ov("min_damage") == v.md and ov("body_aim") == "Force", "V1.1.7 setup: laggy pair again")
+    aa.charge = 0.5; advance(2)
+    check(ov("min_damage") == 101, "V1.1: DT pair needs a charged DT: back to HP + 1")
+    aa.charge = 1; M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(false); advance(2)
+    check(ov("min_damage") == 101, "V1.1: DT pair can be turned off")
+    M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(true)
+    lp.weapon_class = "CAK47"; tick(0); refs[SHORT.min_damage].spec.value = 110; tick(0); lp.weapon_class = "CWeaponSSG08"; advance(2)
+    check(ov("min_damage") == nil, "V1.1: your own HP+ minimum damage is never lowered by the pair rule")
+    lp.weapon_class = "CAK47"; tick(0); refs[SHORT.min_damage].spec.value = 30; tick(0); lp.weapon_class = "CWeaponSSG08"
+    enemy.m_iHealth = 180; advance(2)
+    check(ov("min_damage") == 101, "V1.1: 180 HP: two body bullets do not kill, head only")
+    -- A body bullet under 60 (traced: 55 through cover): two of them would kill 100 HP, but the pair rule needs a
+    -- solid body bullet (>= 60).
+    enemy.m_iHealth = 100; enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
+    lp.get_eye_position = function() return vector(0, 0, 64) end; world.trace = function() return 55 end; advance(2)
+    check(ov("min_damage") == 101, "V1.1: body bullet under 60: no pair rule, head only (MD " .. tostring(ov("min_damage")) .. ")")
+    enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = function() return 30 end
+    enemy.m_iHealth, enemy.m_ArmorValue = nil, nil; globals.curtime, enemy.m_flSimulationTime = nil, nil
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); lp.weapon_class = "CAK47"
+
+    -- Fresh record only (V1.1.5): the target's current record cannot be hit (it was a moment ago): fire held so the
+    -- aimbot does not shoot an old (backtrack) record; free when the record is hittable again or the window passes.
+    reset_world(); forget(); M("switch", "Shot log"):set(false) -- no 'dbg sikmadi' lines between the checked log lines
+    world.threat = enemy; world.enemies = { enemy }; lp.weapon_class = "CWeaponSSG08"; aa.charge = 1
+    enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
+    lp.get_eye_position = function() return vector(0, 0, 64) end
+    v.seen = function(_, from) if from == enemy then return 30 end return 0 end -- the enemy sees you, your bullets pass nothing
+    world.trace = function() return 30 end; advance(4)
+    check(ov("min_damage") == 101, "V1.1.5 setup: scout, the target hittable: head only (MD 101)")
+    world.trace = v.seen; advance(2)
+    check(ov("min_damage") == 130, "V1.1.5: the current record cannot be hit any more: fire held (MD 130), no backtrack shot")
+    check(type(ov("hitboxes")) == "table" and #ov("hitboxes") == 0, "V1.1.8: the hold empties the hitbox list (MD 130 alone did not stop a scout head shot)")
+    world.trace = NO_TRACE; advance(10)
+    check(ov("min_damage") == 130 and type(ov("hitboxes")) == "table" and #ov("hitboxes") == 0,
+          "V1.1.8: the enemy behind the corner sees you no more either: the hold stays (it used to drop with the exposure)")
+    world.trace = v.seen; advance(10)
+    check(ov("min_damage") == 130, "V1.1.5: still held inside the 24-tick backtrack window")
+    advance(4)
+    check(ov("min_damage") == 101 and printed[#printed]:find("su anki kaydi vurulamiyordu: ", 1, true) ~= nil
+          and printed[#printed]:find("tick taze kayit beklendi, eski kayitlar gecti (backtrack yok)", 1, true) ~= nil,
+          "V1.1.5: the window passed: head only again, logged (" .. tostring(printed[#printed]) .. ")")
+    check(ov("hitboxes") == nil, "V1.1.8: the hitbox list is back")
+    world.trace = v.seen; advance(10)
+    check(ov("min_damage") == 101, "V1.1.5: a target that stays unhittable is not held again (nothing to backtrack to)")
+    world.trace = function() return 30 end; advance(2); world.trace = v.seen; advance(3)
+    check(ov("min_damage") == 130, "V1.1.5: hittable again then gone: held again")
+    v.lines = #printed
+    lp.weapon_class = "CAK47"; advance(2); lp.weapon_class = "CWeaponSSG08"; world.trace = function() return 30 end; advance(2)
+    v.stale = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("taze kayit beklendi", 1, true) then v.stale = printed[i] end end
+    check(ov("min_damage") == 101 and v.stale == nil,
+          "V1.1.8: a weapon switch in the middle of a hold ends it quietly (no stale count logged) (" .. tostring(v.stale) .. ")")
+    world.trace = v.seen; advance(3)
+    check(ov("min_damage") == 130, "V1.1.8 setup: held again")
+    world.trace = function() return 30 end; advance(2)
+    check(ov("min_damage") == 101 and printed[#printed]:find("taze kayit beklendi, kayit taze, ates serbest", 1, true) ~= nil,
+          "V1.1.5: the record is hittable again: free at once, logged (" .. tostring(printed[#printed]) .. ")")
+    world.trace = v.seen; advance(3); M("switch", "Snipers: fresh record only"):set(false); advance(2)
+    check(ov("min_damage") == 101, "V1.1.5: fresh record only can be turned off")
+    M("switch", "Snipers: fresh record only"):set(true); world.trace = function() return 30 end; advance(2)
+    lp.weapon_class = "CAK47"; advance(2); world.trace = v.seen; advance(3)
+    check(ov("min_damage") == nil, "V1.1.5: a rifle: no fresh record hold")
+    lp.weapon_class = "CWeaponSSG08"; world.trace = function() return 30 end; advance(2)
+    M("switch", "Resolver log"):set(false); world.trace = v.seen; v.lines = #printed; advance(30)
+    check(ov("min_damage") == 101 and #printed == v.lines, "V1.1.5: Resolver log off: the hold still works, nothing printed")
+    M("switch", "Resolver log"):set(true); M("switch", "Shot log"):set(true)
+    enemy.get_hitbox_position, lp.get_eye_position = nil, nil; world.trace = NO_TRACE
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); lp.weapon_class = "CAK47"
+
+    -- Wait for real record: the aim target's record is fake (defensive) and nobody sees you: fire held up to 14 ticks.
+    reset_world(); forget(); M("switch", "Wait for real record (unseen)"):set(true)
+    world.threat = enemy; world.enemies = { enemy }; world.trace = NO_TRACE; lp.weapon_class = "CAK47"; aa.charge = 1
+    advance(70)
+    enemy.m_flSimulationTime = 70; tick(0); enemy.m_flSimulationTime = 70 + 1 / 64; tick(0)
+    check(ov("min_damage") == nil, "V1.1 setup: real record, nothing held")
+    enemy.m_flSimulationTime = 69.9; tick(0)
+    check(ov("min_damage") == 130, "V1.1: fake record, nobody sees you: fire held (Min. Damage 130)")
+    check(type(ov("hitboxes")) == "table" and #ov("hitboxes") == 0, "V1.1.8: the wait also empties the hitbox list")
+    advance(13)
+    check(ov("min_damage") == 130, "V1.1: still held at the 14th tick")
+    tick(0)
+    check(ov("min_damage") == nil and printed[#printed] ==
+          "[Nykle.win] resolver: enemy5 sahte kayitta (defensive): 14 tick gercek kayit beklendi, sinir doldu, ates serbest",
+          "V1.1: the 14-tick cap: fire free, logged")
+    check(ov("hitboxes") == nil, "V1.1.8: hitboxes back after the wait")
+    advance(40)
+    enemy.m_flSimulationTime = 69.8; tick(0)
+    check(ov("min_damage") == 130, "V1.1: held again after the cooldown")
+    enemy.m_flSimulationTime = 70.5; advance(2)
+    check(ov("min_damage") == 130, "V1.1: the first real record: still held (3 ticks to settle)")
+    advance(2)
+    check(ov("min_damage") == nil and printed[#printed]:find("tick gercek kayit beklendi, gercek kayit geldi", 1, true) ~= nil,
+          "V1.1: real record settled: fire free, logged")
+    world.trace = function() return 30 end; advance(40)
+    enemy.m_flSimulationTime = 69.7; tick(0)
+    check(ov("min_damage") == 130, "V1.1.5: the enemy sees you, Headshot priority: fake record still held (short wait)")
+    advance(5)
+    check(ov("min_damage") == 130, "V1.1.5: still held at the 6th tick")
+    tick(0)
+    check(ov("min_damage") == nil and printed[#printed] ==
+          "[Nykle.win] resolver: enemy5 sahte kayitta (defensive): 6 tick gercek kayit beklendi, sinir doldu, ates serbest (duello, kafa onceligi)",
+          "V1.1.5: the 6-tick duel cap: fire free, logged (" .. tostring(printed[#printed]) .. ")")
+    enemy.m_flSimulationTime = 70.7; advance(40); enemy.m_flSimulationTime = 69.9; tick(0)
+    check(ov("min_damage") == 130, "V1.1.5 setup: held again after the cooldown")
+    enemy.m_flSimulationTime = 70.8; advance(4)
+    check(ov("min_damage") == nil and printed[#printed]:find("gercek kayit geldi (duello, kafa onceligi)", 1, true) ~= nil,
+          "V1.1.5: real record within the short wait: fire free, logged (" .. tostring(printed[#printed]) .. ")")
+    advance(40); M("switch", "Headshot priority"):set(false); enemy.m_flSimulationTime = 69.9; tick(0)
+    check(ov("min_damage") == nil, "V1.1: the enemy sees you, Headshot priority off: no waiting (duel)")
+    M("switch", "Headshot priority"):set(true)
+    world.trace = NO_TRACE; advance(40); enemy.m_flSimulationTime = 70.9; advance(4)
+    M("switch", "Wait for real record (unseen)"):set(false); enemy.m_flSimulationTime = 69.6; tick(0)
+    check(ov("min_damage") == nil, "V1.1: waiting can be turned off")
+    enemy.m_flSimulationTime = nil
+
+    -- In-air hit chance (snipers).
+    reset_world(); forget()
+    world.threat = enemy; lp.weapon_class = "CWeaponSSG08"; tick(0)
+    check(M("slider", "In-air hit chance (snipers)"):get() == 40 and ov("hit_chance") == nil,
+          "V1.1: in-air hit chance 40 by default, not applied on the ground")
+    lp.m_fFlags = 0; tick(0)
+    check(ov("hit_chance") == 40, "V1.1: scout in the air: hit chance 40")
+    lp.weapon_class = "CAK47"; tick(0)
+    check(ov("hit_chance") == nil, "V1.1: a rifle in the air: your own hit chance")
+    lp.weapon_class = "CWeaponAWP"; tick(0)
+    check(ov("hit_chance") == 40, "V1.1: AWP in the air: hit chance 40")
+    lp.m_fFlags = 1; tick(0)
+    check(ov("hit_chance") == nil, "V1.1: landed: your own hit chance back")
+    do local r = refs[SHORT.hit_chance]; if r then r.spec.value = 30 end end; lp.m_fFlags = 0; tick(0)
+    check(ov("hit_chance") == nil, "V1.1: your own lower hit chance (30) is kept")
+    do local r = refs[SHORT.hit_chance]; if r then r.spec.value = 55 end end; lp.m_fFlags = 1; tick(0)
+    M("slider", "In-air hit chance (snipers)"):set(0); lp.m_fFlags = 0; tick(0)
+    check(ov("hit_chance") == nil, "V1.1: 0 turns it off")
+    M("slider", "In-air hit chance (snipers)"):set(40); lp.m_fFlags = 1; lp.weapon_class = "CAK47"; tick(0)
+
+    -- Left hand (cl_righthand 0, permanent).
+    draw()
+    check(env.cvar.cl_righthand.v == 0 and M("switch", "Left hand (cl_righthand 0, permanent)"):get() == true,
+          "V1.1: left hand: cl_righthand 0 from the first frame (default on)")
+    env.cvar.cl_righthand.v = 1; draw()
+    check(env.cvar.cl_righthand.v == 0, "V1.1: left hand: put back to 0 when the game resets it")
+    M("switch", "Left hand (cl_righthand 0, permanent)"):set(false); draw()
+    check(env.cvar.cl_righthand.v == 1, "V1.1: left hand off: your value (1) restored")
+    M("switch", "Left hand (cl_righthand 0, permanent)"):set(true); draw()
+    check(env.cvar.cl_righthand.v == 0, "V1.1: left hand on again")
+    -- V1.1.9: aspect ratio 4:3 by default; Off / disable restores your value.
+    check(math.abs(env.cvar.r_aspectratio.v - 4 / 3) < 0.001 and M("combo", "Aspect ratio"):get() == "4:3",
+          "V1.1.9: aspect ratio 4:3 from the first frame (default)")
+    env.cvar.r_aspectratio.v = 0; draw()
+    check(math.abs(env.cvar.r_aspectratio.v - 4 / 3) < 0.001, "V1.1.9: aspect ratio put back to 4:3 when reset")
+    M("combo", "Aspect ratio"):set("Off"); draw()
+    check(env.cvar.r_aspectratio.v == 0, "V1.1.9: aspect ratio Off: your value (0) restored")
+    M("combo", "Aspect ratio"):set("16:10"); draw()
+    check(math.abs(env.cvar.r_aspectratio.v - 1.6) < 0.001, "V1.1.9: aspect ratio 16:10")
+    M("combo", "Aspect ratio"):set("4:3"); draw()
+
+    -- Teleport results: a hit within 1.5 s of a teleport counts; 2 of the last 3 on a map turn it off until the map changes.
+    reset_world(); forget()
+    world.threat = enemy; lp.weapon_class = "CAK47"; aa.charge = 1; world.trace = function() return 30 end
+    v.jump = function()
+        lp.m_fFlags = 1; lp.m_vecVelocity = vector(250, 0, 0); aa.charge = 1; advance(8)
+        local before = aa.teleports
+        lp.m_fFlags = 0; advance(3)
+        return aa.teleports - before
+    end
+    check(v.jump() == 1, "V1.1 setup: teleport 1")
+    v.lines = #printed
+    handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 20, weapon = "ssg08" })
+    v.tp_line = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("teleport sonucu", 1, true) then v.tp_line = printed[i] end end
+    check(v.tp_line == nil, "V1.1.8: a bullet 0.05 s after the teleport was fired before it: not a sample")
+    advance(8)
+    handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 2, dmg_health = 20, weapon = "ssg08" })
+    v.tp_line = nil
+    for i = v.lines + 1, #printed do
+        if printed[i]:match("^%[Nykle%.win%] teleport sonucu: isinlandiktan 0%.%d%d sn sonra vuruldun %(son 1: 1 vurulma%)$") then v.tp_line = printed[i] end
+    end
+    check(v.tp_line ~= nil, "V1.1: hit within 1.5 s of the teleport: counted (logged before the hit line)")
+    check(v.jump() == 1, "V1.1 setup: teleport 2")
+    v.lines = #printed
+    advance(100)
+    check(printed_from(v.lines, "[Nykle.win] teleport sonucu: vurulmadin (son 2: 1 vurulma)"), "V1.1: no hit for 1.5 s: counted as fine")
+    check(v.jump() == 1, "V1.1 setup: teleport 3")
+    v.lines = #printed; advance(8)
+    handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 40, weapon = "ssg08" })
+    check(printed_from(v.lines, "[Nykle.win] teleport: bu haritada son 3 teleportun 2'si vuruldu -> harita degisene kadar kapali"),
+          "V1.1: 2 of the last 3 teleports hit: teleport off on this map (logged)")
+    check(v.jump() == 0, "V1.1: no more teleports on this map")
+    handlers.level_init()
+    check(v.jump() == 1, "V1.1: new map: teleport back")
+    lp.m_fFlags = 1; lp.m_vecVelocity = vector(0, 0, 0)
+
+    -- "sikmadi" diagnostics and the log buffer.
+    reset_world(); forget()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end
+    lp.weapon_class = "CWeaponSSG08"; enemy.m_iHealth = 100; globals.realtime = globals.realtime + 5
+    M("combo", "Snipers (SSG08/AWP/R8)"):set("Hide shots"); M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(false)
+    enemy.get_hitbox_position = function(_, n) return vector(500, 0, n == 0 and 64 or 40) end
+    lp.get_eye_position = function() return vector(0, 0, 64) end
+    M("switch", "Shot log"):set(true)
+    v.lines = #printed
+    advance(60)
+    enemy.get_hitbox_position, lp.get_eye_position = nil, nil
+    v.diag = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("dbg sikmadi: enemy5", 1, true) then v.diag = printed[i] end end
+    check(v.diag ~= nil and v.diag:find("hasar 30 < MD 101", 1, true) ~= nil and v.diag:find("| sen ssg08", 1, true) ~= nil,
+          "V1.1: no shot for 0.44 s while 30 damage passes: the 'sikmadi' line names the reason (" .. tostring(v.diag) .. ")")
+    M("switch", "Snipers: DT pair kills (body x 2 >= HP)"):set(true); enemy.m_iHealth = nil; lp.weapon_class = "CAK47"
+    v.lines = #printed
+    expect_handler_error = true -- the dump replays an earlier, deliberate handler-error line
+    do local b = E("button", "Dump logs to console"); if b.click then b.click() end end
+    expect_handler_error = false
+    check(printed[v.lines + 1] ~= nil and printed[v.lines + 1]:match("^%[Nykle%.win%] ===== tum loglar: %d+ satir") ~= nil
+          and printed[#printed] == "[Nykle.win] ===== loglarin sonu =====",
+          "V1.1: Dump logs to console writes the whole log buffer")
+    check(#printed - v.lines > 50, "V1.1: the buffer holds this session's lines")
+    handlers.round_start({})
+    check(saved_files["nykle_log.txt"] ~= nil and saved_files["nykle_log.txt"]:find("dbg sikmadi: enemy5", 1, true) ~= nil,
+          "V1.1: round start writes the log file")
+
+    -- Crouched peek (V1.1.2): logs and the KD panel count "Peek (egik)" apart from Peek.
+    reset_world(); E("button", "Reset stats"):click()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end; lp.weapon_class = "CAK47"
+    M("switch", "Auto peek"):set(true)
+    lp.m_vecVelocity = vector(250, 0, 0); lp.m_flDuckAmount = 1; advance(4)
+    handlers.player_hurt({ userid = 1, attacker = 5, hitgroup = 1, dmg_health = 100, weapon = "ssg08" })
+    check(printed[#printed]:find("| Peek (egik) | faz ", 1, true) ~= nil, "V1.1.2: hit while peeking crouched: logged as Peek (egik) (" .. tostring(printed[#printed]) .. ")")
+    handlers.player_death({ userid = 1, attacker = 5 })
+    check(printed[#printed] == "[Nykle.win] oldun: enemy5 | Peek (egik) | sen ak47", "V1.1.2: death while peeking crouched: Peek (egik)")
+    lp.m_flDuckAmount = 0; advance(4)
+    handlers.player_death({ userid = 5, attacker = 1 })
+    check(printed[#printed] == "[Nykle.win] oldurdun: enemy5 | Peek | sen ak47", "V1.1.2: standing peek stays Peek")
+    M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
+    check(contains(texts, "PEEK (EGIK)   0 / 1") and contains(texts, "PEEK   1 / 0"), "V1.1.2: KD panel: a Peek (egik) row next to Peek")
+    v.lines = #printed
+    handlers.round_start({})
+    v.summary = nil
+    for i = v.lines + 1, #printed do if printed[i]:find("round ozeti", 1, true) then v.summary = printed[i] end end
+    check(v.summary ~= nil and v.summary:find("Peek (egik) 1/1", 1, true) ~= nil, "V1.1.2: round summary counts the crouched peek apart (" .. tostring(v.summary) .. ")")
+    M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); E("button", "Reset stats"):click()
+
+    -- Bolt cover (V1.1.4): after a sniper shot while peeking crouched, seen and the bolt not ready: fake duck forced.
+    reset_world()
+    world.threat = enemy; world.enemies = { enemy }; world.trace = function() return 30 end
+    M("switch", "Auto peek"):set(true); lp.weapon_class = "CWeaponSSG08"
+    lp.m_vecVelocity = vector(250, 0, 0); lp.m_flDuckAmount = 1; advance(4)
+    check(ov("fakeduck") == nil, "V1.1.4: crouched peek, no shot yet: fake duck untouched")
+    globals.curtime, lp.next_attack = 50, 51.25
+    handlers.weapon_fire({ userid = 1 }); advance(2)
+    check(ov("fakeduck") == nil, "V1.1.6: bolt cover is off by default (14 bullets came through the fake duck in the fifth log)")
+    M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(true); v.lines = #printed; advance(2)
+    check(ov("fakeduck") == true and printed[v.lines + 1] ~= nil
+          and printed[v.lines + 1]:match("^%[Nykle%.win%] surgu korumasi: fake duck %(Peek %(egik%), atistan 0%.%d%d sn sonra, silah hazir degil%)$") ~= nil,
+          "V1.1.4: shot fired, bolt not ready, seen: fake duck forced and logged (" .. tostring(printed[v.lines + 1]) .. ")")
+    world.trace = NO_TRACE; advance(40)
+    check(ov("fakeduck") == nil, "V1.1.4: nobody sees you any more: released")
+    world.trace = function() return 30 end; advance(4) -- peek state needs a tick to come back after the sight break
+    check(ov("fakeduck") == true, "V1.1.4: seen again within the bolt: forced again")
+    lp.next_attack = 50; advance(2)
+    check(ov("fakeduck") == nil, "V1.1.4: bolt ready: released")
+    lp.m_flDuckAmount = 0; advance(2)
+    globals.curtime, lp.next_attack = 50, 51.25; handlers.weapon_fire({ userid = 1 }); advance(4)
+    check(ov("fakeduck") == nil, "V1.1.4: standing peek: not forced by default")
+    M("switch", "Bolt cover also in standing peek"):set(true); advance(2)
+    check(ov("fakeduck") == true, "V1.1.4: standing peek with the option: forced")
+    M("switch", "Bolt cover also in standing peek"):set(false); advance(2)
+    lp.m_flDuckAmount = 1; lp.weapon_class = "CAK47"; handlers.weapon_fire({ userid = 1 }); advance(2)
+    check(ov("fakeduck") == nil, "V1.1.4: a rifle: no bolt cover")
+    lp.weapon_class = "CWeaponSSG08"; handlers.weapon_fire({ userid = 1 }); advance(2)
+    check(ov("fakeduck") == true, "V1.1.4 setup: scout again, forced")
+    M("switch", "Bolt cover: fake duck after a sniper shot (crouched peek)"):set(false); advance(2)
+    check(ov("fakeduck") == nil, "V1.1.4: bolt cover can be turned off")
+    globals.curtime, lp.next_attack = nil, nil
+    M("switch", "Auto peek"):set(false); lp.m_vecVelocity = vector(0, 0, 0); lp.m_flDuckAmount = 0
+    reset_world()
+end
+
+-- AFK mode (V1.1.9, GameSense V1.0.35 / V1.0.37 / V1.0.71) ------------------------------------------------------------
+-- (A function, not a do block: the main chunk of this file is at the 200 locals limit.)
+;(function()
+    local AUTO, MANUAL = M("switch", "Auto AFK (no input 8 s after spawn)"), M("switch", "AFK mode (AI peek here + strafe, full exploits)")
+    local LEFT = M("switch", "Left indicators (DT / HS / FD / DEF / AFK ...)")
+    local v0 = { view_angles = vector(0, 0, 0) }
+    local function since(n, text)
+        for i = n + 1, #printed do if printed[i] == text then return true end end
+        return false
+    end
+    local function idle(n) local c for _ = 1, n do c = tick(0, v0) end return c end
+    local function peek_afk_on() draw(); return contains(texts, "AFK") end
+    check(AUTO.group == "Exploits/Peek" and MANUAL.group == "Exploits/Peek", "V1.1.9: AFK switches in Exploits > Peek")
+    reset_world()
+    M("switch", "Hit log"):set(true); M("switch", "Crosshair indicators"):set(false); LEFT:set(true)
+    world.threat = enemy; world.enemies = { enemy }; enemy.m_iHealth = 100; lp.origin = vector(0, 0, 0)
+    lp.weapon_class = "CWeaponSSG08"; aa.charge = 1; world.trace = NO_TRACE
+    refs[SHORT.peek].spec.value = false
+    AUTO:set(true); MANUAL:set(false)
+    local n = #printed
+    handlers.round_start({})
+    local c = idle(511)
+    check(ov("hs") == true and ov("dt") == false and c.sidemove == nil and c.force_defensive == nil
+          and not since(n, "[Nykle.win] otomatik afk: dogduktan sonra 8 sn tusa basmadin"),
+          "V1.1.9: 8 s not yet over: no AFK (scout on hide shots, nothing forced, no walking)")
+    draw()
+    check(not contains(texts, "AFK") and contains(texts, "HS"), "V1.1.9: left list: HS, no AFK yet")
+    c = idle(2)
+    check(since(n, "[Nykle.win] otomatik afk: dogduktan sonra 8 sn tusa basmadin")
+          and since(n, "[Nykle.win] afk modu acik: AI peek burada, 3 sn'de bir sag / sol, DT + defensive tam"),
+          "V1.1.9: auto AFK turns on after 8 s without input after the round start (logged)")
+    check(ov("dt") == true and ov("hs") == false, "V1.1.9: AFK forces double tap on every weapon (scout set to hide shots)")
+    M("switch", "Auto exploit"):set(false); tick(0, v0)
+    check(ov("dt") == true and ov("hs") == false, "V1.1.9: AFK forces double tap even with Auto exploit off (binds)")
+    M("switch", "Auto exploit"):set(true)
+    refs[SHORT.fakeduck].spec.value = true; tick(0, v0)
+    check(ov("dt") ~= true and peek_afk_on(), "V1.1.9: AFK does not force DT while fake ducking (DT/HS do not work with FD)")
+    refs[SHORT.fakeduck].spec.value = false; tick(0, v0)
+    check(ov("dt") == true, "V1.1.9: fake duck released: AFK forces DT again")
+    local def0 = B("Standing", "combo", "Defensive"):get()
+    B("Standing", "combo", "Defensive"):set("Off"); c = tick(0, v0)
+    check(c.force_defensive == true, "V1.1.9: AFK: a state with defensive Off is treated as Smart (forced)")
+    B("Standing", "combo", "Defensive"):set("On peek"); c = tick(0, v0)
+    check(c.force_defensive == true, "V1.1.9: AFK: a state with defensive On peek is forced too (nobody peeks)")
+    B("Standing", "combo", "Defensive"):set(def0)
+    world.hull = function() return 0 end; c = tick(0, v0)
+    check(c.sidemove == 0 and c.forwardmove == 0, "V1.1.9: a wall on the step side: stays on the anchor")
+    world.hull = OPEN
+    -- Ground 40 units down (AI peek's walkable check accepts it) but none within a step height (18): no step.
+    world.line = function(from, to) if to.z < -20 then return 0.5 end return 1 end; c = tick(0, v0)
+    check(c.sidemove == 0 and c.forwardmove == 0, "V1.1.9: no floor within a step height on the step side: stays on the anchor")
+    world.line = GROUND
+    c = tick(0, v0)
+    check(c.force_defensive == true, "V1.1.9: AFK forces defensive while DT is charged (nobody sees you)")
+    -- The enemy is ahead (+x): the side step is perpendicular, 24 units to +y first (sidemove < 0 looking at +x).
+    check(c.sidemove ~= nil and c.sidemove < -449 and math.abs(c.forwardmove) < 1, "V1.1.9: AFK strafes sideways (24 units left)")
+    draw()
+    check(contains(texts, "AFK") and same_color(colors["AFK"], 230, 200, 40) and contains(texts, "DT")
+          and same_color(colors["DT"], 124, 195, 13) and contains(texts, "DEF") and text_pos["AFK"].x == 12,
+          "V1.1.9: left list: DT green, DEF, AFK")
+    M("switch", "Crosshair indicators"):set(true); draw(); M("switch", "Crosshair indicators"):set(false)
+    check(contains(texts, "STANDING") and not contains(texts, "PEEK"), "V1.1.9: AFK side steps are not the Peek state")
+    M("switch", "Stats panel"):set(true); draw(); M("switch", "Stats panel"):set(false)
+    check(text_pos["AFK"] ~= nil and text_pos["AFK"].y < math.floor(1080 * 0.45) - 8 and contains(texts, "DT"),
+          "V1.1.9: with the stats panel on, the left list ends above it")
+    LEFT:set(false); draw()
+    check(not contains(texts, "AFK") and not contains(texts, "DT"), "V1.1.9: left indicators can be turned off")
+    LEFT:set(true)
+    lp.origin = vector(0, 24, 0); c = tick(0, v0)
+    check(c.sidemove == 0 and c.forwardmove == 0, "V1.1.9: at the side spot: stands")
+    c = idle(200)
+    check(c.sidemove ~= nil and c.sidemove > 449, "V1.1.9: 3 s later the step flips to the other side")
+    -- Pushed more than 160 units: the new spot is the anchor (no threat: the step follows your view, +-y).
+    world.threat = nil; lp.origin = vector(300, 0, 0); c = tick(0, v0)
+    check(c.sidemove ~= nil and math.abs(c.sidemove) > 449 and math.abs(c.forwardmove) < 1,
+          "V1.1.9: pushed > 160 units: the strafe re-anchors there (steps sideways, does not walk back)")
+    world.threat = enemy
+    lp.origin = vector(0, 0, 0)
+    -- Any input ends auto AFK for this life.
+    n = #printed
+    c = tick(0, { view_angles = vector(0, 0, 0), sidemove = 450 })
+    check(since(n, "[Nykle.win] otomatik afk kapandi: tus") and since(n, "[Nykle.win] afk modu kapali")
+          and c.sidemove == 450, "V1.1.9: a movement key turns auto AFK off at once (logged), your move stays")
+    c = idle(600)
+    check(ov("hs") == true and c.sidemove == nil and c.force_defensive == nil, "V1.1.9: and it does not come back this life")
+    draw()
+    check(not contains(texts, "AFK"), "V1.1.9: left list: AFK gone")
+    -- Mouse: the camera turning counts as input.
+    handlers.round_start({}); idle(513)
+    check(ov("dt") == true, "V1.1.9 setup: auto AFK on again after the next round start")
+    n = #printed; tick(0, { view_angles = vector(0, 10, 0) })
+    check(since(n, "[Nykle.win] otomatik afk kapandi: fare") and ov("hs") == true, "V1.1.9: turning the camera ends auto AFK")
+    -- render.camera_angles (Neverlose's camera) comes first; nil / an error falls back to the command's view angles.
+    for _, bad in ipairs({ function() return nil end, function() error("not in render") end, function() return {} end }) do
+        render.camera_angles = bad
+        handlers.round_start({}); idle(513)
+        check(ov("dt") == true, "V1.1.9 setup: auto AFK on with a broken render.camera_angles")
+        n = #printed; tick(0, { view_angles = vector(0, 10, 0) })
+        check(since(n, "[Nykle.win] otomatik afk kapandi: fare") and ov("hs") == true,
+              "V1.1.9: render.camera_angles nil / failing: the command's view angles still catch the mouse")
+    end
+    local cam = vector(0, 0, 0)
+    render.camera_angles = function() return cam end
+    handlers.round_start({}); idle(513)
+    n = #printed; tick(0, { view_angles = vector(0, 40, 0) })
+    check(ov("dt") == true and not since(n, "[Nykle.win] otomatik afk kapandi: fare"),
+          "V1.1.9: with render.camera_angles: a turned command (not your camera) is not input")
+    cam = vector(0, 10, 0); tick(0, v0)
+    check(since(n, "[Nykle.win] otomatik afk kapandi: fare") and ov("hs") == true, "V1.1.9: render.camera_angles turning ends auto AFK")
+    render.camera_angles = nil
+    -- Freeze time and the open menu do not count.
+    handlers.round_start({}); world.rules.m_bFreezePeriod = true; idle(600)
+    check(ov("hs") == true, "V1.1.9: freeze time is not counted")
+    world.rules.m_bFreezePeriod = false; idle(300); mouse_state.alpha = 1; idle(300); mouse_state.alpha = 0; idle(300)
+    check(ov("hs") == true, "V1.1.9: the count restarts after the menu was open")
+    idle(213)
+    check(ov("dt") == true, "V1.1.9: 8 s after the freeze time: on")
+    -- Death: AFK off (logged), re-armed for the next life.
+    n = #printed
+    handlers.player_death({ userid = 1, attacker = 5 })
+    check(since(n, "[Nykle.win] afk modu kapali: oldun"), "V1.1.9: dying turns AFK off (logged)")
+    c = idle(500)
+    check(ov("hs") == true and c.sidemove == nil, "V1.1.9: alive again: no AFK until 8 s idle")
+    idle(14)
+    check(ov("dt") == true, "V1.1.9: re-armed after death: on again after 8 s")
+    -- A key pressed earlier in that life does not matter after a death either.
+    tick(0, { view_angles = vector(0, 0, 0), in_jump = true }); idle(600)
+    check(ov("hs") == true, "V1.1.9 setup: a jump ends auto AFK for this life")
+    handlers.player_death({ userid = 1, attacker = 5 }); idle(513)
+    check(ov("dt") == true, "V1.1.9: the death re-arms it: on again 8 s after")
+    n = #printed; tick(0, { view_angles = vector(0, 0, 0), in_reload = true })
+    check(since(n, "[Nykle.win] otomatik afk kapandi: E / R / silah") and ov("hs") == true, "V1.1.9: reloading ends auto AFK too")
+    -- Deathmatch / joining mid-map: no round_start; your own spawn re-arms it (GameSense "dm round").
+    handlers.player_spawn({ userid = 5 }); idle(600)
+    check(ov("hs") == true, "V1.1.9: another player's spawn does not re-arm auto AFK")
+    handlers.player_spawn({ userid = 1 }); idle(511)
+    check(ov("hs") == true, "V1.1.9: after your spawn: not before 8 s")
+    idle(2)
+    check(ov("dt") == true, "V1.1.9: your own spawn (no round_start) re-arms auto AFK")
+    -- Warmup is not counted.
+    handlers.round_start({}); world.rules.m_bWarmupPeriod = true; idle(600)
+    check(ov("hs") == true, "V1.1.9: warmup is not counted")
+    world.rules.m_bWarmupPeriod = false; idle(513)
+    check(ov("dt") == true, "V1.1.9: 8 s after the warmup: on")
+    -- Shooting, scoping and crouching are input too (holding an angle with a sniper is not AFK).
+    for _, input in ipairs({ { "in_attack", "ates / durbun" }, { "in_attack2", "ates / durbun" }, { "in_duck", "tus" } }) do
+        if not peek_afk_on() then handlers.player_spawn({ userid = 1 }); idle(513) end
+        check(ov("dt") == true, "V1.1.9 setup: auto AFK on before " .. input[1])
+        n = #printed; tick(0, { view_angles = vector(0, 0, 0), [input[1]] = true })
+        check(since(n, "[Nykle.win] otomatik afk kapandi: " .. input[2]) and ov("hs") == true,
+              "V1.1.9: " .. input[1] .. " ends auto AFK")
+    end
+    -- Auto AFK off: nothing happens.
+    AUTO:set(false); c = tick(0, v0)
+    check(ov("hs") == true and c.sidemove == nil, "V1.1.9: auto AFK can be turned off")
+    handlers.round_start({}); c = idle(600)
+    check(ov("hs") == true and c.sidemove == nil, "V1.1.9: and stays off")
+    -- Manual AFK: AI peek without the Peek Assist key (even with AI peek off); the enemy is hittable from 32 units right.
+    world.trace = function(_, from, eye) if from == lp and eye ~= nil and eye.y <= -20 then return 150 end return 0 end
+    M("switch", "AI peek (hold Peek Assist)"):set(false)
+    c = idle(70)
+    check(c.sidemove == nil, "V1.1.9 setup: no key, no AFK: no AI peek")
+    n = #printed; MANUAL:set(true)
+    for _ = 1, 4 do c = tick(0, v0) end
+    check(since(n, "[Nykle.win] ai peek: sag 32 birim -> enemy5 (hasar 150)") and c.sidemove ~= nil and c.sidemove > 449
+          and ov("peek") == false, "V1.1.9: AFK mode: AI peek walks without the Peek Assist key (32 units right)")
+    M("switch", "Crosshair indicators"):set(true); c = tick(0, v0); draw(); M("switch", "Crosshair indicators"):set(false)
+    check(contains(texts, "PEEK") and contains(texts, "AFK"), "V1.1.9: the AFK AI peek uses the Peek state (no key held)")
+    c = tick(0, { view_angles = vector(0, 0, 0), forwardmove = 450 })
+    check(c.forwardmove == 450 and c.sidemove == nil and ov("dt") == true,
+          "V1.1.9: AFK mode stays on while you move (manual), but your keys move you, not the side step")
+    -- Two empty peeks block the enemy until the key is pressed again; in AFK there is no key: retried after 10 s.
+    n = #printed
+    local blocked = false
+    for _ = 1, 1500 do
+        tick(0, v0)
+        if since(n, "[Nykle.win] ai peek: 2 bos peek, bu dusmana Peek Assist tusuna yeniden basana kadar peek yok") then
+            blocked = true
+            break
+        end
+    end
+    check(blocked, "V1.1.9 setup: two empty AFK peeks block the enemy")
+    n = #printed; idle(64 * 9)
+    check(not since(n, "[Nykle.win] ai peek: sag 32 birim -> enemy5 (hasar 150)"), "V1.1.9: blocked AFK peek: no peek for 10 s")
+    idle(64 * 2)
+    check(since(n, "[Nykle.win] ai peek: sag 32 birim -> enemy5 (hasar 150)"), "V1.1.9: AFK retries the blocked peek after 10 s")
+    n = #printed; tick(0, { view_angles = vector(0, 0, 0), in_jump = true })
+    check(since(n, "[Nykle.win] ai peek: iptal, kosul degisti") and not since(n, "[Nykle.win] ai peek: iptal, Peek Assist birakildi"),
+          "V1.1.9: an AFK peek cancelled by a jump does not blame the Peek Assist key")
+    -- Disabling the script while AFK is on clears it: turned off meanwhile, it is not drawn on re-enable.
+    tick(0, v0); draw()
+    check(contains(texts, "AFK"), "V1.1.9 setup: AFK drawn")
+    M("switch", "Enable"):set(false); tick(0, v0); MANUAL:set(false); M("switch", "Enable"):set(true); draw()
+    check(not contains(texts, "AFK"), "V1.1.9: disabling the script turns AFK off (not drawn after re-enable)")
+    c = tick(0, v0); c = tick(0, v0)
+    check(c.sidemove == nil and ov("dt") == false, "V1.1.9: AFK mode off: back to normal")
+    M("switch", "AI peek (hold Peek Assist)"):set(true); M("switch", "Crosshair indicators"):set(true)
+    world.trace = NO_TRACE; lp.weapon_class = "CAK47"
+    -- "Always use recommended settings" (on by default) leaves both AFK switches alone.
+    MANUAL:set(true); AUTO:set(false)
+    M("switch", "Always use recommended settings"):set(true); idle(150)
+    check(MANUAL:get() == true and AUTO:get() == false and ov("dt") == true,
+          "V1.1.9: recommended settings do not reset the AFK switches (manual AFK stays on, DT forced)")
+    MANUAL:set(true); AUTO:set(true); idle(150)
+    check(MANUAL:get() == true and AUTO:get() == true, "V1.1.9: ... in either direction")
+    M("switch", "Always use recommended settings"):set(false)
+    MANUAL:set(false); AUTO:set(false); tick(0, v0)
+    reset_world()
+end)()
 M("switch", "Enable"):set(false)
 
 -- Disable / shutdown ---------------------------------------------------------------------
@@ -3890,6 +4621,9 @@ tick(0)
 local any = false
 for _, r in pairs(refs) do if r.ov ~= nil then any = true end end
 check(not any, "disable resets every override (DT/HS included)")
+draw()
+check(env.cvar.cl_righthand.v == 1, "V1.1: disable restores cl_righthand")
+check(env.cvar.r_aspectratio.v == 0, "V1.1.9: disable restores r_aspectratio")
 M("switch", "Enable"):set(true); tick(0)
 check(ov("enabled") == true and ov("dt") == true, "re-enable applies again")
 handlers.shutdown()
