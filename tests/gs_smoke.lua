@@ -430,7 +430,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.86 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.86")
+check(printed("V1.0.87 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.87")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -455,7 +455,7 @@ check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or 
 do
     local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
     check(xp_ref ~= nil and xp_ref.value == true, "V1.0.81: deney motoru varsayilan acik")
-    check(printed("deney motoru: yer: peek_narrow, yer2: sniper_hs, hava: air_def2, atis: hc70, atis2: wait_off | kalici: yok (0 can olculdu)") ~= nil,
+    check(printed("deney motoru: yer: seen_duck, yer2: sniper_hs, hava: air_def2, atis: hc70, atis2: wait_off | kalici: yok (0 can olculdu)") ~= nil,
         "V1.0.81: yukleme satiri ilk adaylari yazar")
     if xp_ref ~= nil then xp_ref.value = false end
 end
@@ -2631,7 +2631,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.86 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.87 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2727,30 +2727,35 @@ do
             if v > big then big = v end
         end
         local dt_v, hs_v = dt_ref.value, hs_ref ~= nil and hs_ref.value or nil
+        -- V1.0.87: kosarken (240) egilme yok; yavasken (0) goruluyorsa egilme.
+        local duck_run = last_cmd.in_duck
+        W.speed = 0
+        tick(6)
+        local duck_slow = last_cmd.in_duck
         W.sees[2], W.speed = false, 0
-        tick(12)
-        return big, dt_v, hs_v
+        tick(30)
+        return big, dt_v, hs_v, duck_run, duck_slow
     end
     local pr = {}
     -- Kol sirasi: yer her can, yer2 2 canda bir, atis 4, atis2 8, hava 16 canda bir.
     local l1 = life(function() pr[1] = { probe() }; for _ = 1, 5 do hurt(1) end end)
-    check(l1:find("yer peek_narrow A | yer2 sniper_hs A | hava air_def2 A | atis hc70 A | atis2 wait_off A", 1, true) ~= nil,
+    check(l1:find("yer seen_duck A | yer2 sniper_hs A | hava air_def2 A | atis hc70 A | atis2 wait_off A", 1, true) ~= nil,
         "V1.0.86: can 1 hepsi A (" .. l1 .. ")")
     local l2 = life(function()
         check(cd_ref ~= nil and cd_ref.value == 1, "V1.0.81: B kolunda menudeki ayar degismez (ezme sadece okurken)")
         pr[2] = { probe() }
         for _ = 1, 5 do hurt(3) end
     end)
-    check(l2:find("yer peek_narrow B | yer2 sniper_hs A | hava air_def2 A | atis hc70 A | atis2 wait_off A", 1, true) ~= nil,
+    check(l2:find("yer seen_duck B | yer2 sniper_hs A | hava air_def2 A | atis hc70 A | atis2 wait_off A", 1, true) ~= nil,
         "V1.0.86: can 2 yer B (" .. l2 .. ")")
     local l3 = life(function() pr[3] = { probe() }; for _ = 1, 5 do hurt(1) end end)
-    check(pr[1] ~= nil and pr[2] ~= nil and pr[1][1] >= 30 and pr[2][1] <= 28 and pr[2][1] >= 8,
-        "V1.0.86: peek_narrow B kolunda Peek yaw'i dar (en buyuk |yaw| A " .. tostring(pr[1] and pr[1][1]) .. ", B "
-        .. tostring(pr[2] and pr[2][1]) .. ")")
+    check(pr[1] ~= nil and pr[2] ~= nil and pr[1][5] == 0 and pr[2][5] == 1 and pr[1][4] == 0 and pr[2][4] == 0,
+        "V1.0.87: seen_duck B kolunda goruluyorken yavassan egilir, kosarken egilmez; A kolunda hic (A yavas "
+        .. tostring(pr[1] and pr[1][5]) .. ", B yavas " .. tostring(pr[2] and pr[2][5]) .. ", B kosu " .. tostring(pr[2] and pr[2][4]) .. ")")
     check(pr[1] ~= nil and pr[3] ~= nil and pr[1][2] == true and pr[1][3] ~= true and pr[3][2] == false and pr[3][3] == true,
         "V1.0.86: sniper_hs B kolunda scout'ta DT kapali, Hide shots acik (A DT " .. tostring(pr[1] and pr[1][2]) .. " HS "
         .. tostring(pr[1] and pr[1][3]) .. ", B DT " .. tostring(pr[3] and pr[3][2]) .. " HS " .. tostring(pr[3] and pr[3][3]) .. ")")
-    check(l3:find("yer peek_narrow A | yer2 sniper_hs B", 1, true) ~= nil and l3:find("atis hc70 A", 1, true) ~= nil, "V1.0.86: can 3 yer2 B (" .. l3 .. ")")
+    check(l3:find("yer seen_duck A | yer2 sniper_hs B", 1, true) ~= nil and l3:find("atis hc70 A", 1, true) ~= nil, "V1.0.86: can 3 yer2 B (" .. l3 .. ")")
     life(function() for _ = 1, 5 do hurt(3) end end)
     local l5 = life(function() for _ = 1, 5 do hurt(1) end end)
     check(l5:find("yer2 sniper_hs A", 1, true) ~= nil and l5:find("atis hc70 B | atis2 wait_off A", 1, true) ~= nil and l5:find("hava air_def2 A", 1, true) ~= nil,
@@ -2764,12 +2769,12 @@ do
     for i = 10, 16 do
         life(function() for _ = 1, 5 do hurt(i % 2 == 1 and 1 or 3) end end)
     end
-    local verdict = printed("deney SONUCU: peek_narrow", start)
+    local verdict = printed("deney SONUCU: seen_duck", start)
     check(verdict ~= nil and verdict:find("KABUL, kalici", 1, true) ~= nil and verdict:find("40 mermi zarar 1.00", 1, true) ~= nil
         and verdict:find("40 mermi zarar 0.50", 1, true) ~= nil, "V1.0.81: yer adayi 40 + 40 mermide kabul (" .. tostring(verdict) .. ")")
     local saved_xp = db.nykle_win_gs_xp
-    check(type(saved_xp) == "table" and saved_xp.v == 1 and saved_xp.life == 16 and saved_xp.c.peek_narrow.st == "B"
-        and saved_xp.c.peek_narrow.a.n == 40 and saved_xp.c.peek_narrow.b.l == 8, "V1.0.81: sonuc database'e yazildi")
+    check(type(saved_xp) == "table" and saved_xp.v == 1 and saved_xp.life == 16 and saved_xp.c.seen_duck.st == "B"
+        and saved_xp.c.seen_duck.a.n == 40 and saved_xp.c.seen_duck.b.l == 8, "V1.0.81: sonuc database'e yazildi")
     -- Ayni mermiler ikinci yer kulvarina da yazildi; orada kollar karisik (fark yok), karar cikmaz.
     check(saved_xp.c.sniper_hs.a.n == 40 and saved_xp.c.sniper_hs.b.n == 40 and saved_xp.c.sniper_hs.st == nil
         and printed("deney SONUCU: sniper_hs", start) == nil, "V1.0.82: yer2 ayni mermileri sayar, fark yokken karar vermez")
@@ -2780,10 +2785,10 @@ do
     local l17 = life(function() tick(3); for _ = 1, 4 do hurt(1) end end)
     afk_ref.value = false
     tick(2)
-    check(l17:find("yer peek_static", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
+    check(l17:find("yer peek_narrow", 1, true) ~= nil, "V1.0.81: kabulden sonra siradaki aday (" .. l17 .. ")")
     saved_xp = db.nykle_win_gs_xp
-    check(saved_xp.c.peek_static == nil or (saved_xp.c.peek_static.a.l + saved_xp.c.peek_static.b.l == 0
-        and saved_xp.c.peek_static.a.n + saved_xp.c.peek_static.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
+    check(saved_xp.c.peek_narrow == nil or (saved_xp.c.peek_narrow.a.l + saved_xp.c.peek_narrow.b.l == 0
+        and saved_xp.c.peek_narrow.a.n + saved_xp.c.peek_narrow.b.n == 0), "V1.0.81: AFK cani ve mermileri sayilmadi")
 
     -- AFK cani sayilmadigi icin siradaki can ayni kolda baslar; 5 sn'den kisa olumsuz can (cift dogus) da oyle.
     local from18 = #prints + 1
@@ -2797,8 +2802,8 @@ do
         if prints[i]:find("deney: can", 1, true) then second = prints[i]; break end
     end
     n = n + 2
-    check(l17:match("yer peek_static (%u)") == first:match("yer peek_static (%u)")
-        and first:match("yer peek_static (%u)") == second:match("yer peek_static (%u)") and first ~= second,
+    check(l17:match("yer peek_narrow (%u)") == first:match("yer peek_narrow (%u)")
+        and first:match("yer peek_narrow (%u)") == second:match("yer peek_narrow (%u)") and first ~= second,
         "V1.0.81: sayilmayan candan sonra kol tekrarlanir (" .. first .. " / " .. second .. ")")
     fire("player_death", { userid = 1, attacker = 2, weapon = "ssg08" })
 
@@ -2877,6 +2882,50 @@ do
     end
     check(cleared, "V1.0.81: sifirlama database'i bosaltir")
     W.sees[2], W.speed, W.flags, W.z = false, 0, 1, 0
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.87: gorulunce ve yavasken egil (secenek dogrudan; deney kolu yukarida)
+-------------------------------------------------------------------------------
+do
+    local sd_ref = find_ref("Duck when seen and slow (crouched + slow: 22% of hits to the head, standing 46%)")
+    check(sd_ref ~= nil and sd_ref.value == false, "V1.0.87: gorulunce egil secenegi var, varsayilan kapali")
+    W.dead, W.flags, W.z, W.vz, W.speed, W.jump, W.lag, W.next_attack = nil, 1, 0, 0, 0, nil, 12, 0
+    W.weapon_class = "CWeaponSSG08"
+    W.sees[2], W.head_dmg[2], W.body_dmg[2] = true, 0, 0
+    fire("player_spawn", { userid = 1 })
+    tick(10)
+    local off = last_cmd.in_duck
+    sd_ref.value = true
+    tick(8)
+    local slow = last_cmd.in_duck
+    W.jump = true
+    tick(2)
+    local jumping = last_cmd.in_duck
+    W.jump = nil
+    tick(4)
+    W.weapon_class = "CKnife"
+    tick(4)
+    local knife = last_cmd.in_duck
+    W.weapon_class = "CWeaponSSG08"
+    tick(6)
+    local again = last_cmd.in_duck
+    W.sees[2] = false
+    tick(3)
+    local held = last_cmd.in_duck
+    tick(80)
+    local released = last_cmd.in_duck
+    -- Kosarken goruluyorsan egilme baslamaz.
+    W.speed, W.sees[2] = 240, true
+    tick(12)
+    local running = last_cmd.in_duck
+    W.speed, W.sees[2] = 0, false
+    sd_ref.value = false
+    tick(30)
+    check(off == 0 and slow == 1 and jumping == 0 and knife == 0 and again == 1 and held == 1 and released == 0 and running == 0,
+        "V1.0.87: goruluyorken yavassan egilir; ziplarken / bicakla / kosarken / gorulmezken egilmez, gorus bitince birakir ("
+        .. tostring(off) .. tostring(slow) .. tostring(jumping) .. tostring(knife) .. tostring(again) .. tostring(held)
+        .. tostring(released) .. tostring(running) .. ")")
 end
 
 errs = errors_since(1)

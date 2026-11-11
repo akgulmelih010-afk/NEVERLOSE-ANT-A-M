@@ -720,6 +720,31 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.87** (V1.0.86 logu, 13 dk, DM sunucusu `dm_hvh_fysnow_bc_aurorahvh`, ping 103: **38 kill / 55 ölüm = 0.69** (önceki DM oturumu 0.42). Ölümlerin 44'ü kafadan (%80), 21'i duvar arkasından; yediğin 66 isabetin 46'sı kafa. Senin 77 scout atışının %57'si isabet, 23'ü resolver ıskası (correction), 4'ü spread. Hata satırı yok.)
+
+| Deney | Durum |
+|---|---|
+| `hc70` (scout hit chance tabanı 70) | **Kabul edildi, kalıcı.** Senin ayarınla 88 can 97 atış 42 kill (%43), taban 70 ile 86 can 93 atış 48 kill (%52); atış sayısı düşmedi. Bu oturumda spread ıskası 77 atışta 4. |
+| `sniper_hs` (scout'ta Hide shots) | Sürüyor, olumlu: zarar 0.63 → 0.48 (24 / 26 mermi, z +1.1) |
+| `air_def2` (havada sürekli defensive, ışınlanma yok) | Sürüyor, olumlu: can başına hava zararı 0.40 → 0.29 (40 / 54 can, z +1.2). Bu oturumda iniş teleportu kolunda havada 13 mermi, bu kolda 4. |
+| `peek_narrow` | Fark yok (0.55 / 0.56); sayımı duruyor, `seen_duck`'tan sonra sürecek |
+| `wait_off`, `hc80` | Erken (z −0.5; hc80'de 10 / 6 atış) |
+
+Bütün V1.0.45+ GameSense loglarından yeni ölçüm (yerde yenen 818 mermi; duruş ve hıza göre):
+
+| Duruş, yatay hız | Mermi | Rakip ıskası | İsabette kafa | Zarar / mermi |
+|---|---|---|---|---|
+| **Eğik, 0–40** | 276 | %24 | **%22** | **0.46** |
+| Eğik, 41–90 | 145 | %29 | %39 | 0.49 |
+| Ayakta, 0–40 | 160 | %21 | %46 | 0.57 |
+| Ayakta, 41–90 | 66 | %10 | %54 | 0.69 |
+| Ayakta, 91–160 | 51 | %27 | %45 | 0.53 |
+| Ayakta, 161+ (koşu) | 66 | %31 | %46 | 0.50 |
+
+Peek durumunda eğik 371 mermi %33 kafa, ayakta 222 mermi %48; kendi atışından sonraki 1 sn'de eğik %38 / 0.53, ayakta %51 / 0.64. Fark duruştan geliyor (ayakta her hızda %45–54), en iyi durum eğik + yavaş.
+
+Yeni seçenek ve aday **`seen_duck`** ("Duck when seen and slow", varsayılan kapalı; yer kulvarının başında): yerdeyken biri seni görüyorsa (ya da birazdan görecekse) ve yavaşsan (yatay hız < 130) lua eğilme tuşunu basılı tutar; görüş bitince 12 tick sonra bırakır. Koşuyu kesmez; zıplama tuşu basılıyken, AI peek / Peek Assist tuşunda, AFK'da, fake duck'ta, merdivende ve bıçak / bomba eldeyken dokunmaz. Eğikken tehdide doğru yürürsen mevcut "Desync keeper" hızı 38'e indirir (verideki en iyi durum). Logda vurulma satırında `egil` etiketi çıkar.
+
 **V1.0.86** (V1.0.85 logu, 22 dk, DM sunucusu `dm_twentysixer_office_aurorahvh`: **16 kill / 38 ölüm = 0.42**. Ölümlerin 27'si kafadan (%71), 19'u duvar arkasından; seni vuran 60 isabetin 33'ünde sen onu hiç vuramıyordun, 40'ı rakip seni gördükten sonraki 0.1 sn içinde ya da hiç görmeden. Hata satırı yok.)
 
 Deney kararları ve ara durum:

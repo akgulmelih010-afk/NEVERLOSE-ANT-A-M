@@ -185,7 +185,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.86"
+local VERSION = "1.0.87"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1502,6 +1502,15 @@ menu.scout_hc       = grp.protect_raw:slider("Scout hit chance floor on ground (
 -- GameSense'in atis sonrasi gecikmesi aimbot'a bagli degil; deney kolunda zarar da artti (0.48 -> 0.69). Aday listeden
 -- cikarildi, secenek kapali kaliyor (acma).
 menu.fast_charge    = grp.protect_raw:switch("Fast recharge: aimbot off while the bolt cycles and DT is empty (scout / AWP)", false)
+-- V1.0.87 (istek: "aa egilirken daha iyi olmali", "hs yeme oranini dusurmeye calismaya devam etmeliyiz". V1.0.45+
+-- GameSense loglari, yerde yenen 818 mermi: egik + yavasken (hiz <= 40) isabetlerin %22'si kafa, zarar 0.46 (276
+-- mermi); egik + 41-90 hizda %39 / 0.49; ayakta hiz 0-40'ta %46 / 0.57, 41-90'da %54 / 0.69, 161+ kosarken %46 /
+-- 0.50. Peek durumunda egik 371 mermi %33 kafa, ayakta 222 mermi %48. Kendi atisindan sonraki 1 sn'de egik %38 /
+-- 0.53, ayakta %51 / 0.64.) Acikken: yerdeyken biri seni goruyorsa (ya da birazdan gorecekse) ve yavassan (yatay hiz
+-- < 130; kosuyu kesmez) egilirsin; gorus bitince 12 tick sonra birakilir. Ziplama tusu, AI peek / Peek Assist tusu,
+-- AFK, fake duck, merdiven ve silahsiz (bicak / bomba) durumlarda dokunmaz. Varsayilan kapali; once deney olarak
+-- olculur (aday "seen_duck").
+menu.seen_duck      = grp.protect_raw:switch("Duck when seen and slow (crouched + slow: 22% of hits to the head, standing 46%)", false)
 -- Dusman defensive'deyken (sahte kayit) aimbot gercek kayit gelene kadar (en fazla 14 tick) o dusmana ates
 -- etmez. V1.0.8-1.0.21 varsayilan kapaliydi ("sikamiyor" sikayeti). V1.0.22: 956 atislik logda sahte kayda
 -- giden 178 atis %57, gercek kayda giden %75 tuttu (correction iskasi %25'e karsi %9); scout'ta her iska
@@ -7796,7 +7805,7 @@ end
 -- Hareket: egik / yuruyus hiz siniri, temastan once durma, gorulurken ziplama engeli. Hepsi menuden.
 own.aa.move = function(cmd, lp, class)
     local A = own.aa
-    A.slowed, A.stopped, A.nojump = nil, nil, nil
+    A.slowed, A.stopped, A.nojump, A.ducked = nil, nil, nil, nil
     -- V1.0.84: inis teleportundan sonra yerde tutma (havadaki son tick'lerde de ziplamayi keser).
     if teleport.hold(cmd, lp) then
         A.stopped, A.nojump = true, true
@@ -7816,6 +7825,18 @@ own.aa.move = function(cmd, lp, class)
     if own.aa.blocks_jump(cmd, lp, class) then
         pcall(function() cmd.in_jump = 0 end)
         A.nojump = true
+    end
+    -- V1.0.87: gorulunce ve yavasken egil (bkz. menu.seen_duck). Baslamak icin yavas olmak gerekir (kosuyu kesmez);
+    -- egildikten sonra gorus surdukce ve 12 tick sonrasina kadar tutulur.
+    if on(menu.seen_duck) and class ~= nil and not NON_GUNS[class] and not is_grenade(class) and not pressed(cmd.in_jump) then
+        local tick_now = tickcount()
+        if seen and (speed2d(lp) < 130 or (A.duck_until ~= nil and tick_now <= A.duck_until)) then
+            A.duck_until = tick_now + 12
+        end
+        if A.duck_until ~= nil and tick_now <= A.duck_until and tick_now >= A.duck_until - 12 then
+            pcall(function() cmd.in_duck = 1 end)
+            A.ducked = true
+        end
     end
     -- Girdinin (istenen yonun) dunyadaki yonu ve tehdide gore: geri cekilme / karsi strafe yavaslatilmaz.
     local yaw = view_yaw(cmd)
@@ -8226,7 +8247,7 @@ local function exploit_status()
         .. ((hid_age ~= nil and hid_age >= 0 and hid_age <= 16) and (" gizli %dt"):format(hid_age) or "")
         .. (current.air_keep and " (hava, bayrak)" or "")
         .. (own.aa.slowed and " yavas" or "") .. (own.aa.stopped and " dur" or "") .. (own.aa.inverted and " fs ters" or "")
-        .. (own.aa.nojump and " zipla yok" or "")
+        .. (own.aa.nojump and " zipla yok" or "") .. (own.aa.ducked and " egil" or "")
     if resolver.fc ~= nil and resolver.fc.on then
         parts[#parts + 1] = "hizli sarj"
     end
@@ -11442,10 +11463,16 @@ K.xp.init = function()
     --     (21 olcum; hizlanma yok), zarar 0.48 -> 0.69 (15 / 15 can, z -1.7).
     --   brute_off (anti-brute kapali = hep faz 0): denenmeden cikarildi. Faz 0 en cok kafa yiyen faz (%40, 121
     --     isabet; faz 7 %30, faz 4 %31).
+    --   hc70 (scout hit chance tabani 70): KABUL. 88 / 86 can, 97 atis 42 kill -> 93 atis 48 kill (%43 -> %52).
+    --     Listede kalir (kalici ayar buradan uygulanir).
     xp.LIST = {
         -- Yer, AA acilari. V1.0.86 (V1.0.45+ loglari, kafaya nisan aldigimiz 532 scout atisi): rakibin yaw jitter'i
         -- 25 derecenin altindayken kafa isabetimiz %21 (28 atis); 25-49'da %46, 50+'da %49, x-way'de %47, statikte
         -- %47. Dar jitter GameSense'in resolver'ini en cok sasirtan duzen; bizim Peek acimiz genis (-20 / +45).
+        -- V1.0.87: yerde yenen 818 mermide egik + yavasken kafa %22 / zarar 0.46, ayakta %46-54 / 0.57-0.69 (bkz.
+        -- menu.seen_duck). Bu veride en buyuk fark; peek_narrow'un onune alindi (onun sayimi durur, sonra surer).
+        { id = "seen_duck", lane = "yer", kind = "harm", min = 40, gate = true, set = { seen_duck = true },
+            name = "gorulunce ve yavasken egil (egik + yavas: kafa %22, ayakta %46)" },
         { id = "peek_narrow", lane = "yer", kind = "harm", min = 40,
             states = { Peek = { yaw_left = -8, yaw_right = 12 } },
             name = "Peek'te dar yaw jitter (-8 / +12; simdi -20 / +45)" },
