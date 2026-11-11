@@ -114,6 +114,7 @@ nlog.save = function()
     if ok then
         nlog.dirty = false
     end
+    nlog.want = false
     return ok
 end
 
@@ -185,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.90"
+local VERSION = "1.0.91"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -250,14 +251,53 @@ local K = {
 -- doner (bkz. xp.arm_of), boylece birbirlerinin olcusune karismazlar. Geri kalani asagida (bkz. "Deney motoru").
 K.xp = { key = "nykle_win_gs_xp", over = {}, life = 0, count = 0, s = {}, cur = {}, lifec = nil, bad = {} }
 
+-- V1.0.91 (kullanici: "oyun donuyo fight esnasinda"; ekran goruntusunde fps 17): yuk olcumu. Her olay fonksiyonunun
+-- suresi client.timestamp (ms) ile olculur: ad basina toplam ms, en uzun cagri, 8 ms ustu cagri sayisi; ayrica iki
+-- kare arasinda lua'nin harcadigi toplam ve en agir cagri (bkz. K.perf.frame_end). Zaman damgasi tam ms oldugu icin
+-- kisa cagrilarin cogu 0 okunur; toplam yine yansizdir (1 ms sinirini gecen cagri orani = ortalama sure). Round
+-- sonunda "dbg yuk" satiri, 100 ms'den uzun karede "dbg takilma" satiri yazilir: donmanin lua'dan mi (hangi
+-- parcasindan) yoksa oyundan / sunucudan mi geldigi logdan okunur.
+K.perf = { t = {}, order = {}, frame = 0, frame_top = 0, frame_name = nil, stamp = nil }
+do
+    local ok, now = pcall(function() return client.timestamp() end)
+    if ok and type(now) == "number" then
+        K.perf.stamp = client.timestamp
+    end
+end
+
 -- Bir olay fonksiyonu hata verirse script sessizce durmasin ve konsol dolmasin: hata bir kez
 -- yazilir, sonraki olaylarda yine calisir.
 local protect
 do
     local handler_errors = {}
+    local perf = K.perf
     protect = function(name, fn)
+        local rec = perf.t[name]
+        if rec == nil then
+            rec = { ms = 0, max = 0, slow = 0 }
+            perf.t[name] = rec
+            perf.order[#perf.order + 1] = name
+        end
         return function(...)
+            local stamp = perf.stamp
+            local t0 = stamp ~= nil and stamp() or nil
             local ok, err = pcall(fn, ...)
+            if t0 ~= nil then
+                local dt = stamp() - t0
+                if dt > 0 then
+                    rec.ms = rec.ms + dt
+                    if dt > rec.max then
+                        rec.max = dt
+                    end
+                    if dt >= 8 then
+                        rec.slow = rec.slow + 1
+                    end
+                    perf.frame = perf.frame + dt
+                    if dt > perf.frame_top then
+                        perf.frame_top, perf.frame_name = dt, name
+                    end
+                end
+            end
             if not ok and not handler_errors[name] then
                 handler_errors[name] = true
                 print(("[%s] %s hata verdi: %s"):format(SCRIPT, name, tostring(err)))
@@ -3174,6 +3214,7 @@ do
                         t.yaw = yaw
                     end
                     t.sim, t.origin = sim, origin
+                    t.prof = nil
                 end
             end
         end
@@ -3201,6 +3242,12 @@ do
             return nil
         end
         local now = tickcount()
+        -- V1.0.91 (bellek olcumu: bu tablo tick basina dusman basi ~6 kez yeniden kuruluyordu, 6 rakipte tick basina
+        -- 8 KB cop): ayni tick'te ayni dusmana tek tablo. Kayit guncellenince (enemy_watch.update) silinir. Cagiranlar
+        -- tabloyu degistirmez; saklayan (atis kaydi) o tick'in kopyasini tutmus olur.
+        if t.prof ~= nil and t.prof_tick == now then
+            return t.prof
+        end
         local jitter = nil
         if #t.deltas >= 4 then
             local sum = 0
@@ -3209,7 +3256,7 @@ do
             end
             jitter = sum / #t.deltas
         end
-        return {
+        local profile = {
             defensive = now >= t.def_tick and now - t.def_tick <= enemy_watch.hold,
             defensive_now = t.sim < t.max_sim,
             lc = now >= t.lc_tick and now - t.lc_tick <= enemy_watch.hold,
@@ -3217,6 +3264,8 @@ do
             jitter = jitter,
             pattern = t.pattern,
         }
+        t.prof, t.prof_tick = profile, now
+        return profile
     end
 end
 
@@ -10893,7 +10942,13 @@ D.round_begin = function(no_header)
         end
     end
     D.reset()
-    nlog.save()
+    if D.on() then
+        K.perf.report()
+    end
+    -- V1.0.91: dosya burada hemen yazilmaz. DM'de round isleri dogus aninda calisir (60 sn'de bir): 1-3 MB'lik log
+    -- dosyasinin tamami tam fight baslarken bastan yaziliyordu. Istek birakilir; olunce / donma suresinde hemen,
+    -- canliyken en gec 5 dakikada bir yazilir (bkz. "log save").
+    nlog.want = true
 end
 
 listen("round_start", protect("detailed log round_start", function()
@@ -10933,7 +10988,7 @@ listen("paint_ui", protect("log save", function()
     local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
     local live = lp ~= nil and alive(lp) and freeze ~= 1 and freeze ~= true
     local every = live and 300 or nlog.save_every
-    if nlog.dirty and (now < nlog.saved or now - nlog.saved >= every) then
+    if nlog.dirty and (now < nlog.saved or now - nlog.saved >= every or (nlog.want and not live)) then
         nlog.save()
     end
 end))
@@ -10948,6 +11003,104 @@ if D.on() then
     print(D.settings())
 end
 end
+
+-------------------------------------------------------------------------------
+-- Yuk olcumu (V1.0.91): kare suresi, lua'nin payi, takilmalar (bkz. K.perf, protect)
+-------------------------------------------------------------------------------
+K.perf.init = function()
+    local P = K.perf
+    P.frames, P.sum, P.max, P.over50, P.over200, P.lua, P.since, P.last_hitch = 0, 0, 0, 0, 0, 0, realtime(), -1000
+
+    -- Son karenin suresi (sn): absoluteframetime (oyun hizindan bagimsiz), yoksa frametime.
+    local function frame_seconds()
+        local v = try(globals.absoluteframetime)
+        if finite(v) and v > 0 then
+            return v
+        end
+        return frametime()
+    end
+
+    -- Her karede bir kez: gecen karenin suresi ve o karede lua'nin harcadigi sure.
+    P.frame_end = function()
+        local ms = frame_seconds() * 1000
+        local lua, top, name = P.frame, P.frame_top, P.frame_name
+        P.frame, P.frame_top, P.frame_name = 0, 0, nil
+        if not finite(ms) or ms <= 0 or ms > 5000 then
+            return
+        end
+        P.frames, P.sum, P.lua = P.frames + 1, P.sum + ms, P.lua + lua
+        if ms > P.max then
+            P.max = ms
+        end
+        if ms >= 50 then
+            P.over50 = P.over50 + 1
+        end
+        if ms >= 200 then
+            P.over200 = P.over200 + 1
+        end
+        -- Takilma: 100 ms'den uzun kare, en fazla 5 sn'de bir satir. Menu acikken / oluyken yazilmaz.
+        local now = realtime()
+        local lp = local_player()
+        if ms >= 100 and on(menu.enabled) and on(menu.debug_log) and lp ~= nil and alive(lp) and try(ui.is_menu_open) ~= true
+            and (now < P.last_hitch or now - P.last_hitch >= 5) then
+            P.last_hitch = now
+            print(("[%s] dbg takilma: kare %d ms | lua %d ms%s | %d dusman, durum %s"):format(SCRIPT, round(ms), round(lua),
+                (name ~= nil and top >= 4) and (" (en agir: %s %d ms)"):format(name, round(top)) or "",
+                #enemy_list(), tostring(current.state)))
+        end
+    end
+
+    -- Round ozeti ve sifirlama.
+    P.report = function()
+        local seconds = realtime() - P.since
+        if P.frames >= 64 and seconds > 1 then
+            -- En cok sure harcayan uc olay fonksiyonu ve 8 ms ustu cagrilar.
+            local a, b, c = nil, nil, nil
+            local slow, slow_name, slow_max = 0, nil, 0
+            for _, name in ipairs(P.order) do
+                local rec = P.t[name]
+                if a == nil or rec.ms > P.t[a].ms then
+                    a, b, c = name, a, b
+                elseif b == nil or rec.ms > P.t[b].ms then
+                    b, c = name, b
+                elseif c == nil or rec.ms > P.t[c].ms then
+                    c = name
+                end
+                slow = slow + rec.slow
+                if rec.max > slow_max then
+                    slow_name, slow_max = name, rec.max
+                end
+            end
+            local function part(name)
+                return (name ~= nil and P.t[name].ms > 0) and ("%s %d"):format(name, round(P.t[name].ms)) or nil
+            end
+            local tops = {}
+            for _, name in ipairs({ a, b, c }) do
+                local text = part(name)
+                if text ~= nil then
+                    tops[#tops + 1] = text
+                end
+            end
+            local ok_m, kb = pcall(collectgarbage, "count")
+            local avg = P.sum / P.frames
+            print(("[%s] dbg yuk: %d kare, ort %.1f ms (%d fps), en uzun %d ms, 50 ms ustu %d, 200 ms ustu %d | lua %d ms / %d sn (%%%.1f) | en agir: %s | 8 ms ustu cagri %d%s%s"):format(
+                SCRIPT, P.frames, avg, round(1000 / max(0.001, avg)), round(P.max), P.over50, P.over200, round(P.lua),
+                round(seconds), P.lua / (seconds * 10), #tops > 0 and table.concat(tops, ", ") or "olculemedi",
+                slow, slow_name ~= nil and (" (en uzun: %s %d ms)"):format(slow_name, round(slow_max)) or "",
+                (ok_m and finite(kb)) and (" | bellek %.1f MB"):format(kb / 1024) or ""))
+        end
+        for _, name in ipairs(P.order) do
+            local rec = P.t[name]
+            rec.ms, rec.max, rec.slow = 0, 0, 0
+        end
+        P.frames, P.sum, P.max, P.over50, P.over200, P.lua, P.since = 0, 0, 0, 0, 0, 0, realtime()
+    end
+
+    listen("paint", protect("yuk olcumu", function()
+        P.frame_end()
+    end))
+end
+K.perf.init()
 
 -------------------------------------------------------------------------------
 -- Duello danismani (V1.0.90)
@@ -10978,88 +11131,116 @@ K.adv = { enc = {}, hist = {}, out = nil, can = nil, EVERY = 4, SIGHT = 12, CAN 
 K.adv.init = function()
     local A = K.adv
     local W, TEXT = A.W, A.TEXT
+    -- V1.0.91 (kullanici: "oyun donuyo fight esnasinda"): danisman tick basina bellek ayirmaz. Katkilar iki sabit dizide
+    -- (agirlik, yazi), sonuc tablosu ve sebep dizisi yeniden kullanilir, siralama yerine en agir iki katki dogrudan
+    -- secilir; degerlendirme 4 tick'te bir (iz taramasiyla ayni tick), aradaki tick'lerde sadece sayaclar ilerler.
+    local pw, pt, pn = {}, {}, 0
+    local out = { label = "DENK", p = 0.5, reasons = {}, rn = 0, unready = false, enemy = nil, contact = false }
+    local f = {}
+    local hist_text = { k = -1, d = -1, text = nil }
+
+    local function add(w, text)
+        pn = pn + 1
+        pw[pn], pt[pn] = w, text
+        return w
+    end
+
+    -- Onerinin yonundeki en agir katki (skip: daha once secilen).
+    local function heaviest(label, skip)
+        local best, best_score = 0, 0
+        for i = 1, pn do
+            if i ~= skip then
+                local w = pw[i]
+                local score = label == "SALDIR" and w or (label == "SAVUN" and -w or abs(w))
+                if score > best_score then
+                    best, best_score = i, score
+                end
+            end
+        end
+        return best
+    end
 
     -- f: { state = "none" | "his" | "mine" | "both", dist, h, speed, hp, class, share (0-1 ya da nil), def_hint, k, d,
-    --      ready, lethal }. Donus: { label, p, reasons = { yazi, ... } }.
+    --      ready, lethal }. Donus: yeniden kullanilan sonuc tablosu { label, p, reasons, unready }.
     A.eval = function(f)
-        local parts = {}
-        local function add(key, w, text)
-            parts[#parts + 1] = { w = w, text = text or TEXT[key] }
-            return w
-        end
+        pn = 0
         local z = W.bias
         if f.state == "his" then
-            z = z + add("his", W.his)
+            z = z + add(W.his, TEXT.his)
         elseif f.state == "mine" then
-            z = z + add("mine", W.mine)
+            z = z + add(W.mine, TEXT.mine)
         elseif f.state ~= "both" then
             z = z + W.none
         end
         if f.dist < 300 then
-            z = z + add("near", W.near)
+            z = z + add(W.near, TEXT.near)
         elseif f.dist >= 700 then
-            z = z + add("far", W.far)
+            z = z + add(W.far, TEXT.far)
         end
         if f.h >= 40 then
-            z = z + add("high", W.high)
+            z = z + add(W.high, TEXT.high)
         end
         if f.speed < 5 then
-            z = z + add("still", W.still)
+            z = z + add(W.still, TEXT.still)
         elseif f.speed >= 100 then
             z = z + W.fast
         end
         if f.hp < 50 then
-            z = z + add("weak", W.hurt + W.weak)
+            z = z + add(W.hurt + W.weak, TEXT.weak)
         elseif f.hp < 100 then
-            z = z + add("hurt", W.hurt)
+            z = z + add(W.hurt, TEXT.hurt)
         end
         local class = f.class
         if class == "CWeaponTaser" then
-            z = z + add("taser", W.taser)
+            z = z + add(W.taser, TEXT.taser)
         elseif class == "CKnife" or class == "CKnifeGG" then
-            z = z + add("knife", W.knife)
+            z = z + add(W.knife, TEXT.knife)
         elseif class ~= nil and not A.SNIPER[class] then
-            z = z + add("other", W.other)
+            z = z + add(W.other, TEXT.other)
         end
         if f.share ~= nil and f.share > 0.5 then
-            z = z + add("def_most", W.def_most)
+            z = z + add(W.def_most, TEXT.def_most)
         elseif (f.share ~= nil and f.share > 0) or (f.share == nil and f.def_hint) then
-            z = z + add("def_some", W.def_some)
+            z = z + add(W.def_some, TEXT.def_some)
         end
         local k, d = f.k or 0, f.d or 0
         if k ~= d then
-            local w = W.hist * hypothesis.own.ln((k + 1) / (d + 1))
-            z = z + add(nil, w, k > d and ("ONA KARSI %d-%d ONDESIN"):format(k, d)
-                or ("SENI %d KEZ OLDURDU (%d-%d)"):format(d, k, d))
+            if hist_text.k ~= k or hist_text.d ~= d then
+                hist_text.k, hist_text.d = k, d
+                hist_text.text = k > d and ("ONA KARSI %d-%d ONDESIN"):format(k, d)
+                    or ("SENI %d KEZ OLDURDU (%d-%d)"):format(d, k, d)
+            end
+            z = z + add(W.hist * hypothesis.own.ln((k + 1) / (d + 1)), hist_text.text)
         end
         -- 1 / (1 + e^-z); math.exp'e dayanmadan (bkz. hypothesis.own.ln notu).
         local p = 1 / (1 + 2.718281828459045 ^ (-z))
         local label = p >= A.HIGH and "SALDIR" or (p < A.LOW and "SAVUN" or "DENK")
-        local reasons = {}
+        local reasons, rn = out.reasons, 0
         if not f.ready then
-            label = "SAVUN"
+            label, rn = "SAVUN", 1
             reasons[1] = TEXT.unready
         elseif f.lethal and label ~= "SAVUN" then
+            rn = 1
             reasons[1] = TEXT.lethal
         end
-        -- Sebepler: onerinin yonundeki en agir katkilar (DENK'te buyuklugune gore).
-        table.sort(parts, function(a, b)
-            if label == "SALDIR" then
-                return a.w > b.w
-            elseif label == "SAVUN" then
-                return a.w < b.w
-            end
-            return abs(a.w) > abs(b.w)
-        end)
-        for _, part in ipairs(parts) do
-            if #reasons >= 2 then
-                break
-            end
-            if (label == "SALDIR" and part.w > 0) or (label == "SAVUN" and part.w < 0) or label == "DENK" then
-                reasons[#reasons + 1] = part.text
+        -- Sebepler: onerinin yonundeki en agir katkilar (DENK'te buyuklugune gore), toplam en fazla iki satir.
+        local first = heaviest(label, 0)
+        if first > 0 then
+            rn = rn + 1
+            reasons[rn] = pt[first]
+            if rn < 2 then
+                local second = heaviest(label, first)
+                if second > 0 then
+                    rn = rn + 1
+                    reasons[rn] = pt[second]
+                end
             end
         end
-        return { label = label, p = p, reasons = reasons, unready = not f.ready }
+        for i = rn + 1, out.rn do
+            reasons[i] = nil
+        end
+        out.label, out.p, out.rn, out.unready = label, p, rn, not f.ready
+        return out
     end
 
     A.key = function(ent)
@@ -11067,68 +11248,81 @@ K.adv.init = function()
     end
 
     A.reset = function()
-        A.enc, A.out, A.can = {}, nil, nil
+        A.enc, A.out, A.can, A.keys = {}, nil, nil, {}
     end
+    A.keys = {}
 
-    -- Su an gozunden rakibe mermi geciyor mu (4 tick'te bir; kafa, gogus, mide). Donus: vurulabilir, oldurucu.
+    -- Su an gozunden rakibe mermi geciyor mu (kafa, gogus, mide). Sonuc A.can'da tutulur.
+    local HITBOXES = { 0, 5, 3 }
     local function reach(lp, enemy, now, hp)
         local c = A.can
-        if c == nil or c.enemy ~= enemy then
-            c = { enemy = enemy, tick = -1000, at = -1000, lethal = false }
+        if c == nil then
+            c = { enemy = nil, at = -1000, lethal = false }
             A.can = c
         end
-        if now < c.tick or now - c.tick >= A.EVERY then
-            c.tick = now
-            local eye, class = eye_of(lp), current.weapon
-            local best = 0
-            if eye ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class) then
-                for _, hitbox in ipairs({ 0, 5, 3 }) do
-                    local point = hitbox_of(enemy, hitbox)
-                    local damage = point ~= nil and bullet_damage(lp, eye, point, enemy) or nil
-                    if damage ~= nil and damage > best then
-                        best = damage
-                    end
-                    if best >= hp then
-                        break
-                    end
+        if c.enemy ~= enemy then
+            c.enemy, c.at, c.lethal = enemy, -1000, false
+        end
+        local eye, class = eye_of(lp), current.weapon
+        local best = 0
+        if eye ~= nil and class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class) then
+            for i = 1, 3 do
+                local point = hitbox_of(enemy, HITBOXES[i])
+                local damage = point ~= nil and bullet_damage(lp, eye, point, enemy) or nil
+                if damage ~= nil and damage > best then
+                    best = damage
+                end
+                if best >= hp then
+                    break
                 end
             end
-            if best >= A.MIN_DAMAGE then
-                c.at = now
-            end
-            c.lethal = best >= hp
         end
-        local can = now >= c.at and now - c.at <= A.CAN
-        return can, can and c.lethal
+        if best >= A.MIN_DAMAGE then
+            c.at = now
+        end
+        c.lethal = best >= hp
     end
 
     A.update = function(lp)
         local now = tickcount()
-        for enemy, e in pairs(A.enc) do
-            if now < e.last or now - e.last > A.GAP then
-                A.enc[enemy] = nil
+        -- Eski karsilasmalar 64 tick'te bir temizlenir.
+        if now >= (A.sweep or 0) or now < (A.sweep or 0) - 128 then
+            A.sweep = now + 64
+            for enemy, e in pairs(A.enc) do
+                if now < e.last or now - e.last > A.GAP then
+                    A.enc[enemy] = nil
+                end
             end
         end
         local enemy = aa_threat()
-        local mine = origin_of(lp)
-        local theirs = enemy ~= nil and not dormant(enemy) and alive(enemy) and origin_of(enemy) or nil
-        if mine == nil or theirs == nil then
+        if enemy == nil or dormant(enemy) or not alive(enemy) then
             A.out = nil
             return
         end
-        local hp = prop(enemy, "m_iHealth")
-        hp = (finite(hp) and hp > 0) and hp or 100
+        local e = A.enc[enemy]
+        if e ~= nil and (now < e.last or now - e.last > A.GAP) then
+            A.enc[enemy], e = nil, nil
+        end
+        -- Degerlendirme tick'i: 4 tick'te bir ya da hedef degisince.
+        local due = out.enemy ~= enemy or now >= (A.next or 0) or now < (A.next or 0) - 2 * A.EVERY
+        local hp
+        if due then
+            hp = prop(enemy, "m_iHealth")
+            hp = (finite(hp) and hp > 0) and hp or 100
+            reach(lp, enemy, now, hp)
+        end
+        local c = A.can
+        local can = c ~= nil and c.enemy == enemy and now >= c.at and now - c.at <= A.CAN
         local s = exposure.sight[enemy]
         local sees = s ~= nil and now >= s.last and now - s.last <= A.SIGHT
-        local can, lethal = reach(lp, enemy, now, hp)
-        local e = A.enc[enemy]
+        local fresh = false
         if e == nil and (sees or can) then
             e = { last = now, ticks = 0, def = 0, top = 0 }
             A.enc[enemy] = e
+            fresh = true
         end
         local rec = enemy_watch.list[enemy]
         local in_def = rec ~= nil and finite(rec.sim) and finite(rec.max_sim) and rec.sim < rec.max_sim
-        local speed, state, share = speed2d(enemy), "none", nil
         if e ~= nil then
             if sees or can then
                 e.last = now
@@ -11138,6 +11332,23 @@ K.adv.init = function()
             end
             e.ticks = e.ticks + 1
             e.def = e.def + (in_def and 1 or 0)
+        end
+        if not due and not fresh then
+            A.out = out
+            return
+        end
+        if hp == nil then
+            hp = prop(enemy, "m_iHealth")
+            hp = (finite(hp) and hp > 0) and hp or 100
+        end
+        A.next = now + A.EVERY
+        local mine, theirs = origin_of(lp), origin_of(enemy)
+        if mine == nil or theirs == nil then
+            A.out = nil
+            return
+        end
+        local speed, state, share = speed2d(enemy), "none", nil
+        if e ~= nil then
             e.top = max(e.top, speed)
             state, speed = e.state or "none", e.top
             if e.ticks >= 8 then
@@ -11146,33 +11357,40 @@ K.adv.init = function()
         end
         local class = current.weapon
         local armed = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
-        local profile = enemy_watch.profile(enemy)
-        local h = A.hist[A.key(enemy)]
+        -- Rakibin kimligi (Steam ID) 512 tick'te bir yenilenir.
+        local kc = A.keys[enemy]
+        if kc == nil or now < kc.tick or now - kc.tick > 512 then
+            kc = { key = A.key(enemy), tick = now }
+            A.keys[enemy] = kc
+        end
+        local h = kc.key ~= nil and A.hist[kc.key] or nil
         local dx, dy, dz = theirs.x - mine.x, theirs.y - mine.y, theirs.z - mine.z
-        local out = A.eval({ state = state, dist = sqrt(dx * dx + dy * dy + dz * dz), h = dz, speed = speed, hp = hp,
-            class = weapon_class(enemy), share = share, def_hint = in_def or (profile ~= nil and profile.defensive),
-            k = h ~= nil and h.k or 0, d = h ~= nil and h.d or 0, ready = armed and weapon_ready(lp, 0.2),
-            lethal = lethal })
+        f.state, f.dist, f.h, f.speed, f.hp = state, sqrt(dx * dx + dy * dy + dz * dz), dz, speed, hp
+        f.class, f.share = weapon_class(enemy), share
+        f.def_hint = in_def or (rec ~= nil and finite(rec.def_tick) and now >= rec.def_tick
+            and now - rec.def_tick <= enemy_watch.hold)
+        f.k, f.d = h ~= nil and h.k or 0, h ~= nil and h.d or 0
+        f.ready, f.lethal = armed and weapon_ready(lp, 0.2), can and c.lethal
+        A.eval(f)
         out.enemy, out.contact = enemy, state ~= "none"
         A.out = out
         -- Karsilasmadaki ilk oneri (ilk temas tick'inde verilen) ve en son oneri: duello satirina yazilir.
         if e ~= nil then
-            if e.first == nil then
-                e.first = { label = out.label, p = out.p }
+            if e.first_label == nil then
+                e.first_label, e.first_p = out.label, out.p
             end
-            e.final = { label = out.label, p = out.p }
+            e.final_label, e.final_p = out.label, out.p
         end
     end
 
     -- "dbg duello" satirinin eki.
     A.note = function(enemy)
         local e = A.enc[enemy]
-        if e == nil or e.first == nil then
+        if e == nil or e.first_label == nil then
             return ""
         end
-        local final = e.final or e.first
-        return (" | oneri %s %%%d, son %s %%%d"):format(e.first.label, floor(e.first.p * 100 + 0.5), final.label,
-            floor(final.p * 100 + 0.5))
+        return (" | oneri %s %%%d, son %s %%%d"):format(e.first_label, floor(e.first_p * 100 + 0.5),
+            e.final_label or e.first_label, floor((e.final_p or e.first_p) * 100 + 0.5))
     end
 
     listen("setup_command", protect("danisman", function()
@@ -11211,6 +11429,8 @@ K.adv.init = function()
             A.hist[key] = h
         end
         h[field] = h[field] + 1
+        -- Sayim degisti: siradaki tick'te yeniden degerlendirilsin.
+        A.next = 0
     end))
 
     listen("level_init", protect("danisman level_init", function()
@@ -11438,7 +11658,8 @@ end
 -- V1.0.90: duello danismani (bkz. K.adv). Nisangahin ustunde: oneri + kazanma tahmini, altinda tahmin cubugu (ortadaki
 -- cizgi %50) ve en agir iki sebep. Tehdit yokken solar; temas yokken (on tahmin) soluk, temasta tam parlak.
 -- Durbundeyken dikey cizginin sagina kayar.
-anim.adv = { alpha = 0, p = 0.5, scope = 0, out = nil,
+anim.adv = { alpha = 0, p = 0.5, scope = 0, out = nil, enemy = nil, main = "", main_key = nil, small = "c" .. FONT,
+    col = { r = 0, g = 0, b = 0, a = 0 }, shadow = { r = 0, g = 0, b = 0, a = 0 }, dim = { r = 255, g = 255, b = 255, a = 0 },
     GREEN = { r = 120, g = 225, b = 130 }, YELLOW = { r = 255, g = 205, b = 90 }, RED = { r = 255, g = 100, b = 100 } }
 anim.advisor = function(lp, cx, cy)
     local a = anim.adv
@@ -11450,8 +11671,8 @@ anim.advisor = function(lp, cx, cy)
     a.alpha = a.alpha + ((out == nil and 0 or (out.contact and 1 or 0.55)) - a.alpha) * k
     if out ~= nil then
         -- Hedef degisince cubuk eski hedefin degerinden kaymaz.
-        if a.out == nil or a.out.enemy ~= out.enemy then
-            a.p = out.p
+        if a.out == nil or a.enemy ~= out.enemy then
+            a.p, a.enemy = out.p, out.enemy
         end
         a.out = out
         a.p = a.p + (out.p - a.p) * k
@@ -11463,24 +11684,31 @@ anim.advisor = function(lp, cx, cy)
     local scoped = prop(lp, "m_bIsScoped")
     a.scope = a.scope + (((scoped == 1 or scoped == true) and 1 or 0) - a.scope) * min(1, frametime() * 12)
     local tint = out.label == "SALDIR" and a.GREEN or (out.label == "SAVUN" and a.RED or a.YELLOW)
-    local alpha = floor(255 * a.alpha)
-    local col = { r = tint.r, g = tint.g, b = tint.b, a = alpha }
-    local shadow = { r = 0, g = 0, b = 0, a = floor(170 * a.alpha) }
-    local dim = { r = 255, g = 255, b = 255, a = floor(190 * a.alpha) }
+    -- V1.0.91: renk tablolari ve ana yazi yeniden kullanilir (kare basina bellek ayrilmaz).
+    local col, shadow, dim = a.col, a.shadow, a.dim
+    col.r, col.g, col.b, col.a = tint.r, tint.g, tint.b, floor(255 * a.alpha)
+    shadow.a, dim.a = floor(170 * a.alpha), floor(190 * a.alpha)
     local width = 84
-    local x = cx + round(a.scope * 96)
+    -- V1.0.91: durbundeyken SOLA kayar (saga kayinca varsayilan yerindeki resolver panelinin ustune biniyordu).
+    local x = cx - round(a.scope * 96)
     local y = cy - 120
-    local lines = #out.reasons
+    local lines = out.rn or #out.reasons
     -- Arka plan: ortadan iki yana solan koyu serit (yazi her zeminde okunsun).
     local bw, bh = width + 70, 24 + lines * 9
     if type(renderer.gradient) == "function" then
         local half = floor(bw / 2)
-        renderer.gradient(x - half, y - 8, half, bh, 0, 0, 0, 0, 0, 0, 0, floor(120 * a.alpha), true)
-        renderer.gradient(x, y - 8, half, bh, 0, 0, 0, floor(120 * a.alpha), 0, 0, 0, 0, true)
+        local dark = floor(120 * a.alpha)
+        renderer.gradient(x - half, y - 8, half, bh, 0, 0, 0, 0, 0, 0, 0, dark, true)
+        renderer.gradient(x, y - 8, half, bh, 0, 0, 0, dark, 0, 0, 0, 0, true)
     end
-    local main = out.unready and out.label or ("%s  %d%%"):format(out.label, floor(a.p * 100 + 0.5))
-    text(x + 1, y + 1, shadow, "cb", main)
-    text(x, y, col, "cb", main)
+    local pct = out.unready and -1 or floor(a.p * 100 + 0.5)
+    local key = pct * 4 + (out.label == "SALDIR" and 1 or (out.label == "SAVUN" and 2 or 3))
+    if a.main_key ~= key then
+        a.main_key = key
+        a.main = out.unready and out.label or ("%s  %d%%"):format(out.label, pct)
+    end
+    text(x + 1, y + 1, shadow, "cb", a.main)
+    text(x, y, col, "cb", a.main)
     local by = y + 10
     rect(x - width / 2 - 1, by - 1, width + 2, 4, shadow)
     local fill = round(width * max(0, min(1, a.p)))
@@ -11490,7 +11718,7 @@ anim.advisor = function(lp, cx, cy)
     rect(x, by - 1, 1, 4, dim)
     local ry = by + 9
     for i = 1, lines do
-        text(x, ry, dim, "c" .. FONT, out.reasons[i])
+        text(x, ry, dim, a.small, out.reasons[i])
         ry = ry + 9
     end
 end
@@ -12231,6 +12459,18 @@ K.xp.init = function()
         if L.afk or (not died and realtime() - L.at < 5) then
             return
         end
+        -- V1.0.91: can ozeti (sure, kill, kare suresi). Kare suresi kollara gore karsilastirilir: bir deney kolu FPS'i
+        -- dusuruyorsa (ornegin yuksek hit chance tabaninda aimbot'un daha cok tarama yapmasi) buradan gorulur.
+        local P = K.perf
+        if on(menu.hit_log) and P.frames ~= nil and L.frames ~= nil then
+            -- Sayaclar round ozetinde sifirlanmis olabilir (o zaman can ortasindan sonrasi sayilir).
+            local frames = P.frames >= L.frames and P.frames - L.frames or P.frames
+            local sum = P.frames >= L.frames and P.sum - L.sum or P.sum
+            local over = P.frames >= L.frames and P.over50 - L.over50 or P.over50
+            print(("[%s] deney can sonu: can %d | %d sn | kill %d | %s | kare ort %.1f ms, 50 ms ustu %d"):format(SCRIPT,
+                xp.life, floor(realtime() - L.at + 0.5), L.kills, died and "oldun" or "hayatta",
+                frames > 0 and sum / frames or 0, over))
+        end
         xp.count = xp.count + 1
         for _, lane in ipairs(xp.LANES) do
             local cur = xp.cur[lane]
@@ -12268,7 +12508,8 @@ K.xp.init = function()
                 parts[#parts + 1] = ("%s %s %s"):format(lane, c.id, b_arm and "B" or "A")
             end
         end
-        xp.lifec = { afk = false, kills = 0, air = 0, at = realtime() }
+        xp.lifec = { afk = false, kills = 0, air = 0, at = realtime(), frames = K.perf.frames, sum = K.perf.sum,
+            over50 = K.perf.over50 }
         xp.air_at, xp.pk = nil, nil
         xp.apply()
         if #parts > 0 and on(menu.hit_log) then

@@ -229,7 +229,14 @@ function client.current_threat() return W.threat end
 function client.eye_position() return 0, 0, 64 end
 function client.latency() return 0.03 end
 function client.screen_size() return 1920, 1080 end
-function client.userid_to_entindex(userid) return userid end
+-- V1.0.91: W.slow_ms verildiyse bu cagri sirasinda saat o kadar ilerler (yavas bir olay fonksiyonu taklidi).
+function client.userid_to_entindex(userid)
+    if W.slow_ms ~= nil then
+        W.clock_ms, W.slow_ms = (W.clock_ms or 0) + W.slow_ms, nil
+    end
+    return userid
+end
+function client.timestamp() return W.clock_ms or 0 end
 function client.system_time() return 12, 0, 0 end
 function client.key_state() return false end
 local execs = {}
@@ -337,6 +344,7 @@ function globals.tickcount() return W.tick - (W.tick_shift or 0) end
 function globals.realtime() return now() end
 function globals.curtime() return now() end
 function globals.frametime() return W.interval end
+function globals.absoluteframetime() return W.frame_s or W.interval end -- V1.0.91: kare suresi (takilma olcumu)
 function globals.tickinterval() return W.interval end
 function globals.mapname() return "de_mirage" end
 function globals.maxplayers() return 64 end
@@ -444,7 +452,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.90 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.90")
+check(printed("V1.0.91 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.91")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 560 and py.value == 380 and ps.value == 160,
@@ -2645,7 +2653,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.90 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.91 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2863,6 +2871,9 @@ do
         "V1.0.90: when = dt adayi sadece DT'li canlarin mermisini sayar (force_off " .. tostring(fo and (fo.a.n + fo.b.n))
         .. ", DT'li canlarda yenen " .. bullets_dt .. ")")
     check(printed("ayar onerilen degerine donduruldu", start) == nil, "V1.0.81: ezilen salter 'onerilen ayar' duzeltmesini tetiklemez")
+    local life_end = printed("deney can sonu: can 16 |", start)
+    check(life_end ~= nil and life_end:find("| kill 0 | oldun | kare ort ", 1, true) ~= nil and life_end:find("50 ms ustu 0", 1, true) ~= nil,
+        "V1.0.91: her sayilan canin sonunda ozet satiri (sure, kill, kare suresi): " .. tostring(life_end))
 
     -- AFK cani sayilmaz; kabulden sonra yer kulvarinin siradaki adayi peek_static.
     afk_ref.value = true
@@ -3236,6 +3247,59 @@ do
     adv_ref.value = true
     W.ehp, W.head_dmg[2], W.sees[2], W.evel[2] = {}, 0, false, 0
     tick(80)
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.91: yuk olcumu ("dbg yuk", "dbg takilma") ve log dosyasinin canliyken hemen yazilmamasi
+-------------------------------------------------------------------------------
+do
+    W.dead, W.flags, W.z, W.speed, W.freeze, W.menu_open, W.frame_s = nil, 1, 0, 0, nil, false, nil
+    fire("player_spawn", { userid = 1 })
+    fire("round_start")
+    tick(1100) -- 68 kare
+    -- Bir olay fonksiyonu 30 ms surer (saat o cagri sirasinda ilerler).
+    W.slow_ms = 30
+    fire("player_hurt", { userid = 1, attacker = 2, dmg_health = 10, hitgroup = 3, weapon = "ssg08" })
+    tick(20) -- en az bir kare: lua'nin kare payi kare sonunda toplanir
+    local from = #prints + 1
+    fire("round_start")
+    local load = printed("dbg yuk:", from)
+    check(load ~= nil and (tonumber(load:match("(%d+) kare")) or 0) >= 64
+        and load:find("8 ms ustu cagri 1 (en uzun:", 1, true) ~= nil and load:find(" 30 ms)", 1, true) ~= nil
+        and load:find("| lua 30 ms /", 1, true) ~= nil and load:match("en agir: [^|]- 30 |") ~= nil,
+        "V1.0.91: round ozetinde kare suresi, lua'nin payi ve en agir olay fonksiyonu yazar (" .. tostring(load) .. ")")
+    -- Sayaclar sifirlandi: hemen ardindan ikinci ozet yazilmaz (64 kareden az).
+    from = #prints + 1
+    fire("round_start")
+    check(printed("dbg yuk:", from) == nil, "V1.0.91: ozet sayaclari her round sifirlanir")
+
+    -- 250 ms'lik kare: takilma satiri (5 sn'de en fazla bir).
+    tick(32)
+    from = #prints + 1
+    W.frame_s = 0.25
+    fire("paint")
+    fire("paint")
+    W.frame_s = nil
+    local hitch, hitch_i = printed("dbg takilma: kare 250 ms", from)
+    check(hitch ~= nil and hitch:find("| lua 0 ms |", 1, true) ~= nil and hitch:find("2 dusman", 1, true) ~= nil
+        and printed("dbg takilma:", hitch_i + 1) == nil,
+        "V1.0.91: 100 ms'den uzun karede takilma satiri, 5 sn'de bir (" .. tostring(hitch) .. ")")
+
+    -- Log dosyasi: canliyken round isleri dosyayi hemen yazmaz; olunce yazilir.
+    tick(64)
+    fire("paint_ui")
+    files["nykle_log.txt"] = "ESKI"
+    fire("round_start")
+    fire("paint_ui")
+    local alive_write = files["nykle_log.txt"] ~= "ESKI"
+    W.dead = true
+    fire("paint_ui")
+    local dead_write = files["nykle_log.txt"] ~= "ESKI" and files["nykle_log.txt"]:find("[Nykle.win]", 1, true) ~= nil
+    W.dead = nil
+    check(not alive_write and dead_write, "V1.0.91: canliyken round basinda log dosyasi yazilmaz, olunce yazilir ("
+        .. tostring(alive_write) .. ", " .. tostring(dead_write) .. ")")
+    fire("player_spawn", { userid = 1 })
+    tick(8)
 end
 
 errs = errors_since(1)

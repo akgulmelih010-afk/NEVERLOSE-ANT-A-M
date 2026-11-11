@@ -720,6 +720,20 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.91** (kullanıcı: "oyun donuyo fight esnasında"; ekran görüntüsü: fps 17, kare süresi oynaklığı 16 ms, paket kaybı %36, sunucu karesi 9.6 ms. Gösterge de dürbündeyken resolver panelinin üstüne binmiş.)
+
+Önce ölçüldü (sahte API, 2 / 6 / 12 rakip, V1.0.89 ile V1.0.90 aynı sahnede): V1.0.90'ın eklediği yük küçük (tick başına +0.7 mermi izi, +7 `get_prop`, +5 KB çöp, Lua süresi tick başına ~0.3–0.5 ms'de aynı). 17 FPS'i açıklayan bir fark çıkmadı; ekrandaki %36 paket kaybı ve 9.6 ms'lik sunucu karesi tek başına da donma yapar. Yine de bulunan iki gerçek yük giderildi ve donmanın kaynağı bir sonraki logda okunacak şekilde ölçüm eklendi.
+
+| Ne | Ayrıntı |
+|---|---|
+| **Log dosyası canlıyken baştan yazılmıyor** | DM'de round işleri doğuş anında çalışır (60 sn'de bir) ve 1–3 MB'lik `nykle_log.txt` tam fight başlarken baştan yazılıyordu. Artık istek bırakılır: ölünce / donma süresinde hemen, canlıyken en geç 5 dakikada bir yazılır. |
+| **Gösterge neredeyse bedava** | Düello danışmanı 4 tick'te bir değerlendirir, tick ve kare başına bellek ayırmaz (tablolar yeniden kullanılır, sıralama ve kapanış yok). |
+| **Rakip profili tick başına bir kez** | `enemy_watch.profile` tick başına rakip başı ~6 kez yeni tablo kuruyordu (6 rakipte tick başına 8 KB çöp; V1.0.89'da da vardı). Aynı tick'te tek tablo. 12 rakipte toplam çöp tick başına 54 → 41 KB (V1.0.89'dan da az). |
+| **Gösterge çakışması** | Dürbündeyken sola kayar (sağa kayınca varsayılan yerindeki resolver panelinin üstüne biniyordu). |
+| **Yük ölçümü (yeni log satırları)** | `dbg yuk` (her round): kare sayısı, ortalama kare süresi ve FPS, en uzun kare, 50 / 200 ms üstü kare sayısı, lua'nın toplam süresi ve payı, en ağır üç olay fonksiyonu, 8 ms üstü çağrılar, bellek. `dbg takilma` (100 ms'den uzun karede, 5 sn'de bir): kare süresi, o karede lua'nın payı ve en ağır çağrı, rakip sayısı. `deney can sonu` (her sayılan can): süre, kill, ortalama kare süresi; bir deney kolu FPS'i düşürüyorsa kollar arasındaki kare süresi farkından görülür. Donma lua'dan mı (hangi parçasından) yoksa oyundan / sunucudan mı, loglardan okunacak. |
+
+Ölçülemeyen: gerçek oyunda donmanın kaynağı (sahte API gerçek iz maliyetini bilmez). `dbg yuk` satırındaki "lua" payı küçük ve FPS yine düşükse sebep lua değildir.
+
 **V1.0.90** (istek: "tek bir sürümde bir çok sonuca bakalım, bir sürü özelliği test edelim, yine de kararlı ve doğru olmalı"; "ai peekin peekleyip ölmesi, sıkmaması"; "yukarıda durup bekleyenlere peekleyip öldürmek imkansız"; "ne zaman savunma ne zaman saldırı yaptığımı anlaması lazım, öldürebileceksem saldır desin, öldüremeyeceksem savun; güzel bir hud"; "hatalı / çalışmayan özellik var mı, exp'lerin çalıştığından emin ol". Kod değişmeden önce bütün GameSense logları sayıldı: 5196 düello, 315 AI peek.)
 
 | Ne | Ayrıntı |
