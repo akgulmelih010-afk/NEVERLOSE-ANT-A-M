@@ -265,7 +265,7 @@ function entity.get_players(enemies_only)
 end
 function entity.get_all() return {} end
 function entity.is_alive(ent) return (ent == 1 and not W.dead) or ent == 2 or ent == 3 end -- V1.0.80: W.dead
-function entity.is_dormant() return false end
+function entity.is_dormant(ent) return W.all_dormant == true and ent ~= 1 end -- V1.0.95: W.all_dormant
 function entity.is_enemy(ent) return ent == 2 or ent == 3 end
 function entity.get_player_name(ent) return ({ "ben", "dusman2", "dusman3" })[ent] or "?" end
 function entity.get_steam64(ent) return "7656119900000000" .. tostring(ent) end
@@ -460,7 +460,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.94 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.94")
+check(printed("V1.0.95 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.95")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -2661,7 +2661,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.94 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.95 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2894,8 +2894,9 @@ do
     local l17 = life(function() tick(3); for _ = 1, 4 do hurt(1) end end)
     afk_ref.value = false
     tick(2)
-    check(l17:find("| yer ", 1, true) == nil and l17:find("hareket cap_off2", 1, true) ~= nil,
-        "V1.0.81: kabulden sonra kulvarda aday kalmadiysa kulvar olculmez (" .. l17 .. ")")
+    check(l17:find("yer fs_contact", 1, true) ~= nil and l17:find("peek_static", 1, true) == nil
+        and l17:find("hareket cap_off2", 1, true) ~= nil,
+        "V1.0.95: kabulden sonra kulvar siradaki adaya gecer (" .. l17 .. ")")
     saved_xp = db.nykle_win_gs_xp
     check(saved_xp.c.fs_auto_off.a.l + saved_xp.c.fs_auto_off.b.l == 16
         and saved_xp.c.fs_auto_off.a.n + saved_xp.c.fs_auto_off.b.n == 80,
@@ -3418,6 +3419,19 @@ do
     check(not alive_write and dead_write, "V1.0.91: canliyken round basinda log dosyasi yazilmaz, olunce yazilir ("
         .. tostring(alive_write) .. ", " .. tostring(dead_write) .. ")")
     fire("player_spawn", { userid = 1 })
+    tick(8)
+    -- V1.0.95: canliyken 5 dakika kurali da ortada gorunen rakip varken yazmaz; rakipler dormant olunca yazar.
+    fire("round_start")
+    files["nykle_log.txt"] = "ESKI"
+    W.tick = W.tick + 64 * 301
+    fire("paint_ui")
+    local seen_write = files["nykle_log.txt"] ~= "ESKI"
+    W.all_dormant = true
+    fire("paint_ui")
+    local hidden_write = files["nykle_log.txt"] ~= "ESKI"
+    W.all_dormant = nil
+    check(not seen_write and hidden_write, "V1.0.95: canliyken log dosyasi gorunen rakip varken yazilmaz, yokken yazilir ("
+        .. tostring(seen_write) .. ", " .. tostring(hidden_write) .. ")")
     tick(8)
 end
 

@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.94"
+local VERSION = "1.0.95"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -11267,6 +11267,16 @@ listen("paint_ui", protect("log save", function()
     local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
     local live = lp ~= nil and alive(lp) and freeze ~= 1 and freeze ~= true
     local every = live and 300 or nlog.save_every
+    -- V1.0.95 (V1.0.94 logu: dosya 700 KB olunca tek yazim 120-470 ms; canliyken 5 dakika kurali iki kez fight
+    -- ortasinda 120 / 208 ms'lik takilma yapti): canliyken sadece ortada gorunen (dormant olmayan) rakip yokken
+    -- yazilir. Olunce, donma suresinde, harita degisince ve kapanista eskisi gibi hemen.
+    if live and nlog.dirty and now >= nlog.saved and now - nlog.saved >= every then
+        for _, enemy in ipairs(try(entity.get_players, true) or {}) do
+            if alive(enemy) and not dormant(enemy) then
+                return
+            end
+        end
+    end
     if nlog.dirty and (now < nlog.saved or now - nlog.saved >= every or (nlog.want and not live)) then
         nlog.save()
     end
@@ -12474,6 +12484,17 @@ K.xp.init = function()
         -- kayitta baslar (aimbot'un zaten yaptigi bekleme; wait_off A / B'de reddedilmisti).
         -- V1.0.92 notu: DM'de AI peek neredeyse hic kullanilmiyor (V1.0.90 oturumu: 36 dakikada 1 peek); bu aday
         -- round sunucusunda dolar.
+        -- V1.0.95 (V1.0.94 logu: yer, hava, atis, atis2 kulvarlari bosaldi). Yeni adaylar, hepsi hic A / B olculmemis
+        -- salterler. O oturumda yenen 143 isabetin 92'si Peek'te (%57 kafa), 33'u havada (%70 kafa); 35 iskanin
+        -- 32'si "correction".
+        { id = "fs_contact", lane = "yer", kind = "harm", min = 40, set = { fs_contact = true },
+            name = "ilk temasta freestanding yonu ters cevrilir" },
+        { id = "air_duck", lane = "hava", kind = "airharm", min = 25, cap = 2, fair = true, set = { air_duck = true },
+            name = "havada gorulunce egil (havada yenen isabetin %70'i kafa)" },
+        { id = "ext_off", lane = "atis", kind = "kps", min = 30, set = { ext_body = false },
+            name = "extended / roll rakibe govde kurali kapali (ozellik denetimi)" },
+        { id = "hider_off", lane = "atis2", kind = "kps", min = 30, set = { hider_body = false },
+            name = "kafa saklayana govde kurali kapali (ozellik denetimi)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
         -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u

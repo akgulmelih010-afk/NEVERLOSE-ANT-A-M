@@ -720,6 +720,17 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.95** (V1.0.94 logu: öğlen 25 dk DM (ort. 86 fps) + gece 11 dk de_mirage (ort. 150 fps). **86 kill / 103 ölüm = 0.83**. Hata satırı yok.)
+
+| Ne | Ayrıntı |
+|---|---|
+| **V1.0.94 önbelleği işe yaradı** | `setup_command` saniyede ~71 ms'den (V1.0.93, round sunucusu) ~37 ms'ye indi (aynı tür sunucu, gece oturumu); 8–11 rakipli DM'de 41–57 ms. 200 ms'den uzun kare yine 0. İç döküm: en ağır iki bölüm `aa` ve `resolver`. |
+| **Takılma sebebi bulundu: log dosyası yazımı** | Dosya 700 KB olunca tek yazım 120–470 ms sürüyor. Canlıyken "5 dakikada bir yaz" kuralı iki kez fight ortasında 120 / 208 ms'lik takılma yaptı. Artık canlıyken sadece ortada görünen rakip yokken yazılır; ölünce, donma süresinde, harita değişince ve kapanışta eskisi gibi. |
+| **Deney kararları** | `hc90` **kabul** (scout hit chance tabanı 90: 95 atış 53 kill → 90 atış 59 kill). `peek_static` ret (can başına kill düştü), `lowhp_off` ve `fs_auto_off` ret (fark yok). `hs_def_off`: önceki oturumdaki fark (0.34 / 0.64) kayboldu, 70 / 70 canda 0.56 / 0.57; "LC kırma işe yarıyor" demek için erkenmiş. `cap_off2` z +1.2, sürüyor. |
+| **Yeni adaylar** (boşalan kulvarlara) | `fs_contact` (ilk temasta freestanding yönü ters), `air_duck` (havada görülünce eğil), `ext_off` ve `hider_off` (gövde kurallarının denetimi). |
+
+Bu oturumdan: yenen 143 isabetin 84'ü kafa (%59); 92'si Peek'te (%57 kafa), 33'ü havada (%70 kafa). 35 ıskanın 32'si "correction" (resolver).
+
 **V1.0.94** (V1.0.93 logu, 21 dk, de_mirage round sunucusu (ping 102–108): **20 kill / 30 ölüm = 0.67**. Hata satırı yok. İlk gerçek yük ölçümü bu logda.)
 
 **Yük ölçümü ne gösterdi.** 41 round özeti, 6 takılma satırı:
