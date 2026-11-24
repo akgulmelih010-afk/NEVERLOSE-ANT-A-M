@@ -460,7 +460,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.95 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.95")
+check(printed("V1.0.96 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.96")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -485,8 +485,10 @@ check(#errs == 0, "yuklenirken hata yok" .. (#errs > 0 and (": " .. errs[1]) or 
 do
     local xp_ref = find_ref("Experiments (auto A/B test per life, keeps what wins)")
     check(xp_ref ~= nil and xp_ref.value == true, "V1.0.81: deney motoru varsayilan acik")
-    check(printed("deney motoru: yer: peek_static, exploit: sniper_hs, def: force_off, hareket: cap_off2, koruma: fs_auto_off, hava: air_def2, atis: hc70, atis2: lowhp_off, peek: peek_real, roll: bekliyor | kalici: yok (0 can olculdu)") ~= nil,
-        "V1.0.81: yukleme satiri ilk adaylari yazar (V1.0.93: 9 kulvar + roll bekliyor)")
+    check(printed("deney motoru: yer: peek_static, exploit: sniper_hs, def: force_off, hareket: cap_off2, koruma: fs_auto_off, hava: air_def2, atis: hc70, atis2: lowhp_off, peek: peek_real, roll: bekliyor, peekaa: peek_defaa | kalici: yok (0 can olculdu)") ~= nil,
+        "V1.0.81: yukleme satiri ilk adaylari yazar (V1.0.96: 10 kulvar + roll bekliyor)")
+    check(printed("atlandi (menude salteri yok)") == nil,
+        "V1.0.96: butun adaylarin ayarlari menude var (peek_defaa / peek_delay2 Peek durumunun ogelerini bulur)")
     if xp_ref ~= nil then xp_ref.value = false end
 end
 
@@ -2661,7 +2663,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.95 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.96 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -2811,7 +2813,7 @@ do
                 if same ~= 16 then pairs_ok, worst = false, same end
             end
         end
-        check(#names == 9 and halves and blocks, "V1.0.90: 9 kulvarin her biri 32 canda 16 A + 16 B, her blokta birer kez ("
+        check(#names == 10 and halves and blocks, "V1.0.96: 10 kulvarin her biri 32 canda 16 A + 16 B, her blokta birer kez ("
             .. #names .. " kulvar, yer " .. tostring(lanes["@yer"]) .. ")")
         check(pairs_ok, "V1.0.90: her kulvar cifti 32 canda tam 16 kez ayni kolda (kulvarlar birbirine dik; sapan " .. worst .. ")")
         fresh()

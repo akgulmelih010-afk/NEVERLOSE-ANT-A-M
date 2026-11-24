@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.95"
+local VERSION = "1.0.96"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -12378,7 +12378,7 @@ K.xp.init = function()
     local xp = K.xp
     -- V1.0.92: "atis3" kulvari kalkti (tek adayi qs_late karara baglandi). V1.0.93: "roll" kulvari (sadece Home'dan
     -- roll actiysan calisir).
-    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek", "roll" }
+    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek", "roll", "peekaa" }
     -- Karara baglananlar (kullanicinin kendi verisi; listeden cikarildi, yeniden denenmez):
     --   slow_jit (yavas jitter, 4-6 pakette bir): RED. 35 / 34 can, zarar 0.51 -> 0.68, z -2.4.
     --   def_full (defensive hep acik + temiz atis kapali): RED. 30 / 30 can, zarar 0.54 -> 0.62, z -1.1 (oturum
@@ -12495,6 +12495,18 @@ K.xp.init = function()
             name = "extended / roll rakibe govde kurali kapali (ozellik denetimi)" },
         { id = "hider_off", lane = "atis2", kind = "kps", min = 30, set = { hider_body = false },
             name = "kafa saklayana govde kurali kapali (ozellik denetimi)" },
+        -- V1.0.96 (internet arastirmasi: 154 paylasilmis GameSense lua ayari ve acik kaynak AA lua'lari, ornegin
+        -- luasense). V1.0.94 logunda rakiplerin sana attigi mermilerin %77'si isabet; Peek'te %84, Peek'te defensive
+        -- acikken de %84 / kapaliyken %80: Peek'teki defensive hicbir sey gizlemiyor, cunku Peek'te gizli aci kapali
+        -- (V1.0'dan beri). Topluluktaki "defensive AA": defensive tick'lerinde pitch yukari + rastgele yaw (luasense
+        -- "Pitch up" + "Random yaw" 69-169 derece). Paylasilan ayarlarda jitter gecikmesi en cok 2 tick (%39; 1 tick %32).
+        -- Ikisi de once A / B olculur, kazanan kalir.
+        { id = "peek_defaa", lane = "peekaa", kind = "harm", min = 40,
+            states = { Peek = { hidden_pitch = "Up", hidden_yaw = "Random" } },
+            name = "Peek'te defensive AA (defensive tick'lerinde pitch yukari + rastgele yaw)" },
+        { id = "peek_delay2", lane = "peekaa", kind = "harm", min = 40,
+            states = { Peek = { delay = 2 } },
+            name = "Peek'te jitter gecikmesi 2 tick (simdi 1)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
         -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u

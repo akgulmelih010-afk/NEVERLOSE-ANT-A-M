@@ -720,6 +720,26 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.96** (istek: "internette ciddi bir araştırma yap, çok iyi ayarlar bul").
+
+**Araştırma.** Forumlar (hackvshack, yougame, neverlose forumu) somut sayı vermiyor: sayfaların çoğu giriş istiyor, 429 / 403 / 404 dönüyor ya da ayarı indirilebilir dosyaya koymuş. Asıl veri GitHub'daki açık arşivlerde: bir koleksiyonda ~2500 GameSense lua'sı, 372 paylaşılmış GameSense config'i ve 312 lua ayar dosyası. Dosyalar sadece metin olarak okundu, hiçbiri çalıştırılmadı.
+
+- **GameSense config'leri:** ikili biçim çözüldü (`60 0d c0 de` başlıklı kayıtlar) ama ayar adları kendine özgü bir karma ile saklanıyor; bilinen 10 karma fonksiyonuyla eşleşmedi. Bu yüzden sayıları ayar adlarına güvenle bağlanamadı, kullanılmadı.
+- **Lua ayar dosyaları:** 154'ü çözüldü (JSON, base64-JSON, msgpack). Durum başına sık görülenler:
+  - **Jitter tipi:** dururken, yürürken ve havada en çok "center" (%52–61). Slow walk'ta çoğunlukla jitter yok (%70).
+  - **Body yaw:** jitter (dururken %61, havada %73).
+  - **Jitter gecikmesi:** en çok 2 tick (%39), sonra 1 tick (%32).
+  - **Defensive:** "always on" dururken %32, slow walk'ta %31, havada %26.
+  - **Defensive tick'lerindeki açı:** pitch 0 ya da yukarı, yaw spin / rastgele / yan.
+- **Açık kaynak lua'lar** (ör. luasense): "defensive AA" = defensive tick'lerinde pitch yukarı + ±69–169 derece rastgele yaw. Ayrıca rakip başına rastgele jitter genişliği (39–59) ve vurulunca değiştirme; bizdeki anti-brute fazları bunun karşılığı.
+
+**Bizim logla karşılaştırma (V1.0.94 logu).** Rakiplerin sana attığı mermilerin %77'si isabet, Peek'te %84. Peek'te defensive açıkken isabet %84, kapalıyken %80: Peek'teki defensive hiçbir şey gizlemiyor, çünkü Peek'te gizli açı V1.0'dan beri kapalı. Bizim isabetimiz %73; resolver'ın en zayıf olduğu yer statik AA'lı (%50) ve slow walk yapan (%54) rakip.
+
+| Ne | Ayrıntı |
+|---|---|
+| **Yeni deney kulvarı `peekaa`** | `peek_defaa`: Peek'te defensive tick'lerinde pitch yukarı + rastgele yaw (topluluğun "defensive AA"sı). Ardından `peek_delay2`: Peek'te jitter gecikmesi 2 tick. İkisi de önce A / B ölçülür; kazanan kalıcı olur, kaybeden atılır. |
+| **Test** | 397 kontrol; yeni: bütün adayların ayarları menüde bulunuyor. |
+
 **V1.0.95** (V1.0.94 logu: öğlen 25 dk DM (ort. 86 fps) + gece 11 dk de_mirage (ort. 150 fps). **86 kill / 103 ölüm = 0.83**. Hata satırı yok.)
 
 | Ne | Ayrıntı |
