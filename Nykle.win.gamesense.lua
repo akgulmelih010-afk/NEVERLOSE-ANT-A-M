@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.97"
+local VERSION = "1.0.98"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -12395,7 +12395,7 @@ K.xp.init = function()
     local xp = K.xp
     -- V1.0.92: "atis3" kulvari kalkti (tek adayi qs_late karara baglandi). V1.0.93: "roll" kulvari (sadece Home'dan
     -- roll actiysan calisir).
-    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek", "roll", "peekaa" }
+    xp.LANES = { "yer", "exploit", "def", "hareket", "koruma", "hava", "atis", "atis2", "peek", "roll", "peekaa", "peekgec" }
     -- Karara baglananlar (kullanicinin kendi verisi; listeden cikarildi, yeniden denenmez):
     --   slow_jit (yavas jitter, 4-6 pakette bir): RED. 35 / 34 can, zarar 0.51 -> 0.68, z -2.4.
     --   def_full (defensive hep acik + temiz atis kapali): RED. 30 / 30 can, zarar 0.54 -> 0.62, z -1.1 (oturum
@@ -12521,7 +12521,9 @@ K.xp.init = function()
         { id = "peek_defaa", lane = "peekaa", kind = "harm", min = 40,
             states = { Peek = { hidden_pitch = "Up", hidden_yaw = "Random" } },
             name = "Peek'te defensive AA (defensive tick'lerinde pitch yukari + rastgele yaw)" },
-        { id = "peek_delay2", lane = "peekaa", kind = "harm", min = 40,
+        -- V1.0.98: gecikme adayi kendi kulvarinda, peek_defaa ile ayni anda (iki ayri ayar; kulvarlar birbirine dik,
+        -- biri otekinin olcusune yanlilik katmaz). peekaa'da sirada beklerse sonucu iki kat gec gelirdi.
+        { id = "peek_delay2", lane = "peekgec", kind = "harm", min = 40,
             states = { Peek = { delay = 2 } },
             name = "Peek'te jitter gecikmesi 2 tick (simdi 1)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },

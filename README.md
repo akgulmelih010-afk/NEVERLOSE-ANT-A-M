@@ -720,6 +720,18 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.98** (V1.0.97 logu: 21 dk, de_mirage round sunucusu + 3 round DM. **27 kill / 18 ölüm = 1.5**. Hata satırı yok.)
+
+- **Donmalar lua'dan değil.** Gerçek saatle ölçülen ilk logda 21 dakikada tek bir 200 ms üstü kare var (323 ms), o karede lua 8 ms. İki roundda 38 ve 47 kare 50 ms'yi aşıyor, o roundlarda lua'nın payı %6.8 ve %3.8. Lua canlıyken sürenin %3–12'sini alıyor.
+- **Deney kararları:**
+  - `ext_off` **kabul**: extended / roll şüphesinde gövdeye geçme kuralı kapalı. 29 / 30 canda 13 kill → 27 kill (kill/can z +2.6): bu kural kill kaybettiriyormuş.
+  - `brute_fixed` ret: rastgele anti-brute sırası daha iyi (zarar 0.45 / 0.63).
+  - `air_duck` ret.
+  - `hider_off` (kafa saklayana gövde kuralı kapalı) aynı yönde gidiyor: 16 → 21 kill, z +1.2.
+- **Düello göstergesi işe yarıyor:** SALDIR dediği düellolarda 19 kill / 7 ölüm, SAVUN dediği düellolarda 1 kill / 6 ölüm.
+- **Peek AA:** `peek_defaa` 53 canda fark yok (0.55 / 0.56). `peek_delay2` artık kendi kulvarında (`peekgec`), aynı anda ölçülüyor; sırada beklese sonuç iki kat geç gelirdi.
+- Senin isabetin %78 (40 mermide 31, 19 kafa); rakiplerin sana isabeti %87.
+
 **V1.0.97** (V1.0.96 logu: 10 dk DM, dm_twentysixer_mirage, iki rakip. **9 kill / 21 ölüm**. Hata satırı yok.)
 
 **Ölçüm hatası: 100 ms'den uzun donmalar görünmüyordu.** Logda "kare 100 ms | lua 296 ms" satırı var: lua o karede tek başına 296 ms sürmüş, ama kare 100 ms görünüyor. Motorun verdiği kare süresi ~100 ms'de kesiliyor. Yani önceki sürümlerdeki "200 ms'den uzun kare 0" sonucu yanlıştı; ölçü bunu hiç göremiyordu. Kare süresi artık iki paint arası duvar saatiyle ölçülüyor.
