@@ -460,7 +460,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.96 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.96")
+check(printed("V1.0.97 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.97")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -2663,7 +2663,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.96 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.97 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -3378,6 +3378,22 @@ do
         and (tonumber(inner:match("setup_command ici: .-dusman kaydi (%d+)")) or 0) > 0
         and (tonumber(inner:match("en agir: setup_command (%d+)")) or 0) > 0,
         "V1.0.94: round ozetinde setup_command'in ic bolumleri (" .. tostring(inner and inner:sub(-150)) .. ")")
+
+    -- V1.0.97: kare suresi duvar saatinden (iki paint arasi). Motorun kare suresi 100 ms'de kesik olsa da 300 ms'lik
+    -- donma 300 ms gorulur; round ozetinde "200 ms ustu" dolar.
+    fire("round_start")
+    tick(1100)
+    from = #prints + 1
+    fire("paint")
+    W.clock_ms = (W.clock_ms or 0) + 300
+    fire("paint")
+    local long = printed("dbg takilma: kare 300 ms", from)
+    tick(16)
+    from = #prints + 1
+    fire("round_start")
+    local sum = printed("dbg yuk:", from)
+    check(long ~= nil and sum ~= nil and sum:find("en uzun 300 ms", 1, true) ~= nil and sum:find("200 ms ustu 1", 1, true) ~= nil,
+        "V1.0.97: 100 ms'den uzun donma duvar saatiyle olculur (" .. tostring(long) .. " / " .. tostring(sum and sum:sub(1, 110)) .. ")")
 
     -- V1.0.94: olay cagrisi ici onbellek. Ayni menu salteri ve ayni zaman bir olay cagrisinda bir kez okunur; tick
     -- basina toplam menu okumasi sinirli kalir (onceden ~250).

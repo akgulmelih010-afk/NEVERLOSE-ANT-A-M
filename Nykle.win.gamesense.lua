@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.96"
+local VERSION = "1.0.97"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -11302,14 +11302,31 @@ K.perf.init = function()
     -- V1.0.94: can ozeti icin hic sifirlanmayan toplamlar (round ozeti sayaclari sifirlayinca "kare ort 0.0" yaziyordu).
     P.tf, P.ts, P.t50 = 0, 0, 0
 
-    -- Son karenin suresi (sn): absoluteframetime (oyun hizindan bagimsiz), yoksa frametime.
+    -- Son karenin suresi (sn).
+    -- V1.0.97 (V1.0.96 logu: "kare 100 ms | lua 296 ms": lua o karede tek basina 296 ms surdugu halde kare 100 ms
+    -- gorunuyordu): motorun kare suresi ~100 ms'de kesiliyor, 100 ms'den uzun her donma 100 ms sayiliyordu ve
+    -- "200 ms ustu" hic dolmuyordu. Artik iki paint arasindaki duvar saati (client.timestamp) kullanilir; saat yoksa
+    -- ya da ilerlemediyse eskisi gibi absoluteframetime, o da yoksa frametime. Harita yuklenirken sayilmaz.
     local function frame_seconds()
+        local stamp = P.stamp
+        if stamp ~= nil then
+            local now = stamp()
+            local last = P.last_paint
+            P.last_paint = now
+            if last ~= nil and finite(now) and now > last then
+                return (now - last) / 1000
+            end
+        end
         local v = try(globals.absoluteframetime)
         if finite(v) and v > 0 then
             return v
         end
         return frametime()
     end
+
+    listen("level_init", protect("yuk olcumu level_init", function()
+        P.last_paint = nil
+    end))
 
     -- Her karede bir kez: gecen karenin suresi ve o karede lua'nin harcadigi sure.
     P.frame_end = function()

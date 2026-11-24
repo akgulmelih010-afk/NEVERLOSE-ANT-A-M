@@ -720,6 +720,24 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.97** (V1.0.96 logu: 10 dk DM, dm_twentysixer_mirage, iki rakip. **9 kill / 21 ölüm**. Hata satırı yok.)
+
+**Ölçüm hatası: 100 ms'den uzun donmalar görünmüyordu.** Logda "kare 100 ms | lua 296 ms" satırı var: lua o karede tek başına 296 ms sürmüş, ama kare 100 ms görünüyor. Motorun verdiği kare süresi ~100 ms'de kesiliyor. Yani önceki sürümlerdeki "200 ms'den uzun kare 0" sonucu yanlıştı; ölçü bunu hiç göremiyordu. Kare süresi artık iki paint arası duvar saatiyle ölçülüyor.
+
+| Ne | Ayrıntı |
+|---|---|
+| Kare süresi | `client.timestamp` ile iki paint arası; saat yoksa eskisi gibi `absoluteframetime`. Harita yüklenirken sayılmaz. |
+| Test | 398 kontrol; yeni: 300 ms'lik donma 300 ms görülür ve "200 ms üstü" sayılır. |
+
+Bu oturumdan:
+
+- **Rakipler isabet ettiriyor:** sana atılan 42 mermiden 40'ı isabet; Peek'te 34'ten 32'si.
+- **Önce o görüyor:** 55 düellonun 43'ünde rakip seni önce ya da sadece o gördü. Senin ping'in 94, rakiplerden birininki 5.
+- **Kamp yapan rakip:** "Trez" her seferinde aynı köşede duruyordu (hız 0). Ölümlerin 8'i ona, hep o duruşta.
+- **"Aynı yerden öldüren rakip" özelliği eklenmedi:** iki logdaki 177 düelloda böyle bir rakibe karşı kazanma %54–57, yeni yerde %49–55; fark yok.
+- **Log yazımı:** 116 KB'lık dosyada bile 287–290 ms sürüyor (disk / antivirüs). İki yazım da ölüyken oldu.
+- **Deney kararları:** `cap_off2` kabul (desync keeper kapalı; 80 / 80 can, 48 → 61 kill). `peek_defaa` 13 can, henüz fark yok. `hs_def_off` 199 mermide fark yok (0.53 / 0.54).
+
 **V1.0.96** (istek: "internette ciddi bir araştırma yap, çok iyi ayarlar bul").
 
 **Araştırma.** Forumlar (hackvshack, yougame, neverlose forumu) somut sayı vermiyor: sayfaların çoğu giriş istiyor, 429 / 403 / 404 dönüyor ya da ayarı indirilebilir dosyaya koymuş. Asıl veri GitHub'daki açık arşivlerde: bir koleksiyonda ~2500 GameSense lua'sı, 372 paylaşılmış GameSense config'i ve 312 lua ayar dosyası. Dosyalar sadece metin olarak okundu, hiçbiri çalıştırılmadı.
