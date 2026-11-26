@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.100"
+local VERSION = "1.0.101"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -8257,7 +8257,14 @@ end
 -- 1.53, basili degilken 0.84. Scout / AWP ile ates ettiginde hala goruluyorsan, en son hicbir dusmanin kafani gormedigi
 -- noktaya (en fazla 3 sn once, 8-200 birim geride) en fazla 0.6 sn geri yurunur. Gorus kesilince, noktaya varinca ya da
 -- sure dolunca kontrol hemen sende. Peek tusu basiliyken, AI peek / AFK'de, havada, merdivende ve fake duck'ta calismaz.
-own.retreat = { spot = nil, spot_t = -1000, shot = -1000, dest = nil, from = nil, until_t = -1000 }
+-- V1.0.101 (V1.0.99 logu: B kolundaki 10 canda 2 geri cekilme, ikisi de 1-2 birimde "siperdesin" ile bitti, birinde 1 sn
+-- sonra oldun): gorus bilgisi bir tick kesilince birakiyordu. Simdi (1) atisin hedefi son 16 tick'te seni gorduyse de
+-- goruluyor sayilir (exposure.now sadece AA hedefine bakar); (2) gorus kesilince birakilmaz: noktaya varinca, sure
+-- dolunca ya da hedef olup kimse gormuyorsa biter; (3) siper noktasi ancak en az 6 tick ust uste gorulmeyince yazilir
+-- (tek tick'lik kesinti acik bir noktayi siper sanmasin); (4) nokta 12 birim daha geriye uzatilir (siperin kenari degil
+-- arkasi).
+own.retreat = { spot = nil, spot_t = -1000, shot = -1000, dest = nil, from = nil, until_t = -1000, target = nil,
+    hidden = nil }
 own.aa.retreat = function(cmd, lp, class)
     local R = own.retreat
     own.aa.retreating = nil
@@ -8265,26 +8272,37 @@ own.aa.retreat = function(cmd, lp, class)
     if mine == nil then
         return
     end
-    local now = realtime()
+    local now, tick_now = realtime(), tickcount()
     local ground = on_ground(lp) and not fd_on() and prop(lp, "m_MoveType") ~= K.MOVETYPE_LADDER
     local seen = exposure.now or exposure.any
-    -- Siper noktasi sadece gorus bu tick'te yeniden hesaplandiysa (2 tick'te bir) yazilir: eski "gormuyor" bilgisiyle
-    -- gorulen bir nokta siper sanilmasin.
-    if ground and not seen and exposure.tick == tickcount() then
-        R.spot, R.spot_t = mine, now
+    -- Siper noktasi: gorus bu tick'te yeniden hesaplandi (2 tick'te bir), kimse kafani gormuyor ve en az 6 tick'tir boyle.
+    if exposure.tick == tick_now then
+        if seen or not ground then
+            R.hidden = nil
+        else
+            R.hidden = R.hidden or tick_now
+            if tick_now - R.hidden >= 6 then
+                R.spot, R.spot_t = mine, now
+            end
+        end
     end
     local blocked = not on(menu.auto_retreat) or not ground or ai_peek.mode ~= nil or afk.on or afk.key()
     local log = on(menu.enabled) and on(menu.debug_log)
-    -- Yeni aimbot atisi (aim_fire resolver.aim_time'i yazar).
+    -- Yeni aimbot atisi (aim_fire resolver.aim_time / aim_target'i yazar).
     local shot = resolver.aim_time
     if finite(shot) and shot > R.shot then
         R.shot = shot
+        local target = resolver.aim_target
+        local sight = target ~= nil and exposure.sight[target] or nil
+        local target_saw = sight ~= nil and tick_now >= sight.last and tick_now - sight.last <= 16
         local sniper = class == "CWeaponSSG08" or class == "CWeaponAWP"
-        if not blocked and sniper and seen and R.spot ~= nil and now - R.spot_t <= 3 then
+        if not blocked and sniper and (seen or target_saw) and R.spot ~= nil and now - R.spot_t <= 3 then
             local dx, dy = R.spot.x - mine.x, R.spot.y - mine.y
             local dist = sqrt(dx * dx + dy * dy)
             if dist >= 8 and dist <= 200 then
-                R.dest, R.from, R.until_t = R.spot, mine, now + 0.6
+                local k = (dist + 12) / dist
+                R.dest = vector(mine.x + dx * k, mine.y + dy * k, R.spot.z)
+                R.from, R.until_t, R.target = mine, now + 0.6, target
                 if log then
                     print(("[%s] dbg geri cekilme: %d birim geri (atistan sonra goruluyorsun)"):format(SCRIPT, round(dist)))
                 end
@@ -8296,14 +8314,15 @@ own.aa.retreat = function(cmd, lp, class)
     end
     local dx, dy = R.dest.x - mine.x, R.dest.y - mine.y
     local dist = sqrt(dx * dx + dy * dy)
-    local done = (blocked and "iptal") or (now > R.until_t and "sure doldu") or (not seen and "siperdesin")
-        or (dist < 6 and "noktaya varildi") or nil
+    local target_gone = R.target == nil or not alive(R.target)
+    local done = (blocked and "iptal") or (now > R.until_t and "sure doldu") or (dist < 6 and "noktaya varildi")
+        or (target_gone and not seen and "hedef oldu, kimse gormuyor") or nil
     if done then
         if log and R.from ~= nil then
             local gx, gy = mine.x - R.from.x, mine.y - R.from.y
             print(("[%s] dbg geri cekilme bitti: %s (%d birim gidildi)"):format(SCRIPT, done, round(sqrt(gx * gx + gy * gy))))
         end
-        R.dest, R.from = nil, nil
+        R.dest, R.from, R.target = nil, nil, nil
         return
     end
     local view = view_yaw(cmd)
@@ -12608,8 +12627,10 @@ K.xp.init = function()
         -- iyi taraf kalir (fair), bekci can basina kill belirgin duserse erken keser.
         -- Atistan sonraki surgu: olumlerin %30'u kendi atisindan sonraki 1.25 sn'de; peek tusuyla (geri donus) K/D 1.53,
         -- tussuz 0.84.
-        { id = "retreat_on", lane = "hareket", kind = "kpl", min = 40, cap = 2, fair = true, set = { auto_retreat = true },
-            name = "scout / AWP atisindan sonra goruluyorsan siperine geri cekil (0.6 sn)" },
+        -- V1.0.101: retreat_on'un ilk hali gorus bir tick kesilince birakiyordu (bkz. own.aa.retreat); duzeltilmis hali
+        -- yeni adla sifirdan olculur (eski sayim karistirilmaz).
+        { id = "retreat2", lane = "hareket", kind = "kpl", min = 40, cap = 2, fair = true, set = { auto_retreat = true },
+            name = "scout / AWP atisindan sonra goruluyorsan siperinin arkasina geri cekil (0.6 sn)" },
         -- Hava: K/D 0.26 (yerde 1.11); havadaki olumlerin cogunda silah hazirdi (jump scout).
         { id = "jump_block", lane = "hava", kind = "kpl", min = 40, cap = 2, fair = true,
             set = { no_jump_seen = true, no_jump_all = true },

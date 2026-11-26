@@ -720,6 +720,18 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.101** (V1.0.99 logu: 15 dk, de_mirage round sunucusu. **8 kill / 16 ölüm**. Hata satırı yok. V1.0.100 bu oturumda yüklü değildi.)
+
+- **Havada hiç ölmedin** (önceki 4 logda ölümlerin %25'i havadaydı). Ölümlerin yarısı duvardan, %37'si kendi atışından sonraki sürgüde.
+- **Geri çekilme hatası:** B kolundaki 10 canda sadece 2 kez çalıştı, ikisi de 1–2 birimde "siperdesin" ile bitti; birinde 1 sn sonra öldün. Görüş bilgisi bir tick kesilince bırakıyordu. Düzeltmeler:
+  1. **Atışın hedefi de sayılır:** hedef son 16 tick'te seni gördüyse görülüyor sayılır (eskiden sadece AA hedefine bakıyordu).
+  2. **Görüş kesilince bırakmaz:** noktaya varınca, süre dolunca ya da hedef ölüp kimse görmüyorsa biter.
+  3. **Tek tick'lik kesinti noktayı bozmaz:** siper noktası ancak en az 6 tick üst üste görülmeyince yazılır.
+  4. **Siperin arkasına gider:** nokta 12 birim daha geriye uzatılır, siperin kenarına değil arkasına.
+
+  Aday yeni adla (`retreat2`) sıfırdan ölçülür.
+- **Test:** 407 kontrol. Yeni: tek tick'lik görüş kesintisi siper noktasını bozmaz; görüş kesilse de hedef canlıyken sürer; hedef ölünce biter. Geri çekilme testi dosyanın sonuna taşındı (zamanı ve sayımları ilerlettiği için önceki testlerin sonucunu değiştirmesin).
+
 **V1.0.100** (onay: "evet"). V1.0.99 analizinde rakip 0.4 sn'den uzun vurulabilirken ateş etmediğin 102 anın 81'inde sebep Min. damage 100'dü (kafa kapalı, gövde öldürmüyor). Hazır olan "Body 70+ while an enemy sees you" seçeneği artık deney motorunda ölçülüyor (`body70`, kulvar `atis`). B kolunda: biri kafanı görürken hedefin kafası öldüremiyor ama göğsü 70+ alıyorsa Min. damage geçici 70. Can başına kill ile ölçülür; kötü çıkarsa kendiliğinden kapanır, bekçi can başına kill belirgin düşerse erken keser. MD 100 kuralının geri kalanı aynı. Test: 406 kontrol.
 
 **V1.0.99** (istek: "çok detaylı düşün, farklı açılardan bak, fikir üret, ölç, sonra net bir şeyle gel"). Son 4 log birlikte: 604 düello, 169 kill, 188 ölüm.
