@@ -720,6 +720,30 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.99** (istek: "çok detaylı düşün, farklı açılardan bak, fikir üret, ölç, sonra net bir şeyle gel"). Son 4 log birlikte: 604 düello, 169 kill, 188 ölüm.
+
+**Ölümler nereden geliyor** (188 ölüm; kategoriler örtüşür):
+
+| Durum | Pay | Ayrıntı |
+|---|---|---|
+| Kendi atışından sonraki 1.25 sn (sürgü çekilirken) | **%30** (56) | 30'u ıskadan sonra; 39'unda seni öldüren, ateş ettiğin rakip |
+| Havada | **%25** (47) | Havada K/D **0.26** (12 kill / 46 ölüm), yerde **1.11**. Havadaki isabetlerin çoğunda rakip seni 0.3 sn'den az görmüş: görüşe zıplıyorsun |
+| Rakibi hiç vuramıyordun | %38 | Açı / duvar; öldüren merminin %38'i duvardan (senin kill'lerinin de %36'sı duvardan, denk) |
+| Rakip görüşe girdikten sonra 0.2 sn'den az | %26 | Önce o sıkıyor |
+
+**Diğer bulgular:**
+- **Peek tuşu:** basılıyken K/D 1.53 (26 kill / 17 ölüm), basılı değilken 0.84. AI peek / GameSense atıştan sonra geri çeker.
+- **Sıkmadığın anlar:** rakip 0.4 sn'den uzun vurulabilirken ateş etmediğin 102 anın 81'inde sebep Min. damage 100 kuralı (kafa kapalı, gövde öldürmüyor). Bu senin kuralın, değiştirilmedi.
+- **Göstergenin tahmini doğru çıkıyor** (299 düello): SAVUN %41, DENK %53, SALDIR %68.
+- **Neyi ölçebiliyoruz:** can başına kill ortalaması 0.85, varyansı 1.62. %10'luk bir iyileşmeyi kanıtlamak için kol başına ~3500 can gerekir (~177 oturum); %50'lik için ~140 can (~7 oturum). Küçük ayar oynamaları ölçülemiyor; sadece büyük etkiler (ör. `ext_off`, kill'i ikiye katladı) görünür. Bu yüzden AA ince ayarı yerine büyük kaldıraçlara gidildi.
+
+| Ne | Ayrıntı |
+|---|---|
+| **Atıştan sonra siperine dön** (`retreat_on`, kulvar `hareket`) | Scout / AWP ile ateş ettiğinde hâlâ görülüyorsan, en son hiçbir rakibin kafanı görmediği noktaya (en fazla 3 sn önce, 8–200 birim geride) en fazla 0.6 sn geri yürünür. Görüş kesilince, noktaya varınca ya da süre dolunca kontrol hemen sende. Peek tuşu basılıyken, AI peek / AFK'de, havada, merdivende ve fake duck'ta çalışmaz. Logda `dbg geri cekilme` satırları. |
+| **Görülürken zıplama yok, jump scout dahil** (`jump_block`, kulvar `hava`) | Eski "Block jump while seen" scout hazırken zıplamayı serbest bırakıyordu (havadaki ölümlerin çoğu tam bu). Yeni alt seçenek onu da engeller; rakip seni görürken ya da görmek üzereyken zıplama tuşu o tick iptal edilir. Kimse görmüyorken bhop serbest. |
+| **Ölçüm** | İkisi de can başına kill ile, örnek dolunca iyi taraf kalır; bekçi can başına kill belirgin düşerse erken keser. |
+| **Test** | 405 kontrol. Yeni: geri çekilme varsayılan kapalı, kapalıyken harekete dokunmaz; açıkken scout atışından sonra 60 birim geriye yürür, görüş kesilince bırakır, deagle'da çalışmaz; jump scout engeli. |
+
 **V1.0.98** (V1.0.97 logu: 21 dk, de_mirage round sunucusu + 3 round DM. **27 kill / 18 ölüm = 1.5**. Hata satırı yok.)
 
 - **Donmalar lua'dan değil.** Gerçek saatle ölçülen ilk logda 21 dakikada tek bir 200 ms üstü kare var (323 ms), o karede lua 8 ms. İki roundda 38 ve 47 kare 50 ms'yi aşıyor, o roundlarda lua'nın payı %6.8 ve %3.8. Lua canlıyken sürenin %3–12'sini alıyor.

@@ -460,7 +460,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.98 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.98")
+check(printed("V1.0.99 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.99")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -1058,6 +1058,56 @@ check(exec_seen("con_notifytime 8"), "V1.0.38: kapatinca con_notifytime 8 (varsa
 cvar.con_notifytime = notify_cvar
 quiet_ref.value = true
 tick(70)
+
+-------------------------------------------------------------------------------
+-- V1.0.99: scout / AWP atisindan sonra goruluyorsan siperine geri cekilme (varsayilan kapali, deneyle olculur)
+-------------------------------------------------------------------------------
+do
+    local rr = find_ref("After a scout / AWP shot while seen: walk back to cover (0.6 s)")
+    check(rr ~= nil and rr.value == false, "V1.0.99: geri cekilme secenegi var, varsayilan kapali")
+    local o1, wc_was, thr_was = ORIGIN[1], W.weapon_class, W.threat
+    W.weapon_class, W.next_attack, W.flags, W.speed, W.duck, W.jump, W.z = "CWeaponSSG08", 0, 1, 0, 0, nil, nil
+    W.threat, W.sees[2], W.sees[3] = 2, false, false
+    ORIGIN[1] = { 0, 0, 0 }
+    tick(20) -- siper noktasi (0, 0): kimse gormuyor
+    ORIGIN[1] = { 0, -60, 0 } -- 60 birim saga peek, dusman 2 goruyor
+    W.sees[2] = true
+    tick(4)
+    fire("aim_fire", { id = 991, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    tick(1)
+    local off_side = last_cmd.sidemove
+    rr.value = true
+    local from = #prints + 1
+    fire("aim_fire", { id = 992, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    tick(1)
+    local side_on, fwd_on = last_cmd.sidemove, last_cmd.forwardmove
+    local start_line = printed("dbg geri cekilme: 60 birim geri", from)
+    tick(3)
+    local still = last_cmd.sidemove
+    W.sees[2] = false -- gorus kesildi: kontrol sende
+    tick(4)
+    local end_line = printed("dbg geri cekilme bitti: siperdesin", from)
+    local after_side = last_cmd.sidemove
+    -- Havadayken / peek tusu yokken bile scout disinda calismaz: deagle ile atis.
+    W.sees[2] = true
+    tick(4)
+    W.weapon_class = "CDEagle"
+    from = #prints + 1
+    fire("aim_fire", { id = 993, target = 2, hitgroup = 1, damage = 120, hit_chance = 90, backtrack = 0, x = 500, y = 0, z = 70 })
+    tick(2)
+    local deagle_quiet = printed("dbg geri cekilme:", from) == nil and last_cmd.sidemove == 0
+    rr.value = false
+    W.sees[2] = false
+    ORIGIN[1], W.weapon_class, W.threat = o1, wc_was, thr_was
+    tick(20)
+    check(off_side == 0, "V1.0.99: secenek kapaliyken atistan sonra harekete dokunulmaz (" .. tostring(off_side) .. ")")
+    check(start_line ~= nil and side_on < -400 and math.abs(fwd_on) < 1 and still < -400,
+        "V1.0.99: scout atisindan sonra goruluyorsan son gorulmedigin noktaya (60 birim sola) yurunur ("
+        .. tostring(side_on) .. ", " .. tostring(fwd_on) .. ")")
+    check(end_line ~= nil and after_side == 0, "V1.0.99: gorus kesilince geri cekilme biter, kontrol sende ("
+        .. tostring(end_line) .. ")")
+    check(deagle_quiet, "V1.0.99: scout / AWP disinda geri cekilme yok")
+end
 
 -------------------------------------------------------------------------------
 -- V1.0.35: AFK modu: AI peek burada, 3 sn'de bir sag / sol adim, DT + otomatik ates
@@ -1748,6 +1798,26 @@ do
     nj.value = false
     tick(3)
     check(last_cmd.in_jump == 1, "V1.0.53: secenek kapaliyken ziplamaya dokunulmaz")
+    -- V1.0.99: jump scout (scout hazir) eskiden serbest; "also jump scout" acikken goruluyorsan o da engellenir.
+    local nja = find_ref("  » Block jump while seen: also jump scout")
+    check(nja ~= nil and nja.value == false, "V1.0.99: jump scout engeli secenegi var, varsayilan kapali")
+    local wc_was = W.weapon_class
+    W.weapon_class, W.next_attack = "CWeaponSSG08", 0
+    nj.value = true
+    tick(3)
+    local scout_free = last_cmd.in_jump == 1
+    nja.value = true
+    tick(3)
+    local scout_blocked = last_cmd.in_jump == 0
+    W.sees[2] = false
+    tick(40)
+    local unseen_free = last_cmd.in_jump == 1
+    W.sees[2] = true
+    nja.value, nj.value = false, false
+    W.weapon_class = wc_was
+    check(scout_free and scout_blocked and unseen_free,
+        "V1.0.99: jump scout eskiden serbest; 'also jump scout' acikken goruluyorsan engellenir, gorulmuyorsan serbest ("
+        .. tostring(scout_free) .. ", " .. tostring(scout_blocked) .. ", " .. tostring(unseen_free) .. ")")
     W.jump, W.next_attack = nil, 0
     -- Temastan once durma: kosuyorsun, birazdan gorulecek (ileri bakis), henuz gormuyor.
     local cs = find_ref("Stop before contact when decelerating")
@@ -2663,7 +2733,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.98 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.99 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")

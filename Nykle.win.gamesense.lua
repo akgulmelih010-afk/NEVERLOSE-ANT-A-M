@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.98"
+local VERSION = "1.0.99"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1619,6 +1619,9 @@ menu.walk_cap       = grp.protect_raw:switch("Desync keeper: slow walk when seen
 menu.contact_stop   = grp.protect_raw:switch("Stop before contact when decelerating", false)
 menu.fs_contact     = grp.protect_raw:switch("Invert freestanding side at first contact", false)
 menu.no_jump_seen   = grp.protect_raw:switch("Block jump while seen (not jump-scout)", false)
+-- V1.0.99: bkz. own.aa.blocks_jump ve own.aa.retreat (ikisi de deney motorunda olculur).
+menu.no_jump_all    = grp.protect_raw:switch("  » Block jump while seen: also jump scout", false)
+menu.auto_retreat   = grp.protect_raw:switch("After a scout / AWP shot while seen: walk back to cover (0.6 s)", false)
 menu.fd_guard       = grp.protect:switch("Release fake duck near knife", true)
 -- V1.0.10 oyun logu: 22 olumun 10'u fake duck'ta; 3'unde ilk sniper mermisinden sonra fake duck'ta kalinip
 -- ikinci mermiyle olundu. Sniper (scout / AWP) ile vurulunca o seni gordukce (en az 1.25, en fazla 3 sn)
@@ -8152,6 +8155,11 @@ own.aa.blocks_jump = function(cmd, lp, class)
     if not (exposure.now or exposure.soon or exposure.any) then
         return false
     end
+    -- V1.0.99 (4 log): havadayken K/D 0.26 (12 kill / 46 olum), yerde 1.11; havadaki olumlerin cogunda silah hazirdi
+    -- (jump scout serbestti). no_jump_all acikken jump scout da engellenir.
+    if on(menu.no_jump_all) then
+        return true
+    end
     return not ((class == "CWeaponSSG08" or class == "CWeaponAWP") and weapon_ready(lp, 0))
 end
 
@@ -8242,6 +8250,75 @@ own.aa.move = function(cmd, lp, class)
         pcall(function() cmd.forwardmove, cmd.sidemove = f * k, sd * k end)
         A.slowed = true
     end
+end
+
+-- V1.0.99 (4 log, 188 olum): olumlerin %30'u kendi atisindan sonraki 1.25 sn'de (surgu cekilirken), 30'u iskadan
+-- sonra, 39'unda seni olduren ayni rakip. Peek tusu basiliyken (AI peek / GameSense atistan sonra geri dondurur) K/D
+-- 1.53, basili degilken 0.84. Scout / AWP ile ates ettiginde hala goruluyorsan, en son hicbir dusmanin kafani gormedigi
+-- noktaya (en fazla 3 sn once, 8-200 birim geride) en fazla 0.6 sn geri yurunur. Gorus kesilince, noktaya varinca ya da
+-- sure dolunca kontrol hemen sende. Peek tusu basiliyken, AI peek / AFK'de, havada, merdivende ve fake duck'ta calismaz.
+own.retreat = { spot = nil, spot_t = -1000, shot = -1000, dest = nil, from = nil, until_t = -1000 }
+own.aa.retreat = function(cmd, lp, class)
+    local R = own.retreat
+    own.aa.retreating = nil
+    local mine = origin_of(lp)
+    if mine == nil then
+        return
+    end
+    local now = realtime()
+    local ground = on_ground(lp) and not fd_on() and prop(lp, "m_MoveType") ~= K.MOVETYPE_LADDER
+    local seen = exposure.now or exposure.any
+    -- Siper noktasi sadece gorus bu tick'te yeniden hesaplandiysa (2 tick'te bir) yazilir: eski "gormuyor" bilgisiyle
+    -- gorulen bir nokta siper sanilmasin.
+    if ground and not seen and exposure.tick == tickcount() then
+        R.spot, R.spot_t = mine, now
+    end
+    local blocked = not on(menu.auto_retreat) or not ground or ai_peek.mode ~= nil or afk.on or afk.key()
+    local log = on(menu.enabled) and on(menu.debug_log)
+    -- Yeni aimbot atisi (aim_fire resolver.aim_time'i yazar).
+    local shot = resolver.aim_time
+    if finite(shot) and shot > R.shot then
+        R.shot = shot
+        local sniper = class == "CWeaponSSG08" or class == "CWeaponAWP"
+        if not blocked and sniper and seen and R.spot ~= nil and now - R.spot_t <= 3 then
+            local dx, dy = R.spot.x - mine.x, R.spot.y - mine.y
+            local dist = sqrt(dx * dx + dy * dy)
+            if dist >= 8 and dist <= 200 then
+                R.dest, R.from, R.until_t = R.spot, mine, now + 0.6
+                if log then
+                    print(("[%s] dbg geri cekilme: %d birim geri (atistan sonra goruluyorsun)"):format(SCRIPT, round(dist)))
+                end
+            end
+        end
+    end
+    if R.dest == nil then
+        return
+    end
+    local dx, dy = R.dest.x - mine.x, R.dest.y - mine.y
+    local dist = sqrt(dx * dx + dy * dy)
+    local done = (blocked and "iptal") or (now > R.until_t and "sure doldu") or (not seen and "siperdesin")
+        or (dist < 6 and "noktaya varildi") or nil
+    if done then
+        if log and R.from ~= nil then
+            local gx, gy = mine.x - R.from.x, mine.y - R.from.y
+            print(("[%s] dbg geri cekilme bitti: %s (%d birim gidildi)"):format(SCRIPT, done, round(sqrt(gx * gx + gy * gy))))
+        end
+        R.dest, R.from = nil, nil
+        return
+    end
+    local view = view_yaw(cmd)
+    if view == nil then
+        return
+    end
+    local angle = math.rad(math.deg(atan2(dy, dx)) - view)
+    local speed = dist > 12 and 450 or dist * 30
+    local forward, side = math.cos(angle) * speed, -math.sin(angle) * speed
+    pcall(function()
+        cmd.forwardmove, cmd.sidemove = forward, side
+        cmd.in_forward, cmd.in_back = forward > 1 and 1 or 0, forward < -1 and 1 or 0
+        cmd.in_moveright, cmd.in_moveleft = side > 1 and 1 or 0, side < -1 and 1 or 0
+    end)
+    own.aa.retreating = true
 end
 
 local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
@@ -8341,6 +8418,7 @@ local function tick_aa(cmd, lp, choked, move_state, class, aim_target)
         pcall(function() cmd.in_duck = 1 end)
     end
     own.aa.move(cmd, lp, class)
+    own.aa.retreat(cmd, lp, class)
     sample_exploit(state)
 end
 
@@ -12526,6 +12604,16 @@ K.xp.init = function()
         { id = "peek_delay2", lane = "peekgec", kind = "harm", min = 40,
             states = { Peek = { delay = 2 } },
             name = "Peek'te jitter gecikmesi 2 tick (simdi 1)" },
+        -- V1.0.99 (derin analiz, 4 log / 188 olum / 169 kill). Ikisi de bos kulvarlarda, can basina kill ile; ornek dolunca
+        -- iyi taraf kalir (fair), bekci can basina kill belirgin duserse erken keser.
+        -- Atistan sonraki surgu: olumlerin %30'u kendi atisindan sonraki 1.25 sn'de; peek tusuyla (geri donus) K/D 1.53,
+        -- tussuz 0.84.
+        { id = "retreat_on", lane = "hareket", kind = "kpl", min = 40, cap = 2, fair = true, set = { auto_retreat = true },
+            name = "scout / AWP atisindan sonra goruluyorsan siperine geri cekil (0.6 sn)" },
+        -- Hava: K/D 0.26 (yerde 1.11); havadaki olumlerin cogunda silah hazirdi (jump scout).
+        { id = "jump_block", lane = "hava", kind = "kpl", min = 40, cap = 2, fair = true,
+            set = { no_jump_seen = true, no_jump_all = true },
+            name = "gorulurken / gorulmek uzereyken ziplama yok (jump scout dahil)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
         -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u
