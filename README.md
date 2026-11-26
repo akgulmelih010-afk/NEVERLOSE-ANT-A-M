@@ -720,6 +720,23 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.102** (istek: "resolver'ı destekle, erken sıkayım, ince göründüğüm anlarda vuruluyorum, ben de ince yerlerden vurabileyim").
+
+**Veri** (5 log, 233 atış):
+- **Atış gecikmesi:** hedef vurulabilir olduktan sonra atışa kadar medyan **0.17 sn**, ortalama 0.31 sn; atışların %54'ü 0.15 sn'den sonra.
+- **Rakip önce sıkıyor:** ölümlerin %26'sında rakip seni gördükten 0.2 sn içinde sıktı.
+- **Çabuk atış ıskalamıyor:** 0.15 sn'den önce çıkan atışların isabeti %70–73, sonra çıkanların %58–65.
+- **Sıkmama sebepleri** (102 an): Min. damage 100 (81), sahte kayıt (34), havadasın (31), sürgü (18), hareketlisin / isabet şansı (16).
+- **Resolver ıskası:** en çok havadaki rakibe (%37) ve defensive'deki sahte kayda (%29).
+
+| Ne | Ayrıntı |
+|---|---|
+| **Erken atış: `duel_hc70`** (kulvar `koruma`) | Seni gören biri varken scout hit chance tabanı 90 yerine 70: aimbot durmayı daha az bekler. Görülmüyorken yine 90. Can başına kill ile ölçülür. |
+| **Resolver kuralı denetimi: `sp_floor_off`** (kulvar `def`) | Scout / AWP'de hiç ıska olmadan da Prefer safe point (V1.0.47, gözlemle eklenmişti, hiç A / B ölçülmedi). Kapalı kolda noktayı GameSense seçer. Atış başına kill ile, can başına kill bekçisiyle. Senin kendi Prefer safe point ayarın açıksa iki kol aynı olur; o zaman deney bekler. |
+| **"İnce yerler": aimbot noktaları logda** | Aimbot'un hangi noktalara bakabildiği (Target hitbox, Multi-point, ölçek, Avoid unsafe hitboxes, Automatic penetration, Prefer body aim, Force body aim on peek) senin config'inden geliyor, lua dokunmuyor ve şimdiye kadar loga yazılmıyordu. Artık `dbg ayarlar` satırında; senin Prefer safe point ayarın ve Fake peek de. Bir sonraki logdan sonra karar verilecek. |
+| **Gövde** | `body70` (V1.0.100) zaten sırada: biri kafanı görürken göğüs 70+ ise Min. damage geçici 70. |
+| **Test** | 412 kontrol. Yeni: duello tabanı (90 → 70 sadece görülürken), safe point şalteri, ayar satırındaki yeni alanlar. |
+
 **V1.0.101** (V1.0.99 logu: 15 dk, de_mirage round sunucusu. **8 kill / 16 ölüm**. Hata satırı yok. V1.0.100 bu oturumda yüklü değildi.)
 
 - **Havada hiç ölmedin** (önceki 4 logda ölümlerin %25'i havadaydı). Ölümlerin yarısı duvardan, %37'si kendi atışından sonraki sürgüde.

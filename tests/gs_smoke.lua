@@ -104,6 +104,10 @@ reference("RAGE", "Aimbot", "Double tap fake lag limit", newref("slider", "Doubl
 reference("RAGE", "Other", "Duck peek assist", newref("hotkey", "Duck peek assist", false))
 reference("RAGE", "Other", "Quick peek assist", newref("checkbox", "Quick peek assist", false), newref("hotkey", "Quick peek assist key", false))
 reference("RAGE", "Aimbot", "Prefer safe point", newref("checkbox", "Prefer safe point", false))
+-- V1.0.102: aimbot'un nokta ayarlari (sadece log satiri okur).
+reference("RAGE", "Aimbot", "Target hitbox", newref("multiselect", "Target hitbox", { "Head", "Chest" }))
+reference("RAGE", "Aimbot", "Multi-point", newref("multiselect", "Multi-point", { "Head" }))
+reference("RAGE", "Aimbot", "Multi-point scale", newref("slider", "Multi-point scale", 55))
 reference("RAGE", "Aimbot", "Automatic fire", newref("checkbox", "Automatic fire", false))
 reference("RAGE", "Aimbot", "Force safe point", newref("hotkey", "Force safe point", false))
 reference("RAGE", "Aimbot", "Force body aim", newref("hotkey", "Force body aim", false))
@@ -460,7 +464,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.101 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.101")
+check(printed("V1.0.102 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.102")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -1825,6 +1829,10 @@ do
     local set = printed("dbg ayarlar:", before)
     check(set ~= nil and set:find("accuracy boost", 1, true) ~= nil and set:find("ping spike", 1, true) ~= nil,
         "V1.0.54: ayarlar satirinda dogruluk ayarlari ve ping spike (" .. tostring(set) .. ")")
+    check(set ~= nil and set:find("| hitbox Head+Chest, multipoint Head (55),", 1, true) ~= nil
+        and set:find("prefer safe (senin) ", 1, true) ~= nil and set:find("fake peek ?", 1, true) ~= nil,
+        "V1.0.102: ayar satirinda aimbot noktalari (hitbox, multipoint, olcek), senin prefer safe ayarin, fake peek ("
+        .. tostring(set and set:match("| hitbox.*")) .. ")")
     before = #prints + 1
     fire("player_death", { userid = 1, attacker = 2, headshot = false, penetrated = 0, weapon = "ssg08" })
     local errs54 = errors_since(before)
@@ -2687,7 +2695,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.101 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.102 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -3594,6 +3602,65 @@ do
     if xp_off ~= nil then xp_off.value = xp_was end
 end
 
+
+-------------------------------------------------------------------------------
+-- V1.0.102: seni goren biri varken scout hit chance tabani (duel_hc); scout / AWP safe point tabani salteri
+-------------------------------------------------------------------------------
+do
+    local xp_off = find_ref("Experiments (auto A/B test per life, keeps what wins)")
+    local xp_was = xp_off ~= nil and xp_off.value
+    if xp_off ~= nil then xp_off.value = false end
+    local hc_ref, floor_ref = find_ref("Minimum hit chance"), find_ref("Scout hit chance floor on ground (0 = off)")
+    local duel_ref = find_ref("  » While an enemy sees you (0 = same floor)")
+    check(duel_ref ~= nil and duel_ref.value == 0, "V1.0.102: duello tabani var, varsayilan 0 (= ustteki taban)")
+    local wc_was, thr_was, floor_was = W.weapon_class, W.threat, floor_ref and floor_ref.value
+    W.weapon_class, W.next_attack, W.flags, W.speed, W.duck, W.jump, W.z = "CWeaponSSG08", 0, 1, 0, 0, nil, nil
+    W.threat = 2
+    if floor_ref ~= nil then floor_ref.value = 90 end
+    W.sees[2], W.sees[3] = true, false
+    tick(6)
+    local seen_floor = hc_ref and hc_ref.value
+    duel_ref.value = 70
+    tick(6)
+    local seen_duel = hc_ref and hc_ref.value
+    W.sees[2] = false
+    tick(40)
+    local unseen_duel = hc_ref and hc_ref.value
+    duel_ref.value = 0
+    W.sees[2] = false
+    -- Safe point tabani: salter kapaliyken (deney sp_floor_off'un B kolu) iska gecmisi olmayan hedefte Prefer yazilmaz.
+    -- (Rakiplerin onceki testlerden iska gecmisi var, seviye 1+ zaten Prefer yazar: hedef yokken sadece taban kalir.
+    -- Dosyanin sonunda: olu rakip bekleyen atislari "isabet" sayabilir, oncekilerin sayimini bozmasin.)
+    local sp_ref, psafe = find_ref("Snipers: Prefer safe point before any miss"), find_ref("Prefer safe point")
+    check(sp_ref ~= nil and sp_ref.value == true, "V1.0.102: sniper safe point salteri var, varsayilan acik")
+    W.threat, W.edead = nil, { [2] = true, [3] = true }
+    sp_ref.value = false
+    tick(10) -- ezme birakilir, senin degerin geri gelir
+    local user_was = psafe.value
+    psafe.value = false -- senin ayarin: kapali
+    tick(10)
+    local sp_off = psafe.value
+    sp_ref.value = true
+    tick(10)
+    local sp_on = psafe.value
+    sp_ref.value = false
+    tick(10)
+    local sp_back = psafe.value
+    psafe.value = user_was
+    sp_ref.value = true
+    tick(10)
+    W.edead = nil
+    check(sp_off == false and sp_on == true and sp_back == false,
+        "V1.0.102: senin Prefer safe point'in kapaliyken scout'ta iska olmadan Prefer salterle yazilir / birakilir ("
+        .. tostring(sp_off) .. ", " .. tostring(sp_on) .. ", " .. tostring(sp_back) .. ")")
+    if floor_ref ~= nil then floor_ref.value = floor_was end
+    W.weapon_class, W.threat = wc_was, thr_was
+    if xp_off ~= nil then xp_off.value = xp_was end
+    tick(20)
+    check(seen_floor == 90 and seen_duel == 70 and unseen_duel == 90,
+        "V1.0.102: seni goren biri varken scout tabani duello degeri (90 -> 70), gorulmeyince yine 90 ("
+        .. tostring(seen_floor) .. ", " .. tostring(seen_duel) .. ", " .. tostring(unseen_duel) .. ")")
+end
 
 errs = errors_since(1)
 check(#errs == 0, "hic hata satiri yok" .. (#errs > 0 and (": " .. errs[1]) or ""))

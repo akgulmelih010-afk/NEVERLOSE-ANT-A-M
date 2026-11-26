@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.101"
+local VERSION = "1.0.102"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -1771,6 +1771,10 @@ end)
 -- yerdeyken scout'un Minimum hit chance'i en az bu deger (senin degerin daha yuksekse dokunulmaz). 0 = kapali; once
 -- deney olarak olculur (aday "hc70"), kazanirsa kalici olur.
 menu.scout_hc       = grp.protect_raw:slider("Scout hit chance floor on ground (0 = off)", 0, 100, 0, "%")
+-- V1.0.102: seni goren biri varken taban (0 = ustteki taban); bkz. resolver.air_hitchance ve deney duel_hc70.
+menu.duel_hc        = grp.protect_raw:slider("  » While an enemy sees you (0 = same floor)", 0, 100, 0, "%")
+-- V1.0.102: scout / AWP'de iska olmadan da Prefer safe point (V1.0.47 kurali); deney sp_floor_off kapatip olcer.
+menu.sniper_sp      = grp.protect_raw:switch("Snipers: Prefer safe point before any miss", true)
 -- V1.0.85 (butun GameSense loglari, mermi yedigin anlar: kendi atisindan 0.3-0.6 sn sonra DT'nin dolu oldugu an %7,
 -- 0.6-1.0 sn'de %40, 1-2 sn'de %67; teleporttan sonra %7 / %29 / %55. Sarj 14 tick'te (0.22 sn) dolabilirken
 -- GameSense vurulabilir hedef varken sarji erteliyor; DT bosken defensive de yok. Paylastigin paketteki iki lua
@@ -4991,7 +4995,7 @@ local function apply_resolver(class, present)
     -- V1.0.47 (rakipler "extended yaw"; tum loglarda kafa atisi SP Prefer 110/144 %76, SP Default 12/19 %63): scout / AWP
     -- ile seviye 0'da da Prefer (bilinmeyen desync'e karsi; Prefer atisi engellemez, safe nokta varsa onu secer).
     local scope = rage_scope(class)
-    local sniper_floor = class == "CWeaponSSG08" or class == "CWeaponAWP"
+    local sniper_floor = (class == "CWeaponSSG08" or class == "CWeaponAWP") and on(menu.sniper_sp)
     if (target_level >= 1 or sniper_floor) and on(menu.resolver) and user_value("prefer_safe") ~= true then
         override("prefer_safe", true, scope)
     else
@@ -5562,6 +5566,11 @@ resolver.air_hitchance = function(lp, class)
         end
         -- V1.0.81: yerde scout icin taban (bkz. menu.scout_hc). Havadaki atislar senin degerinde kalir.
         local floor_hc = menu.scout_hc ~= nil and menu.scout_hc:get() or 0
+        -- V1.0.102: seni goren biri varken (duello) taban daha dusuk olabilir: aimbot daha erken ates eder.
+        local duel = menu.duel_hc ~= nil and menu.duel_hc:get() or 0
+        if finite(duel) and duel > 0 and finite(floor_hc) and floor_hc > duel and (exposure.now or exposure.any) then
+            floor_hc = duel
+        end
         if wanted == nil and finite(floor_hc) and floor_hc > 0 and class == "CWeaponSSG08" and lp ~= nil and on_ground(lp) then
             local user_hc = user_value("hit_chance")
             if finite(user_hc) and user_hc < floor_hc then
@@ -11064,6 +11073,14 @@ D.settings = function()
         -- V1.0.54: GameSense'in dogruluk ayarlari ve ping spike (loglarda backtrack hep 0t: GS'nin kendi degeri).
         D.setting("RAGE", "Other", "Accuracy boost", "Aimbot"), D.setting("RAGE", "Other", "Delay shot", "Aimbot"),
         D.setting_all("RAGE", "Other", "Quick stop", "Aimbot"), D.setting_all("MISC", "Miscellaneous", "Ping spike"))
+        -- V1.0.102 (istek: "ince yerlerden vurabileyim"): aimbot'un hangi noktalara bakabildigi senin config'inden gelir
+        -- (lua dokunmuyor); hangi silah grubunun degeri oldugu ayni satirdaki parantezde.
+        .. (" | hitbox %s, multipoint %s (%s), unsafe %s, autowall %s, prefer body %s, body on peek %s, prefer safe (senin) %s, fake peek %s"):format(
+            D.setting("RAGE", "Aimbot", "Target hitbox"), D.setting("RAGE", "Aimbot", "Multi-point"),
+            D.setting("RAGE", "Aimbot", "Multi-point scale"), D.setting("RAGE", "Aimbot", "Avoid unsafe hitboxes"),
+            D.setting("RAGE", "Aimbot", "Automatic penetration"), D.setting("RAGE", "Aimbot", "Prefer body aim", "Other"),
+            D.setting("RAGE", "Aimbot", "Force body aim on peek"), tostring(user_value("prefer_safe")),
+            D.setting_all("AA", "Other", "Fake peek"))
 end
 
 D.reset = function()
@@ -12641,6 +12658,17 @@ K.xp.init = function()
         -- can basina kill ile, kotu cikarsa kapanir (bekci erken keser).
         { id = "body70", lane = "atis", kind = "kpl", min = 40, cap = 2, fair = true, set = { exposed_body = true },
             name = "biri seni goruyorken govde 70+ ise Min. damage gecici 70 (MD 100 istisnasi)" },
+        -- V1.0.102 (istek: "erken sikmam lazim"): 5 logda hedef vurulabilir olduktan sonra atisa kadar medyan 0.17 sn,
+        -- ortalama 0.31; atislarin %54'u 0.15 sn'den sonra. Olumlerin %26'sinda rakip seni gordukten 0.2 sn icinde sikti.
+        -- Seni goren biri varken scout tabani 90 yerine 70: aimbot durmayi daha az bekler. Can basina kill ile.
+        { id = "duel_hc70", lane = "koruma", kind = "kpl", min = 40, cap = 2, fair = true, set = { duel_hc = 70 },
+            name = "seni goren biri varken scout hit chance tabani 70 (simdi 90): daha erken atis" },
+        -- V1.0.102 (istek: "resolver'i destekle"): scout / AWP'de hic iska olmadan da Prefer safe point (V1.0.47, gozlemle
+        -- eklendi, hic A / B olculmedi). Safe point resolver'in butun acilarinda isabet eden noktayi secer; kapali kolda
+        -- noktayi GameSense kendisi secer. Senin Prefer safe point ayarin aciksa iki kol ayni olurdu: o zaman bekler.
+        { id = "sp_floor_off", lane = "def", kind = "kps", min = 30, gate = true, set = { sniper_sp = false },
+            needs = function() return user_value("prefer_safe") ~= true end,
+            name = "scout / AWP'de iska olmadan Prefer safe point yok (GameSense noktayi kendi secer)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
         -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u
