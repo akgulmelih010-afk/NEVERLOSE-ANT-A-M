@@ -51,8 +51,96 @@
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0"
+local VERSION = "1.1.9"
 local DEG = "\194\176"
+
+-- Log kaydi (V1.1, GameSense V1.0.10'dan): konsola yazilan her satir saatiyle hafizada da tutulur. Home > Console'daki
+-- dugme hepsini konsola yeniden yazar; ayrica nykle_log.txt'ye (Neverlose'un files API'si varsa) round basinda,
+-- harita degisince, her 5 dakikada ve kapanista yazilir. Dosya yazilamiyorsa bir kez soylenir; loglari o zaman
+-- "Dump logs to console" ile konsoldan al.
+local nlog = { raw = print, lines = {}, cap = 12000, trim = 1000, file = "nykle_log.txt", dirty = false, saved = -1000,
+    save_every = 300, warned = false, dumped = -1000 }
+
+nlog.stamp = function()
+    local ok, text = pcall(function() return os.date("%H:%M:%S") end)
+    if ok and type(text) == "string" then
+        return text
+    end
+    -- os.date yok (ilk Neverlose logu): oyun saati dakika:saniye.
+    local ok_rt, t = pcall(function() return globals.realtime end)
+    if ok_rt and type(t) == "number" then
+        return ("%d:%02d.%d"):format(math.floor(t / 60), math.floor(t % 60), math.floor((t * 10) % 10))
+    end
+    return "--"
+end
+
+nlog.push = function(line)
+    local lines = nlog.lines
+    lines[#lines + 1] = nlog.stamp() .. " " .. line
+    if #lines > nlog.cap + nlog.trim then
+        local keep = {}
+        for i = #lines - nlog.cap + 1, #lines do
+            keep[#keep + 1] = lines[i]
+        end
+        nlog.lines = keep
+    end
+    nlog.dirty = true
+end
+
+nlog.save = function()
+    local ok_rt, now = pcall(function() return globals.realtime end)
+    if ok_rt and type(now) == "number" then
+        nlog.saved = now
+    end
+    if not nlog.dirty then
+        return true
+    end
+    local ok = pcall(function() files.write(nlog.file, table.concat(nlog.lines, "\n") .. "\n") end)
+    if ok then
+        nlog.dirty = false
+    elseif not nlog.warned then
+        nlog.warned = true
+        nlog.raw(("[%s] log dosyasi yazilamadi (files API yok): loglari Home > Console > Dump logs to console ile al"):format(SCRIPT))
+    end
+    return ok
+end
+
+-- Her 5 dakikada bir (render'dan).
+nlog.flush = function()
+    local ok_rt, now = pcall(function() return globals.realtime end)
+    if ok_rt and type(now) == "number" and nlog.dirty and (now < nlog.saved or now - nlog.saved >= nlog.save_every) then
+        nlog.save()
+    end
+end
+
+-- Bu oturumun butun satirlari konsola (dogrudan; tekrar kayda girmez). 10 sn icinde tekrar basilirsa yazilmaz.
+nlog.dump = function()
+    local ok_rt, now = pcall(function() return globals.realtime end)
+    now = (ok_rt and type(now) == "number") and now or nil
+    if now ~= nil and now >= nlog.dumped and now - nlog.dumped < 10 then
+        nlog.raw(("[%s] loglar %.0f sn once konsola yazildi (yukari kaydir); tekrar yazmak icin 10 sn bekle"):format(
+            SCRIPT, now - nlog.dumped))
+        return false
+    end
+    nlog.dumped = now or nlog.dumped
+    local lines = nlog.lines
+    nlog.raw(("[%s] ===== tum loglar: %d satir (bu oturum) ====="):format(SCRIPT, #lines))
+    for _, line in ipairs(lines) do
+        nlog.raw(line)
+    end
+    nlog.raw(("[%s] ===== loglarin sonu ====="):format(SCRIPT))
+    return true
+end
+
+-- Lua'nin butun print'leri buradan gecer: konsola yazilir ve kayda girer.
+local print = function(...)
+    local parts = {}
+    for i = 1, select("#", ...) do
+        parts[i] = tostring((select(i, ...)))
+    end
+    pcall(nlog.push, table.concat(parts, " "))
+    return nlog.raw(...)
+end
 
 local floor, max, min, sqrt, huge, random, abs = math.floor, math.max, math.min, math.sqrt, math.huge, math.random, math.abs
 
@@ -146,6 +234,7 @@ local refs = {
     safe_points     = find("Aimbot", "Ragebot", "Safety", "Safe Points"),
     min_damage      = find("Aimbot", "Ragebot", "Selection", "Min. Damage"),
     hitboxes        = find("Aimbot", "Ragebot", "Selection", "Hitboxes"),
+    hit_chance      = find("Aimbot", "Ragebot", "Selection", "Hit Chance"),
     body_aim        = find("Aimbot", "Ragebot", "Safety", "Body Aim"),
 }
 
@@ -345,7 +434,8 @@ do
     grp.protect_raw = group(TAB.aa, "user-shield", "Protection", 2)
     grp.protect     = tracked(grp.protect_raw)
     grp.exploits    = tracked(group(TAB.exploits, "bolt", "Exploits", 1))
-    grp.peek        = tracked(group(TAB.exploits, "person-running", "Peek", 1))
+    grp.peek_raw    = group(TAB.exploits, "person-running", "Peek", 1)
+    grp.peek        = tracked(grp.peek_raw)
     grp.defensive   = tracked(group(TAB.exploits, "shield", "Defensive", 2))
     grp.angles_raw  = group(TAB.builder, "sliders", "Angles", 1)
     grp.angles      = tracked(grp.angles_raw)
@@ -409,17 +499,21 @@ local DEFAULTS = {
 -- freestanding'in arkasindan cikariyordu ("defans acinca kafami vuruyorlar"). Peek'te de yok: bilerek
 -- kendini gosterdigin an pitch Up kafayi yukseltir, rastgele yaw dondurur; defensive'in LC kirmasi
 -- kalir. Yururken ve havada kalir (havada spin).
+-- V1.1 (GameSense V1.0.25'ten): dururken / egilip beklerken / manuel / freestanding'de de "Smart". GameSense
+-- loglarinda (75 isabet / 48 kafa) kafa mermilerinin 36'sinda saldiran "gormedi" idi: defensive'li uzak
+-- scout ekranda gorunmeden ates ediyor, "On peek" onu hic yakalamiyor. Smart artik yakinda (1800 birim)
+-- dusman varken de zorlar (bkz. apply_defensive); o surumde K/D 29/49 -> 41/46, "gormedi" kafa 21 -> 5.
 local EXPLOIT_DEFAULTS = {
-    ["Standing"]     = { "Double tap", "On peek",   "Off",    "Off" },
+    ["Standing"]     = { "Double tap", "Smart",     "Off",    "Off" },
     ["Moving"]       = { "Double tap", "Smart",     "Up",     "Random" },
     ["Slow walk"]    = { "Double tap", "Smart",     "Up",     "Random" },
-    ["Crouching"]    = { "Double tap", "On peek",   "Off",    "Off" },
+    ["Crouching"]    = { "Double tap", "Smart",     "Off",    "Off" },
     ["Crouch move"]  = { "Double tap", "Smart",     "Up",     "Random" },
     ["Peek"]         = { "Double tap", "Smart",     "Off",    "Off" },
     ["Air"]          = { "Double tap", "Smart",     "Up",     "Spin" },
     ["Air crouch"]   = { "Double tap", "Smart",     "Up",     "Random" },
-    ["Manual"]       = { "Double tap", "On peek",   "Off",    "Off" },
-    ["Freestanding"] = { "Double tap", "On peek",   "Off",    "Off" },
+    ["Manual"]       = { "Double tap", "Smart",     "Off",    "Off" },
+    ["Freestanding"] = { "Double tap", "Smart",     "Off",    "Off" },
     ["Safe head"]    = { "Double tap", "On peek",   "Off",    "Off" },
 }
 
@@ -448,6 +542,15 @@ menu.recommended    = style.tip(grp.info:switch(style.title("wand-magic-sparkles
     "Acikken AA, exploit, builder ve resolver ayarlari her surumde en iyi bilinen degerlerde tutulur. " ..
     "Kendi ayarini denemek icin kapat.")
 menu.home_info      = grp.info:label("Ayarlara dokunmana gerek yok; binds: manual yaw, freestanding, inverter.")
+-- V1.1 (GameSense V1.0.28): kalici sol el. Lua yuklenir yuklenmez cl_righthand 0 yazilir ve acik kaldikca oyle tutulur
+-- (oyun ya da config geri cevirse de); kapatinca / script kaldirilinca senin degerin geri gelir. Tercih: onerilen
+-- ayarlara girmez.
+menu.left_hand      = style.tip(grp.info:switch(style.title("hand", "Left hand (cl_righthand 0, permanent)"), true),
+    "Silah sol elde tutulur ve oyle kalir; kapatinca eski deger geri gelir.")
+-- V1.1.9 (istek: "nl de 4.3 modu yok ayarlasana"; GameSense V1.0.35 ile ayni): r_aspectratio. Varsayilan 4:3; Off ya da
+-- script kaldirilinca senin degerin geri gelir. Tercih: onerilen ayarlara girmez.
+menu.aspect         = style.tip(grp.info:combo(style.title("display", "Aspect ratio"), { "4:3", "Off", "5:4", "16:10" }),
+    "Goruntu oranini (r_aspectratio) tutar; modeller genis gorunur. Off: senin degerin.")
 -- Ogrenilen anti-brute fazlari ve resolver seviyeleri Steam ID ile harita degisince de
 -- kalir; bu dugme hepsini siler. Dugme API'si yoksa script'i dusurmesin.
 pcall(function()
@@ -471,6 +574,15 @@ menu.shot_log       = style.tip(grp.console:switch(style.title("gun", "Shot log"
 menu.hit_log        = style.tip(grp.console:switch(style.title("heart-crack", "Hit log"), true),
     "Vuruldun / iska satirlari, round ozeti, teleport ve fake duck notlari.")
 menu.brute_log      = grp.console:switch(style.title("arrows-rotate", "Anti-brute log"), false)
+-- V1.1: loglar hafizada; dugme hepsini konsola yeniden yazar (bana atmak icin), dosyaya yazma files API'si varsa.
+pcall(function()
+    menu.log_dump = style.tip(grp.console:button(style.title("file-lines", "Dump logs to console"), function()
+        nlog.dump()
+    end, true), "Bu oturumun butun log satirlarini konsola yeniden yazar (10 sn'de bir).")
+    menu.log_save = style.tip(grp.console:button(style.title("floppy-disk", "Save logs to file now"), function()
+        print(("[%s] loglar %s"):format(SCRIPT, nlog.save() and (nlog.file .. " dosyasina yazildi") or "dosyaya yazilamadi"))
+    end, true), "nykle_log.txt (CS:GO klasoru / Neverlose'un files yolu); yoksa konsola dok.")
+end)
 
 -- Anti-Aim
 menu.pitch          = grp.aa:combo(style.title("arrows-up-down", "Pitch"), { "Down", "Disabled", "Fake Down", "Fake Up" })
@@ -536,9 +648,11 @@ menu.auto_exploit   = style.tip(grp.exploits:switch(style.title("bolt", "Auto ex
 -- sabitti: v4.6'da DT'ye gecince atistan hemen sonra vuruluyordun, v5.3-v5.5 loglarinda HS
 -- ile de peek'te ve atistan 0.06-0.14 sn sonra kafadan vurulmalar surdu; hangisi daha iyi,
 -- senin maclarindaki veri karar verir. "Hide shots": hep HS. "Same as state": durumun exploit'i.
+-- V1.1: varsayilan "Same as state" (DT; GameSense V1.0.24 logu: HS'de kafa %45, DT'de %36 ve HS ile zorlanan
+-- defensive / teleport / peek korumasi calismiyor). Auto secilirse once DT, esikler yuksek (bkz. sniper).
 menu.sniper_exploit = style.tip(grp.exploits:combo(style.title("bullseye", "Snipers (SSG08/AWP/R8)"),
-    { "Auto (learn)", "Hide shots", "Same as state" }),
-    "Auto: kafana daha az mermi yedigin exploit (once HS, en az 4 mermiden sonra karar).")
+    { "Same as state", "Auto (learn)", "Hide shots" }),
+    "Same as state: durumun exploit'i (DT). Auto: kafana daha az mermi yedigin exploit (once DT, 24 mermiden sonra karar).")
 -- DT / HS atistan ya da fake duck'tan sonra yeniden sarj olurken oyuncu sunucuda yerinde
 -- donar. Tehdit kafani goruyorken sarj bekletilir, siperin arkasina gecince dolar.
 menu.safe_recharge  = style.tip(grp.exploits:switch(style.title("battery-half", "Safe recharge"), true),
@@ -555,11 +669,39 @@ menu.ai_peek        = style.tip(grp.peek:switch(style.title("robot", "AI peek (h
     "Peek Assist tusunu basili tut, hareket tuslarina basma: oldurecek atisin oldugu en yakin noktaya yurur.")
 -- AI peek yururken / beklerken DT defensive'i zorlanir: dusman seni gormeden lag baslar.
 menu.peek_defensive = grp.peek:switch(style.title("shield-halved", "Defensive during AI peek"), true)
+-- V1.1.9 (GameSense V1.0.35 / V1.0.37 / V1.0.71; istek: "afk modu da yok onu da ayarla"): AFK modu (bkz. peek.afk).
+-- Onerilen ayarlara girmez (tercih): elle AFK kapali, otomatik AFK acik.
+menu.afk            = style.tip(grp.peek_raw:switch(style.title("mug-hot", "AFK mode (AI peek here + strafe, full exploits)"), false),
+    "Acikken AI peek Peek Assist tusu olmadan durdugun yerden calisir, 3 sn'de bir 24 birim saga / sola adim atilir, " ..
+    "her silahta DT ve defensive tam acik.")
+menu.afk_auto       = style.tip(grp.peek_raw:switch(style.title("bed", "Auto AFK (no input 8 s after spawn)"), true),
+    "Dogduktan sonra (donma suresi ve menu acikken sayilmaz) 8 sn hic tusa basmazsan (hareket, ziplama, egilme, ates, " ..
+    "durbun, E, R, silah, fare) AFK modu kendiliginden acilir; bir tusa basinca kapanir.")
 -- Dururken / egilip beklerken ("On peek") bir dusman sana dogru peek atiyorsa (hizindan
 -- tahmin) DT defensive'i o gorunmeden zorlanir; ilk mermisi gelirken LC kirik olur.
 menu.anti_peek      = style.tip(grp.defensive:switch(style.title("shield", "Defensive vs enemy peeks"), true),
     "Aci tutarken sana peek atan dusmana karsi defensive: gorunmeden once (tahmin), gorundugu ilk 0.25 sn " ..
     "ve seni gorurken hizla hareket ettikce.")
+-- V1.1 (GameSense V1.0.25): Smart, 1800 birim icinde dusman varken de zorlar (gorulmesi beklenmez): defensive'li uzak
+-- scout ekranda gorunmeden ates ediyor, gorus sistemi onu yakalayamiyordu. Temiz atis yine kazanir.
+menu.smart_near     = style.tip(grp.defensive:switch(style.title("satellite-dish", "Smart: force near enemies"), true),
+    "Smart defensive 1800 birim icinde (gorunmeyen) dusman varken de zorlar: defensive'li uzak scout gorunmeden vuruyor.")
+-- V1.1 (GameSense V1.0.27, abyss lua'sinin durum basina hit chance'i): havada sniper tutarken Hit Chance gecici bu deger
+-- (0 = kapali). GS loglarinda 254 "sikmadi"nin 75'i "sen havadasin" (hepsi hc 55); havadan giden atislar %67-89 tuttu.
+menu.air_hc         = style.tip(grp.defensive:slider(style.title("cloud-arrow-down", "In-air hit chance (snipers)"), 0, 100, 40, nil, "%"),
+    "Havada scout / AWP / R8 ile Hit Chance gecici bu deger (0 = kapali); yere inince senin degerin geri gelir.")
+-- V1.1.4 (dorduncu Neverlose logu): sniper'la ates ettikten sonra surgu cekilirken (1.25 sn) iskaladiysan ciplaksin;
+-- egik peek'te olumlerin 3/5'i, ayakta peek'te 10/13'u o anda geldi. Silah hazir olana kadar biri seni goruyorsa
+-- fake duck zorlanir (bkz. update_fd_guard).
+-- V1.1.6: varsayilan KAPALI. Besinci Neverlose logunda (18 dk) fake duck'la kapanan surguye 14 mermi geldi (3'u kafaya,
+-- 7 olum "Fake duck" durumunda): fake duck'ta DT bosaliyor ve defensive yok, dusmanin resolver'i fake duck'i cozuyor.
+-- Dorduncu logda (kapali) surgude 3 olum / 10, besincide (acik) 11 / 19.
+menu.bolt_cover     = style.tip(grp.defensive:switch(style.title("person-booth", "Bolt cover: fake duck after a sniper shot (crouched peek)"), false),
+    "Egik peek'te scout / AWP / R8 ile ates ettikten sonra surgu cekilirken biri seni goruyorsa fake duck zorlanir " ..
+    "(kafa asagida, kayit her pakette degisir). Silah hazir olunca birakilir. Logda ise yaramadi (fake duck'ta DT " ..
+    "bosaliyor, defensive yok; 14 mermi geldi), o yuzden kapali.")
+menu.bolt_cover_stand = style.tip(grp.defensive:switch(style.title("person-walking", "Bolt cover also in standing peek"), false),
+    "Ayakta peek'te de; fake duck geri cekilmeyi yavaslatir, o yuzden varsayilan kapali.")
 -- Havadayken bir dusman kafani gorunce DT ile isinlanilir (sarj dolunca tekrar).
 menu.air_teleport   = grp.defensive:switch(style.title("person-running", "Teleport in air when seen"), true)
 -- Havada DT doluyken defensive her tick zorlanir (gorulmeyi beklemeden): havada surekli lag,
@@ -596,6 +738,35 @@ menu.head_only      = style.tip(grp.resolver:switch(style.title("skull", "Head u
 menu.fake_body      = style.tip(grp.resolver:switch(style.title("user-secret", "Snipers: lethal body on fake records"), true),
     "Hedefin kaydi defensive'de (sahte) iken govde olduruyorsa scout / AWP / R8 kafa yerine govdeye ates " ..
     "eder (en fazla 12 tick). Govde oldurmuyorsa kafaya ates edilir.")
+-- V1.1 (GameSense V1.0.26): scout DT iki mermi atar; govde x 2 >= can ise cift oldurucu, Min. Damage gecici govde - 1.
+-- GS loglarinda en buyuk olum kaynagi govde 70-87 vurulabilirken kafa beklemekti (12 olumun 11'i).
+-- V1.1.7: kullanici dogruladi, Neverlose'da DT ikinci mermiyi sadece deagle'da atar; scout / AWP / R8'de "cift" diye bir
+-- sey yok, ikinci mermi surguden sonra (1.25 sn) gelir. Headshot priority acikken kural sadece hedefin kaydi gecikmeliyken
+-- (kafa tutmaz) calisir; kapaliyken eski davranis (govde ilk, ikinci atis surguden sonra).
+menu.dt_pair        = style.tip(grp.resolver:switch(style.title("clone", "Snipers: DT pair kills (body x 2 >= HP)"), true),
+    "DT dolu ve iki govde mermisi olduruyorsa (govde >= 60) Min. Damage gecici govde - 1: ilk mermi govdeye. Scout / AWP'de " ..
+    "DT ikinci mermiyi atmaz (ikincisi surguden sonra); Headshot priority acikken sadece hedefin kaydi 8+ tick gecikmeliyken " ..
+    "(kafa tutmaz), kapaliyken her zaman.")
+-- V1.1 (GameSense V1.0.22): dusmanin kaydi sahteyken (defensive) ve seni goren yokken en fazla 14 tick ates
+-- bekletilir, gercek kayit geldikten 3 tick sonra serbest. GS logunda sahte kayda atis %57, gercek kayda %75 tuttu.
+menu.wait_real      = style.tip(grp.resolver:switch(style.title("hourglass-half", "Wait for real record (unseen)"), true),
+    "Hedefin kaydi defensive'deyken ve kimse seni gormuyorken en fazla 14 tick ates bekletilir (Min. Damage 130); " ..
+    "duelloda / goruluyorken beklenmez (Headshot priority acikken 6 tick beklenir).")
+-- V1.1.5 (istek: "daha fazla HS atmak istiyorum"): kafa onceligi. DT cifti olduruyorsa Body Aim Force yerine Prefer
+-- (kafa acikken kafaya), duelloda da sahte kayda kafa atilmaz (en fazla 6 tick gercek kayit beklenir; GS logunda
+-- sahte kayda atis %57, gercek kayda %75 tuttu). Bedeli: kafa atisinda correction iskasi gövdeden fazla (ucuncu
+-- Neverlose logunda kafa %48, govde %16); iskadan sonraki surgu suresini Bolt cover kapatir.
+menu.head_first     = style.tip(grp.resolver:switch(style.title("skull-crossbones", "Headshot priority"), true),
+    "Kafa acikken kafaya: DT cifti olduruyorsa gövde zorlanmaz (Prefer), duelloda sahte kayda kafa atilmaz (6 tick). " ..
+    "Kapaliyken DT cifti gövdeyi zorlar (daha az iska, daha az HS).")
+-- V1.1.5 (istek: "cok missliyoz"): ucuncu Neverlose logunda 8+ tick geriye (backtrack) atilan 25 atisin 17'si iska
+-- (kafa 13/16, govde 4/9), 8 tick altindakilerin 52'de 6'si (kafa 3/16). Uzun backtrack hep ilk atista: dusman gorunup
+-- geri cekilince / kose arkasina gecince aimbot eski kayda ates ediyor ve resolver o kayitta yaniliyor. Hedefin su anki
+-- kaydinda vurulacak yer yokken (az once vardi) ates bekletilir; kayit yine vurulabilir olunca ya da eski kayitlar
+-- backtrack penceresinden cikinca serbest.
+menu.fresh_only     = style.tip(grp.resolver:switch(style.title("clock", "Snipers: fresh record only"), true),
+    "Hedefin su anki kaydi vurulamiyorsa (geri cekildi, kose arkasinda) eski kayda (backtrack) ates edilmez: " ..
+    "en fazla 24 tick beklenir (Min. Damage 130). Logda 8+ tick backtrack'li atislarin %68'i iskaydi.")
 menu.resolver_info  = grp.resolver:label("Raises safe points per enemy after resolver misses.")
 
 menu.state = grp.angles_raw:combo(style.title("list", "State"), STATES)
@@ -687,6 +858,10 @@ menu.indicators  = grp.indicators:switch(style.title("crosshairs", "Crosshair in
 menu.accent      = menu.indicators:color_picker(color(150, 190, 255, 255))
 menu.arrows      = grp.indicators:switch(style.title("arrows-left-right", "Manual arrows"), true)
 menu.arrow_color = menu.arrows:color_picker(color(150, 190, 255, 255))
+-- V1.1.9 (GameSense V1.0.76; istek: "solda gozukme muhabbetini de ekle"): ekranin solunda, dikeyde ortada acik ozellik
+-- listesi (DT / HS / FD / DEF / LC / MD / BAIM / SAFE / FS / AFK / PEEK; bkz. own.ind).
+menu.left_ind    = style.tip(grp.indicators:switch(style.title("list", "Left indicators (DT / HS / FD / DEF / AFK ...)"), true),
+    "Ekranin solunda acik olanlar: yesil = acik / hazir, sari = sarj oluyor / gecici, kirmizi = bos, beyaz = senin bind'in.")
 menu.stats_panel = style.tip(grp.indicators:switch(style.title("table-list", "Stats panel"), false),
     "Durum basina vurulma / kafa / iska, DT ve defensive orani, AI peek ve faz istatistikleri.")
 -- Resolver paneli: her dusman icin resolver'in onu ne kadar cozdugu (resolver'a bagli isabet /
@@ -880,7 +1055,14 @@ local SIGHT = { gap = 24, keep = 64, recent = 32 }
 local exposure = { available = trace_bullet ~= nil, tick = -1000, now = false, soon = false,
     any = false, peeked = false, others = {}, turn = 0, sight = {}, facing = nil, edge = 3.5, peeking = nil,
     enemy_peek = false, fresh = 16, peek_speed = 120, duel = nil, duel_hold = 1.0 }
-local peek = { until_tick = -1000 }
+-- afk (V1.1.9, GameSense V1.0.35 / V1.0.37 / V1.0.71; istek: "afk modu da yok onu da ayarla"): acikken AI peek Peek
+-- Assist tusu olmadan durdugun yerden calisir, AI peek bosken capanin (anchor) iki yanina step birim, every sn'de bir yon
+-- degisir; her silahta DT, defensive tam (bkz. apply_exploit, apply_defensive). auto: dogduktan (donma suresinden) sonra
+-- idle sn hic tusa basmazsan (hareket / ziplama / egilme / ates / durbun / E / R / silah / fare) kendiliginden acilir,
+-- basinca kapanir; armed: bu dogusta olculuyor (round basi ve olum yeniden kurar). Durum update_ai_peek'te guncellenir.
+local peek = { until_tick = -1000,
+    afk = { on = false, anchor = nil, side = 1, flip_at = -1000, blocked_at = nil, every = 3, step = 24,
+        auto = false, idle_since = nil, armed = false, idle = 8, cam_y = nil, cam_p = nil } }
 
 -- AA'nin baktigi tehdit. Ayni tick'te gorus, yukseklik, anti-brute ve resolver ayri ayri
 -- soruyordu; tick basina bir kez okunur.
@@ -999,7 +1181,11 @@ local function enemy_eye_ahead(enemy, eye)
     if not ok or type(vx) ~= "number" or type(vy) ~= "number" or vx * vx + vy * vy < 400 then
         return nil
     end
-    return vector(eye.x + vx * EXPOSE_LOOKAHEAD, eye.y + vy * EXPOSE_LOOKAHEAD, eye.z)
+    -- V1.1 (GameSense V1.0.24): "gormedi" kafa mermilerinin 22/23'unde vurulma aninda onun gozunden kafana iz
+    -- kapaliydi, 13'unde kaydi sahteydi: defensive'li dusman gordugumuz yerden degil, kaydinin gerisinde kaldigi
+    -- kadar ilerisinden ates ediyor. Kaydi sahteyse bakis o kadar (saniye) daha ileri alinir.
+    local ahead = EXPOSE_LOOKAHEAD + (exposure.record_lag ~= nil and exposure.record_lag(enemy) or 0)
+    return vector(eye.x + vx * ahead, eye.y + vy * ahead, eye.z)
 end
 
 local update_exposure
@@ -1229,6 +1415,7 @@ do
         elseif duck < DUCK_LEAVE then
             motion.ducked = false
         end
+        exposure.ducked = motion.ducked -- log etiketi icin (state_label: "Peek (egik)")
 
         local crouching = motion.ducked or effective("fakeduck")
         if cmd.in_jump == true or motion.ground_ticks < LANDING_TICKS then
@@ -1244,7 +1431,8 @@ do
         -- bozuluyor": tusa basar basmaz yerinde dururken de Peek'e geciliyordu; duruşun otomatik
         -- freestanding'i ve safe head'i kapaniyor, gorulunce defensive aciliyordu. Dururken tus basili
         -- olsa da duruşun AA'si kalir.
-        if peek_key_held() and (motion.moving or exposure.peeking ~= nil) then
+        -- V1.1.9 AFK: tus yok; sadece AI peek yururken / beklerken Peek (yan adimlar Peek sayilmaz).
+        if (peek_key_held() and (motion.moving or exposure.peeking ~= nil)) or (peek.afk.on and exposure.peeking ~= nil) then
             return "Peek"
         end
         -- Hareket ederken tehdidin gorus alanina girmek = peek. Durunca acini
@@ -1517,12 +1705,21 @@ local OPTIONS_OVERLAP, OPTIONS_NONE = { "Avoid Overlap" }, {}
 -- gercek kafa duvar tarafinda kalir, dusmana once sahte taraf gorunur. Yaw jitter'i devam
 -- eder (desync'ten bagimsiz). Hangi fazin en az vuruldugunu sistem senin maclarinda olcer
 -- ve verisi olmayan dusmanlara onu uygular (bkz. brute_default).
+-- V1.1 (GameSense V1.0.23 / V1.0.27, 1 100 mermilik log): 0-5 fazlarinin hepsi ayni kafa oranini yedi (%32-43):
+-- taraf / +-15 derece degistirmek resolver'in yazi-tura tahminini bozmuyor, cunku desync hep 58-60 ve resolver
+-- +-58'i deniyor. 6-7: desync dusuk (32 / 41 derece): +-58 tahmininin ikisi de kafayi bulmaz. 8: taraflar esit
+-- surmez (bir taraf asym paket daha uzun, uzun taraf her 4 cevirmede degisir; abyss lua'sinin "Switch" body
+-- jitter'i): "her N tick'te bir ceviriyor" diye brute eden resolver periyodu tutturamaz. Hangi fazin ise
+-- yaradigini grup basina ogrenme secer (yeni fazlar denenmemis sayilir, ilk firsatta denenir).
 local BRUTE_PHASES = {
     { invert = true,  scale = 1.0,  shift = 0 },
     { invert = false, scale = 1.0,  shift = 15 },
     { invert = true,  scale = 0.85, shift = -15 },
     { invert = false, scale = 1.0,  shift = 0, random = true },
     { invert = false, scale = 1.0,  shift = 0, freestand = true },
+    { invert = false, scale = 0.55, shift = 0 },
+    { invert = true,  scale = 0.7,  shift = 10 },
+    { invert = false, scale = 1.0,  shift = 0, asym = 2 },
 }
 local BRUTE_RADIUS = 40
 -- Ayni dusmanin bu kadar saniye icindeki ikinci mermisi (DT cift atisi, pompali
@@ -1660,17 +1857,38 @@ local function record_phase(group, phase, hit)
     end
 end
 
+-- V1.1 (GameSense V1.0.23): grupta kotu bilinen faz (en az bad_shots mermi, bad_rate ustu kafa; GS logunda havada
+-- faz 1: 16/25 = %64, faz 0: %35) dusman basina ilerlemede ve ogrenilen baslangicta atlanir, bir sonrakine gecilir.
+-- Grup varsayilani zaten en az vurulan fazdir. Stats panelinde kotu faz "x" ile isaretlenir.
+brute.bad_shots, brute.bad_rate = 12, 0.55
+
+brute.known_bad = function(group, phase)
+    local list = brute.phases[group]
+    local stat = list ~= nil and list[phase] or nil
+    return stat ~= nil and stat.shots >= brute.bad_shots and stat.hits / stat.shots >= brute.bad_rate
+end
+
+brute.skip_bad = function(group, phase)
+    for _ = 0, #BRUTE_PHASES do
+        if not brute.known_bad(group, phase) then
+            return phase
+        end
+        phase = (phase + 1) % (#BRUTE_PHASES + 1)
+    end
+    return phase
+end
+
 local function brute_entry_stage(entry, group)
     if entry == nil then
         return brute.default[group]
     end
     local now = globals.realtime
     if entry.stage > 0 and now >= entry.time and now - entry.time <= menu.brute_reset:get() then
-        return entry.stage
+        return brute.skip_bad(group, entry.stage)
     end
     -- Seni kafadan vurmus dusmanin kendi fazi var; yoksa en az vurulan faz.
     if entry.learned then
-        return entry.base
+        return brute.skip_bad(group, entry.base)
     end
     return brute.default[group]
 end
@@ -1686,7 +1904,13 @@ local SNIPERS = { CWeaponSSG08 = true, CWeaponAWP = true, Revolver = true }
 -- Secili exploit en az min_shots mermi gormeden degismez: loglarda iki HS isabetinden sonra
 -- DT'ye gecildi ve scout'la atistan 0.15 sn sonra "DT %0, sarj bekle" iken kafadan vuruldun
 -- (bolt-action'da DT her atistan sonra bosalir; eski loglardaki sorun).
-local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "hs", min_shots = 4 }
+-- V1.1 (GameSense V1.0.24, 1 100 mermi): HS acikken kafa orani %45, DT'de %36; Peek'te %45 / %38, havada %76 / %52.
+-- Ogrenme 60 mermilik sayimiyla butun oturumu HS'ye cevirdi (zorlanan defensive / teleport / peek korumasi
+-- hic calismadi). Once DT; Auto secilirse esikler yuksek: kullanilan en az stay_shots, oteki en az min_shots mermi,
+-- gecis farki margin. Kesif: kullanilan exploit explore_shots+ mermide explore_rate ustu kafa yiyor ve oteki hic
+-- denenmemisse oteki denenir.
+local sniper = { stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }, choice = "dt", min_shots = 16,
+    stay_shots = 24, explore_shots = 24, explore_rate = 0.45, margin = 0.15 }
 
 -- Sniper elindeyken acik olan exploit: "hs", "dt" ya da nil (sniper yok, fake duck...).
 sniper.mode = function(class)
@@ -1703,13 +1927,21 @@ sniper.mode = function(class)
 end
 
 sniper.decide = function()
-    if sniper.stats[sniper.choice].shots < sniper.min_shots then
+    local mine = sniper.stats[sniper.choice]
+    if mine.shots < sniper.stay_shots then
+        return sniper.choice
+    end
+    local other = sniper.choice == "hs" and "dt" or "hs"
+    if sniper.stats[other].shots < sniper.min_shots then
+        if mine.shots >= sniper.explore_shots and mine.hits / mine.shots >= sniper.explore_rate then
+            return other
+        end
         return sniper.choice
     end
     local hs, dt = brute.rate(sniper.stats.hs), brute.rate(sniper.stats.dt)
-    if sniper.choice == "hs" and dt < hs - 0.1 then
+    if sniper.choice == "hs" and dt < hs - sniper.margin then
         return "dt"
-    elseif sniper.choice == "dt" and hs < dt - 0.1 then
+    elseif sniper.choice == "dt" and hs < dt - sniper.margin then
         return "hs"
     end
     return sniper.choice
@@ -1734,8 +1966,15 @@ sniper.record = function(mode, hit)
 end
 
 -- Kalici oyuncu kimligi: Steam ID. Bot ya da okunamayan Steam ID'de isim, o da yoksa slot.
+-- V1.1.8: get_xuid string, sayi ya da 64 bit cdata ("...ULL") donebilir; hepsi ayni metne cevrilir ki kalici hafiza
+-- (s: anahtari) oyunda da calissin (iki logda da "yuklendi" satirinda hafiza yoktu).
 local function player_id(ent)
     local ok, xuid = pcall(function() return ent:get_xuid() end)
+    if ok and type(xuid) == "number" then
+        xuid = ("%.0f"):format(xuid)
+    elseif ok and xuid ~= nil and type(xuid) ~= "string" then
+        xuid = tostring(xuid):gsub("U?LL$", "")
+    end
     if ok and type(xuid) == "string" and #xuid > 4 and xuid ~= "0" and not xuid:find("BOT", 1, true) then
         return "s:" .. xuid
     end
@@ -1839,6 +2078,8 @@ local FORCE_STALL = 0.5
 -- shots[id] = { state, time }: ates anindaki dusman durumu
 -- prior_logged[id] = jitter on bilgisi bu dusman icin konsola yazildi
 -- jittery[id] = dusmanin AA'sinin en son jitter'li goruldugu zaman (sn)
+-- clean_shot asagida tanimlanir (V1.1.5: resolver.fresh_hold onu kullanir).
+local clean_shot
 local resolver = { players = {}, shots = {}, aim_target = nil, aim_time = -1000, user_safe = nil, user_body = nil,
     stall = { key = nil, state = nil, visible = 0, last = nil, relaxed = false }, prior_logged = {}, jittery = {},
     body_stall = { key = nil, visible = 0, last = nil, relaxed = false },
@@ -1916,6 +2157,29 @@ do
         local flags, duck = prop(enemy, "m_fFlags"), prop(enemy, "m_flDuckAmount")
         return type(flags) == "number" and bit.band(flags, 1) ~= 0 and type(duck) == "number"
             and duck > enemy_watch.fd_low and duck < enemy_watch.fd_high and choked >= enemy_watch.fd_choke
+    end
+
+    -- Dusmanin kaydi gordugumuz en yeni kaydin kac saniye gerisinde (sahte kayit degilse 0). Gorus sisteminin
+    -- ileri bakisi icin (bkz. enemy_eye_ahead, V1.1).
+    exposure.record_lag = function(ent)
+        local index = index_of(ent)
+        local t = index ~= nil and enemy_watch.list[index] or nil
+        if t == nil or type(t.sim) ~= "number" or type(t.max_sim) ~= "number" then
+            return 0
+        end
+        return max(0, min(0.25, t.max_sim - t.sim))
+    end
+
+    -- Dusmanin en yeni kaydi sunucu zamanindan kac tick geride (dusmanin pingi / fake latency'si; V1.1.6). Okunamazsa 0.
+    -- Besinci Neverlose logunda 8+ tick geride kalan kayda kafa atislari 5/7 iska (ucuncu logda 13/16), govde 0/6.
+    exposure.record_age = function(ent)
+        local index = ent ~= nil and index_of(ent) or nil
+        local t = index ~= nil and enemy_watch.list[index] or nil
+        local now = globals.curtime
+        if t == nil or type(now) ~= "number" or type(t.max_sim) ~= "number" then
+            return 0
+        end
+        return max(0, (now - t.max_sim) / tick_interval())
     end
 
     enemy_watch.update = function()
@@ -2060,7 +2324,17 @@ do
             if s ~= nil and now >= s.last and now - s.last <= SIGHT.recent then
                 parts[#parts + 1] = ("gordu %.2fs"):format((s.last - s.first) * tick_interval())
             else
-                parts[#parts + 1] = "gormedi"
+                -- V1.1 (GameSense V1.0.22): izler gormedi; su an gozunden kafana iz var mi (dusman diger dusmanlar
+                -- sirayla kontrol edilirken sira ona gelmeden vurdu) yoksa kapali mi (duvar / siper arkasindan).
+                local trace = "kapali"
+                local ok = pcall(function()
+                    local lp = entity.get_local_player()
+                    local eye, head = ent:get_eye_position(), lp:get_hitbox_position(0)
+                    if eye ~= nil and head ~= nil and head_visible_to(ent, eye, head, 0, 0, 0) then
+                        trace = "su an goruyor"
+                    end
+                end)
+                parts[#parts + 1] = ok and ("gormedi (iz: %s)"):format(trace) or "gormedi"
             end
         end
         return table.concat(parts, ", ")
@@ -2231,7 +2505,7 @@ local function process_pending_misses()
                 sniper.record(miss.sniper, false)
                 if menu.hit_log:get() then
                     print(("[%s] iska: %s | faz %d | %s | %s | %s | %s (%s)"):format(
-                        SCRIPT, miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
+                        SCRIPT, miss.label or miss.state, miss.stage, miss.aa, miss.exploit, miss.weapon, miss.name, miss.attacker))
                 end
             end
         end
@@ -2261,6 +2535,10 @@ end
 -- arkaya bekleme, max'tan sonra cooldown sn serbest; body = verilen hitbox listesi.
 resolver.fake = { ticks = 0, max = 12, cooldown = 0.5, free_until = -1000, logged = -1000, index = nil,
     body = { "Chest", "Stomach" } }
+-- V1.1.8: beklemeler (gercek kayit / taze kayit) Min. Damage 130 ile ates kesemiyordu: Neverlose'da 100 ustu = can +
+-- fark, 130 = can + 30; scout kafasi 150-290 vurdugu icin kafa atisi serbest kaliyordu (besinci logda "MD 130" ile 3
+-- atis, ikisi sahte kayda). Bekleme artik hitbox listesini bosaltir (hedef yok = atis yok); MD 130 yedek kalir.
+resolver.hold_boxes = {}
 
 -- Hedefin govdesine (gogus ya da mide) gozumuzden mermi gecer mi. Iz ya da hitbox okunamazsa evet.
 resolver.body_open = function(target)
@@ -2420,6 +2698,152 @@ do
     -- geri vuramayacaksa uzaktan ince bir bosluktan gorunen kol / govdeye atis bedava hasardir
     -- ("uzakta ince yerlerden sikamiyor"). Iz yoksa her zaman gecerli.
     local HP_PLUS_ONE = 101
+    -- DT cifti (V1.1): tek govde mermisinin en azi (hasar) ve log hiz siniri.
+    -- V1.1.6: lag_ticks = dusmanin kaydi bu kadar geride ise "gecikmeli" (kafa atisi tutmaz, cift serbest); duel_logged
+    -- = duelloda cift yerine kafa logunun hiz siniri.
+    local DT_PAIR = { min = 60, who = nil, seen = -1000, lag_ticks = 8, duel_who = nil, duel_logged = -1000 }
+
+    -- Sahte kayit beklemesi (V1.1, GameSense V1.0.7 / V1.0.22): dusman defensive acinca simulasyon zamani geri gider;
+    -- sunucu o zamani dusmanin ESKI konumuyla eslestirir, o kayda giden mermi (DT'nin iki mermisi dahil) bosa gider.
+    -- Kayit sahteyken ates en fazla max tick bekletilir (Min. Damage md: can + 30, hic atis gelmez), gercek kayit
+    -- geldikten sonra after tick daha; her beklemeden sonra cooldown tick serbest (surekli defensive acana da duzenli
+    -- sikilir). Duelloda beklenmez: Peek durumu, az once ates ettigin hedef ya da seni goren dusman. Beklemek sadece
+    -- aciyi sen tutarken (dusman seni gormezken) bedava. Neverlose'da dusman basina whitelist yok, bekleme global.
+    -- V1.1.1: ilk Neverlose logunda 205 satirin 95'i bu beklemelerdi (surekli defensive acan 3 dusman): dusman ve tur
+    -- basina 15 sn'de bir yazilir.
+    resolver.wait = { max = 14, duel_max = 6, after = 3, cooldown = 32, md = 130, enemies = {}, log_every = 15 }
+
+    resolver.wait_hold = function(target, class)
+        local wait, now = resolver.wait, globals.tickcount
+        current.waiting = false
+        local index = target ~= nil and index_of(target) or nil
+        if index == nil then
+            return false
+        end
+        local gun = class ~= nil and not MELEE[class] and class ~= "CC4" and not is_grenade(class)
+        local enabled = menu.resolver:get() and menu.wait_real:get() and gun
+        local w = wait.enemies[index]
+        if w == nil then
+            w = { ticks = 0, after = 0, free_until = -1000, logged = {} }
+            wait.enemies[index] = w
+        end
+        local profile = enabled and enemy_watch.profile(target) or nil
+        local cooling = now >= w.free_until - wait.cooldown and now < w.free_until
+        local rt = globals.realtime
+        local duel = current.state == "Peek"
+            or (exposure.duel ~= nil and exposure.duel.index == index and rt >= exposure.duel.time
+                and rt - exposure.duel.time <= exposure.duel_hold)
+        local s = exposure.sight[index]
+        local sees = s ~= nil and now >= s.last and now - s.last <= SIGHT.recent
+        -- Duelloda / goruluyorken: Headshot priority acikken kisa bekleme (duel_max tick: sahte kayda kafa atisi
+        -- yazi-tura), kapaliyken hic (ilk ates eden kazanir).
+        local cap = (duel or sees) and (menu.head_first:get() and wait.duel_max or 0) or wait.max
+        local free = profile == nil or cooling or cap == 0
+        local fake = profile ~= nil and profile.defensive_now
+        local hold = not free and (fake or (w.ticks > 0 and w.after < wait.after))
+        if hold then
+            if not fake then
+                w.after = w.after + 1
+            end
+            w.ticks, w.cap = w.ticks + 1, cap
+            if w.ticks > cap then
+                hold = false
+            end
+        end
+        if hold then
+            current.waiting = true
+            return true
+        end
+        if w.ticks > 0 then
+            w.free_until = now + wait.cooldown
+            if menu.resolver_log:get() then
+                local limit = w.cap or wait.max
+                local capped = w.ticks > limit
+                local duel_wait = limit == wait.duel_max
+                local kind = (capped and "cap" or "real") .. (duel_wait and "_duel" or "")
+                local last = w.logged[kind] or -1000
+                if rt < last or rt - last >= wait.log_every then
+                    w.logged[kind] = rt
+                    print(("[%s] resolver: %s sahte kayitta (defensive): %d tick gercek kayit beklendi, %s%s"):format(
+                        SCRIPT, player_name(target), min(w.ticks, limit),
+                        capped and "sinir doldu, ates serbest" or "gercek kayit geldi",
+                        duel_wait and " (duello, kafa onceligi)" or ""))
+                end
+            end
+        end
+        w.ticks, w.after = 0, 0
+        return false
+    end
+
+    -- Taze kayit (V1.1.5, backtrack disiplini): sniper'da hedefin su anki kaydina mermi gecmiyorsa (kafa ve govde izi 0)
+    -- ama window tick icinde geciyorduysa, aimbot'un elinde sadece eski kayitlar var (backtrack): ates bekletilir.
+    -- Kayit yine vurulabilir olunca hemen, eski kayitlar pencereden cikinca (window tick) serbest. Hic vurulabilir
+    -- olmamis hedefte (duvar arkasi, iz API'si yok) bekleme yok. Iz every tick'te bir alinir.
+    resolver.fresh = { window = 24, every = 2, enemies = {}, log_every = 15 }
+
+    resolver.fresh_hold = function(lp, target, sniper)
+        local fresh, now = resolver.fresh, globals.tickcount
+        current.fresh_wait = false
+        local index = target ~= nil and index_of(target) or nil
+        if index == nil or not sniper or trace_bullet == nil or not menu.resolver:get() or not menu.fresh_only:get() then
+            -- Bekleme yarida kesildi (silah / hedef degisti): sayac sifirlanir, sonraki log sismesin.
+            local f = index ~= nil and fresh.enemies[index] or nil
+            if f ~= nil then
+                f.ticks = 0
+            end
+            return false
+        end
+        local f = fresh.enemies[index]
+        if f == nil then
+            f = { ticks = 0, last_ok = nil, tick = -1000, hittable = false, logged = {} }
+            fresh.enemies[index] = f
+        end
+        if now < f.tick or now - f.tick >= fresh.every then
+            local head, body = clean_shot.damages(lp, target)
+            f.tick, f.hittable = now, head >= 1 or body >= 1
+        end
+        if f.hittable then
+            f.last_ok = now
+        end
+        local hold = not f.hittable and f.last_ok ~= nil and now > f.last_ok and now - f.last_ok <= fresh.window
+        if hold then
+            f.ticks = f.ticks + 1
+            current.fresh_wait = true
+            return true
+        end
+        if f.ticks > 0 then
+            if menu.resolver_log:get() then
+                local rt = globals.realtime
+                local kind = f.hittable and "ok" or "gone"
+                local last = f.logged[kind] or -1000
+                if rt < last or rt - last >= fresh.log_every then
+                    f.logged[kind] = rt
+                    print(("[%s] resolver: %s su anki kaydi vurulamiyordu: %d tick taze kayit beklendi, %s"):format(
+                        SCRIPT, player_name(target), f.ticks,
+                        f.hittable and "kayit taze, ates serbest" or "eski kayitlar gecti (backtrack yok)"))
+                end
+            end
+            f.ticks = 0
+        end
+        return false
+    end
+
+    -- Havada sniper (V1.1): Hit Chance gecici menu.air_hc. Yerde ya da baska silahta senin degerin geri gelir; senin
+    -- degerin zaten daha dusukse dokunulmaz. Menude "Hit Chance" yoksa atlanir.
+    resolver.air_hitchance = function(lp, class)
+        local value = menu.air_hc:get()
+        local wanted = nil
+        if type(value) == "number" and value > 0 and SNIPERS[class] and bit.band(lp.m_fFlags, 1) == 0 then
+            if overridden.hit_chance == nil then
+                resolver.user_hc = get("hit_chance")
+            end
+            if type(resolver.user_hc) ~= "number" or resolver.user_hc > value then
+                wanted = value
+            end
+        end
+        current.air_hc = wanted ~= nil
+        override("hit_chance", wanted)
+    end
 
     -- Ezdigimiz bir ayarin senin tarafindaki degeri: o ayara bagli aktif bind (baim tusu gibi).
     -- Neverlose'un :get()'i ezilen degeri dondurebilir; bind listesi tusun kendisini verir.
@@ -2446,11 +2870,45 @@ do
         local wanted, lethal, stalled = nil, false, false
         local exposed = not exposure.available or exposure.now or exposure.soon or exposure.any
         local sniper = menu.head_only:get() and WEAPONS[class] ~= nil and WEAPONS[class][4] and exposed
+        resolver.pair = nil
         if sniper and menu.smart_baim:get() then
             wanted = "Prefer"
             -- Gosterge icin: tahmin edilen hedefte govde olduruyor mu (BAIM / HEAD).
             local health = target ~= nil and prop(target, "m_iHealth") or nil
-            lethal = type(health) == "number" and health > 0 and health <= chest_damage(lp, target, WEAPONS[class])
+            local chest = target ~= nil and chest_damage(lp, target, WEAPONS[class]) or nil
+            lethal = type(health) == "number" and health > 0 and type(chest) == "number" and health <= chest
+            -- DT cifti (V1.1): govde x 2 >= can ve DT dolu: cift oldurucu, Min. Damage asagida govde - 1'e iner.
+            local pair_ok = not lethal and menu.dt_pair:get() and dt_ready() and type(health) == "number" and health > 0
+                and type(chest) == "number" and chest >= DT_PAIR.min and health <= 2 * chest
+            -- V1.1.6 (besinci Neverlose logu, 54 atis): scout'ta DT ikinci mermiyi atmiyor (130 atista 1 cift), "cift"
+            -- govde -91 ile dusman 9 canla kaliyor ve 1.25 sn surguyu bekliyorsun: 19 olumun 11'i atistan sonraki
+            -- surgude. V1.1.7 (kullanici dogruladi: DT ikinci mermiyi sadece deagle'da atar): Headshot priority acikken
+            -- cift sadece hedefin kaydi gecikmeliyken (lag_ticks+: kafa 5/7 iska, govde 0/6); yoksa kafa (taze kayitta
+            -- %79 tuttu, oldururse surgu yok). Kapaliyken eski davranis.
+            local laggy = exposure.record_age(target) >= DT_PAIR.lag_ticks
+            local head_instead = pair_ok and menu.head_first:get() and not laggy
+            if head_instead then
+                pair_ok = false
+                local now_rt = globals.realtime
+                if menu.resolver_log:get() and (DT_PAIR.duel_who ~= target or now_rt < DT_PAIR.duel_logged
+                    or now_rt - DT_PAIR.duel_logged > 5) then
+                    DT_PAIR.duel_who, DT_PAIR.duel_logged = target, now_rt
+                    print(("[%s] %s: DT cifti yerine kafa (govde %d x 2 >= can %d ama scout'ta ikinci mermi surguden sonra)"):format(
+                        SCRIPT, player_name(target), floor(chest + 0.5), health))
+                end
+            end
+            if pair_ok then
+                lethal, resolver.pair = true, chest
+                -- V1.1.3 (ucuncu Neverlose logu, 78 atis): kafaya giden atislarin 15/31'i correction iskasi, govdeye
+                -- gidenlerin 7/45'i. "Prefer" ile Neverlose kafa acikken yine kafaya gidiyordu (MD govde - 1 olsa da);
+                -- cift olduruyorsa Body Aim "Force": ilk mermi govdeye, ikincisi DT ile. Takilma korumasi ayni
+                -- (govde gorunmuyorsa 0.5 sn sonra Prefer). V1.1.5: Headshot priority acikken Prefer kalir (kafa
+                -- acikken kafaya), kapaliyken Force. V1.1.8: gecikmeli kayitta (cift zaten "kafa tutmaz" diye kaldi)
+                -- kafa onceligi acikken de Force; Prefer'de Neverlose yine kafaya gidiyordu (besinci log 142:45:
+                -- "hedef head 188 | BA Prefer | MD 73 | bt 26t", iska). Kafa onceligi acikken cift zaten sadece gecikmeli
+                -- kayitta kalir (head_instead), yani cift varsa her zaman Force.
+                wanted, stalled = body_stall(target), true
+            end
             -- Aimbot'un az once (AIM_TARGET_HOLD sn) ates ettigi hedefi govde olduruyorsa "Force" (V1.0):
             -- bu hedefle zaten catisiyorsun. Loglarda gogus -73 (100 -> 27) sonrasi "Prefer"de Neverlose
             -- kafaya gitti, iskaladi; surgu cekerken dusman tec9 ile vurdu ("sikmadi adama").
@@ -2515,7 +2973,36 @@ do
                 min_damage = nil
             end
         end
-        current.head_only = min_damage ~= nil
+        -- DT cifti olduruyor (V1.1): Min. Damage gecici govde hasarinin 1 altina iner ki aimbot ilk mermiyi govdeye
+        -- atsin; ikincisi DT ile hemen arkasindan gelir. Senin daha dusuk Min. Damage'in zaten yeter, dokunulmaz.
+        -- Senin Min. Damage'in 100 ustuyse (can + fark: bilerek sadece oldurucu) dokunulmaz. Senin degerin daha dusukse
+        -- de govde - 1 yazilir: ciftin oldurmesi icin ilk mermi en az o kadar vurmali.
+        local pair_md = false
+        if sniper and resolver.pair ~= nil then
+            local value = max(1, floor(resolver.pair) - 1)
+            if type(resolver.user_md) ~= "number" or resolver.user_md <= 100 then
+                pair_md, min_damage = true, value
+                local now_rt = globals.realtime
+                local fresh = DT_PAIR.who ~= target or now_rt < DT_PAIR.seen or now_rt - DT_PAIR.seen > 5
+                DT_PAIR.who, DT_PAIR.seen = target, now_rt
+                if menu.hit_log:get() and fresh then
+                    print(("[%s] %s: DT cifti olduruyor (govde %d x 2 >= can %d), Min. Damage gecici %d"):format(
+                        SCRIPT, player_name(target), floor(resolver.pair + 0.5), prop(target, "m_iHealth") or 0, value))
+                end
+            end
+        end
+        current.head_only = min_damage ~= nil and not pair_md
+        -- Sahte kayit beklemesi (V1.1): hedefin kaydi defensive'deyken ve kimse seni gormuyorken ates bekletilir.
+        if resolver.wait_hold(target, class) then
+            min_damage = resolver.wait.md
+        end
+        -- Taze kayit (V1.1.5): hedefin su anki kaydi vurulamiyorsa eski kayda (backtrack) ates bekletilir. V1.1.8: sart
+        -- sadece silah (sniper + Head unless body kills), gorulme degil: hedef kose arkasina gecince gorulme de biter ve
+        -- bekleme tam o anda dusuyordu.
+        local bolt_gun = menu.head_only:get() and WEAPONS[class] ~= nil and WEAPONS[class][4]
+        if resolver.fresh_hold(lp, target, bolt_gun) then
+            min_damage = resolver.wait.md
+        end
         override("min_damage", min_damage)
 
         -- Sahte kayda kafa atisi yok (V1.0): scout / AWP / R8 sadece oldurecek atis yaparken hedefin kaydi
@@ -2547,13 +3034,24 @@ do
             f.ticks = 0
         end
         current.fake_body = body_only
-        override("hitboxes", body_only and f.body or nil)
+        -- V1.1.8: bekleme (gercek / taze kayit) hitbox listesini bosaltir; MD 130 tek basina kafa atisini kesmiyordu.
+        local holding = current.waiting or current.fresh_wait
+        override("hitboxes", holding and resolver.hold_boxes or (body_only and f.body) or nil)
         if body_only and menu.resolver_log:get() and (now < f.logged or now - f.logged > 5) then
             f.logged = now
             print(("[%s] resolver: %s sahte kayitta (defensive): sniper oldurecek govdeye, kafa gercek kayda"):format(
                 SCRIPT, player_name(target)))
         end
     end
+end
+
+-- Log / KD etiketi (V1.1.2): Peek'te egilmis olmak ayri sayilir ("Peek (egik)"), istek: "egilerek peek atinca cok
+-- oluyorum". Sonraki loglarda egik peek'in olumleri, fazlari ve exploit durumu ayri okunsun; ayar ona gore gelecek.
+local function state_label()
+    if current.state == "Peek" and exposure.ducked then
+        return "Peek (egik)"
+    end
+    return current.state
 end
 
 local function update_flip(s, exploit, choked)
@@ -2565,6 +3063,11 @@ local function update_flip(s, exploit, choked)
     -- Hedef her seferinde yeniden hesaplanir ki DT sarji bitince ya da durum
     -- degisince gecikme bir sonraki flip'i beklemeden uyum saglasin.
     local target = exploit and s.delay:get() + flip.extra or 1
+    -- Faz 8 (V1.1): bir taraf asym paket daha uzun; uzun taraf her 4 cevirmede degisir.
+    local phase = BRUTE_PHASES[current.brute]
+    if exploit and phase ~= nil and phase.asym ~= nil and flip.side == (flip.step % 8 < 4) then
+        target = target + phase.asym
+    end
     if flip.packets < target then
         return
     end
@@ -2656,7 +3159,12 @@ local function apply_exploit(s, class)
     if not menu.auto_exploit:get() or effective("fakeduck") then
         choice = "Binds"
     end
-    if choice ~= "Binds" then
+    -- V1.1.9 AFK (GameSense V1.0.35): exploit tam acik, her silahta DT (sniper ayari ve Auto exploit kapali da olsa).
+    local afk = peek.afk.on and not effective("fakeduck")
+    if afk then
+        choice = "Double tap"
+    end
+    if choice ~= "Binds" and not afk then
         local holding_gun = class ~= nil and not NON_GUNS[class] and not is_grenade(class)
         local sniper_setting = menu.sniper_exploit:get()
         local sniper_hs = SNIPERS[class] and (sniper_setting == "Hide shots" or (sniper_setting == "Auto (learn)" and sniper.choice == "hs"))
@@ -2691,7 +3199,7 @@ end
 -- ("unregistered shot") ya da bir tick sonra baska bir goz noktasindan gider (kafaya nisan, gogse
 -- isabet). Iz every tick'te bir atilir; acilinca hold tick acik kalir, Break LC titremesin. Iz
 -- atilamazsa hic acilmaz (eski davranis).
-local clean_shot = { every = 2, hold = 6, checked = -1000, index = nil, until_tick = -1000, boxes = { 0, 5, 3 } }
+clean_shot = { every = 2, hold = 6, checked = -1000, index = nil, until_tick = -1000, boxes = { 0, 5, 3 } }
 
 -- Aimbot'un ates etmesi icin gereken hasar: Min. Damage; 100 ustu can + fark (101 = can + 1).
 clean_shot.need = function(target)
@@ -2754,6 +3262,109 @@ clean_shot.update = function(lp, target, armed)
     return tick <= clean_shot.until_tick and tick >= clean_shot.until_tick - clean_shot.hold
 end
 
+-- Hedefin kafasina (kenarlar dahil) ve govdesine (gogus / mide) gecen en yuksek hasar; iz yoksa 0, 0.
+clean_shot.damages = function(lp, target)
+    local head, body = 0, 0
+    if trace_bullet == nil or dormant(target) then
+        return head, body
+    end
+    local ok_eye, eye = pcall(function() return lp:get_eye_position() end)
+    if not ok_eye or eye == nil then
+        return head, body
+    end
+    for _, hitbox in ipairs(clean_shot.boxes) do
+        local ok_box, point = pcall(function() return target:get_hitbox_position(hitbox) end)
+        if ok_box and point ~= nil then
+            local points = { point }
+            if hitbox == 0 then
+                for _, side in ipairs(side_points(point, eye, exposure.edge)) do
+                    points[#points + 1] = side
+                end
+            end
+            for _, p in ipairs(points) do
+                local ok, damage = pcall(trace_bullet, lp, eye, p)
+                if ok and type(damage) == "number" then
+                    if hitbox == 0 then
+                        head = max(head, damage)
+                    else
+                        body = max(body, damage)
+                    end
+                end
+            end
+        end
+    end
+    return head, body
+end
+
+-- "Sikmadi" teshisi (V1.1, GameSense V1.0.10'dan): hedefe mermi geciyor ama aimbot diag.every tick'tir ates etmediyse
+-- neden etmedigi tek satirda. Oyun loglarindan ayar yapmak icin: Min. Damage mi, sahte kayit beklemesi mi, silah
+-- hazir degil mi, havada hit chance mi, aimbot baska hedefte mi.
+-- V1.1.2 (ikinci Neverlose logu): 0.44 sn'lik pencere aimbot'un normal gecikmesini de yakaliyordu (4 "sebep bilinmiyor"un
+-- 3'unde atis 0.1-0.2 sn sonra geldi) -> 0.63 sn; 20 hasarin altindaki "vurulabilir" (havada 3-9 hasar) ve tek sebebi
+-- "silah hazir degil" olan satirlar (surgu) yazilmaz.
+clean_shot.diag = { every = 40, tick = -1000, index = nil, min_damage = 20 }
+
+clean_shot.diagnose = function(lp, target, class, armed)
+    local d, tick = clean_shot.diag, globals.tickcount
+    if not menu.shot_log:get() or target == nil or class == nil or NON_GUNS[class] or is_grenade(class) then
+        return
+    end
+    local index = index_of(target)
+    if index ~= d.index then
+        d.index, d.tick = index, tick
+        return
+    end
+    if tick >= d.tick and tick - d.tick < d.every then
+        return
+    end
+    d.tick = tick
+    local now = globals.realtime
+    if now >= resolver.aim_time and now - resolver.aim_time <= 0.5 then
+        return
+    end
+    local head, body = clean_shot.damages(lp, target)
+    if head < d.min_damage and body < d.min_damage then
+        return
+    end
+    if not armed and not current.waiting and not current.fresh_wait then
+        return
+    end
+    local need = clean_shot.need(target)
+    local reasons = {}
+    if max(head, body) < need then
+        reasons[#reasons + 1] = ("hasar %d < MD %d"):format(floor(max(head, body) + 0.5), floor(need + 0.5))
+    end
+    if current.waiting then
+        reasons[#reasons + 1] = "gercek kayit bekleniyor (hitbox yok)"
+    end
+    if current.fresh_wait then
+        reasons[#reasons + 1] = "taze kayit bekleniyor (hitbox yok)"
+    end
+    if not armed then
+        reasons[#reasons + 1] = "silah hazir degil"
+    end
+    if current.fake_body then
+        reasons[#reasons + 1] = "sahte kayitta sadece govde (hitbox)"
+    end
+    if current.air_hc then
+        reasons[#reasons + 1] = ("sen havadasin (hit chance %d)"):format(menu.air_hc:get())
+    end
+    local other = resolver.aim_target
+    if other ~= nil and other ~= target and now >= resolver.aim_time and now - resolver.aim_time <= AIM_TARGET_HOLD then
+        reasons[#reasons + 1] = "aimbot baska hedefe ates etti: " .. player_name(other)
+    end
+    if #reasons == 0 then
+        reasons[1] = "sebep bilinmiyor (hit chance / multipoint / Neverlose)"
+    end
+    local hp = prop(target, "m_iHealth")
+    -- V1.1.1: safe point / body aim / hitbox durumu da (ilk logda "sebep bilinmiyor" iki kez: kafa 292 acikken atis yok).
+    print(("[%s] dbg sikmadi: %s %.2fs vurulabilir (kafa %d, govde %d hasar, can %s), ates yok | %s | MD %d SP %s BA %s%s | sen %s%s"):format(
+        SCRIPT, player_name(target), d.every / 64, floor(head + 0.5), floor(body + 0.5), tostring(hp or "?"),
+        table.concat(reasons, ", "), floor(need + 0.5), tostring(effective("safe_points") or "?"),
+        tostring(effective("body_aim") or "?"), current.fake_body and " hitbox govde" or "",
+        tostring(class):gsub("^CWeapon", ""):lower(), current.clean and " temiz" or ""))
+end
+
 -- Defensive'i zorlamayi birakir. Kullanicinin kendi ayari "Always On" olsa bile
 -- en sakin moda ceker; Neverlose'da "On Peek"ten daha kapali bir secenek yok.
 local function defensive_off()
@@ -2795,10 +3406,41 @@ do
     -- uzun surunce birakiliyordu; loglarda Peek'te 1.47 sn goruldukten sonra "DT dolu, DEF
     -- yok" iken kafadan vuruldun. Neverlose'un modu "On Peek" kaldigi icin DT bosalmaz.
     local SMART_HOLD = 8
-    local smart = { last = -1000 }
+    -- V1.1 (GameSense V1.0.25): kafa mermilerinin 36/48'inde saldiran "gormedi" idi, 32'sinde vurulma aninda bile
+    -- izi kapaliydi: defensive'li dusman ekranda gorunmeden ates ediyor, gorus sistemi onu yakalayamiyor.
+    -- Defensive penceresi acikken kafa %38, kapaliyken %53-69. Smart bu yuzden SMART_NEAR birim icinde (dormant
+    -- olmayan) bir dusman varken de zorlar (gormeden vuranlarin mesafesi 245-1991, yarisi 1600+). Temiz atis
+    -- yine kazanir.
+    local SMART_NEAR = 1800
+    local smart = { last = -1000, near_tick = nil, near = false }
+
+    local function enemy_near()
+        local tick = globals.tickcount
+        if smart.near_tick == tick then
+            return smart.near
+        end
+        smart.near_tick, smart.near = tick, false
+        local ok_lp, lp = pcall(entity.get_local_player)
+        local ok_mine, mine = pcall(function() return lp:get_origin() end)
+        local ok, list = pcall(entity.get_players, true)
+        if ok_lp and ok_mine and mine ~= nil and ok and type(list) == "table" then
+            for _, other in ipairs(list) do
+                local ok_alive, alive = pcall(function() return other:is_alive() end)
+                local ok_pos, pos = pcall(function() return other:get_origin() end)
+                if ok_alive and alive and not dormant(other) and ok_pos and pos ~= nil then
+                    local dx, dy, dz = pos.x - mine.x, pos.y - mine.y, pos.z - mine.z
+                    if dx * dx + dy * dy + dz * dz <= SMART_NEAR * SMART_NEAR then
+                        smart.near = true
+                        break
+                    end
+                end
+            end
+        end
+        return smart.near
+    end
 
     local function smart_window(now)
-        if seen_by_enemy() then
+        if seen_by_enemy() or (menu.smart_near:get() and enemy_near()) then
             smart.last = now
         end
         return now >= smart.last and now - smart.last <= SMART_HOLD
@@ -2814,8 +3456,12 @@ do
     local ANTI_HOLD = 16
     local anti = { last = -1000 }
 
-    local function anti_window(now, armed)
-        if exposure.peeked or (exposure.enemy_peek and not armed) then
+    -- V1.1 (GameSense V1.0.23): kafani gorurken peek atiyorsa (ya da seni yeni gordu) silahin hazirken de zorlanir.
+    -- Eskiden "ates edemiyorken" sarti vardi; GS logunda kafa mermilerinin %42'si dusman seni gordukten < 0.1 sn
+    -- sonra geldi (1 sn+ gorenlerde %17), dururken %53 / freestanding'de %54. Temiz atis varsa (hedefe mermi
+    -- geciyor) zorlama zaten kalkar (apply_defensive: not clean), yani atisini geciktirmez.
+    local function anti_window(now)
+        if exposure.peeked or exposure.enemy_peek then
             anti.last = now
         end
         return now >= anti.last and now - anti.last <= ANTI_HOLD
@@ -2824,6 +3470,12 @@ do
     apply_defensive = function(cmd, s, class, state, moving, armed, clean)
         local dt, hs = effective("doubletap"), effective("hideshots")
         local mode = s.def_mode ~= nil and s.def_mode:get() or "Off"
+        -- V1.1.9 AFK (GameSense V1.0.35): defensive tam; Off / On peek durumlari Smart sayilir ve DT doluyken her tick
+        -- zorlanir (temiz atis yine kazanir).
+        local afk = peek.afk.on
+        if afk and (mode == "Off" or mode == "On peek") then
+            mode = "Smart"
+        end
         -- Fake duck DT/HS ile birlikte calismaz; elde bomba varken de LC kirmak atisi bozar.
         if not (dt or hs) or mode == "Off" or is_grenade(class) or effective("fakeduck") then
             defensive_off()
@@ -2849,11 +3501,12 @@ do
         -- defensive olmaz, o zaman zorlanmaz.
         local airborne = state == "Air" or state == "Air crouch"
         local window = mode == "Smart" and (smart_window(now) or (airborne and menu.air_lag:get()))
-        local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now, armed ~= false)
+        -- Sadece "On peek"te (GameSense ile ayni): Smart gorulunce / yakinda dusman varken zaten zorluyor.
+        local guard = mode == "On peek" and menu.anti_peek:get() and anti_window(now)
         -- AI peek yururken / beklerken: defensive dusman seni gormeden baslar, ilk gordugu
         -- kayit eski ve acilar gizli olur (defensive peek).
         local peeking = on_peek and exposure.peeking ~= nil and menu.peek_defensive:get()
-        local forced = (window or guard or peeking) and dt and exploit_active() and not paused("DEF") and not clean
+        local forced = (window or guard or peeking or afk) and dt and exploit_active() and not paused("DEF") and not clean
         current.defensive = (not on_peek and not clean) or hs_peek or forced
         current.forced = forced
         current.anti = forced and guard
@@ -2956,8 +3609,24 @@ end
 -- Hide shots da ayni sekilde bekletilir, ama sadece Neverlose'un sarj degerinin HS'de
 -- de dolup bosaldigi goruldukten sonra (hs_charges). Deger sadece DT'ye aitse HS'ye
 -- hic karisilmaz.
-local RECHARGE_HOLD_MAX = 1.2
+-- V1.1 (GameSense V1.0.22 logu): beklerken DT kapali ve defensive yok, yani ciplaksin. "sarj bekle" ile 179 mermi /
+-- 70 kafa yendi, 57'si Peek'te ve cogu atistan sonraki 0.3 sn icinde. Peek'te ve yururken (siper yok, zaten
+-- goruluyorsun) beklenmez: DT hemen dolar, defensive geri gelir. Bekleme ust siniri 1.2 -> 0.5 sn.
+local RECHARGE_HOLD_MAX = 0.5
+local RECHARGE_MOVE_SPEED = 100
 local recharge = { held = false, fakeduck = false, released = -1000, hs_charges = false }
+
+-- Beklemenin bir sey kazandirmadigi durumlar: Peek ve yurume.
+recharge.exposed_anyway = function()
+    if current.state == "Peek" then
+        return true
+    end
+    local ok, speed = pcall(function()
+        local v = entity.get_local_player().m_vecVelocity
+        return sqrt(v.x * v.x + v.y * v.y)
+    end)
+    return ok and type(speed) == "number" and speed > RECHARGE_MOVE_SPEED
+end
 
 local function set_charge(allowed)
     if api.allow_charge == nil or recharge.held == not allowed then
@@ -2985,7 +3654,7 @@ local function update_recharge()
             end
             local since = globals.realtime - max(own.last_shot, recharge.released)
             hold = (dt or recharge.hs_charges) and charge < 1 and since >= 0 and since <= RECHARGE_HOLD_MAX
-                and seen_by_enemy()
+                and seen_by_enemy() and not recharge.exposed_anyway()
         end
     end
     set_charge(not hold)
@@ -3088,11 +3757,48 @@ do
         return best, best_dist
     end
 
+    -- Surgu korumasi (V1.1.4, dorduncu Neverlose logu): egik peek'te olumlerin 3/5'i, ayakta peek'te 10/13'u kendi
+    -- iskandan 0.05-0.7 sn sonra "DT %0, DEF yok" iken geldi: scout'un surgusu 1.25 sn, iskaladigin an ciplaksin ve
+    -- egik yururken kacamazsin. Sniper'la ates ettikten sonra silah hazir olana kadar (surgu), biri seni goruyorsa ve
+    -- yerdeysen fake duck zorlanir: kafa asagida, kayit her pakette degisir. Varsayilan sadece egik peek'te; ayakta
+    -- peek'te secenekle (geri cekilmeyi yavaslatir). Bicakli dusman yakinsa ve havada yok.
+    local cover = { logged = -1000 }
+
+    -- holding: koruma zaten acik; fake duck durumu "Fake duck" olur ve duck miktari her tick degisir, o yuzden
+    -- durum / egilme sarti sadece baslarken bakilir.
+    local function cover_wanted(lp, holding)
+        if not menu.bolt_cover:get() then
+            return false
+        end
+        if not holding then
+            if current.state ~= "Peek" then
+                return false
+            end
+            if not exposure.ducked and not menu.bolt_cover_stand:get() then
+                return false
+            end
+        end
+        local class = weapon_class(lp)
+        if not SNIPERS[class] or bit.band(lp.m_fFlags, 1) == 0 or weapon_ready(lp, 0) then
+            return false
+        end
+        local since = globals.realtime - own.last_shot
+        if since < 0 or since > 2 then
+            return false
+        end
+        return seen_by_enemy() and knife_enemy(lp, KNIFE_NEAR) == nil
+    end
+
     update_fd_guard = function(lp)
         local pointless = fd_pointless(lp)
         if overridden.fakeduck ~= nil then
             -- Biz biraktik: neden bitince (durdun / indin, bicak uzaklasti) tus yine senin.
-            if fd.why == "move" then
+            if fd.why == "cover" then
+                if not cover_wanted(lp, true) then
+                    override("fakeduck", nil)
+                    fd.why = nil
+                end
+            elseif fd.why == "move" then
                 if not pointless then
                     override("fakeduck", nil)
                     fd.why = nil
@@ -3105,6 +3811,18 @@ do
         end
         fd.why = nil
         if not get("fakeduck") then
+            if cover_wanted(lp) then
+                override("fakeduck", true)
+                if overridden.fakeduck ~= nil then
+                    fd.why = "cover"
+                    local now = globals.realtime
+                    if menu.hit_log:get() and (now < cover.logged or now - cover.logged > 2) then
+                        cover.logged = now
+                        print(("[%s] surgu korumasi: fake duck (%s, atistan %.2f sn sonra, silah hazir degil)"):format(
+                            SCRIPT, state_label(), now - own.last_shot))
+                    end
+                end
+            end
             return
         end
         if pointless then
@@ -3190,8 +3908,48 @@ local MOVETYPE_LADDER = 9
 -- teleport'tan 0.21 sn sonra "DT %80, DEF yok" iken kafadan vuruldun. Artik ziplama basina 1:
 -- sonra sarj dolar ve air lag (her tick defensive) devam eder. Inise land_guard sn'den az kaldiysa
 -- teleport yok: sarj inene kadar dolmaz, yere DT'siz inip sarj olurken yerinde donardin.
+-- V1.1 (GameSense V1.0.13): her teleportun sonucu tutulur (result_window sn icinde mermi yedin mi). Bir haritada son
+-- result_last teleportun result_bad'i vurulduysa o haritada teleport kapatilir (harita degisince acilir). GS loglarinda
+-- bazi haritalarda 3 teleportun 2'si vuruldu: isinlanma kaydi gecersizlestirmiyor, sadece sarji harciyordu.
 local teleport = { last = -1000, count = 0, min_speed = 150, max_jump = 1, land_guard = 0.35,
-    pending = nil, hs_ok = nil, refilled = false }
+    pending = nil, hs_ok = nil, refilled = false,
+    results = {}, result_at = nil, result_window = 1.5, result_min = 0.12, result_last = 3, result_bad = 2, map_off = false }
+
+teleport.record = function(hit, now)
+    local list = teleport.results
+    list[#list + 1] = hit
+    if #list > teleport.result_last then
+        table.remove(list, 1)
+    end
+    teleport.result_at = nil
+    local bad = 0
+    for _, h in ipairs(list) do
+        if h then
+            bad = bad + 1
+        end
+    end
+    if menu.hit_log:get() then
+        print(("[%s] teleport sonucu: %s (son %d: %d vurulma)"):format(SCRIPT,
+            hit and ("isinlandiktan %.2f sn sonra vuruldun"):format(now - teleport.last) or "vurulmadin", #list, bad))
+    end
+    if #list >= teleport.result_last and bad >= teleport.result_bad and not teleport.map_off then
+        teleport.map_off = true
+        if menu.hit_log:get() then
+            print(("[%s] teleport: bu haritada son %d teleportun %d'si vuruldu -> harita degisene kadar kapali"):format(
+                SCRIPT, #list, bad))
+        end
+    end
+end
+
+-- Vuruldun: son teleport result_window sn icindeyse o teleport "vuruldu" sayilir.
+-- V1.1.8: isinlandiktan result_min sn icinde gelen mermi isinlanmadan once atilmisti (besinci log 134:27.8: "0.02 sn
+-- sonra vuruldun" harita kapatma sayimina girdi); teleport hakkinda bir sey soylemez, sayilmaz.
+teleport.hurt = function(now)
+    if teleport.result_at ~= nil and now >= teleport.result_at + teleport.result_min
+        and now - teleport.result_at <= teleport.result_window then
+        teleport.record(true, now)
+    end
+end
 
 -- Yere kac sn kaldi (dikey hiz ve yer cekimiyle); 400 birim icinde yer yoksa ya da iz
 -- atilamazsa huge.
@@ -3209,6 +3967,10 @@ end
 
 teleport.update = function(lp, move_state)
     local now = globals.realtime
+    -- Son teleportun sonucu: penceresi mermi yemeden doldu (V1.1).
+    if teleport.result_at ~= nil and (now < teleport.result_at or now - teleport.result_at > teleport.result_window) then
+        teleport.record(false, now)
+    end
     -- Bir onceki tick'te HS ile denendiyse sarj harcandi mi?
     local pending = teleport.pending
     if pending ~= nil and globals.tickcount > pending.tick then
@@ -3238,7 +4000,7 @@ teleport.update = function(lp, move_state)
     -- Temiz atista (ates edebiliyorsun, hedef vurulabilir) isinlanilmaz: teleport sarji harcar ve hemen
     -- sonraki mermi sunucuda gecmeyebilir (loglarda "tp 0.21s" atislari).
     if teleport.count >= teleport.max_jump or not menu.air_teleport:get() or api.teleport == nil or resolver.paused("TP")
-        or current.clean then
+        or current.clean or teleport.map_off then
         return
     end
     -- Fake duck'ta exploit calismaz (bind'in "acik" gorunse de): v5.0 loglarinda FD'de teleport tetiklendi.
@@ -3261,7 +4023,7 @@ teleport.update = function(lp, move_state)
         return
     end
     api.teleport()
-    teleport.count, teleport.last = teleport.count + 1, now
+    teleport.count, teleport.last, teleport.result_at = teleport.count + 1, now, now
     if not dt and teleport.hs_ok == nil then
         teleport.pending = { tick = globals.tickcount }
     end
@@ -3553,7 +4315,9 @@ do
     end
 
     local function allowed(lp, cmd, class)
-        if not ai_peek.available or not menu.ai_peek:get() or not peek_key_held() then
+        -- V1.1.9 AFK: tus basili sayilir ve AI peek kapali olsa da calisir (GameSense ile ayni).
+        local afk = peek.afk.on
+        if not ai_peek.available or not (menu.ai_peek:get() or afk) or not (afk or peek_key_held()) then
             return false
         end
         if bit.band(lp.m_fFlags, 1) == 0 or cmd.in_jump == true or cmd.in_use == true
@@ -3619,8 +4383,9 @@ do
             return
         end
         if menu.shot_log:get() then
-            local why = user_moving(cmd) and "hareket tusu" or (not peek_key_held() and "Peek Assist birakildi")
-                or "kosul degisti"
+            -- V1.1.9: AFK'da tus yok; "Peek Assist birakildi" yazilmaz (GameSense'te peek_key_held AFK'yi de sayar).
+            local why = user_moving(cmd) and "hareket tusu"
+                or (not (peek.afk.on or peek_key_held()) and "Peek Assist birakildi") or "kosul degisti"
             print(("[%s] ai peek: iptal, %s"):format(SCRIPT, why))
         end
     end
@@ -3667,8 +4432,156 @@ do
 
     local step
 
+    -- V1.1.9 AFK sag / sol adim (GameSense V1.0.35): AI peek bosken capanin (acildigi yer) iki yanina afk.step birim,
+    -- afk.every sn'de bir yon degisir. Yon dusmana (yoksa bakisa) dik. Duvar / ucurum varsa o yan atlanir (capada
+    -- durulur). Sen tusa basinca durur, biraktigin yer yeni capa olur. 2 bos peek kilidi AFK'da tus yeniden
+    -- basilmadigi icin 10 sn sonra kalkar.
+    local function afk_strafe(lp, cmd, user_input)
+        local afk = peek.afk
+        local mine = origin_of(lp)
+        local now = globals.realtime
+        if mine == nil or user_input or bit.band(lp.m_fFlags, 1) == 0 or cmd.in_jump == true or cmd.in_use == true
+            or lp.m_MoveType == MOVETYPE_LADDER then
+            afk.anchor = nil
+            return
+        end
+        if afk.anchor == nil then
+            afk.anchor, afk.flip_at = mine, now + afk.every
+        else
+            local ax, ay = mine.x - afk.anchor.x, mine.y - afk.anchor.y
+            if ax * ax + ay * ay > 160 * 160 or abs(mine.z - afk.anchor.z) > 18 then
+                -- dogdun / isinlandin / itildin / basamaktan dustun: yeni capa
+                afk.anchor, afk.flip_at = mine, now + afk.every
+            end
+        end
+        if ai_peek.blocked ~= nil then
+            afk.blocked_at = afk.blocked_at or now
+            if now - afk.blocked_at > 10 then
+                ai_peek.blocked, ai_peek.fails, afk.blocked_at = nil, 0, nil
+            end
+        else
+            afk.blocked_at = nil
+        end
+        if ai_peek.mode ~= nil then
+            afk.flip_at = max(afk.flip_at, now + 0.5)
+            return
+        end
+        if now >= afk.flip_at or now < afk.flip_at - afk.every - 1 then
+            afk.side, afk.flip_at = -afk.side, now + afk.every
+        end
+        local threat = aa_threat()
+        local theirs = threat ~= nil and not dormant(threat) and origin_of(threat) or nil
+        local yaw
+        if theirs ~= nil and (theirs.x ~= afk.anchor.x or theirs.y ~= afk.anchor.y) then
+            yaw = math.deg(atan2(theirs.y - afk.anchor.y, theirs.x - afk.anchor.x))
+        else
+            local ok, view = pcall(function() return cmd.view_angles.y end)
+            yaw = ok and type(view) == "number" and view or nil
+        end
+        if yaw == nil then
+            return
+        end
+        local r = math.rad(yaw)
+        local px, py = -math.sin(r), math.cos(r)
+        local dest = vector(afk.anchor.x + px * afk.step * afk.side, afk.anchor.y + py * afk.step * afk.side, afk.anchor.z)
+        -- AI peek'in yurunebilir kontrolu 40 birim asagidaki zemini de kabul eder; AFK adimi basamak yuksekligi (18)
+        -- icinde kalir, kenardan dusmez.
+        local ok_floor, floor_hit = pcall(function()
+            return fraction(trace_line(vector(dest.x, dest.y, dest.z + 18), vector(dest.x, dest.y, dest.z - 18), lp,
+                MASK_PLAYERSOLID))
+        end)
+        if not ok_floor or floor_hit >= 1 or not walkable(lp, afk.anchor, dest) then
+            dest = afk.anchor
+        end
+        if move_to(cmd, mine, dest) < 4 then
+            stand(cmd)
+        end
+    end
+
+    -- V1.1.9 otomatik AFK (GameSense V1.0.37 / V1.0.40): dogduktan sonra donma suresi bitince sayac baslar; hareket /
+    -- ziplama / egilme / ates / durbun / E / R / silah secimi ya da fare (kamera 0.5 dereceden fazla dondu) girdi sayilir,
+    -- AFK'yi kapatir ve bu dogusta bir daha acilmaz. Menu acikken ya da isinmada sayac ilerlemez; donma suresindeki
+    -- tus sadece sayaci sifirlar.
+    local function afk_update(lp, cmd)
+        local afk = peek.afk
+        local was, now = afk.on, globals.realtime
+        local ok_in, why = pcall(function()
+            if user_moving(cmd) or cmd.in_jump == true or cmd.in_duck == true then
+                return "tus"
+            elseif cmd.in_attack == true or cmd.in_attack2 == true then
+                return "ates / durbun"
+            elseif cmd.in_use == true or cmd.in_reload == true or (tonumber(cmd.weaponselect) or 0) ~= 0 then
+                return "E / R / silah"
+            end
+            return nil
+        end)
+        why = ok_in and why or nil
+        -- Kamera: Neverlose'un render.camera_angles'i (oyunun kamerasi); yoksa / hata verirse / sayi donmezse
+        -- komutun bakis acisi (ikisi ayri denenir: biri bozuksa fare kontrolu yine calisir).
+        local cam_p, cam_y
+        for _, source in ipairs({ function() return render.camera_angles() end, function() return cmd.view_angles end }) do
+            local ok_cam, p, y = pcall(function()
+                local a = source()
+                return a.x, a.y
+            end)
+            if ok_cam and type(p) == "number" and type(y) == "number" and p == p and y == y then
+                cam_p, cam_y = p, y
+                break
+            end
+        end
+        if cam_y ~= nil and afk.cam_y ~= nil
+            and (abs((cam_y - afk.cam_y + 180) % 360 - 180) > 0.5 or abs(cam_p - (afk.cam_p or cam_p)) > 0.5) then
+            why = why or "fare"
+        end
+        afk.cam_p, afk.cam_y = cam_p, cam_y
+        local ok_rules, rules = pcall(entity.get_game_rules)
+        rules = ok_rules and rules or nil
+        local freeze = rules ~= nil and prop(rules, "m_bFreezePeriod") or nil
+        local warmup = rules ~= nil and prop(rules, "m_bWarmupPeriod") or nil
+        local frozen = freeze == true or freeze == 1
+        local ok_alpha, alpha = pcall(ui.get_alpha)
+        local paused = frozen or warmup == true or warmup == 1 or (ok_alpha and type(alpha) == "number" and alpha > 0)
+        local auto_on = menu.afk_auto:get()
+        if why ~= nil and frozen then
+            afk.idle_since = nil
+        elseif why ~= nil then
+            if afk.auto and menu.hit_log:get() then
+                print(("[%s] otomatik afk kapandi: %s"):format(SCRIPT, why))
+            end
+            afk.auto, afk.armed, afk.idle_since = false, false, nil
+        elseif paused or not auto_on then
+            afk.idle_since = nil
+        elseif afk.armed then
+            afk.idle_since = afk.idle_since or now
+            if not afk.auto and now - afk.idle_since >= afk.idle then
+                afk.auto = true
+                if menu.hit_log:get() then
+                    print(("[%s] otomatik afk: dogduktan sonra %d sn tusa basmadin"):format(SCRIPT, afk.idle))
+                end
+            end
+        end
+        if not auto_on then
+            afk.auto = false
+        end
+        local ok_alive, alive = pcall(function() return lp:is_alive() end)
+        afk.on = menu.enabled:get() and (menu.afk:get() or afk.auto) and ok_alive and alive == true
+        if afk.on ~= was then
+            afk.anchor, afk.blocked_at = nil, nil
+            if menu.hit_log:get() then
+                print(("[%s] afk modu %s"):format(SCRIPT, afk.on
+                    and "acik: AI peek burada, 3 sn'de bir sag / sol, DT + defensive tam" or "kapali"))
+            end
+        end
+    end
+
     update_ai_peek = function(lp, cmd, class)
+        afk_update(lp, cmd)
+        -- Kullanicinin kendi hareket tusu (AI peek / AFK adimi komutu degistirmeden once).
+        local user_input = user_moving(cmd)
         step(lp, cmd, class)
+        if peek.afk.on then
+            afk_strafe(lp, cmd, user_input)
+        end
         -- Yururken / beklerken / donerken Peek Assist kapali (hareketi ezmesin); bosta senin.
         if ai_peek.mode ~= nil then
             override("peek_assist", false)
@@ -3880,6 +4793,19 @@ do
     end
 end
 
+-- V1.1.9 AFK kapanir: script kapatilinca (dead = false) ya da olunce (dead = true; GameSense V1.0.54: capa birakilir,
+-- dogdugun yer yeni capa, otomatik AFK bir sonraki dogusta yeniden olculur).
+peek.afk.stop = function(dead)
+    local afk = peek.afk
+    if afk.on and dead and menu.hit_log:get() then
+        print(("[%s] afk modu kapali: oldun"):format(SCRIPT))
+    end
+    afk.on, afk.anchor, afk.blocked_at, afk.auto = false, nil, nil, false
+    if dead then
+        afk.armed, afk.idle_since, afk.cam_y, afk.cam_p = true, nil, nil, nil
+    end
+end
+
 events.createmove:set(protect("createmove", function(cmd)
     current.defensive, current.forced, current.lc, current.anti, current.clean = false, false, false, false, false
     local rec, tick = recommended_state, globals.tickcount
@@ -3887,6 +4813,7 @@ events.createmove:set(protect("createmove", function(cmd)
         apply_recommended()
     end
     if not menu.enabled:get() then
+        peek.afk.stop(false)
         reset_overrides()
         set_charge(true)
         return
@@ -3894,6 +4821,7 @@ events.createmove:set(protect("createmove", function(cmd)
 
     local lp = entity.get_local_player()
     if lp == nil or not lp:is_alive() then
+        peek.afk.stop(lp ~= nil)
         set_charge(true)
         override("fakeduck", nil)
         return
@@ -3915,6 +4843,7 @@ events.createmove:set(protect("createmove", function(cmd)
     current.brute = menu.anti_brute:get() and threat_stage(current.phase_group) or 0
     local aim_target, resolver_raw = apply_resolver()
     apply_body_aim(lp, class, aim_target, resolver_raw)
+    resolver.air_hitchance(lp, class)
     update_ai_peek(lp, cmd, class)
 
     override("aa_enabled", true)
@@ -4062,6 +4991,7 @@ events.createmove:set(protect("createmove", function(cmd)
     -- Fake duck senin tusun ve kendisi lag'dir (paketler bogulur): temiz atis o sirada yok.
     current.clean = clean_shot.update(lp, aim_target, armed and class ~= nil and not NON_GUNS[class]
         and not is_grenade(class) and not effective("fakeduck"))
+    clean_shot.diagnose(lp, aim_target, class, armed)
     apply_defensive(cmd, builder[state], class, state,
         move_state ~= "Standing" and move_state ~= "Crouching" and move_state ~= "Fake duck", armed, current.clean)
     teleport.update(lp, move_state)
@@ -4211,7 +5141,7 @@ do
         local hurt = brute.hurt[e.userid]
         if hurt == nil or now < hurt or now - hurt >= MISS_WINDOW then
             pending_misses[#pending_misses + 1] = {
-                userid = e.userid, time = now, state = current.state, stage = shot_stage, name = player_name(shooter),
+                userid = e.userid, time = now, state = current.state, label = state_label(), stage = shot_stage, name = player_name(shooter),
                 aa = aa_status(), exploit = exploit_status(), weapon = weapon_label(), attacker = attacker_info(shooter),
                 applied = current.brute, group = brute.stat_group(), sniper = sniper.mode(current.weapon),
             }
@@ -4325,6 +5255,7 @@ events.player_hurt:set(protect("player_hurt", function(e)
 
     local now = globals.realtime
     brute.hurt[e.attacker] = now
+    teleport.hurt(now)
     ai_peek.hurt(e.hitgroup, e.dmg_health, player_name(attacker))
     for i = #pending_misses, 1, -1 do
         if pending_misses[i].userid == e.attacker then
@@ -4369,12 +5300,12 @@ events.player_hurt:set(protect("player_hurt", function(e)
         if e.hitgroup == 1 then
             entry.head = entry.head + 1
         end
-        own.count(current.state, phase, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
+        own.count(state_label(), phase, e.hitgroup == 1, info:find("gormedi", 1, true) ~= nil)
     end
     if menu.hit_log:get() then
         print(("[%s] vuruldun: %s -%d %s | %s | faz %d | %s | %s | %s | %s (%s)"):format(
             SCRIPT, HITGROUPS[e.hitgroup] or "?", tonumber(e.dmg_health) or 0, weapon,
-            current.state, phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
+            state_label(), phase, aa_status(), exploit_status(), weapon_label(), player_name(attacker), info))
     end
 end))
 
@@ -4768,7 +5699,7 @@ persist.load = function()
                 sniper.stats[mode] = { shots = e.shots, hits = e.hits }
             end
         end
-        sniper.choice = "hs"
+        sniper.choice = "dt"
         sniper.choice = sniper.decide()
     end
     -- v4.5 butun gruplar icin tek liste yaziyordu ("phases"); o liste her gruba uygulanir.
@@ -4820,7 +5751,7 @@ forget_enemies = function()
     brute.enemies, brute.recent, brute.hurt = {}, nil, {}
     brute.reset_phases()
     sniper.stats = { hs = { shots = 0, hits = 0 }, dt = { shots = 0, hits = 0 } }
-    sniper.choice = "hs"
+    sniper.choice = "dt"
     resolver.players, resolver.shots, resolver.aim_target, resolver.prior_logged = {}, {}, nil, {}
     resolver.jittery = {}
     reset_stall(nil, nil)
@@ -4835,10 +5766,28 @@ events.round_start:set(protect("round_start", function()
     reset_brute()
     exposure.shot = nil
     ai_peek.reset()
+    -- V1.1.9: yeni round = yeni dogus: otomatik AFK yeniden olculur (donma suresi sayilmaz), capa birakilir. Dogusta
+    -- oyun bakisi sifirlar: onceki round'un kamerasi fare sayilmasin (donma suresi 0 olan sunucular).
+    peek.afk.auto, peek.afk.armed, peek.afk.idle_since, peek.afk.anchor = false, true, nil, nil
+    peek.afk.cam_y, peek.afk.cam_p = nil, nil
     pending_misses = {}
     set_charge(true)
     persist.save(false)
+    nlog.save()
 end))
+
+-- V1.1.9 (GameSense V1.0.64 "dm round"): deathmatch / haritaya ortadan girince round_start gelmeyebilir; senin
+-- dogusun da otomatik AFK'yi yeniden kurar (round basindaki gibi).
+pcall(function()
+    events.player_spawn:set(protect("player_spawn", function(e)
+        local lp = entity.get_local_player()
+        if lp == nil or e == nil or entity.get(e.userid, true) ~= lp then
+            return
+        end
+        local afk = peek.afk
+        afk.auto, afk.armed, afk.idle_since, afk.anchor, afk.cam_y, afk.cam_p = false, true, nil, nil, nil, nil
+    end))
+end)
 
 -- Harita degisince slot numaralari degisir, oyuncular cogunlukla kalir. Aktif fazlar,
 -- bekleyen atislar ve hedef sifirlanir; Steam ID ile ogrenilenler (anti-brute fazi,
@@ -4851,20 +5800,23 @@ pcall(function()
         reset_stall(nil, nil)
         exposure.shot = nil
         ai_peek.reset()
-        -- HS ile teleport'un calisip calismadigi her haritada bir kez yeniden denenir.
+        -- HS ile teleport'un calisip calismadigi her haritada bir kez yeniden denenir; teleport sonuclari da haritaya ozel.
         teleport.hs_ok, teleport.pending = nil, nil
+        teleport.results, teleport.result_at, teleport.map_off = {}, nil, false
         enemy_watch.list = {}
         persist.save(true)
+        nlog.save()
     end))
 end)
 
 -- Durum basina oldurdugun / oldugun (bkz. aim_stats.kd): olum aninda senin durumun (current.state).
 -- Olum sadece dusman oldurduyse (dusme, intihar, takim arkadasi sayilmaz).
 local function count_kd(field)
-    local entry = aim_stats.kd[current.state]
+    local label = state_label()
+    local entry = aim_stats.kd[label]
     if entry == nil then
         entry = { kills = 0, deaths = 0 }
-        aim_stats.kd[current.state] = entry
+        aim_stats.kd[label] = entry
     end
     entry[field] = entry[field] + 1
 end
@@ -4879,14 +5831,23 @@ events.player_death:set(protect("player_death", function(e)
     if victim == lp then
         if menu.enabled:get() and ok_enemy and enemy_attacker then
             count_kd("deaths")
+            -- V1.1.2: log analizinde K/D icin (GameSense'teki kill / olum satirlari gibi).
+            if menu.hit_log:get() then
+                print(("[%s] oldun: %s | %s | %s"):format(SCRIPT, player_name(attacker), state_label(), weapon_label()))
+            end
         end
         reset_brute()
         set_charge(true)
         ai_peek.reset()
+        peek.afk.stop(true)
     elseif attacker == lp and victim ~= nil and menu.enabled:get() then
         local ok_victim, enemy_victim = pcall(function() return victim:is_enemy() end)
         if ok_victim and enemy_victim then
             count_kd("kills")
+            if menu.hit_log:get() then
+                print(("[%s] oldurdun: %s | %s | %s%s"):format(SCRIPT, player_name(victim), state_label(), weapon_label(),
+                    e.headshot == true and " | headshot" or ""))
+            end
         end
     end
 end))
@@ -5024,11 +5985,91 @@ local function draw_indicators(lp, cx, cy)
     end
 end
 
+-- V1.1.9 (GameSense V1.0.76; istek: "solda gozukme muhabbetini de ekle"): sol gosterge listesi. GameSense'in
+-- renderer.indicator'i Neverlose'da yok; ayni liste render.text ile ekranin soluna, dikeyde ortaya, satir satir.
+-- Yesil = acik / hazir, sari = sarj oluyor / gecici (script'in ezdigi), kirmizi = bos, beyaz = senin bind'in.
+own.ind = { GREEN = color(124, 195, 13, 255), YELLOW = color(230, 200, 40, 255), RED = color(230, 70, 70, 255),
+    WHITE = color(220, 220, 220, 255), size = 22, line = 26, font = nil }
+-- Kalin Verdana (yuklenemezse ince, o da olmazsa Neverlose'un yerlesik fontu). Bir kez yuklenir.
+own.ind.font_of = function()
+    local I = own.ind
+    if I.font == nil then
+        for _, flags in ipairs({ "ab", "a" }) do
+            local ok, loaded = pcall(render.load_font, "Verdana", I.size, flags)
+            if ok and loaded ~= nil then
+                I.font = loaded
+                break
+            end
+        end
+        I.font = I.font or FONT
+    end
+    return I.font
+end
+-- Acik olanlar (metin, renk), GameSense'teki sirayla.
+own.ind.items = function()
+    local I, list = own.ind, {}
+    local function put(col, text)
+        list[#list + 1] = { text, col }
+    end
+    local charge = api.charge ~= nil and api.charge() or nil
+    if effective("fakeduck") then
+        put(I.WHITE, "FD")
+    elseif effective("doubletap") then
+        put((type(charge) ~= "number" or charge >= 1) and I.GREEN or (charge > 0 and I.YELLOW or I.RED), "DT")
+    elseif effective("hideshots") then
+        put((recharge.hs_charges and type(charge) == "number" and charge < 1) and I.YELLOW or I.GREEN, "HS")
+    end
+    if current.forced then
+        put(I.GREEN, "DEF")
+    end
+    if current.lc then
+        put(I.YELLOW, "LC")
+    end
+    local md = overridden.min_damage
+    if type(md) == "number" then
+        put(I.YELLOW, ("MD %d"):format(md))
+    end
+    for _, item in ipairs({ { "body_aim", "BAIM" }, { "safe_points", "SAFE" } }) do
+        if overridden[item[1]] == "Force" then
+            put(I.YELLOW, item[2])
+        elseif overridden[item[1]] == nil and get(item[1]) == "Force" then
+            put(I.WHITE, item[2])
+        end
+    end
+    if current.freestand then
+        put(I.GREEN, "FS")
+    end
+    if peek.afk.on then
+        put(I.YELLOW, "AFK")
+    elseif peek_key_held() then
+        put(I.WHITE, "PEEK")
+    end
+    return list
+end
+own.ind.draw = function(screen)
+    local I = own.ind
+    local list = I.items()
+    if #list == 0 then
+        return
+    end
+    local font = I.font_of()
+    local y = floor(screen.y / 2 - #list * I.line / 2)
+    -- Stats panel acikken (solda, ekranin %45'inden asagi) liste onun ustunde biter.
+    if menu.stats_panel:get() then
+        y = min(y, floor(screen.y * 0.45) - 8 - #list * I.line)
+    end
+    for _, item in ipairs(list) do
+        render.text(font, vector(13, y + 1), SHADOW, nil, item[1])
+        render.text(font, vector(12, y), item[2], nil, item[1])
+        y = y + I.line
+    end
+end
+
 local STAT_ORDER = {}
 for _, state in ipairs(STATES) do
     STAT_ORDER[#STAT_ORDER + 1] = state
 end
-for _, state in ipairs({ "Legit", "Spin", "Ladder" }) do
+for _, state in ipairs({ "Peek (egik)", "Legit", "Spin", "Ladder" }) do
     STAT_ORDER[#STAT_ORDER + 1] = state
 end
 
@@ -5093,7 +6134,9 @@ local function draw_stats(screen)
         local parts = { brute.group_label[group]:upper() }
         for phase = 0, #BRUTE_PHASES do
             local stat = brute.phases[group][phase]
-            parts[#parts + 1] = ("%d%s %d/%d"):format(phase, phase == brute.default[group] and "*" or "",
+            -- x = kotu bilinen faz (V1.1: dusman basina ilerlemede atlanir).
+            parts[#parts + 1] = ("%d%s %d/%d"):format(phase,
+                phase == brute.default[group] and "*" or (brute.known_bad(group, phase) and "x" or ""),
                 floor(stat.hits + 0.5), floor(stat.shots + 0.5))
         end
         y = y + 10
@@ -5344,7 +6387,124 @@ local function safe_draw(name, fn, ...)
     end
 end
 
+-- V1.1 (GameSense V1.0.28): kalici sol el (cl_righthand 0). Her karede kontrol edilir: acikken deger 0 degilse 0
+-- yazilir (ilk yazimda senin degerin saklanir), kapatinca ya da script kaldirilinca saklanan deger geri yazilir.
+-- Neverlose'un cvar nesnesi (cvar.cl_righthand:int()) yoksa utils.console_exec ile bir kez yazilir.
+local lefthand = { original = nil, applied = false, warned = false }
+
+lefthand.read = function()
+    local ok, c = pcall(function() return cvar.cl_righthand end)
+    if not ok or c == nil then
+        return nil
+    end
+    local ok_v, v = pcall(function() return c:int() end)
+    if ok_v and type(v) == "number" then
+        return v
+    end
+    ok_v, v = pcall(function() return c:get_int() end)
+    if ok_v and type(v) == "number" then
+        return v
+    end
+    return nil
+end
+
+lefthand.write = function(value)
+    local ok, c = pcall(function() return cvar.cl_righthand end)
+    if ok and c ~= nil then
+        pcall(function() c:int(value) end)
+        if lefthand.read() == value then
+            return true
+        end
+        pcall(function() c:set_int(value) end)
+        if lefthand.read() == value then
+            return true
+        end
+    end
+    local ok_exec = pcall(function() utils.console_exec("cl_righthand " .. tostring(value)) end)
+    if not ok_exec and not lefthand.warned then
+        lefthand.warned = true
+        print(("[%s] sol el: cvar / console_exec API'si yok, cl_righthand yazilamadi"):format(SCRIPT))
+    end
+    return ok_exec
+end
+
+lefthand.update = function()
+    if menu.enabled:get() and menu.left_hand:get() then
+        local v = lefthand.read()
+        -- Deger okunamiyorsa (cvar nesnesi yok) bir kez yazilir, her karede konsola komut gitmesin.
+        if v ~= 0 and (v ~= nil or not lefthand.applied) then
+            if not lefthand.applied then
+                lefthand.original = v
+            end
+            if lefthand.write(0) then
+                lefthand.applied = true
+            end
+        end
+    elseif lefthand.applied then
+        lefthand.write(lefthand.original or 1)
+        lefthand.applied, lefthand.original = false, nil
+    end
+end
+
+-- V1.1.9: aspect ratio (r_aspectratio, float). Okunamiyorsa console_exec ile bir kez yazilir.
+local aspect = { original = nil, applied = nil, RATIO = { ["4:3"] = 4 / 3, ["5:4"] = 5 / 4, ["16:10"] = 16 / 10 } }
+
+aspect.read = function()
+    local ok, c = pcall(function() return cvar.r_aspectratio end)
+    if not ok or c == nil then
+        return nil
+    end
+    local ok_v, v = pcall(function() return c:float() end)
+    if ok_v and type(v) == "number" then
+        return v
+    end
+    ok_v, v = pcall(function() return c:get_float() end)
+    if ok_v and type(v) == "number" then
+        return v
+    end
+    return nil
+end
+
+aspect.write = function(value)
+    local ok, c = pcall(function() return cvar.r_aspectratio end)
+    if ok and c ~= nil then
+        pcall(function() c:float(value) end)
+        local now = aspect.read()
+        if now ~= nil and math.abs(now - value) < 0.001 then
+            return true
+        end
+        pcall(function() c:set_float(value) end)
+        now = aspect.read()
+        if now ~= nil and math.abs(now - value) < 0.001 then
+            return true
+        end
+    end
+    return (pcall(function() utils.console_exec(("r_aspectratio %.4f"):format(value)) end))
+end
+
+aspect.update = function()
+    local choice = menu.enabled:get() and menu.aspect:get() or "Off"
+    local ratio = aspect.RATIO[choice]
+    if ratio ~= nil then
+        local v = aspect.read()
+        if (v == nil and aspect.applied ~= ratio) or (v ~= nil and math.abs(v - ratio) > 0.001) then
+            if aspect.applied == nil then
+                aspect.original = v
+            end
+            if aspect.write(ratio) then
+                aspect.applied = ratio
+            end
+        end
+    elseif aspect.applied ~= nil then
+        aspect.write(aspect.original or 0)
+        aspect.applied, aspect.original = nil, nil
+    end
+end
+
 events.render:set(protect("render", function()
+    lefthand.update()
+    aspect.update()
+    nlog.flush()
     if not menu.enabled:get() then
         return
     end
@@ -5364,6 +6524,10 @@ events.render:set(protect("render", function()
     end
 
     local cx, cy = floor(screen.x / 2), floor(screen.y / 2)
+    -- Sol liste nisangahtakilerden once: ayni yazilar (DT / HS / FS / DEF) ikisinde de var.
+    if menu.left_ind:get() then
+        safe_draw("left indicators", own.ind.draw, screen)
+    end
     if menu.indicators:get() then
         safe_draw("indicators", draw_indicators, lp, cx, cy)
     end
@@ -5384,7 +6548,16 @@ end)
 events.shutdown:set(protect("shutdown", function()
     reset_overrides()
     set_charge(true)
+    if lefthand.applied then
+        lefthand.write(lefthand.original or 1)
+        lefthand.applied = false
+    end
+    if aspect.applied ~= nil then
+        aspect.write(aspect.original or 0)
+        aspect.applied = nil
+    end
     persist.save(true)
+    nlog.save()
 end))
 
 -- Kalici hafiza yuklenir; kac oyuncu hatirlandigi surum satirina eklenir.
