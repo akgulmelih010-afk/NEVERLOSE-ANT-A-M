@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.99"
+local VERSION = "1.0.100"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -12614,6 +12614,12 @@ K.xp.init = function()
         { id = "jump_block", lane = "hava", kind = "kpl", min = 40, cap = 2, fair = true,
             set = { no_jump_seen = true, no_jump_all = true },
             name = "gorulurken / gorulmek uzereyken ziplama yok (jump scout dahil)" },
+        -- V1.0.100 (kullanici onayi: "evet"): 4 logda rakip 0.4 sn'den uzun vurulabilirken ates etmedigin 102 anin 81'inde
+        -- sebep Min. damage 100 (kafa kapali, govde oldurmuyor). Hazir secenek: biri kafani goruyorken hedefin kafasi
+        -- olduremiyor ama gogsu 70+ aliyorsa Min. damage gecici 70. MD 100 kuralinin tek deneyle olculen istisnasi;
+        -- can basina kill ile, kotu cikarsa kapanir (bekci erken keser).
+        { id = "body70", lane = "atis", kind = "kpl", min = 40, cap = 2, fair = true, set = { exposed_body = true },
+            name = "biri seni goruyorken govde 70+ ise Min. damage gecici 70 (MD 100 istisnasi)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
         -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u
