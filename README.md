@@ -720,6 +720,25 @@ Logda görülen diğer şeyler (değişiklik yok, ölçülecek):
 
 FPS araştırmasında elenenler (34 ajan, şüpheci kontrolü): `r_drawparticles` / `r_drawdecals` / `r_drawbeams` 0 (duman, molotof ve mermi izi bilgisini siler), `mat_queue_mode`, `fps_max`, `cl_detail_max_sway` (etkisiz ya da zararlı); diğer tick içi önbellek önerileri ölçülebilir kazanç getirmediği için yapılmadı. Asıl FPS kazancı zaten açık olan FPS boost listesinden geliyor.
 
+**V1.0.103** (V1.0.102 logu: 9 dk, de_mirage round sunucusu, **6 kill / 5 ölüm**. Senin aimbot ayarların ilk kez logda.)
+
+**Senin scout ayarların** (SSG 08):
+- **Target hitbox:** Head, Chest, Stomach, Legs, Feet. **Arms yok.**
+- **Multi-point:** aynı noktalar, ölçek 69.
+- **Avoid unsafe hitboxes:** **Head + Chest + Stomach.**
+- **Prefer safe point:** açık (bu yüzden `sp_floor_off` bekliyor; iki kol aynı olurdu).
+- **Fake peek:** açık, tuşu kapalı.
+- **Ping spike:** config'inde açık (lua kapatıyor).
+
+"Avoid unsafe hitboxes"ta Head olması şu demek: rakibin desync'i yüzünden kafası "güvenli" değilse (bütün açı tahminlerinde aynı yere düşmüyorsa) aimbot o kafaya hiç sıkmaz. İnce görünen kafaya ateş yok, kafa tam açılana kadar bekleme. "Geç sıkıyorum, ince yerlerden vuramıyorum" şikâyetinin en olası sebebi bu.
+
+| Ne | Ayrıntı |
+|---|---|
+| **`unsafe_head`** (kulvar `def`, `sp_floor_off` beklerken sıradaki) | B kolunda scout / AWP'de Avoid unsafe hitboxes listesinden sadece Head çıkar (göğüs / mide aynı). Can başına kill ile (hız mı isabet mi, ikisini birden). Senin listende Head yoksa bekler. Yeni şalter: "Snipers: shoot unsafe head points". |
+| **Geri çekilme hareketi** | Logda 0.6 sn'de sadece 7–8 birim gidilmişti: GameSense'in quick stop'u hedef görünürken frenliyordu. Geri çekilirken quick stop kapalı (sürgü çekilirken ateş zaten yok), bitince senin ayarın geri gelir. |
+| **Yarım kalan geri çekilme** | Tur bitince (rakip kalmayınca spin modu) ya da ölünce fonksiyon çağrılmıyordu; 10 sn sonra "iptal (1486 birim)" yazıyordu. Artık "yarıda kaldı" diye atılır. Bitiş satırında süre de var. |
+| **Test** | 416 kontrol. Yeni: guvensiz kafa şalteri (scout'ta sadece Head çıkar, deagle'da / kapalıyken senin listen), geri çekilirken quick stop kapalı, yarım kalan geri çekilme atılır. |
+
 **V1.0.102** (istek: "resolver'ı destekle, erken sıkayım, ince göründüğüm anlarda vuruluyorum, ben de ince yerlerden vurabileyim").
 
 **Veri** (5 log, 233 atış):

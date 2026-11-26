@@ -186,7 +186,7 @@ local function nykle_main()
 
 local SCRIPT = "Nykle.win"
 -- Her guncellemede artar; yuklenince konsola yazilir ki hangi surumun calistigi belli olsun.
-local VERSION = "1.0.102"
+local VERSION = "1.0.103"
 -- V1.0.41 (istek): log dosyasi her yeni surumde sifirdan baslar; dosyada bu surumun yukleme satiri yoksa eski
 -- oturumlar atilir (karisik olmasin).
 -- V1.0.55: hangi surumun dosyasi oldugu veritabaninda da tutulur (uzun bir oturumda yukleme satiri 1 MB / 13000 satir
@@ -714,6 +714,8 @@ do
     refs.ping_spike, refs.ping_spike_key, refs.ping_spike_ms = find({ { "MISC", "Miscellaneous", "Ping spike" } }, true)
     refs.quick_stop, refs.quick_stop_key, refs.quick_stop_opts = find({ { "RAGE", "Other", "Quick stop" },
         { "RAGE", "Aimbot", "Quick stop" } }, true)
+    -- V1.0.103: kafa / govde icin "guvensiz noktaya sikma" (silah grubuna gore).
+    refs.avoid_unsafe = find({ { "RAGE", "Aimbot", "Avoid unsafe hitboxes" } }, true)
 end
 
 -- Hotkey referanslari: ui.get -> aktif mi, mod (0-3), tus. Ezerken { mode, key } verilir.
@@ -781,7 +783,8 @@ local override, is_overridden, user_value, reset_overrides, forget_overrides
 do
     local MODE_NAMES = { [0] = "Always on", "On hotkey", "Toggle", "Off hotkey" }
     -- Silah grubuna gore ayri tutulan rage ayarlari (GameSense "Weapon type").
-    local RAGE_SCOPED = { min_damage = true, prefer_safe = true, hit_chance = true, quick_stop = true, quick_stop_opts = true }
+    local RAGE_SCOPED = { min_damage = true, prefer_safe = true, hit_chance = true, quick_stop = true, quick_stop_opts = true,
+        avoid_unsafe = true }
     local REJECT_RETRY = 5
     local overridden, rejected, reported = {}, {}, {}
 
@@ -1775,6 +1778,8 @@ menu.scout_hc       = grp.protect_raw:slider("Scout hit chance floor on ground (
 menu.duel_hc        = grp.protect_raw:slider("  » While an enemy sees you (0 = same floor)", 0, 100, 0, "%")
 -- V1.0.102: scout / AWP'de iska olmadan da Prefer safe point (V1.0.47 kurali); deney sp_floor_off kapatip olcer.
 menu.sniper_sp      = grp.protect_raw:switch("Snipers: Prefer safe point before any miss", true)
+-- V1.0.103: bkz. resolver.unsafe_head ve deney unsafe_head.
+menu.unsafe_head    = grp.protect_raw:switch("Snipers: shoot unsafe head points (Head off in Avoid unsafe hitboxes)", false)
 -- V1.0.85 (butun GameSense loglari, mermi yedigin anlar: kendi atisindan 0.3-0.6 sn sonra DT'nin dolu oldugu an %7,
 -- 0.6-1.0 sn'de %40, 1-2 sn'de %67; teleporttan sonra %7 / %29 / %55. Sarj 14 tick'te (0.22 sn) dolabilirken
 -- GameSense vurulabilir hedef varken sarji erteliyor; DT bosken defensive de yok. Paylastigin paketteki iki lua
@@ -5524,6 +5529,14 @@ end
 -- diger secimlerin korunur, "Duck" eklenmez (kafani indirir). R8 haric.
 resolver.quick_stop = function(class)
     local scope = rage_scope(class)
+    -- V1.0.103 (V1.0.102 logu: geri cekilmede 0.6 sn'de 7-8 birim): atistan sonra siperine donerken GameSense'in quick
+    -- stop'u kapali; yoksa hedef hala gorunurken hareketi frenliyordu. Surgu cekilirken ates zaten yok.
+    local R = K.retreat
+    if R ~= nil and R.dest ~= nil and scope ~= nil then
+        override("quick_stop", false, scope)
+        override("quick_stop_opts", nil, scope)
+        return
+    end
     local opts, qs_on = nil, nil
     if on(menu.qs_early) and scope ~= nil and (class == "CWeaponSSG08" or class == "CWeaponAWP") then
         local user = user_value("quick_stop_opts")
@@ -5552,6 +5565,32 @@ resolver.quick_stop = function(class)
     end
     override("quick_stop", qs_on, scope)
     override("quick_stop_opts", opts, scope)
+end
+
+-- V1.0.103 (V1.0.102 logu, ilk kez senin aimbot ayarlarin): scout'ta "Avoid unsafe hitboxes" Head + Chest + Stomach.
+-- Rakibin desync'i yuzunden kafasi "guvenli" degilse (butun aci tahminlerinde ayni yere dusmuyorsa) aimbot o kafaya
+-- hic sikmaz: ince gorunen kafaya ates yok, tam acilana kadar bekleme. Salter acikken scout / AWP'de bu listeden
+-- sadece Head cikarilir (gogus / mide ayni kalir); kapaliyken senin ayarin. Deney unsafe_head olcer.
+resolver.unsafe_head = function(class)
+    local scope = rage_scope(class)
+    local wanted = nil
+    if on(menu.unsafe_head) and scope ~= nil and refs.avoid_unsafe ~= nil and (class == "CWeaponSSG08" or class == "CWeaponAWP") then
+        local user = user_value("avoid_unsafe")
+        if type(user) == "table" then
+            local rest, had = {}, false
+            for _, v in ipairs(user) do
+                if v == "Head" then
+                    had = true
+                else
+                    rest[#rest + 1] = v
+                end
+            end
+            if had then
+                wanted = rest
+            end
+        end
+    end
+    override("avoid_unsafe", wanted, scope)
 end
 
 resolver.air_hitchance = function(lp, class)
@@ -7885,6 +7924,7 @@ local function tick_prepare(cmd)
     resolver.air_hitchance(lp, class)
     resolver.ping_spike()
     resolver.quick_stop(class)
+    resolver.unsafe_head(class)
     resolver.fast_charge(lp, class)
     resolver.wait_apply(class, present)
     plist_release_missing(present)
@@ -8272,16 +8312,25 @@ end
 -- dolunca ya da hedef olup kimse gormuyorsa biter; (3) siper noktasi ancak en az 6 tick ust uste gorulmeyince yazilir
 -- (tek tick'lik kesinti acik bir noktayi siper sanmasin); (4) nokta 12 birim daha geriye uzatilir (siperin kenari degil
 -- arkasi).
-own.retreat = { spot = nil, spot_t = -1000, shot = -1000, dest = nil, from = nil, until_t = -1000, target = nil,
+K.retreat = { spot = nil, spot_t = -1000, shot = -1000, dest = nil, from = nil, until_t = -1000, target = nil,
     hidden = nil }
 own.aa.retreat = function(cmd, lp, class)
-    local R = own.retreat
+    local R = K.retreat
     own.aa.retreating = nil
     local mine = origin_of(lp)
     if mine == nil then
         return
     end
     local now, tick_now = realtime(), tickcount()
+    local log = on(menu.enabled) and on(menu.debug_log)
+    -- V1.0.103: bu fonksiyon bir sure cagrilmadiysa (oldun, tur bitti, dusman kalmadi: spin) yarim kalan geri cekilme
+    -- atilir; V1.0.102 logunda tur bitince 10 sn sonra "iptal (1486 birim)" yaziyordu.
+    if R.dest ~= nil and now - R.until_t > 0.25 then
+        if log then
+            print(("[%s] dbg geri cekilme bitti: yarida kaldi (oldun ya da tur bitti)"):format(SCRIPT))
+        end
+        R.dest, R.from, R.target = nil, nil, nil
+    end
     local ground = on_ground(lp) and not fd_on() and prop(lp, "m_MoveType") ~= K.MOVETYPE_LADDER
     local seen = exposure.now or exposure.any
     -- Siper noktasi: gorus bu tick'te yeniden hesaplandi (2 tick'te bir), kimse kafani gormuyor ve en az 6 tick'tir boyle.
@@ -8296,7 +8345,6 @@ own.aa.retreat = function(cmd, lp, class)
         end
     end
     local blocked = not on(menu.auto_retreat) or not ground or ai_peek.mode ~= nil or afk.on or afk.key()
-    local log = on(menu.enabled) and on(menu.debug_log)
     -- Yeni aimbot atisi (aim_fire resolver.aim_time / aim_target'i yazar).
     local shot = resolver.aim_time
     if finite(shot) and shot > R.shot then
@@ -8311,7 +8359,7 @@ own.aa.retreat = function(cmd, lp, class)
             if dist >= 8 and dist <= 200 then
                 local k = (dist + 12) / dist
                 R.dest = vector(mine.x + dx * k, mine.y + dy * k, R.spot.z)
-                R.from, R.until_t, R.target = mine, now + 0.6, target
+                R.from, R.until_t, R.target, R.start = mine, now + 0.6, target, now
                 if log then
                     print(("[%s] dbg geri cekilme: %d birim geri (atistan sonra goruluyorsun)"):format(SCRIPT, round(dist)))
                 end
@@ -8329,7 +8377,8 @@ own.aa.retreat = function(cmd, lp, class)
     if done then
         if log and R.from ~= nil then
             local gx, gy = mine.x - R.from.x, mine.y - R.from.y
-            print(("[%s] dbg geri cekilme bitti: %s (%d birim gidildi)"):format(SCRIPT, done, round(sqrt(gx * gx + gy * gy))))
+            print(("[%s] dbg geri cekilme bitti: %s (%d birim gidildi, %.2f sn)"):format(SCRIPT, done, round(sqrt(gx * gx + gy * gy)),
+                max(0, now - (R.start or now))))
         end
         R.dest, R.from, R.target = nil, nil, nil
         return
@@ -12669,6 +12718,24 @@ K.xp.init = function()
         { id = "sp_floor_off", lane = "def", kind = "kps", min = 30, gate = true, set = { sniper_sp = false },
             needs = function() return user_value("prefer_safe") ~= true end,
             name = "scout / AWP'de iska olmadan Prefer safe point yok (GameSense noktayi kendi secer)" },
+        -- V1.0.103 (V1.0.102 logu): senin config'inde scout icin Avoid unsafe hitboxes = Head + Chest + Stomach; kafasi
+        -- desync yuzunden "guvenli" olmayan rakibe hic sikilmiyor. Istek: "erken sikayim, ince yerlerden vurabileyim".
+        -- B kolunda scout / AWP'de bu listeden sadece Head cikar. Can basina kill ile (hiz mi isabet mi, ikisini birden
+        -- olcer). Senin listende Head yoksa iki kol ayni: bekler.
+        { id = "unsafe_head", lane = "def", kind = "kpl", min = 40, cap = 2, fair = true, set = { unsafe_head = true },
+            needs = function()
+                local user = refs.avoid_unsafe ~= nil and user_value("avoid_unsafe") or nil
+                if type(user) ~= "table" then
+                    return false
+                end
+                for _, v in ipairs(user) do
+                    if v == "Head" then
+                        return true
+                    end
+                end
+                return false
+            end,
+            name = "scout / AWP'de guvensiz kafa noktasina da sik (Avoid unsafe hitboxes'tan Head cikar)" },
         { id = "peek_real", lane = "peek", kind = "peek", min = 20, set = { peek_real = true },
             name = "AI peek sadece gercek kayitta baslar (rakip defensive'deyken yola cikmaz)" },
         -- V1.0.93: roll. needs: sadece Home'dan roll'u actiysan olculur (kapaliyken iki kol ayni olurdu; motor roll'u

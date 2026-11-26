@@ -108,6 +108,8 @@ reference("RAGE", "Aimbot", "Prefer safe point", newref("checkbox", "Prefer safe
 reference("RAGE", "Aimbot", "Target hitbox", newref("multiselect", "Target hitbox", { "Head", "Chest" }))
 reference("RAGE", "Aimbot", "Multi-point", newref("multiselect", "Multi-point", { "Head" }))
 reference("RAGE", "Aimbot", "Multi-point scale", newref("slider", "Multi-point scale", 55))
+-- V1.0.103: kafa / govde icin guvensiz noktaya sikma (senin config'in: Head + Chest + Stomach).
+reference("RAGE", "Aimbot", "Avoid unsafe hitboxes", newref("multiselect", "Avoid unsafe hitboxes", { "Head", "Chest", "Stomach" }))
 reference("RAGE", "Aimbot", "Automatic fire", newref("checkbox", "Automatic fire", false))
 reference("RAGE", "Aimbot", "Force safe point", newref("hotkey", "Force safe point", false))
 reference("RAGE", "Aimbot", "Force body aim", newref("hotkey", "Force body aim", false))
@@ -464,7 +466,7 @@ end
 setfenv(fn, env)
 local ok, run_err = pcall(fn)
 check(ok, "yuklendi: " .. tostring(run_err))
-check(printed("V1.0.102 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.102")
+check(printed("V1.0.103 (GameSense edition) yuklendi") ~= nil, "surum satiri V1.0.103")
 do
     local px, py, ps = find_ref("  » Panel position X"), find_ref("  » Panel position Y"), find_ref("  » Panel size")
     check(px ~= nil and px.value == 500 and py.value == 620 and ps.value == 160,
@@ -2695,7 +2697,7 @@ errs = errors_since(before)
 check(#errs == 0, "kapanis hatasiz" .. (#errs > 0 and (": " .. errs[1]) or ""))
 check(righthand.value == 1, "kapanista cl_righthand senin degerine doner (" .. tostring(righthand.value) .. ")")
 check(files["nykle_log.txt"] ~= nil and files["nykle_log.txt"]:find("ESKI OTURUM", 1, true) == nil
-    and files["nykle_log.txt"]:find("V1.0.102 (GameSense edition) yuklendi", 1, true) ~= nil,
+    and files["nykle_log.txt"]:find("V1.0.103 (GameSense edition) yuklendi", 1, true) ~= nil,
     "V1.0.41: yeni surumde log dosyasi sifirdan (eski surumun oturumu atildi) [" .. tostring(files["nykle_log.txt"]):sub(1, 200) .. "]")
 check(aspect.value == 0 and sky.value == 1 and notify.value == 8, "V1.0.35: kapanista aspect ratio, r_3dsky ve con_notifytime senin degerine doner ("
     .. tostring(aspect.value) .. ", " .. tostring(sky.value) .. ", " .. tostring(notify.value) .. ")")
@@ -3552,6 +3554,10 @@ do
     tick(1)
     local side_on, fwd_on = last_cmd.sidemove, last_cmd.forwardmove
     local start_line = printed("dbg geri cekilme: 60 birim geri", from)
+    -- V1.0.103: geri cekilirken GameSense quick stop'u kapali (frenlemesin), bitince senin ayarin geri gelir.
+    local qs = find_ref("Quick stop")
+    tick(1)
+    local qs_during = qs and qs.value
     -- V1.0.101: gorus kesilse de hedef canliyken birakmaz (noktaya / sure dolana kadar).
     W.sees[2] = false
     tick(4)
@@ -3559,6 +3565,8 @@ do
     tick(40)
     local end_line = printed("dbg geri cekilme bitti: sure doldu", from)
     local after_side = last_cmd.sidemove
+    tick(2)
+    local qs_after = qs and qs.value
     -- V1.0.101: hedef olup kimse gormuyorsa hemen biter. (Siper noktasi yeniden kurulur; atis iska olarak kapatilir ki
     -- oteki testlerin sayimlarina "isabet" diye girmesin.)
     W.sees[2] = false
@@ -3577,6 +3585,23 @@ do
     tick(4)
     local dead_end = printed("dbg geri cekilme bitti: hedef oldu, kimse gormuyor", from)
     W.edead = nil
+    -- V1.0.103: fonksiyon bir sure cagrilmazsa (oldun) yarim kalan geri cekilme atilir, eski noktaya yurunmez.
+    W.sees[2] = false
+    ORIGIN[1] = { 0, 0, 0 }
+    tick(20)
+    ORIGIN[1] = { 0, -60, 0 }
+    W.sees[2] = true
+    tick(4)
+    from = #prints + 1
+    shoot(995)
+    fire("aim_miss", { id = 995, target = 2, hitgroup = 1, reason = "spread" })
+    tick(1)
+    W.dead = true
+    tick(60)
+    W.dead = nil
+    tick(2)
+    local stale_line = printed("dbg geri cekilme bitti: yarida kaldi", from)
+    check(stale_line ~= nil, "V1.0.103: oldugunde / tur bittiginde yarim kalan geri cekilme atilir (" .. tostring(stale_line) .. ")")
     -- Scout / AWP disinda calismaz.
     W.sees[2] = true
     tick(4)
@@ -3598,6 +3623,8 @@ do
         .. tostring(end_line) .. ")")
     check(dead_start ~= nil and dead_end ~= nil, "V1.0.101: hedef olup kimse gormuyorsa geri cekilme hemen biter ("
         .. tostring(dead_start) .. " / " .. tostring(dead_end) .. ")")
+    check(qs_during == false and qs_after == true, "V1.0.103: geri cekilirken quick stop kapali, sonra senin ayarin ("
+        .. tostring(qs_during) .. ", " .. tostring(qs_after) .. ")")
     check(deagle_quiet, "V1.0.99: scout / AWP disinda geri cekilme yok")
     if xp_off ~= nil then xp_off.value = xp_was end
 end
@@ -3660,6 +3687,38 @@ do
     check(seen_floor == 90 and seen_duel == 70 and unseen_duel == 90,
         "V1.0.102: seni goren biri varken scout tabani duello degeri (90 -> 70), gorulmeyince yine 90 ("
         .. tostring(seen_floor) .. ", " .. tostring(seen_duel) .. ", " .. tostring(unseen_duel) .. ")")
+end
+
+-------------------------------------------------------------------------------
+-- V1.0.103: scout / AWP'de guvensiz kafa noktasina da sikma (Avoid unsafe hitboxes'tan Head cikar)
+-------------------------------------------------------------------------------
+do
+    local xp_off = find_ref("Experiments (auto A/B test per life, keeps what wins)")
+    local xp_was = xp_off ~= nil and xp_off.value
+    if xp_off ~= nil then xp_off.value = false end
+    local uh, au = find_ref("Snipers: shoot unsafe head points (Head off in Avoid unsafe hitboxes)"), find_ref("Avoid unsafe hitboxes")
+    check(uh ~= nil and uh.value == false, "V1.0.103: guvensiz kafa salteri var, varsayilan kapali")
+    local wc_was = W.weapon_class
+    W.weapon_class = "CWeaponSSG08"
+    tick(4)
+    local before_on = au and table.concat(au.value, "+")
+    uh.value = true
+    tick(4)
+    local scout_on = au and table.concat(au.value, "+")
+    W.weapon_class = "CDEagle"
+    tick(4)
+    local deagle_on = au and table.concat(au.value, "+")
+    W.weapon_class = "CWeaponSSG08"
+    uh.value = false
+    tick(4)
+    local scout_off = au and table.concat(au.value, "+")
+    W.weapon_class = wc_was
+    if xp_off ~= nil then xp_off.value = xp_was end
+    tick(4)
+    check(before_on == "Head+Chest+Stomach" and scout_on == "Chest+Stomach" and deagle_on == "Head+Chest+Stomach"
+        and scout_off == "Head+Chest+Stomach",
+        "V1.0.103: salter acikken scout'ta Avoid unsafe'den sadece Head cikar, deagle'da ve kapaliyken senin listen ("
+        .. tostring(before_on) .. " / " .. tostring(scout_on) .. " / " .. tostring(deagle_on) .. " / " .. tostring(scout_off) .. ")")
 end
 
 errs = errors_since(1)
